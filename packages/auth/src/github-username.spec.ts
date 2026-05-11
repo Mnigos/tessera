@@ -76,7 +76,7 @@ describe(resolveGitHubUsername.name, () => {
 				{ id: '123456', login: 'GitHub User' },
 				async candidate => takenUsernames.has(candidate)
 			)
-		).toBe(createSuffixedUsername('github-user', `${suffix}-2`))
+		).toBe(createSuffixedUsername('github-user', `${suffix}-02`))
 	})
 
 	test('fails when username collision retries are exhausted', async () => {

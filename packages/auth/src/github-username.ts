@@ -86,7 +86,7 @@ export async function resolveGitHubUsername(
 	while (counter <= USERNAME_COLLISION_MAX_ATTEMPTS) {
 		const candidate = createSuffixedUsername(
 			baseUsername,
-			`${suffix}-${counter}`
+			`${suffix}-${String(counter).padStart(2, '0')}`
 		)
 		if (!(await isUsernameTaken(candidate))) return candidate
 		counter += 1
