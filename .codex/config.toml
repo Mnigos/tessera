@@ -1,5 +1,6 @@
 [features]
 codex_hooks = true
+experimental_use_rmcp_client = true
 
 [agents]
 max_threads = 20
