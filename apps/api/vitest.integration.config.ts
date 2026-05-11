@@ -1,5 +1,5 @@
 import swc from 'unplugin-swc'
-import { configDefaults, defineConfig } from 'vitest/config'
+import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
 	oxc: false,
@@ -15,21 +15,21 @@ export default defineConfig({
 		globals: true,
 		root: './',
 		pool: 'forks',
-		exclude: [...configDefaults.exclude, 'tests/integration/**/*.spec.ts'],
+		fileParallelism: false,
+		maxWorkers: 1,
+		include: ['tests/integration/**/*.integration.spec.ts'],
 		env: {
-			DATABASE_URL: 'postgresql://test:test@localhost:5432/test',
+			DATABASE_URL:
+				process.env.DATABASE_URL ??
+				'postgresql://test:test@localhost:5432/tessera_test',
 			AUTH_SECRET: 'test-auth-secret',
 			GITHUB_CLIENT_ID: 'test-github-client-id',
 			GITHUB_CLIENT_SECRET: 'test-github-client-secret',
 			REDIS_URL: 'redis://localhost:6379',
-		},
-		coverage: {
-			include: [
-				'src/modules/**/application/**/*.ts',
-				'src/modules/**/domain/**/*.ts',
-				'src/modules/**/infrastructure/**/*.ts',
-			],
-			exclude: ['src/**/*.spec.ts'],
+			S3_ACCESS_KEY_ID: 'test-s3-access-key-id',
+			S3_SECRET_ACCESS_KEY: 'test-s3-secret-access-key',
+			S3_BUCKET: 'test-s3-bucket',
+			S3_ENDPOINT: 'https://example.com',
 		},
 	},
 })

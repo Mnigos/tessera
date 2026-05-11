@@ -8,7 +8,7 @@ on:
 jobs:
   lint:
     name: 'Check 🐱'
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
         uses: actions/checkout@master
@@ -21,7 +21,7 @@ jobs:
 
   typecheck:
     name: 'Typecheck 🔍'
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
         uses: actions/checkout@master
@@ -34,7 +34,7 @@ jobs:
 
   build:
     name: 'Build 🏗'
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
         uses: actions/checkout@master
@@ -47,7 +47,7 @@ jobs:
 
   unit-tests:
     name: 'Unit Tests 🧪'
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout 🛎
@@ -56,22 +56,12 @@ jobs:
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
 
-      - name: Unit Tests (Web & UI) 🧪
-        run: bun run test --filter @repo/web --filter @repo/ui
-
-      - name: Unit Tests (API) 🧪
-        run: bun run test --force --filter @repo/api -- --coverage
-
-      - name: Upload API coverage report to Codecov
-        uses: codecov/codecov-action@v5
-        with:
-          token: ${{ secrets.CODECOV_TOKEN }}
-          flags: api
-          working-directory: ./apps/api
+      - name: Unit Tests 🧪
+        run: bun run test
 
   integration-tests:
     name: 'Integration Tests 🧪'
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     services:
       postgres:
         image: postgres:16
