@@ -1,6 +1,7 @@
 import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
+import { organization } from 'better-auth/plugins'
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0'])
 const LEADING_SUBDOMAIN_REGEX = /^(www|app)\./
@@ -77,6 +78,7 @@ export function initAuth({
 				clientSecret: githubClientSecret ?? '',
 			},
 		},
+		plugins: [organization()],
 		trustedOrigins,
 		advanced: authAdvanced,
 	})

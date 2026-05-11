@@ -1,0 +1,78 @@
+import type {
+	OrganizationId,
+	RepositoryId,
+	RepositoryName,
+	RepositoryVisibility,
+	UserId,
+} from '@repo/domain'
+import { relations } from 'drizzle-orm'
+import {
+	index,
+	pgEnum,
+	pgTable,
+	text,
+	timestamp,
+	unique,
+	uuid,
+} from 'drizzle-orm/pg-core'
+import { user } from './auth.schema'
+import { organization } from './organizations.schema'
+
+export const repositoryVisibilityEnum = pgEnum('repository_visibility', [
+	'public',
+	'private',
+])
+
+export const repositories = pgTable(
+	'repositories',
+	{
+		id: uuid('id').primaryKey().defaultRandom().$type<RepositoryId>(),
+		name: text('name').notNull().$type<RepositoryName>(),
+		description: text('description'),
+		visibility: repositoryVisibilityEnum('visibility')
+			.default('private')
+			.notNull()
+			.$type<RepositoryVisibility>(),
+		ownerUserId: uuid('owner_user_id')
+			.$type<UserId>()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		ownerOrganizationId: uuid('owner_organization_id')
+			.$type<OrganizationId>()
+			.references(() => organization.id, { onDelete: 'cascade' }),
+		defaultBranch: text('default_branch').default('main').notNull(),
+		storagePath: text('storage_path'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+	},
+	table => [
+		index('repositories_owner_user_id_idx').on(table.ownerUserId),
+		index('repositories_owner_organization_id_idx').on(
+			table.ownerOrganizationId
+		),
+		unique('repositories_owner_user_name_unique').on(
+			table.ownerUserId,
+			table.name
+		),
+		unique('repositories_owner_organization_name_unique').on(
+			table.ownerOrganizationId,
+			table.name
+		),
+	]
+)
+
+export type Repository = typeof repositories.$inferSelect
+export type NewRepository = typeof repositories.$inferInsert
+
+export const repositoryRelations = relations(repositories, ({ one }) => ({
+	ownerUser: one(user, {
+		fields: [repositories.ownerUserId],
+		references: [user.id],
+	}),
+	ownerOrganization: one(organization, {
+		fields: [repositories.ownerOrganizationId],
+		references: [organization.id],
+	}),
+}))

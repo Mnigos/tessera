@@ -1,5 +1,5 @@
 import { db } from '@repo/db/client'
-import { organizations, repositories, user } from '@repo/db/schema'
+import { organization, repositories, user } from '@repo/db/schema'
 import type { UserId } from '@repo/domain'
 import { eq } from 'drizzle-orm'
 
@@ -10,7 +10,7 @@ export class RepositoriesRepository {
 				id: repositories.id,
 				ownerUserName: user.username,
 				ownerUserDisplayName: user.name,
-				ownerOrganizationSlug: organizations.slug,
+				ownerOrganizationSlug: organization.slug,
 				name: repositories.name,
 				visibility: repositories.visibility,
 				description: repositories.description,
@@ -19,8 +19,8 @@ export class RepositoriesRepository {
 			.from(repositories)
 			.leftJoin(user, eq(user.id, repositories.ownerUserId))
 			.leftJoin(
-				organizations,
-				eq(organizations.id, repositories.ownerOrganizationId)
+				organization,
+				eq(organization.id, repositories.ownerOrganizationId)
 			)
 			.where(eq(repositories.ownerUserId, userId))
 	}
