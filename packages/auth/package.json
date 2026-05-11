@@ -10,6 +10,7 @@
   "license": "MIT",
   "scripts": {
     "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -20,6 +21,7 @@
   "devDependencies": {
     "@repo/typescript-config": "*",
     "@types/bun": "catalog:",
+    "vitest": "catalog:",
     "typescript": "catalog:"
   }
 }

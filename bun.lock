@@ -122,6 +122,7 @@
         "@repo/typescript-config": "*",
         "@types/bun": "catalog:",
         "typescript": "catalog:",
+        "vitest": "catalog:",
       },
     },
     "packages/contracts": {
