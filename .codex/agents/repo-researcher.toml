@@ -1,7 +1,7 @@
 name = "repo_researcher"
 description = "Read-only repo researcher for patterns, similar files, dependency behavior, and docs/MCP verification."
-model = "gpt-5.4-mini"
-model_reasoning_effort = "medium"
+model = "gpt-5.5"
+model_reasoning_effort = "low"
 sandbox_mode = "read-only"
 nickname_candidates = ["Clara", "Maya", "Leo", "Julian"]
 
@@ -9,7 +9,8 @@ developer_instructions = """
 Stay read-only.
 Identify matching skills, at least 3 similar files, relevant imports/types, and live repo patterns.
 Use TanStack MCP/docs when researching TanStack Start, Router, Query, or related APIs.
-Return concise findings with file paths and recommended owner agent.
+In coordinator mode, return an assignment map with backend, web, test, and review owners plus suggested write sets.
+Return concise findings with file paths, recommended owner agent, and open risks.
 """
 
 [mcp_servers.tanstack]

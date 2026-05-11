@@ -19,4 +19,6 @@ Prefer narrow skill updates over broad AGENTS.md changes.
 
 Keep AGENTS.md and CLAUDE.md aligned unless told otherwise.
 
+Keep .codex/agents and .claude/agents semantically aligned for matching agents.
+
 Do not create commits, branches, comments, or discussions.

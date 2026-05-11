@@ -22,4 +22,6 @@ Output only actionable issues, with file/line references.
 
 Prioritize correctness, security, behavior regressions, missing tests, and repo-rule violations.
 
+In coordinator mode, also check for missing delegated scope such as requested integration tests or unreviewed worker-owned files.
+
 Do not praise, summarize, or suggest style-only churn.

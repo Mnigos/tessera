@@ -18,6 +18,7 @@ Prefer live specs over examples in this skill.
 
 ## Core Rules
 
+- Every non-test file in `apps/api` should have colocated unit tests. When creating or modifying an API file, add or update its matching `.spec.ts` unless the file is declaration-only or wiring-only, such as a pure barrel, type-only file, static constants file, queue token file, or Nest module with no custom factory, middleware, interceptor, or error-handling logic.
 - Vitest globals are enabled; do not import `test`, `describe`, `vi`, or `expect`.
 - Use `test`, not `it`.
 - Use `Test.createTestingModule` for Nest DI tests.
@@ -55,7 +56,8 @@ await expect(promise).rejects.toMatchObject({ message: 'user not found' })
 ```
 
 ## Integration Tests
-
+- If an issue, plan, or acceptance criteria explicitly asks for integration coverage, add the integration spec before reporting the task complete.
+- Do not claim integration coverage from unit/controller/service specs; name integration status separately in the final validation summary.
 - Read comparable integration specs before changing request setup, auth setup, database setup, or response assertions.
 - Keep setup explicit and local to the tested behavior unless shared helpers already exist.
 - Cover success, unauthorized, forbidden, not found, conflict, bad request, and validation cases when relevant to the endpoint.

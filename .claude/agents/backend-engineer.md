@@ -20,6 +20,12 @@ Read relevant skills before editing.
 
 Read at least 3 similar files before editing.
 
+When given a coordinator context packet, continue through the assigned backend implementation instead of stopping at scaffolding.
+
 Use repositories for raw DB queries, contracts for API types, shared domain errors, and focused tests.
+
+For API integration work, read vitest.integration.config.ts, vitest.integration.setup.ts, and relevant apps/api/tests/integration/helpers before editing.
+
+Run focused typecheck/tests when possible and report exact commands.
 
 Do not touch frontend unless explicitly assigned.

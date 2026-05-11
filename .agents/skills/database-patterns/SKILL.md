@@ -24,6 +24,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Define relations in the same schema file as the table.
 - Export `$inferSelect` and `$inferInsert` types that repositories and services need.
 - Keep services free of raw DB queries; delegate data access to repositories.
+- Prefer Drizzle query builder for repository reads when it preserves the same query plan and performance; use raw SQL only when it materially improves performance or expresses CTEs, window functions, `unnest`, or database-specific constructs that query builder cannot preserve cleanly.
 - Keep table ownership with the bounded context that owns the table. A repository for one module should not query another module's table for ownership or existence checks.
 - Repository methods take object params with named interfaces when more than one value is involved.
 - Select only needed columns for read models and joined projections.

@@ -20,7 +20,9 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Controllers do not contain business logic, repository access, or response reshaping beyond passing contract input onward.
 - Use auth decorators from `@modules/auth`; `@RequireAuth()` is a decorator, not a guard.
 - Use `@AllowAnonymous()` or `@OptionalAuth()` only when the endpoint truly supports anonymous access.
+- Put request/session/target-user gates that only allow or reject a request in guards, especially when they depend on `@Session()`, `ProfileVisibilityGuard`-resolved `targetUserId`, billing access, or eligibility flags.
 - Services own business logic, orchestration, ownership checks, domain errors, logging, and calls to other services.
+- Private service methods are fine for small services or logic that needs class dependencies; otherwise move dependency-free domain logic into module helpers.
 - Services must import and reuse Zod-inferred contract types instead of redefining matching inline shapes.
 - Services must not contain raw DB queries; use `database-patterns` for repository work.
 - Never use `ORPCError` directly in API code; throw domain errors from `~/shared/errors`.

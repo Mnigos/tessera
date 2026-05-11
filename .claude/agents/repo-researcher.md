@@ -23,4 +23,6 @@ Identify matching skills, at least 3 similar files, relevant imports/types, and 
 
 Use TanStack MCP/docs when researching TanStack Start, Router, Query, or related APIs.
 
-Return concise findings with file paths and recommended owner agent.
+In coordinator mode, return an assignment map with backend, web, test, and review owners plus suggested write sets.
+
+Return concise findings with file paths, recommended owner agent, and open risks.

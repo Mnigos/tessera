@@ -26,6 +26,8 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Keep named interfaces/types directly above the helper that uses them.
 - Do not add trivial pass-through helpers that only reshape a couple fields once.
 - Domain logic that does not need injected dependencies should be a standalone helper, not a private service method.
+- Prefer standalone helpers for dependency-free domain logic instead of private service methods.
+- Keep private service methods when the service is small or the method uses class dependencies such as injected services, repositories, clients, or loggers.
 
 ## Common Decisions
 
