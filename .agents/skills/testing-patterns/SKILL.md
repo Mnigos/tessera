@@ -45,6 +45,7 @@ expect(findFirstSpy).toHaveBeenCalledWith(user.id)
 
 ## Errors
 
+- For success-path async assertions, use `expect(await asyncCall()).toEqual(...)`.
 - Use `.rejects` for async error assertions.
 - Store the promise only when making multiple assertions about the same rejection.
 - Do not use `try/catch` for expected test errors.

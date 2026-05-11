@@ -25,6 +25,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Never use direct `useEffect`; follow the `no-use-effect` skill and existing repo alternatives.
 - Do not use `useSuspenseQuery`; use `useQuery` with explicit loading, error, empty, and success states.
 - Pass all TanStack Query options inside `queryOptions()` or `mutationOptions()`. Do not spread generated options into another object.
+- Name hooks that only wrap a query as `useThingQuery` in `use-thing.query.ts`; reserve broader names like `useThing` for hooks that coordinate more than a single query.
 - Use `enabled` for query preconditions.
 - Use loaders to prefetch data for SSR when route-level data is known.
 - In child loaders, prefer root auth context (`context.user`, `context.session`) over refetching session.
