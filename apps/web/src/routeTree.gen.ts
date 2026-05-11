@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as modulesProfileRoutesProfileDotrouteRouteImport } from './modules/profile/routes/profile.route'
 import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/home/routes/index.route'
+import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
 
 const modulesProfileRoutesProfileDotrouteRoute =
@@ -25,6 +26,12 @@ const modulesHomeRoutesIndexDotrouteRoute =
     path: '/',
     getParentRoute: () => rootRouteImport,
   } as any)
+const modulesProfileRoutesProfileDotusernameDotrouteRoute =
+  modulesProfileRoutesProfileDotusernameDotrouteRouteImport.update({
+    id: '/$username',
+    path: '/$username',
+    getParentRoute: () => modulesProfileRoutesProfileDotrouteRoute,
+  } as any)
 const modulesAuthRoutesApiDotauthDotDotrouteRoute =
   modulesAuthRoutesApiDotauthDotDotrouteRouteImport.update({
     id: '/api/auth/$',
@@ -34,31 +41,34 @@ const modulesAuthRoutesApiDotauthDotDotrouteRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
-  '/profile': typeof modulesProfileRoutesProfileDotrouteRoute
+  '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
-  '/profile': typeof modulesProfileRoutesProfileDotrouteRoute
+  '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
-  '/profile': typeof modulesProfileRoutesProfileDotrouteRoute
+  '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/profile' | '/api/auth/$'
+  fullPaths: '/' | '/profile' | '/profile/$username' | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/profile' | '/api/auth/$'
-  id: '__root__' | '/' | '/profile' | '/api/auth/$'
+  to: '/' | '/profile' | '/profile/$username' | '/api/auth/$'
+  id: '__root__' | '/' | '/profile' | '/profile/$username' | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   modulesHomeRoutesIndexDotrouteRoute: typeof modulesHomeRoutesIndexDotrouteRoute
-  modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRoute
+  modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 
@@ -78,6 +88,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof modulesHomeRoutesIndexDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/profile/$username': {
+      id: '/profile/$username'
+      path: '/$username'
+      fullPath: '/profile/$username'
+      preLoaderRoute: typeof modulesProfileRoutesProfileDotusernameDotrouteRouteImport
+      parentRoute: typeof modulesProfileRoutesProfileDotrouteRoute
+    }
     '/api/auth/$': {
       id: '/api/auth/$'
       path: '/api/auth/$'
@@ -88,10 +105,25 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface modulesProfileRoutesProfileDotrouteRouteChildren {
+  modulesProfileRoutesProfileDotusernameDotrouteRoute: typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
+}
+
+const modulesProfileRoutesProfileDotrouteRouteChildren: modulesProfileRoutesProfileDotrouteRouteChildren =
+  {
+    modulesProfileRoutesProfileDotusernameDotrouteRoute:
+      modulesProfileRoutesProfileDotusernameDotrouteRoute,
+  }
+
+const modulesProfileRoutesProfileDotrouteRouteWithChildren =
+  modulesProfileRoutesProfileDotrouteRoute._addFileChildren(
+    modulesProfileRoutesProfileDotrouteRouteChildren,
+  )
+
 const rootRouteChildren: RootRouteChildren = {
   modulesHomeRoutesIndexDotrouteRoute: modulesHomeRoutesIndexDotrouteRoute,
   modulesProfileRoutesProfileDotrouteRoute:
-    modulesProfileRoutesProfileDotrouteRoute,
+    modulesProfileRoutesProfileDotrouteRouteWithChildren,
   modulesAuthRoutesApiDotauthDotDotrouteRoute:
     modulesAuthRoutesApiDotauthDotDotrouteRoute,
 }
