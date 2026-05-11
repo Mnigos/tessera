@@ -2,7 +2,7 @@
   "extends": "@repo/typescript-config/compiled-library.json",
   "compilerOptions": {
     "lib": ["ESNext", "DOM"],
-    "types": ["bun"]
+    "types": ["bun", "vitest/globals"]
   },
   "include": ["**/*.ts"],
   "exclude": ["node_modules", "dist"]

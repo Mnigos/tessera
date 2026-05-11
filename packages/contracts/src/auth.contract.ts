@@ -4,6 +4,7 @@ import { z } from 'zod'
 export const sessionUserSchema = z.object({
 	id: z.uuid().brand<'user_id'>(),
 	email: z.email(),
+	username: z.string().min(1).optional(),
 	displayName: z.string(),
 	avatarUrl: z.string().optional(),
 })

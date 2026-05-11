@@ -9,6 +9,7 @@ export class AuthService {
 				? {
 						id: session.user.id,
 						email: session.user.email,
+						username: session.user.username ?? undefined,
 						displayName: session.user.name,
 						avatarUrl: session.user.image ?? undefined,
 					}

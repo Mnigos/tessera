@@ -1,7 +1,12 @@
+import { eq, user } from '@repo/db'
 import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { organization } from 'better-auth/plugins'
+import {
+	preserveExistingUsernameOnUpdate,
+	resolveGitHubUsername,
+} from './src/github-username'
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0'])
 const LEADING_SUBDOMAIN_REGEX = /^(www|app)\./
@@ -72,16 +77,57 @@ export function initAuth({
 		database: drizzleAdapter(db, {
 			provider: 'pg',
 		}),
+		user: {
+			additionalFields: {
+				username: {
+					type: 'string',
+					required: false,
+					input: false,
+				},
+			},
+		},
 		socialProviders: {
 			github: {
 				clientId: githubClientId ?? '',
 				clientSecret: githubClientSecret ?? '',
+				mapProfileToUser: async profile => ({
+					username: await resolveGitHubUsername(profile, async username => {
+						const foundUser = await db.query.user.findFirst({
+							where: eq(user.username, username),
+							columns: {
+								id: true,
+							},
+						})
+
+						return foundUser !== undefined
+					}),
+				}),
 			},
 		},
 		plugins: [organization()],
 		trustedOrigins,
 		advanced: authAdvanced,
+		databaseHooks: {
+			user: {
+				update: {
+					before: userUpdateData => {
+						const nextUserData =
+							preserveExistingUsernameOnUpdate(userUpdateData)
+						if (nextUserData === userUpdateData) return Promise.resolve()
+
+						return Promise.resolve({ data: nextUserData })
+					},
+				},
+			},
+		},
 	})
 }
 
 export type Auth = ReturnType<typeof initAuth>
+export {
+	createSuffixedUsername,
+	createUsernameSuffix,
+	normalizeUsername,
+	preserveExistingUsernameOnUpdate,
+	resolveGitHubUsername,
+} from './src/github-username'
