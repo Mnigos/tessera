@@ -1,7 +1,19 @@
 import { HttpStatus } from '@nestjs/common'
-import type { CommonORPCErrorCode } from '@orpc/client'
 
-const statusCodePairs: [HttpStatus, CommonORPCErrorCode][] = [
+export type SupportedORPCErrorCode =
+	| 'BAD_REQUEST'
+	| 'UNAUTHORIZED'
+	| 'FORBIDDEN'
+	| 'NOT_FOUND'
+	| 'CONFLICT'
+	| 'TOO_MANY_REQUESTS'
+	| 'PAYLOAD_TOO_LARGE'
+	| 'INTERNAL_SERVER_ERROR'
+	| 'BAD_GATEWAY'
+	| 'SERVICE_UNAVAILABLE'
+	| 'GATEWAY_TIMEOUT'
+
+const statusCodePairs: [HttpStatus, SupportedORPCErrorCode][] = [
 	[HttpStatus.BAD_REQUEST, 'BAD_REQUEST'],
 	[HttpStatus.UNAUTHORIZED, 'UNAUTHORIZED'],
 	[HttpStatus.FORBIDDEN, 'FORBIDDEN'],
@@ -20,7 +32,7 @@ const orpcCodeToHttpStatusMap = new Map<string, HttpStatus>(
 	statusCodePairs.map(([status, code]) => [code, status])
 )
 
-export function httpStatusToOrpcCode(status: number): CommonORPCErrorCode {
+export function httpStatusToOrpcCode(status: number): SupportedORPCErrorCode {
 	return httpStatusToOrpcCodeMap.get(status) ?? 'INTERNAL_SERVER_ERROR'
 }
 

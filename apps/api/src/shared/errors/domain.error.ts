@@ -1,4 +1,4 @@
-import type { CommonORPCErrorCode } from '@orpc/client'
+import type { SupportedORPCErrorCode } from '@config/rpc/http-status-code-map'
 
 export type ErrorSeverity = 'expected' | 'operational' | 'critical'
 
@@ -8,7 +8,7 @@ export interface DomainErrorOptions {
 
 export class DomainError extends Error {
 	constructor(
-		readonly code: CommonORPCErrorCode,
+		readonly code: SupportedORPCErrorCode,
 		message: string,
 		readonly severity: ErrorSeverity,
 		readonly context?: Record<string, unknown>,
