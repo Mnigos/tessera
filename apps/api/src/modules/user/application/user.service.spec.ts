@@ -28,8 +28,8 @@ describe(UserService.name, () => {
 		userRepository = moduleRef.get(UserRepository)
 	})
 
-	afterEach(() => {
-		moduleRef.close()
+	afterEach(async () => {
+		await moduleRef.close()
 		vi.clearAllMocks()
 	})
 

@@ -3,9 +3,9 @@ import { z } from 'zod'
 
 export const publicUserSchema = z.object({
 	id: z.uuid().brand<'user_id'>(),
-	username: z.string(),
+	username: z.string().min(1),
 	displayName: z.string(),
-	avatarUrl: z.string().optional(),
+	avatarUrl: z.url().optional(),
 })
 export type PublicUser = z.infer<typeof publicUserSchema>
 

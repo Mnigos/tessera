@@ -78,6 +78,15 @@ describe(resolveGitHubUsername.name, () => {
 			)
 		).toBe(createSuffixedUsername('github-user', `${suffix}-2`))
 	})
+
+	test('fails when username collision retries are exhausted', async () => {
+		await expect(
+			resolveGitHubUsername(
+				{ id: '123456', login: 'GitHub User' },
+				async () => true
+			)
+		).rejects.toThrow('Failed to resolve a unique username for github-user')
+	})
 })
 
 describe(preserveExistingUsernameOnUpdate.name, () => {

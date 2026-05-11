@@ -99,4 +99,16 @@ describe(resolveException.name, () => {
 		})
 		expect(Logger.prototype.error).toHaveBeenCalled()
 	})
+
+	test('logs non-error exception objects with structured details', () => {
+		expect(resolveException({ reason: 'boom' })).toEqual({
+			code: 'INTERNAL_SERVER_ERROR',
+			message: 'Internal server error',
+			status: HttpStatus.INTERNAL_SERVER_ERROR,
+		})
+		expect(Logger.prototype.error).toHaveBeenCalledWith(
+			'Unhandled exception',
+			'{"reason":"boom"}'
+		)
+	})
 })

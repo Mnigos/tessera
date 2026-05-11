@@ -3,7 +3,7 @@ import { Avatar } from '@repo/ui/components/avatar'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useProfileQuery } from '../hooks/use-profile.query'
 
-const NOT_FOUND_STATUSES = [400, 404]
+const NOT_FOUND_STATUSES = [404]
 
 export const Route = createFileRoute('/profile/$username')({
 	loader: async ({ context, params }) => {

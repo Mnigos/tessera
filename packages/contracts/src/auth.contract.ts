@@ -6,7 +6,7 @@ export const sessionUserSchema = z.object({
 	email: z.email(),
 	username: z.string().min(1).optional(),
 	displayName: z.string(),
-	avatarUrl: z.string().optional(),
+	avatarUrl: z.url().optional(),
 })
 export type SessionUser = z.infer<typeof sessionUserSchema>
 

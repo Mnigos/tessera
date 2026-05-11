@@ -42,6 +42,15 @@ describe('GitHub auth username integration', () => {
 		).toBe(createSuffixedUsername('github-user', `${suffix}-2`))
 	})
 
+	test('fails when username collision retries are exhausted', async () => {
+		await expect(
+			resolveGitHubUsername(
+				{ id: '123456', login: 'GitHub User' },
+				async () => true
+			)
+		).rejects.toThrow('Failed to resolve a unique username for github-user')
+	})
+
 	test('normalizes unsafe URL characters before username persistence', () => {
 		expect(normalizeUsername('  GitHub User!!  ')).toBe('github-user')
 	})

@@ -16,6 +16,7 @@ const exceptionResolutionLogger = new Logger('GlobalExceptionFilter')
 
 interface DatabaseErrorShape {
 	code: string
+	severity: string
 	detail?: string
 }
 
@@ -90,6 +91,16 @@ function extractMessage(response: string | object): string {
 	return 'Unknown error'
 }
 
+function stringifyException(exception: unknown): string {
+	if (exception instanceof Error) return exception.stack ?? exception.message
+
+	try {
+		return JSON.stringify(exception)
+	} catch {
+		return String(exception)
+	}
+}
+
 export function resolveException(exception: unknown): ResolvedException {
 	if (exception instanceof DomainError) {
 		logDomainError(exception)
@@ -141,7 +152,7 @@ export function resolveException(exception: unknown): ResolvedException {
 
 	exceptionResolutionLogger.error(
 		'Unhandled exception',
-		exception instanceof Error ? exception.stack : String(exception)
+		stringifyException(exception)
 	)
 
 	return {

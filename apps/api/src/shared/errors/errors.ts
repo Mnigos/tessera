@@ -11,7 +11,7 @@ export class BadRequestError extends DomainError {
 			'BAD_REQUEST',
 			message ?? `${resource} is invalid`,
 			'expected',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -28,7 +28,7 @@ export class UnauthorizedError extends DomainError {
 			'UNAUTHORIZED',
 			message ?? `${resource} authentication required`,
 			'expected',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -45,7 +45,7 @@ export class ForbiddenError extends DomainError {
 			'FORBIDDEN',
 			message ?? `${resource} access denied`,
 			'expected',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -62,7 +62,7 @@ export class NotFoundError extends DomainError {
 			'NOT_FOUND',
 			message ?? `${resource} not found`,
 			'expected',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -79,7 +79,7 @@ export class ConflictError extends DomainError {
 			'CONFLICT',
 			message ?? `${resource} already exists`,
 			'expected',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -96,7 +96,7 @@ export class InternalError extends DomainError {
 			'INTERNAL_SERVER_ERROR',
 			message ?? `${resource} internal error`,
 			'critical',
-			{ resource, ...context },
+			{ ...context, resource },
 			options
 		)
 	}
@@ -113,7 +113,7 @@ export class ExternalServiceError extends DomainError {
 			'BAD_GATEWAY',
 			message ?? `${service} request failed`,
 			'operational',
-			{ service, ...context },
+			{ ...context, service },
 			options
 		)
 	}
@@ -130,7 +130,7 @@ export class ServiceUnavailableError extends DomainError {
 			'SERVICE_UNAVAILABLE',
 			message ?? `${service} is unavailable`,
 			'operational',
-			{ service, ...context },
+			{ ...context, service },
 			options
 		)
 	}
@@ -147,7 +147,7 @@ export class GatewayTimeoutError extends DomainError {
 			'GATEWAY_TIMEOUT',
 			message ?? `${service} request timed out`,
 			'operational',
-			{ service, ...context },
+			{ ...context, service },
 			options
 		)
 	}

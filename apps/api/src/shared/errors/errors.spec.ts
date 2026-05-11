@@ -36,6 +36,20 @@ describe('domain errors', () => {
 		})
 	})
 
+	test('keeps canonical metadata when context contains reserved keys', () => {
+		expect(
+			new NotFoundError('profile', { resource: 'other-resource' }).context
+		).toEqual({
+			resource: 'profile',
+		})
+		expect(
+			new ServiceUnavailableError('database', { service: 'other-service' })
+				.context
+		).toEqual({
+			service: 'database',
+		})
+	})
+
 	test('separates operational and critical failures', () => {
 		expect(new ServiceUnavailableError('database')).toMatchObject({
 			code: 'SERVICE_UNAVAILABLE',
