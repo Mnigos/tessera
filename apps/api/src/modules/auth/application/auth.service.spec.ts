@@ -39,8 +39,8 @@ describe(AuthService.name, () => {
 		authService = moduleRef.get(AuthService)
 	})
 
-	afterEach(() => {
-		moduleRef.close()
+	afterEach(async () => {
+		await moduleRef.close()
 		vi.clearAllMocks()
 	})
 

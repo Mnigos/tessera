@@ -1,5 +1,6 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { eq, user } from '@repo/db'
 import { UserRepository } from './user.repository'
 
 describe(UserRepository.name, () => {
@@ -28,8 +29,8 @@ describe(UserRepository.name, () => {
 		userRepository = moduleRef.get(UserRepository)
 	})
 
-	afterEach(() => {
-		moduleRef.close()
+	afterEach(async () => {
+		await moduleRef.close()
 		vi.clearAllMocks()
 	})
 
@@ -40,7 +41,7 @@ describe(UserRepository.name, () => {
 			await userRepository.findProfile({ username: 'github-user' })
 		).toEqual({ username: 'github-user' })
 		expect(findFirstMock).toHaveBeenCalledWith({
-			where: expect.any(Object),
+			where: eq(user.username, 'github-user'),
 			columns: {
 				id: true,
 				username: true,

@@ -1,6 +1,7 @@
 const USERNAME_FALLBACK_BASE = 'user'
 const USERNAME_MAX_LENGTH = 39
 const USERNAME_SUFFIX_LENGTH = 6
+const USERNAME_COLLISION_MAX_ATTEMPTS = 100
 const USERNAME_UNSAFE_CHARS_REGEX = /[^a-z0-9-]+/g
 const USERNAME_REPEATED_DASH_REGEX = /-+/g
 const USERNAME_EDGE_DASH_REGEX = /^-|-$/g
@@ -82,7 +83,7 @@ export async function resolveGitHubUsername(
 	if (!(await isUsernameTaken(suffixedUsername))) return suffixedUsername
 
 	let counter = 2
-	while (true) {
+	while (counter <= USERNAME_COLLISION_MAX_ATTEMPTS) {
 		const candidate = createSuffixedUsername(
 			baseUsername,
 			`${suffix}-${counter}`
@@ -90,6 +91,8 @@ export async function resolveGitHubUsername(
 		if (!(await isUsernameTaken(candidate))) return candidate
 		counter += 1
 	}
+
+	throw new Error(`Failed to resolve a unique username for ${baseUsername}`)
 }
 
 export type UserUpdateData = Record<string, unknown>
