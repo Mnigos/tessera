@@ -1,7 +1,16 @@
 export {
-	ApiError,
+	DomainError,
+	type DomainErrorOptions,
+	type ErrorSeverity,
+} from './domain.error'
+export {
+	BadRequestError,
 	ConflictError,
+	ExternalServiceError,
 	ForbiddenError,
+	GatewayTimeoutError,
+	InternalError,
 	NotFoundError,
 	ServiceUnavailableError,
-} from './api.error'
+	UnauthorizedError,
+} from './errors'
