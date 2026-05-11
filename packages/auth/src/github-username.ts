@@ -51,11 +51,20 @@ export function createUsernameSuffix(value: string | number) {
  */
 export function createSuffixedUsername(base: string, suffix: string) {
 	const normalizedBase = normalizeUsername(base)
+	const normalizedSuffix =
+		normalizeUsername(suffix).slice(-USERNAME_MAX_LENGTH) ||
+		USERNAME_FALLBACK_BASE
+	const baseMaxLength = Math.max(
+		0,
+		USERNAME_MAX_LENGTH - normalizedSuffix.length - 1
+	)
 	const trimmedBase = normalizedBase
-		.slice(0, USERNAME_MAX_LENGTH - suffix.length - 1)
+		.slice(0, baseMaxLength)
 		.replace(USERNAME_EDGE_DASH_REGEX, '')
 
-	return `${trimmedBase || USERNAME_FALLBACK_BASE}-${suffix}`
+	if (!trimmedBase) return normalizedSuffix
+
+	return `${trimmedBase}-${normalizedSuffix}`
 }
 
 export interface GitHubUsernameProfile {

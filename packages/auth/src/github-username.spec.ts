@@ -42,6 +42,12 @@ describe(createSuffixedUsername.name, () => {
 	test('falls back to the default base when trimming removes the whole base', () => {
 		expect(createSuffixedUsername('---', 'suffix')).toBe('user-suffix')
 	})
+
+	test('trims overlong suffixes to the Tessera username limit', () => {
+		expect(createSuffixedUsername('github-user', 's'.repeat(60))).toBe(
+			's'.repeat(39)
+		)
+	})
 })
 
 describe(resolveGitHubUsername.name, () => {
