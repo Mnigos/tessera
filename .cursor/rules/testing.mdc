@@ -1,0 +1,52 @@
+---
+description: Testing patterns for Vitest
+---
+
+# Testing Patterns (Vitest)
+
+## Key Rules
+1. Vitest global mode - NO imports of test, describe, vi, expect
+2. Use `test` not `it`
+3. vi.spyOn BEFORE service calls (critical timing)
+4. Use `.toBeTruthy()/.toBeFalsy()` for booleans
+5. ES6 imports only, never require()
+
+## Spy Pattern (Critical)
+```typescript
+// ✅ CORRECT: Spy BEFORE the call
+const spy = vi.spyOn(service['repository'], 'method').mockResolvedValue(data)
+await service.methodThatUsesRepository()
+expect(spy).toHaveBeenCalled()
+
+// ❌ WRONG: Spy after call won't capture
+// const result = await service.method()
+// const spy = vi.spyOn(...) // Too late
+```
+
+## Error Testing
+```typescript
+// Preferred: toSatisfy for multiple assertions
+await expect(promise).rejects.toSatisfy(error => {
+  expect(error).toBeInstanceOf(TRPCError)
+  expect(error).toMatchObject({ code: 'NOT_FOUND' })
+  return true
+})
+```
+
+## Anti-patterns
+- ❌ Importing Vitest globals in global mode
+- ❌ Double-await same promise
+- ❌ setTimeout for async operations
+- ❌ Creating spies after service calls
+
+## Commands
+```bash
+bun run test          # All packages
+bun run test:api      # API only
+bun run typecheck
+bun run check:write
+```
+
+## Reference
+- `apps/api/modules/history/history.service.spec.ts`
+- `apps/api/docs/guidelines/testing.md`

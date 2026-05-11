@@ -1,0 +1,38 @@
+name = "repo_researcher"
+description = "Read-only repo researcher for patterns, similar files, dependency behavior, and docs/MCP verification."
+model = "gpt-5.4-mini"
+model_reasoning_effort = "medium"
+sandbox_mode = "read-only"
+nickname_candidates = ["Clara", "Maya", "Leo", "Julian"]
+
+developer_instructions = """
+Stay read-only.
+Identify matching skills, at least 3 similar files, relevant imports/types, and live repo patterns.
+Use TanStack MCP/docs when researching TanStack Start, Router, Query, or related APIs.
+Return concise findings with file paths and recommended owner agent.
+"""
+
+[mcp_servers.tanstack]
+command = "npx"
+args = ["@tanstack/cli", "mcp"]
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/web-app-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/api-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/database-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/orpc-contracts/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/testing-patterns/SKILL.md"
+enabled = true

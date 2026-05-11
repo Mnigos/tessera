@@ -1,0 +1,28 @@
+{
+  "name": "@repo/tailwind-config",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./theme": {
+      "types": "./theme.d.ts",
+      "default": "./theme.css"
+    },
+    "./postcss.config": "./postcss.config.js"
+  },
+  "license": "MIT",
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo node_modules",
+    "typecheck": "echo \"No TypeScript files to check in tailwind-config\""
+  },
+  "dependencies": {
+    "@fontsource-variable/jetbrains-mono": "^5.2.8",
+    "@fontsource-variable/source-sans-3": "^5.2.8",
+    "@tailwindcss/postcss": "catalog:",
+    "postcss": "catalog:",
+    "tailwindcss": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@repo/contracts",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "license": "MIT",
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orpc/contract": "catalog:",
+    "@repo/domain": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

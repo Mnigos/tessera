@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "display": "Default",
+  "compilerOptions": {
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "allowJs": true,
+    "target": "ES2022",
+    "lib": ["ESNext"],
+    "resolveJsonModule": true,
+    "moduleDetection": "force",
+    "isolatedModules": true,
+
+    "strict": true,
+    "strictNullChecks": true,
+    "strictBindCallApply": false,
+    "strictPropertyInitialization": false,
+    "disableSourceOfProjectReferenceRedirect": true,
+    "tsBuildInfoFile": "${configDir}/.cache/tsbuildinfo.json",
+    "noUncheckedIndexedAccess": true,
+    "noImplicitAny": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": false,
+    "noFallthroughCasesInSwitch": false,
+
+    "incremental": true,
+    "removeComments": true,
+
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "noEmit": true
+  }
+}

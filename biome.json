@@ -1,0 +1,186 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": false,
+    "clientKind": "git",
+    "useIgnoreFile": false
+  },
+  "files": {
+    "ignoreUnknown": false,
+    "includes": [
+      "!**/*.css",
+      "!**/coverage",
+      "!**/dist",
+      "!**/@generated",
+      "!**/.next",
+      "!**/.nitro",
+      "!**/.output",
+      "!**/out",
+      "!**/storybook-static",
+      "!**/.turbo",
+      "!**/routeTree.gen.ts",
+      "!**/.agents/skills/impeccable/scripts",
+      "!**/modern-screenshot.umd.js",
+      "!**/_legacy",
+      "!**/.content-collections"
+    ]
+  },
+  "formatter": {
+    "enabled": true,
+    "indentStyle": "tab",
+    "lineWidth": 80,
+    "lineEnding": "lf"
+  },
+  "assist": {
+    "actions": {
+      "source": {
+        "organizeImports": "on"
+      }
+    }
+  },
+  "linter": {
+    "enabled": true,
+    "rules": {
+      "recommended": true,
+      "suspicious": {
+        "noArrayIndexKey": {
+          "level": "warn"
+        },
+        "useAwait": "warn"
+      },
+      "security": {
+        "noDangerouslySetInnerHtml": "off"
+      },
+      "style": {
+        "noNonNullAssertion": {
+          "level": "off"
+        },
+        "noNestedTernary": "off",
+        "noExportedImports": "off",
+        "noParameterProperties": "off",
+        "useBlockStatements": "off",
+        "noParameterAssign": "error",
+        "useAsConstAssertion": "error",
+        "useDefaultParameterLast": "error",
+        "useEnumInitializers": "error",
+        "useSelfClosingElements": "error",
+        "useSingleVarDeclarator": "error",
+        "noUnusedTemplateLiteral": "error",
+        "useNumberNamespace": "error",
+        "noInferrableTypes": "error",
+        "noUselessElse": "error"
+      },
+      "complexity": {
+        "noVoid": "off"
+      },
+      "correctness": {
+        "useUniqueElementIds": "off"
+      },
+      "performance": {
+        "noBarrelFile": "off",
+        "noNamespaceImport": "off"
+      },
+      "nursery": {
+        "useSortedClasses": {
+          "level": "warn",
+          "fix": "unsafe",
+          "options": {
+            "functions": ["cva", "cn", "clsx", "twMerge"]
+          }
+        }
+      }
+    }
+  },
+  "javascript": {
+    "formatter": {
+      "quoteStyle": "single",
+      "arrowParentheses": "asNeeded",
+      "semicolons": "asNeeded"
+    },
+    "globals": ["Bun"]
+  },
+  "json": {
+    "formatter": {
+      "trailingCommas": "none"
+    }
+  },
+  "overrides": [
+    {
+      "includes": ["**/*.spec.ts", "**/*.spec.tsx"],
+      "javascript": {
+        "globals": [
+          "vi",
+          "describe",
+          "test",
+          "expect",
+          "beforeEach",
+          "afterEach",
+          "beforeAll",
+          "afterAll"
+        ]
+      },
+      "linter": {
+        "rules": {
+          "suspicious": {
+            "noExplicitAny": "off"
+          },
+          "complexity": {
+            "useLiteralKeys": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/api/**"],
+      "javascript": {
+        "parser": {
+          "unsafeParameterDecoratorsEnabled": true
+        }
+      },
+      "linter": {
+        "rules": {
+          "correctness": {
+            "useHookAtTopLevel": "off"
+          },
+          "style": {
+            "useImportType": "off"
+          },
+          "suspicious": {
+            "noConfusingVoidType": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["apps/web/**", "packages/ui/**"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "noBarrelFile": "error"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/types/vitest.d.ts"],
+      "linter": {
+        "rules": {
+          "style": {
+            "noNamespace": "off"
+          }
+        }
+      }
+    },
+    {
+      "includes": ["**/*.stories.tsx", "**/*.stories.ts"],
+      "linter": {
+        "rules": {
+          "performance": {
+            "useTopLevelRegex": "off"
+          }
+        }
+      }
+    }
+  ],
+  "extends": ["ultracite/core", "ultracite/react", "ultracite/remix"]
+}

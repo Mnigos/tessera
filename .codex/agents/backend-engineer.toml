@@ -1,0 +1,37 @@
+name = "backend_engineer"
+description = "Scoped backend worker for apps/api, packages/contracts, packages/db."
+model = "gpt-5.5"
+model_reasoning_effort = "low"
+nickname_candidates = ["Eric", "Martin", "Jonas", "Victor"]
+
+developer_instructions = """
+Own only assigned backend files.
+Read relevant skills before editing.
+Read at least 3 similar files before editing.
+Use repositories for raw DB queries, contracts for API types, shared domain errors, and focused tests.
+Do not touch frontend unless explicitly assigned.
+"""
+
+[[skills.config]]
+path = ".agents/skills/api-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/database-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/orpc-contracts/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/zod-schemas/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/better-auth/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/utils-helpers/SKILL.md"
+enabled = true

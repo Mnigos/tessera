@@ -1,0 +1,48 @@
+---
+description: Database schema patterns for @packages/db/
+---
+
+# Database Patterns (Drizzle)
+
+## Schema Structure
+```typescript
+import { relations } from 'drizzle-orm'
+import { pgTable, text, timestamp, uuid, index, unique } from 'drizzle-orm/pg-core'
+
+export type UserId = string & { __brand: 'user_id' }
+
+export const user = pgTable('user', {
+  id: uuid('id').primaryKey().defaultRandom().$type<UserId>(),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at').notNull().defaultNow(),
+}, table => [
+  index('user_name_idx').on(table.name),
+])
+
+export type User = typeof user.$inferSelect
+```
+
+## Relations
+```typescript
+export const userRelations = relations(user, ({ many }) => ({
+  posts: many(post),
+}))
+```
+
+## Key Rules
+1. Branded types for all IDs: `string & { __brand: 'type_id' }`
+2. Define proper relations with `relations()`
+3. Add indexes for query optimization
+4. snake_case for tables/columns
+5. Export inferred types: `typeof table.$inferSelect`
+
+## Commands
+```bash
+bun run db:generate  # Generate migrations
+bun run db:push      # Push schema changes
+bun run db:migrate   # Apply migrations
+bun run db:studio    # Open Drizzle Studio
+```
+
+## Reference
+- `packages/db/schema/history.schema.ts`

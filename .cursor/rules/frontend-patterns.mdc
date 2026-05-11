@@ -1,0 +1,43 @@
+---
+description: Frontend development patterns for @apps/web/
+---
+
+# Frontend Patterns
+
+## Component Props
+```typescript
+interface Props {
+  items: Item[]
+}
+
+export function MyComponent({ items }: Readonly<Props>) {
+  return <div>{/* ... */}</div>
+}
+```
+
+## HTML Element Props
+```typescript
+interface ButtonProps extends ComponentProps<'button'> {
+  variant?: 'primary' | 'secondary'
+}
+```
+
+## Key Rules
+1. Wrap props in `Readonly<Props>` (only when has props)
+2. Use `ComponentProps<'element'>` for HTML elements
+3. No props interface for components without props
+4. Check existing components before creating new
+
+## React Compiler
+- No manual `useMemo`/`useCallback`
+- Compiler handles optimization automatically
+
+## Styling
+- Tailwind utility classes only
+- Never use inline `style={{}}`
+- Custom CSS classes for complex animations
+
+## Data Fetching
+- tRPC for API calls
+- Server components for initial data
+- Client components for interactivity

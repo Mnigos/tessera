@@ -1,0 +1,9 @@
+{
+  "extends": "@repo/typescript-config/compiled-library.json",
+  "compilerOptions": {
+    "types": ["bun"],
+    "outDir": "./dist"
+  },
+  "include": ["index.ts", "client.ts", "drizzle.config.ts", "schema/**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

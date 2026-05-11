@@ -1,0 +1,53 @@
+{
+  "name": "@repo/web",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bunx --bun vite dev",
+    "build": "bunx --bun vite build",
+    "start": "bun run .output/server/index.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orpc/client": "1.14.1",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi-client": "1.14.1",
+    "@orpc/tanstack-query": "1.14.1",
+    "@repo/auth": "workspace:*",
+    "@repo/contracts": "workspace:*",
+    "@repo/ui": "workspace:*",
+    "@t3-oss/env-core": "catalog:",
+    "@tailwindcss/vite": "catalog:",
+    "@tanstack/react-query": "catalog:",
+    "@tanstack/react-query-devtools": "catalog:",
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-router-ssr-query": "^1.158.1",
+    "@tanstack/react-start": "catalog:",
+    "@tanstack/router-plugin": "catalog:",
+    "@tanstack/virtual-file-routes": "^1.154.7",
+    "better-auth": "^1.6.9",
+    "class-variance-authority": "^0.7.1",
+    "lucide-react": "catalog:",
+    "nitro": "catalog:",
+    "react-icons": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "tailwindcss": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/tailwind-config": "*",
+    "@repo/typescript-config": "*",
+    "@babel/core": "7.29.0",
+    "@babel/plugin-transform-runtime": "7.29.0",
+    "@babel/runtime": "7.29.2",
+    "@rolldown/plugin-babel": "catalog:",
+    "@types/bun": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "catalog:",
+    "babel-plugin-react-compiler": "^1.0.0",
+    "typescript": "catalog:",
+    "vite": "catalog:"
+  }
+}

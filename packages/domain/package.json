@@ -1,0 +1,25 @@
+{
+  "name": "@repo/domain",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./shared/*": "./src/shared/*.ts",
+    "./users/*": "./src/users/*.ts",
+    "./organizations/*": "./src/organizations/*.ts",
+    "./repositories/*": "./src/repositories/*.ts"
+  },
+  "license": "MIT",
+  "dependencies": {
+    "zod": "catalog:"
+  },
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

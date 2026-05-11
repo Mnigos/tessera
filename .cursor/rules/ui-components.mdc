@@ -1,0 +1,45 @@
+---
+description: UI component patterns for @packages/ui/
+---
+
+# UI Component Patterns
+
+## Structure
+- shadcn/ui as base
+- CVA for variants
+- `Readonly<Props>` pattern
+
+## Component Pattern
+```typescript
+import { cva, type VariantProps } from 'class-variance-authority'
+
+const buttonVariants = cva('base-classes', {
+  variants: {
+    variant: { primary: '...', secondary: '...' },
+    size: { default: '...', sm: '...' }
+  },
+  defaultVariants: { variant: 'primary', size: 'default' }
+})
+
+export function Button({
+  variant,
+  size,
+  ...props
+}: Readonly<ButtonProps>) {
+  return <button className={cn(buttonVariants({ variant, size }))} {...props} />
+}
+```
+
+## Key Rules
+1. Use CVA for component variants
+2. `Readonly<Props>` pattern for all props
+3. Create Storybook story for every component
+4. Follow existing component patterns
+
+## Stories
+- All components need Storybook stories
+- Reference: `packages/ui/lib/components/button.stories.tsx`
+
+## Reference Files
+- Component: `packages/ui/lib/components/button.tsx`
+- Story: `packages/ui/lib/components/button.stories.tsx`

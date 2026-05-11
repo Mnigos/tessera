@@ -1,0 +1,45 @@
+{
+  "name": "@repo/db",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./index.ts",
+      "types": "./dist/index.d.ts"
+    },
+    "./client": {
+      "default": "./client.ts",
+      "types": "./dist/client.d.ts"
+    },
+    "./schema": {
+      "default": "./schema/index.ts",
+      "types": "./dist/schema/index.d.ts"
+    }
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "dev": "tsc",
+    "db:push": "dotenv -e ../../apps/api/.env -- drizzle-kit push",
+    "db:migrate": "dotenv -e ../../apps/api/.env -- drizzle-kit migrate",
+    "db:generate": "dotenv -e ../../apps/api/.env -- drizzle-kit generate",
+    "db:studio": "dotenv -e ../../apps/api/.env -- drizzle-kit studio",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@kubiks/otel-drizzle": "^2.1.0",
+    "@opentelemetry/api": "^1.9.0",
+    "@repo/domain": "workspace:*",
+    "drizzle-orm": "catalog:",
+    "postgres": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/bun": "catalog:",
+    "dotenv-cli": "^11.0.0",
+    "drizzle-kit": "^0.31.8",
+    "typescript": "catalog:"
+  }
+}

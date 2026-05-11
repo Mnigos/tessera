@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": ["Bash(bun run:*)"]
+  },
+  "enableAllProjectMcpServers": true,
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|MultiEdit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun x ultracite fix"
+          }
+        ]
+      }
+    ]
+  },
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "ENABLE_TOOL_SEARCH": "true"
+  },
+  "enabledPlugins": {
+    "context7@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://turborepo.com/schema.json",
+  "ui": "stream",
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build"],
+      "outputs": [".output/**", "dist/**"]
+    },
+    "start": {
+      "persistent": true
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "clean": {
+      "cache": false
+    },
+    "//#clean": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "inputs": [".env"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    }
+  },
+  "globalDependencies": [".env"],
+  "globalEnv": [
+    "DATABASE_URL",
+    "REDIS_URL",
+    "AUTH_SECRET",
+    "GITHUB_CLIENT_ID",
+    "GITHUB_CLIENT_SECRET"
+  ],
+  "globalPassThroughEnv": ["NODE_ENV", "CI", "npm_lifecycle_event"]
+}

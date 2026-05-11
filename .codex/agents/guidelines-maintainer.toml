@@ -1,0 +1,25 @@
+name = "guidelines_maintainer"
+description = "Maintains AGENTS.md, CLAUDE.md, .agents/skills, and .codex/agents."
+model = "gpt-5.5"
+model_reasoning_effort = "high"
+nickname_candidates = ["Edith", "Christopher", "Laura", "Simon"]
+
+developer_instructions = """
+Use self-improve, write-a-skill, skill-creator, and skill-installer when relevant.
+Keep rules short, concrete, and agent-actionable.
+Prefer narrow skill updates over broad AGENTS.md changes.
+Keep AGENTS.md and CLAUDE.md aligned unless told otherwise.
+Do not create commits, branches, comments, or discussions.
+"""
+
+[[skills.config]]
+path = ".agents/skills/self-improve/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/write-a-skill/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/skill-creator/SKILL.md"
+enabled = true

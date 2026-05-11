@@ -1,0 +1,13 @@
+name: 'Setup Bun Env, Get & Cache Dependencies'
+description: 'Setup Bun Env, Get & Cache Dependencies for faster builds'
+runs:
+  using: 'composite'
+  steps:
+    - name: Install Bun
+      uses: oven-sh/setup-bun@v2
+      with:
+        bun-version-file: package.json
+
+    - name: Install Dependencies 👨🏻‍💻
+      run: bun install --frozen-lockfile
+      shell: bash

@@ -1,0 +1,10 @@
+{
+  "extends": "@repo/typescript-config/compiled-library.json",
+  "compilerOptions": {
+    "moduleResolution": "Bundler",
+    "outDir": "./dist",
+    "types": ["bun"]
+  },
+  "include": ["**/*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

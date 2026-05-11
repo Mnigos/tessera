@@ -1,0 +1,26 @@
+{
+  "name": "@repo/storage",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./index.ts",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "license": "MIT",
+  "scripts": {
+    "build": "tsc",
+    "clean": "git clean -xdf .cache .turbo dist node_modules",
+    "typecheck": "tsc --noEmit --emitDeclarationOnly false"
+  },
+  "dependencies": {
+    "@t3-oss/env-core": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@repo/typescript-config": "*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:"
+  }
+}

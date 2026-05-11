@@ -1,0 +1,8 @@
+@import "@repo/tailwind-config/theme";
+@source "../../../packages/ui";
+
+@custom-variant dark (&:is(.dark *));
+
+body {
+	margin: 0;
+}

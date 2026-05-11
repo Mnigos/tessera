@@ -1,0 +1,46 @@
+---
+description: API development patterns for @apps/api/
+---
+
+# API Patterns
+
+## Module Structure
+```
+middleware → service → procedure → router
+```
+
+## Services
+- Class-based with Logger instance
+- Context injection via constructor
+- Return DTOs or schema-typed data
+- Use IO schema types for method signatures
+- Reference: `@apps/api/modules/player/player.service.ts`
+
+## Routers
+- No logic, only service calls
+- Input/output schema validation
+- Concise endpoint names (no module prefix: `get` not `getTasks`)
+- Reference: `@apps/api/modules/roast/roast.router.ts`
+
+## Middleware
+- Initialize external API clients
+- Chain with `.unstable_pipe()`
+- Reference: `@apps/api/modules/player/player.middleware.ts`
+
+## Procedures
+- Use module middleware for service access
+- Export context type for services
+- Reference: `@apps/api/modules/player/player.procedure.ts`
+
+## DTOs
+- Class-based implementing schema interfaces
+- Reference: `@apps/api/docs/guidelines/class-dtos.md`
+
+## Key Rules
+1. Services return DTOs or schema-typed data
+2. No logic in routers - delegate to services
+3. Middleware initializes external APIs only
+4. Use IO schema types for method signatures
+
+## Documentation
+- Detailed patterns: `@apps/api/docs/guidelines/`

@@ -1,0 +1,43 @@
+name = "web_engineer"
+description = "Scoped web worker for apps/web with impeccable UI/design craft."
+model = "gpt-5.5"
+model_reasoning_effort = "low"
+nickname_candidates = ["Theo", "Eric", "Sofia", "Ben"]
+
+developer_instructions = """
+Own only assigned web files.
+Read web-app-patterns, impeccable, no-use-effect, better-auth, and ui-components when relevant.
+Read PRODUCT.md, DESIGN.md, and .impeccable/design.json for UI/design work.
+Use TanStack MCP/docs for TanStack Start, Router, Query, loaders, and search param behavior.
+Use useQuery with explicit states, queryOptions, no useSuspenseQuery, no direct useEffect, no frontend barrels.
+Prefer mobile-first flows, lists, sections, and music content over generic card-heavy layouts.
+"""
+
+[mcp_servers.tanstack]
+command = "npx"
+args = ["@tanstack/cli", "mcp"]
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/web-app-patterns/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/impeccable/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/no-use-effect/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/better-auth/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/ui-components/SKILL.md"
+enabled = true
+
+[[skills.config]]
+path = ".agents/skills/zod-schemas/SKILL.md"
+enabled = true

@@ -1,0 +1,18 @@
+{
+  "extends": "@repo/typescript-config/nestjs.json",
+  "compilerOptions": {
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "types": ["bun", "vitest/globals"],
+    "baseUrl": ".",
+    "paths": {
+      "~/*": ["./src/*"],
+      "@modules/*": ["./src/modules/*"],
+      "@config/*": ["./src/config/*"],
+      "@shared/*": ["./src/shared/*"]
+    },
+    "outDir": "./dist"
+  },
+  "include": ["src/**/*.ts", "tests/**/*.ts", "vitest*.ts"],
+  "exclude": ["node_modules", "dist"]
+}

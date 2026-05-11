@@ -1,0 +1,117 @@
+diff --git a/dist/index.d.mts b/dist/index.d.mts
+index 4488cb6632376d9f21dc665a09a7a635abafed77..79604ff5031f13e0ac82ce003de8374644dc7188 100644
+--- a/dist/index.d.mts
++++ b/dist/index.d.mts
+@@ -116,6 +116,13 @@ declare const Public: () => CustomDecorator<string>;
+  * @deprecated Use OptionalAuth() instead.
+  */
+ declare const Optional: () => CustomDecorator<string>;
++/**
++ * Marks a route or controller as requiring authentication.
++ * Only effective when `disableGlobalRequiredAuth` is enabled in the module options.
++ * When applied, the AuthGuard will throw 401 if no session is present,
++ * even though the global default allows unauthenticated access.
++ */
++declare const RequireAuth: () => CustomDecorator<string>;
+ /**
+  * Parameter decorator that extracts the user session from the request.
+  * Provides easy access to the authenticated user's session data in controller methods.
+@@ -259,6 +266,7 @@ type AuthModuleMiddleware = (req: any, res: any, next: (error?: unknown) => void
+ type AuthModuleOptions<A = Auth> = {
+     auth: A;
+     disableTrustedOriginsCors?: boolean;
++    disableGlobalRequiredAuth?: boolean;
+     /**
+      * @deprecated Use `bodyParser.json.enabled` and `bodyParser.urlencoded.enabled` instead.
+      */
+@@ -418,5 +426,5 @@ declare const DATABASE_HOOK_KEY: symbol;
+ declare const BEFORE_DATABASE_HOOK_KEY: symbol;
+ declare const AFTER_DATABASE_HOOK_KEY: symbol;
+ 
+-export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, Roles, Session, UserHasPermission };
++export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, RequireAuth, Roles, Session, UserHasPermission };
+ export type { Auth, AuthHookContext, BaseUserSession, DatabaseHookModel, DatabaseHookOperation, MemberHasPermissionOptions, PermissionCheck, UserHasPermissionOptions, UserSession };
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 4488cb6632376d9f21dc665a09a7a635abafed77..79604ff5031f13e0ac82ce003de8374644dc7188 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -116,6 +116,13 @@ declare const Public: () => CustomDecorator<string>;
+  * @deprecated Use OptionalAuth() instead.
+  */
+ declare const Optional: () => CustomDecorator<string>;
++/**
++ * Marks a route or controller as requiring authentication.
++ * Only effective when `disableGlobalRequiredAuth` is enabled in the module options.
++ * When applied, the AuthGuard will throw 401 if no session is present,
++ * even though the global default allows unauthenticated access.
++ */
++declare const RequireAuth: () => CustomDecorator<string>;
+ /**
+  * Parameter decorator that extracts the user session from the request.
+  * Provides easy access to the authenticated user's session data in controller methods.
+@@ -259,6 +266,7 @@ type AuthModuleMiddleware = (req: any, res: any, next: (error?: unknown) => void
+ type AuthModuleOptions<A = Auth> = {
+     auth: A;
+     disableTrustedOriginsCors?: boolean;
++    disableGlobalRequiredAuth?: boolean;
+     /**
+      * @deprecated Use `bodyParser.json.enabled` and `bodyParser.urlencoded.enabled` instead.
+      */
+@@ -418,5 +426,5 @@ declare const DATABASE_HOOK_KEY: symbol;
+ declare const BEFORE_DATABASE_HOOK_KEY: symbol;
+ declare const AFTER_DATABASE_HOOK_KEY: symbol;
+ 
+-export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, Roles, Session, UserHasPermission };
++export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, RequireAuth, Roles, Session, UserHasPermission };
+ export type { Auth, AuthHookContext, BaseUserSession, DatabaseHookModel, DatabaseHookOperation, MemberHasPermissionOptions, PermissionCheck, UserHasPermissionOptions, UserSession };
+diff --git a/dist/index.mjs b/dist/index.mjs
+index 43b8b7241bef6cadbc5a5bc8cb8394bf77e5ddfa..65b78fbe15b68aace681580aeb3378b3794a1352 100644
+--- a/dist/index.mjs
++++ b/dist/index.mjs
+@@ -54,6 +54,7 @@ const MemberHasPermission = (options) => {
+ };
+ const Public = AllowAnonymous;
+ const Optional = OptionalAuth;
++const RequireAuth = () => SetMetadata("REQUIRE_AUTH", true);
+ const Session = createParamDecorator(
+   async (_data, context) => {
+     const request = await getRequestFromContext(context);
+@@ -214,7 +215,16 @@ let AuthGuard = class {
+     ]);
+     if (!session && isOptional) return true;
+     const ctxType = context.getType();
+-    if (!session) throw await AuthContextErrorMap[ctxType].UNAUTHORIZED();
++    if (!session) {
++      if (this.options.disableGlobalRequiredAuth) {
++        const requireAuth = this.reflector.getAllAndOverride("REQUIRE_AUTH", [
++          context.getHandler(),
++          context.getClass()
++        ]);
++        if (!requireAuth) return true;
++      }
++      throw await AuthContextErrorMap[ctxType].UNAUTHORIZED();
++    }
+     const headers = fromNodeHeaders(
+       request.headers || request?.handshake?.headers || []
+     );
+@@ -823,6 +833,14 @@ let AuthModule = class extends ConfigurableModuleClass {
+   }
+   configure(consumer) {
+     const adapterType = this.adapter.httpAdapter.getType();
++    if (adapterType === "hono") {
++      const honoInstance = this.adapter.httpAdapter.getInstance();
++      honoInstance.on(["GET", "POST"], `${this.basePath}/*`, (ctx) => {
++        return this.options.auth.handler(ctx.req.raw);
++      });
++      this.logger.log(`AuthModule initialized BetterAuth on '${this.basePath}/*'`);
++      return;
++    }
+     const trustedOrigins = this.options.auth.options.trustedOrigins;
+     const bodyParserOptions = resolveBodyParserOptions(this.options);
+     const isNotFunctionBased = trustedOrigins && Array.isArray(trustedOrigins);
+@@ -994,4 +1012,4 @@ class AuthModuleWithoutControllers extends AuthModule {
+   }
+ }
+ 
+-export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, Roles, Session, UserHasPermission };
++export { AFTER_DATABASE_HOOK_KEY, AFTER_HOOK_KEY, AUTH_MODULE_OPTIONS_KEY, AfterCreate, AfterDelete, AfterHook, AfterUpdate, AllowAnonymous, AuthGuard, AuthModule, AuthService, BEFORE_DATABASE_HOOK_KEY, BEFORE_HOOK_KEY, BeforeCreate, BeforeDelete, BeforeHook, BeforeUpdate, DATABASE_HOOK_KEY, DatabaseHook, HOOK_KEY, Hook, MemberHasPermission, Optional, OptionalAuth, OrgRoles, Public, RequireAuth, Roles, Session, UserHasPermission };
