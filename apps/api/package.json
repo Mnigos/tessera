@@ -24,6 +24,7 @@
     "@nestjs/common": "catalog:",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "catalog:",
+    "@orpc/client": "1.14.1",
     "@orpc/contract": "catalog:",
     "@orpc/nest": "1.14.1",
     "@orpc/openapi": "1.14.1",
