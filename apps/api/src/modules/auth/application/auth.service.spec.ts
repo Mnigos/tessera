@@ -49,9 +49,11 @@ describe(AuthService.name, () => {
 	})
 
 	test('maps username into the product auth session output', () => {
-		const output = authService.getSession(createSession('avatar.jpg'))
-
-		expect(output satisfies SessionOutput).toEqual({
+		expect(
+			authService.getSession(
+				createSession('avatar.jpg')
+			) satisfies SessionOutput
+		).toEqual({
 			user: {
 				id: userId,
 				email: 'user@example.com',

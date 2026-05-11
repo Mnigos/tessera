@@ -27,7 +27,7 @@ Prefer live specs over examples in this skill.
 - Do not use `vi.hoisted` or mock variables declared above imports.
 - Do not add inline `vi.mock('@orpc/nest', ...)`; controller tests use the global mock in `apps/api/vitest.setup.ts`.
 - Check shared mock factories before adding repeated inline fixture shapes.
-- Inline assertions when the value is used once.
+- Inline assertions when the value is used once; do not assign a one-use `output`, `result`, `user`, or `response` variable just to assert against it.
 - When asked for 100% coverage, configure coverage over meaningful unit-testable layers instead of counting module decorators, barrel files, generated files, or framework bootstrapping. Be explicit about the included paths.
 - Do not satisfy coverage by adding brittle tests for files with no behavior. Prefer application, domain, infrastructure, and helper coverage unless the task specifically asks for controller or integration coverage.
 
