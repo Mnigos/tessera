@@ -1,11 +1,13 @@
 ---
 name: go-linear
-description: Use when the user mentions a Linear ticket ID such as RIG-123 and wants implementation started from that ticket.
+description: Use when the user mentions a Tessera Linear ticket ID such as TES-123 and wants implementation started from that ticket.
 ---
 
 # Go Linear
 
 Use this skill to start implementation from a Linear issue.
+
+Tessera Linear tickets use the `TES-*` prefix. Use the `tessera_linear` MCP server only.
 
 ## Required Related Skill
 

@@ -1,13 +1,15 @@
 ---
 name: linear-workflow
-description: Linear MCP integration for fetching issues, projects, and managing tasks. Use when working with Linear task IDs (e.g., RIG-287), creating issues, or saving plans to Linear.
+description: Tessera Linear MCP integration for fetching issues, projects, and managing tasks. Use when working with Linear task IDs (e.g., TES-287), creating issues, or saving plans to Linear.
 ---
 
 # Linear Workflow
 
 ## Task ID Format
 
-All tasks use the `RIG-*` prefix (e.g., `RIG-287`).
+All tasks use the `TES-*` prefix (e.g., `TES-287`).
+
+Use the `tessera_linear` MCP server for all Linear operations. Do not use Rigtch, Ludus, or generic Linear MCP servers for Tessera work.
 
 ## Core Rules
 
@@ -24,13 +26,13 @@ When given a Linear task ID, ALWAYS follow this sequence:
 ### Step 1: Get the issue with relations
 
 ```
-mcp__linear-server__get_issue({ id: "RIG-287", includeRelations: true })
+mcp__tessera_linear__get_issue({ id: "TES-287", includeRelations: true })
 ```
 
 ### Step 2: Get ALL comments
 
 ```
-mcp__linear-server__list_comments({ issueId: "RIG-287" })
+mcp__tessera_linear__list_comments({ issueId: "TES-287" })
 ```
 
 ALWAYS read all comments — they contain implementation plans, context, and requirements.
@@ -40,8 +42,8 @@ ALWAYS read all comments — they contain implementation plans, context, and req
 If the issue response contains a `parent` field, fetch the parent issue too:
 
 ```
-mcp__linear-server__get_issue({ id: "<parent-id>", includeRelations: true })
-mcp__linear-server__list_comments({ issueId: "<parent-id>" })
+mcp__tessera_linear__get_issue({ id: "<parent-id>", includeRelations: true })
+mcp__tessera_linear__list_comments({ issueId: "<parent-id>" })
 ```
 
 Parent issues often contain broader context, acceptance criteria, and architectural decisions that child tasks must follow.
@@ -51,7 +53,7 @@ Parent issues often contain broader context, acceptance criteria, and architectu
 If the issue response contains a `project` field, fetch the project:
 
 ```
-mcp__linear-server__get_project({ query: "<project-id-or-name>", includeMilestones: true })
+mcp__tessera_linear__get_project({ query: "<project-id-or-name>", includeMilestones: true })
 ```
 
 Projects contain scope, milestones, and overall goals that inform implementation decisions.
@@ -82,9 +84,9 @@ Minimum requirements for every new issue:
 Example:
 
 ```ts
-mcp__linear-server__create_issue({
+mcp__tessera_linear__create_issue({
   title: "Add paid subscription status to profile header",
-  team: "RIG",
+  team: "TES",
   description: `## Summary
 
 Show the user's paid subscription status in the profile header so premium access is visible immediately.
@@ -149,8 +151,8 @@ Do not start implementing on a stale base branch.
 After plan approval, save to the Linear task:
 
 ```
-mcp__linear-server__create_comment({
-  issueId: "RIG-287",
+mcp__tessera_linear__create_comment({
+  issueId: "TES-287",
   body: "## Implementation Plan\n\n..."
 })
 ```
@@ -160,8 +162,8 @@ Include ALL necessary context in the comment — the plan may be executed by a d
 ## Updating Issue Status
 
 ```
-mcp__linear-server__update_issue({
-  id: "RIG-287",
+mcp__tessera_linear__update_issue({
+  id: "TES-287",
   state: "todo"       // or "in progress", "done", "canceled"
 })
 ```
