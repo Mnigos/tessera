@@ -7,9 +7,6 @@ import { StorageModule } from '@config/storage'
 import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
 import { HealthModule } from '@modules/health'
-import { OrganizationsModule } from '@modules/organizations'
-import { RepositoriesModule } from '@modules/repositories'
-import { UsersModule } from '@modules/users'
 import { Module } from '@nestjs/common'
 
 @Module({
@@ -23,9 +20,6 @@ import { Module } from '@nestjs/common'
 		AuthModule,
 		DocsModule,
 		HealthModule,
-		UsersModule,
-		OrganizationsModule,
-		RepositoriesModule,
 	],
 })
 export class AppModule {}

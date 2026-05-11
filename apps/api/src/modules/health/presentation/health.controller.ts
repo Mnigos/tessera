@@ -10,7 +10,7 @@ export class HealthController {
 	@Implement(contract.health.ping)
 	ping() {
 		return implement(contract.health.ping).handler(() =>
-			this.healthService.getHealthStatus()
+			this.healthService.getStatus()
 		)
 	}
 }

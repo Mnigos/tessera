@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common'
 
 @Injectable()
 export class HealthService {
-	getHealthStatus() {
+	getStatus() {
 		return {
 			status: 'ok' as const,
 			timestamp: new Date(),
