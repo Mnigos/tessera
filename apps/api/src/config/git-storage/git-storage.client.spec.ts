@@ -1,4 +1,5 @@
 import type { ClientGrpc } from '@nestjs/microservices'
+import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId } from '@repo/domain'
 import { of, throwError } from 'rxjs'
 import {
@@ -6,18 +7,20 @@ import {
 	GatewayTimeoutError,
 	ServiceUnavailableError,
 } from '~/shared/errors'
-import { GitStorageClient } from './git-storage.client'
+import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 
 describe(GitStorageClient.name, () => {
+	let moduleRef: TestingModule
+	let client: GitStorageClient
 	let clientGrpc: Pick<ClientGrpc, 'getService'>
 	let gitStorageService: {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
 	}
 
-	beforeEach(() => {
+	beforeEach(async () => {
 		gitStorageService = {
 			health: vi.fn(() => of({ status: 'SERVING' })),
 			createRepository: vi.fn(() =>
@@ -29,34 +32,35 @@ describe(GitStorageClient.name, () => {
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
 		}
+
+		moduleRef = await Test.createTestingModule({
+			providers: [
+				GitStorageClient,
+				{
+					provide: GIT_STORAGE_GRPC_CLIENT,
+					useValue: clientGrpc,
+				},
+			],
+		}).compile()
+		await moduleRef.init()
+		client = moduleRef.get(GitStorageClient)
 	})
 
-	afterEach(() => {
+	afterEach(async () => {
+		await moduleRef.close()
 		vi.clearAllMocks()
 	})
 
 	test('resolves the generated grpc service on module init', () => {
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
-
 		expect(clientGrpc.getService).toHaveBeenCalledWith('GitStorageService')
 	})
 
 	test('exposes typed health without leaking the grpc client', async () => {
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
-
 		await expect(client.health()).resolves.toEqual({ status: 'SERVING' })
 		expect(gitStorageService.health).toHaveBeenCalledWith({})
 	})
 
 	test('creates repository storage with only repository id', async () => {
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
-
 		await expect(client.createRepository({ repositoryId })).resolves.toEqual({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 		})
@@ -67,9 +71,6 @@ describe(GitStorageClient.name, () => {
 
 	test('maps missing storage path to an external service error', async () => {
 		gitStorageService.createRepository.mockReturnValue(of({}))
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
 
 		await expect(
 			client.createRepository({ repositoryId })
@@ -80,9 +81,6 @@ describe(GitStorageClient.name, () => {
 		gitStorageService.createRepository.mockReturnValue(
 			throwError(() => ({ code: 14 }))
 		)
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
 
 		await expect(
 			client.createRepository({ repositoryId })
@@ -93,9 +91,6 @@ describe(GitStorageClient.name, () => {
 		gitStorageService.createRepository.mockReturnValue(
 			throwError(() => ({ code: 4 }))
 		)
-		const client = new GitStorageClient(clientGrpc as ClientGrpc)
-
-		client.onModuleInit()
 
 		await expect(
 			client.createRepository({ repositoryId })
