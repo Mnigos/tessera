@@ -7,6 +7,7 @@ import { StorageModule } from '@config/storage'
 import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
 import { HealthModule } from '@modules/health'
+import { RepositoriesModule } from '@modules/repositories'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
@@ -21,6 +22,7 @@ import { APP_FILTER } from '@nestjs/core'
 		RPCModule,
 		AuthModule,
 		UserModule,
+		RepositoriesModule,
 		DocsModule,
 		HealthModule,
 	],
