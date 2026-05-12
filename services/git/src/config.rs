@@ -3,7 +3,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-const DEFAULT_HOST: &str = "127.0.0.1";
+const DEFAULT_HOST: &str = "::";
 const DEFAULT_PORT: u16 = 50051;
 const DEFAULT_STORAGE_ROOT: &str = "data/git";
 const DEFAULT_GIT_BINARY: &str = "git";
@@ -40,7 +40,13 @@ impl Config {
     }
 
     pub fn socket_addr(&self) -> Result<SocketAddr, ConfigError> {
-        format!("{}:{}", self.host, self.port)
+        let host = if self.host.contains(':') && !self.host.starts_with('[') {
+            format!("[{}]", self.host)
+        } else {
+            self.host.clone()
+        };
+
+        format!("{}:{}", host, self.port)
             .parse()
             .map_err(|_| ConfigError::InvalidSocketAddress)
     }

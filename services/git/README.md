@@ -20,6 +20,6 @@ bun run dev
 
 Configuration defaults are local-only:
 
-- `GIT_SERVICE_HOST`: `127.0.0.1`
+- `GIT_SERVICE_HOST`: `::`
 - `GIT_SERVICE_PORT`: `50051`
 - `GIT_STORAGE_ROOT`: `data/git`
