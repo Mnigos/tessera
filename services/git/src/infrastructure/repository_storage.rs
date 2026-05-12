@@ -1,7 +1,9 @@
 use std::env;
 use std::path::{Component, Path, PathBuf};
 
+use tokio::fs;
 use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 use crate::domain::{RepositoryCreated, RepositoryError, RepositoryId};
 
@@ -32,16 +34,19 @@ impl RepositoryStorage {
         let repository_path = repository_path(&self.storage_root, repository_id);
         self.ensure_repositories_root().await?;
 
-        if let Ok(metadata) = std::fs::symlink_metadata(&repository_path) {
-            if metadata.file_type().is_symlink() {
-                return Err(RepositoryError::PathEscapesStorageRoot);
-            }
+        if let Ok(metadata) = fs::symlink_metadata(&repository_path).await
+            && metadata.file_type().is_symlink()
+        {
+            return Err(RepositoryError::PathEscapesStorageRoot);
         }
 
         let repositories_root = repositories_root(&self.storage_root);
 
-        if repository_path.exists() {
-            if is_bare_repository(&repository_path, &repositories_root)? {
+        if fs::try_exists(&repository_path)
+            .await
+            .map_err(RepositoryError::StorageIo)?
+        {
+            if is_bare_repository(&repository_path, &repositories_root).await? {
                 return Ok(RepositoryCreated {
                     path: repository_path,
                     created: false,
@@ -51,19 +56,23 @@ impl RepositoryStorage {
             return Err(RepositoryError::ExistingPathNotBare);
         }
 
-        let output = Command::new(&self.git_binary)
-            .arg("init")
-            .arg("--bare")
-            .arg(&repository_path)
-            .output()
-            .await
-            .map_err(RepositoryError::GitProcessIo)?;
+        let output = timeout(
+            Duration::from_secs(15),
+            Command::new(&self.git_binary)
+                .arg("init")
+                .arg("--bare")
+                .arg(&repository_path)
+                .output(),
+        )
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?
+        .map_err(RepositoryError::GitProcessIo)?;
 
         if !output.status.success() {
             return Err(RepositoryError::GitProcessFailed);
         }
 
-        if !is_bare_repository(&repository_path, &repositories_root)? {
+        if !is_bare_repository(&repository_path, &repositories_root).await? {
             return Err(RepositoryError::GitProcessFailed);
         }
 
@@ -74,28 +83,27 @@ impl RepositoryStorage {
     }
 
     async fn ensure_repositories_root(&self) -> Result<(), RepositoryError> {
-        tokio::fs::create_dir_all(&self.storage_root)
+        fs::create_dir_all(&self.storage_root)
             .await
             .map_err(RepositoryError::StorageIo)?;
 
         let repositories_root = repositories_root(&self.storage_root);
 
-        if let Ok(metadata) = tokio::fs::symlink_metadata(&repositories_root).await {
-            if metadata.file_type().is_symlink() {
-                return Err(RepositoryError::PathEscapesStorageRoot);
-            }
+        if let Ok(metadata) = fs::symlink_metadata(&repositories_root).await
+            && metadata.file_type().is_symlink()
+        {
+            return Err(RepositoryError::PathEscapesStorageRoot);
         }
 
-        tokio::fs::create_dir_all(&repositories_root)
+        fs::create_dir_all(&repositories_root)
             .await
             .map_err(RepositoryError::StorageIo)?;
 
-        let canonical_root = self
-            .storage_root
-            .canonicalize()
+        let canonical_root = fs::canonicalize(&self.storage_root)
+            .await
             .map_err(RepositoryError::StorageIo)?;
-        let canonical_repositories_root = repositories_root
-            .canonicalize()
+        let canonical_repositories_root = fs::canonicalize(&repositories_root)
+            .await
             .map_err(RepositoryError::StorageIo)?;
 
         if !canonical_repositories_root.starts_with(canonical_root) {
@@ -133,7 +141,9 @@ fn normalize_path(path: &Path) -> PathBuf {
         match component {
             Component::CurDir => {}
             Component::ParentDir => {
-                normalized.pop();
+                if !normalized.pop() {
+                    normalized.push(component.as_os_str());
+                }
             }
             _ => normalized.push(component.as_os_str()),
         }
@@ -142,24 +152,31 @@ fn normalize_path(path: &Path) -> PathBuf {
     normalized
 }
 
-fn is_bare_repository(path: &Path, repositories_root: &Path) -> Result<bool, RepositoryError> {
-    let metadata = std::fs::symlink_metadata(path).map_err(RepositoryError::StorageIo)?;
+async fn is_bare_repository(
+    path: &Path,
+    repositories_root: &Path,
+) -> Result<bool, RepositoryError> {
+    let metadata = fs::symlink_metadata(path)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
 
     if metadata.file_type().is_symlink() {
         return Err(RepositoryError::PathEscapesStorageRoot);
     }
 
-    let canonical_repositories_root = repositories_root
-        .canonicalize()
+    let canonical_repositories_root = fs::canonicalize(repositories_root)
+        .await
         .map_err(RepositoryError::StorageIo)?;
-    let canonical_path = path.canonicalize().map_err(RepositoryError::StorageIo)?;
+    let canonical_path = fs::canonicalize(path)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
 
     if !canonical_path.starts_with(canonical_repositories_root) {
         return Err(RepositoryError::PathEscapesStorageRoot);
     }
 
     let config_path = path.join("config");
-    let Ok(config) = std::fs::read_to_string(config_path) else {
+    let Ok(config) = fs::read_to_string(config_path).await else {
         return Ok(false);
     };
 
@@ -169,7 +186,7 @@ fn is_bare_repository(path: &Path, repositories_root: &Path) -> Result<bool, Rep
         path.join("objects"),
         path.join("refs"),
     ] {
-        let Ok(marker_metadata) = std::fs::symlink_metadata(marker_path) else {
+        let Ok(marker_metadata) = fs::symlink_metadata(&marker_path).await else {
             return Ok(false);
         };
 
@@ -178,14 +195,25 @@ fn is_bare_repository(path: &Path, repositories_root: &Path) -> Result<bool, Rep
         }
     }
 
-    Ok(path.is_dir()
-        && path.join("HEAD").is_file()
-        && path.join("objects").is_dir()
-        && path.join("refs").is_dir()
+    Ok(fs::metadata(path)
+        .await
+        .map(|metadata| metadata.is_dir())
+        .unwrap_or(false)
+        && fs::metadata(path.join("HEAD"))
+            .await
+            .map(|metadata| metadata.is_file())
+            .unwrap_or(false)
+        && fs::metadata(path.join("objects"))
+            .await
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false)
+        && fs::metadata(path.join("refs"))
+            .await
+            .map(|metadata| metadata.is_dir())
+            .unwrap_or(false)
         && config
             .lines()
-            .map(str::trim)
-            .any(|line| line == "bare = true" || line == "bare=true"))
+            .any(|line| line.replace(char::is_whitespace, "") == "bare=true"))
 }
 
 #[cfg(test)]

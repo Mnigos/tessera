@@ -10,7 +10,7 @@ Use this skill for Rust service work under `services/git`: tonic gRPC adapters, 
 Before editing, read:
 - This skill.
 - `services/git/README.md`, `services/git/Cargo.toml`, `services/git/build.rs`, and the relevant `services/git/src/**` modules.
-- At least 3 similar files from the current Rust service when they exist. If the service is too small, inspect the closest Tessera API/domain layering files and relevant examples in `/Users/mnigos/Documents/repositories/personal-apps/game-notes`.
+- At least 3 similar files from the current Rust service when they exist. If the service is too small, inspect the closest Tessera API/domain layering files and relevant reference repositories named in `AGENTS.md`.
 - Current tonic/prost docs with Context7 when changing gRPC generation or service wiring.
 
 ## Structure

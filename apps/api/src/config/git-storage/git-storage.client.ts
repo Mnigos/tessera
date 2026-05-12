@@ -1,3 +1,4 @@
+import { status } from '@grpc/grpc-js'
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import type { ClientGrpc } from '@nestjs/microservices'
 import type { RepositoryId } from '@repo/domain'
@@ -72,12 +73,12 @@ function toGitStorageError(error: unknown) {
 
 	const grpcCode = getGrpcCode(error)
 
-	if (grpcCode === 4)
+	if (grpcCode === status.DEADLINE_EXCEEDED)
 		return new GatewayTimeoutError('git storage', { grpcCode }, undefined, {
 			cause: error,
 		})
 
-	if (grpcCode === 14)
+	if (grpcCode === status.UNAVAILABLE)
 		return new ServiceUnavailableError('git storage', { grpcCode }, undefined, {
 			cause: error,
 		})
