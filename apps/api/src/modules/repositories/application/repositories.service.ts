@@ -1,0 +1,81 @@
+import { Injectable } from '@nestjs/common'
+import type {
+	CreateRepositoryInput,
+	GetRepositoryInput,
+	RepositoryWithOwner,
+} from '@repo/contracts'
+import type { UserId } from '@repo/domain'
+import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
+import { toRepositoryOutput } from '../domain/repository'
+import {
+	DuplicateRepositorySlugError,
+	RepositoryNotFoundError,
+} from '../domain/repository.errors'
+import {
+	normalizeRepositoryName,
+	normalizeRepositorySlug,
+} from '../domain/repository.helpers'
+import { RepositoriesRepository } from '../infrastructure/repositories.repository'
+
+const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
+	'repositories_owner_user_slug_unique',
+	'repositories_owner_organization_slug_unique',
+])
+
+@Injectable()
+export class RepositoriesService {
+	constructor(
+		private readonly repositoriesRepository: RepositoriesRepository
+	) {}
+
+	async create(
+		userId: UserId,
+		currentUsername: string | undefined,
+		input: CreateRepositoryInput
+	): Promise<RepositoryWithOwner> {
+		if (!currentUsername) throw new RepositoryNotFoundError()
+
+		const name = normalizeRepositoryName(input.name)
+		const slug = normalizeRepositorySlug(input.slug ?? input.name)
+
+		try {
+			return toRepositoryOutput(
+				await this.repositoriesRepository.create({
+					userId,
+					name,
+					slug,
+					username: currentUsername,
+					description: input.description,
+					visibility: input.visibility,
+				})
+			)
+		} catch (error) {
+			if (isUniqueViolation(error, REPOSITORY_SLUG_UNIQUE_CONSTRAINTS))
+				throw new DuplicateRepositorySlugError(slug)
+
+			throw error
+		}
+	}
+
+	async list(userId: UserId) {
+		const repositories = await this.repositoriesRepository.list({ userId })
+
+		return {
+			repositories: repositories.map(toRepositoryOutput),
+		}
+	}
+
+	async get(
+		userId: UserId,
+		{ slug, username }: GetRepositoryInput
+	): Promise<RepositoryWithOwner> {
+		const repository = await this.repositoriesRepository.findOwned({
+			userId,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		return toRepositoryOutput(repository)
+	}
+}
