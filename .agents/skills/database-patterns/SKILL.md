@@ -28,6 +28,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Keep table ownership with the bounded context that owns the table. A repository for one module should not query another module's table for ownership or existence checks.
 - Repository methods take object params with named interfaces when more than one value is involved.
 - Select only needed columns for read models and joined projections.
+- For inserts, updates, and deletes, use narrow `.returning({ ... })` selections with only the columns the caller needs; avoid broad `.returning()`.
 - Use Drizzle `.set(data)` directly; `undefined` fields are ignored. Pass `null` only when the caller is intentionally clearing a nullable column.
 - Handle empty update payloads before issuing an update.
 - Use `Promise.all` for independent database reads.
@@ -38,6 +39,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Prefer boring repository method names: `find`, `list`, `create`, `update`, `delete`, `upsert`.
 - Use domain-specific repository method names when the intent, filter set, side effect, or return shape would be unclear with a generic name.
 - Keep repositories pure: no auth checks, business decisions, logging-heavy orchestration, or response shaping that belongs in services.
+- Put persistence-to-domain adapters in the module domain layer when they define domain or output shape; keep repository-local mappers only for repository-private row mechanics.
 - Put ownership and authorization checks in services, usually after a repository read.
 - If a service needs to verify ownership of data owned by another context, call that context's application service instead of importing its repository or duplicating the query.
 - Use schema helpers such as `jsonWithDates` when existing schema files already use them for the same data shape.

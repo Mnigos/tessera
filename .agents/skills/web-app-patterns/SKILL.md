@@ -17,7 +17,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 ## Working Rules
 
 - Routes live under `apps/web/src/routes`; feature UI usually lives under `apps/web/src/modules/[feature]`.
-- Keep route files thin when practical: validation, loader wiring, and page composition.
+- Route files should contain route config, validation, loader/head logic, and the route component only. Move child UI components, repeated states, and panels into module component files.
 - Define route search params in `validateSearch` before reading or writing them.
 - Prefer `getRouteApi()` hooks at module scope for route access used by pages and child components.
 - Use URL params for shareable state: filters, sort, search query, selected item, pagination, and URL-addressable dialogs.
@@ -25,12 +25,15 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Never use direct `useEffect`; follow the `no-use-effect` skill and existing repo alternatives.
 - Do not use `useSuspenseQuery`; use `useQuery` with explicit loading, error, empty, and success states.
 - Pass all TanStack Query options inside `queryOptions()` or `mutationOptions()`. Do not spread generated options into another object.
+- Use generated oRPC `.queryOptions()` and `.mutationOptions()` directly unless an adapter removes real duplication. Do not add casts, wrapper surfaces, or extra `queryOptions()` wrappers just to satisfy local call shape.
 - Name hooks that only wrap a query as `useThingQuery` in `use-thing.query.ts`; reserve broader names like `useThing` for hooks that coordinate more than a single query.
 - Use `enabled` for query preconditions.
 - Use loaders to prefetch data for SSR when route-level data is known.
 - In child loaders, prefer root auth context (`context.user`, `context.session`) over refetching session.
 - Components use named props interfaces immediately above the component and `Readonly<ComponentNameProps>`.
 - Keep feature UI composed from small, named components. Split large route panels, dialogs, lists, and repeated state blocks into local `components/`, move reusable feature logic into `hooks/`, and move pure transformations/parsers into `helpers/`.
+- Use `flex flex-col gap-*` for vertical stack spacing in app UI. Do not use Tailwind `space-y-*`.
+- Use shared layout primitives like `Card` for standard bordered/padded panels instead of hand-rolled `border border-border p-*` wrappers.
 - When a component mixes data orchestration with several visual states, keep the orchestration component thin and extract loading, error, empty, and success/list rendering into focused child components.
 - Do not create frontend barrel files in `apps/web`; import concrete files directly.
 - Use direct imports from `@repo/ui`, local `@/` paths, and existing module boundaries.
@@ -44,6 +47,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Prefer declarative Radix triggers for dialogs; use controlled or URL-based state only when needed.
 - Use `.key()` for broad invalidation and `.queryKey()` for exact cache reads/writes.
 - For client navigation loader prefetches, mirror existing `cause` handling before adding new patterns.
+- For one-off route error checks, compare directly, such as `error.status === 404`; do not introduce single-value status arrays or constants.
 - For visual work, also use `frontend-design` and `ui-components` when the task touches reusable primitives or polish.
 
 ## Verification

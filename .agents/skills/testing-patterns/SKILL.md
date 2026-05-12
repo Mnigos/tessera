@@ -11,7 +11,7 @@ Before editing, read:
 - This skill.
 - At least 3 existing specs matching the target test type.
 - `apps/api/vitest.setup.ts` when touching controller tests or oRPC handler behavior.
-- `apps/api/src/shared/mocks/` before adding repeated fixtures.
+- `apps/api/src/shared/test-utils.ts` and `apps/api/src/shared/mocks/` before adding repeated fixtures.
 - Any imported dependency, mock factory, testing helper, or external module API whose usage you are not already certain about.
 
 Prefer live specs over examples in this skill.
@@ -26,7 +26,7 @@ Prefer live specs over examples in this skill.
 - Define module mocks inline in the `vi.mock` factory and assert through imported mocked symbols with `vi.mocked`.
 - Do not use `vi.hoisted` or mock variables declared above imports.
 - Do not add inline `vi.mock('@orpc/nest', ...)`; controller tests use the global mock in `apps/api/vitest.setup.ts`.
-- Check shared mock factories before adding repeated inline fixture shapes.
+- Before duplicating session, user, userId, request, or domain fixtures, check shared test utilities and mocks; add or extend a factory when the shape repeats across specs.
 - Inline assertions when the value is used once; do not assign a one-use `output`, `result`, `user`, or `response` variable just to assert against it.
 - When asked for 100% coverage, configure coverage over meaningful unit-testable layers instead of counting module decorators, barrel files, generated files, or framework bootstrapping. Be explicit about the included paths.
 - Do not satisfy coverage by adding brittle tests for files with no behavior. Prefer application, domain, infrastructure, and helper coverage unless the task specifically asks for controller or integration coverage.

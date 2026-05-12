@@ -44,6 +44,7 @@
 - Use type aliases for unions, primitives, and computed types.
 - Avoid redundant return types; keep explicit types for public/API contract surfaces.
 - Use `Promise.all` for independent async work.
+- Assign awaited results to named variables before transforming them; avoid chaining like `(await something()).map(...)`.
 - Prefer `undefined` at API boundaries.
 - Use `null` only for persistence or external contracts that require explicit clear.
 - Use `??` for nullish checks and `||` for all-falsy checks.
