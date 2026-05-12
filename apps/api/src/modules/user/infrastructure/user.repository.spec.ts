@@ -50,4 +50,28 @@ describe(UserRepository.name, () => {
 			},
 		})
 	})
+
+	test('finds a user id by username', async () => {
+		findFirstMock.mockResolvedValue({
+			id: '00000000-0000-4000-8000-000000000001',
+		})
+
+		expect(await userRepository.findUserId({ username: 'github-user' })).toBe(
+			'00000000-0000-4000-8000-000000000001'
+		)
+		expect(findFirstMock).toHaveBeenCalledWith({
+			where: eq(user.username, 'github-user'),
+			columns: {
+				id: true,
+			},
+		})
+	})
+
+	test('returns undefined when a user id cannot be found', async () => {
+		findFirstMock.mockResolvedValue(undefined)
+
+		expect(
+			await userRepository.findUserId({ username: 'missing-user' })
+		).toBeUndefined()
+	})
 })

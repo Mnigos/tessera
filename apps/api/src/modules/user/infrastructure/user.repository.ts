@@ -7,6 +7,10 @@ interface FindProfileParams {
 	username: string
 }
 
+interface FindUserIdParams {
+	username: string
+}
+
 interface UserProfile {
 	id: UserId
 	username: string | null
@@ -30,5 +34,18 @@ export class UserRepository {
 				image: true,
 			},
 		})
+	}
+
+	async findUserId({
+		username,
+	}: FindUserIdParams): Promise<UserId | undefined> {
+		const foundUser = await this.db.query.user.findFirst({
+			where: eq(user.username, username),
+			columns: {
+				id: true,
+			},
+		})
+
+		return foundUser?.id
 	}
 }
