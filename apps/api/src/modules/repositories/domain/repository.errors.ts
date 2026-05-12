@@ -18,6 +18,20 @@ export class DuplicateRepositorySlugError extends ConflictError {
 	}
 }
 
+export class RepositoryOwnerUsernameRequiredError extends BadRequestError {
+	constructor() {
+		super(
+			'repository owner username',
+			{
+				field: 'username',
+				location: 'path',
+				reason: 'missing_path_param',
+			},
+			'Repository owner username is required'
+		)
+	}
+}
+
 export class RepositoryNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super('repository', context)

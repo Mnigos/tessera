@@ -1,7 +1,9 @@
 import { contract } from '@config/rpc'
 import { RequireAuth, Session, type UserSession } from '@modules/auth'
+import { TargetUserId } from '@modules/user'
 import { Controller, UseGuards } from '@nestjs/common'
 import { Implement, implement } from '@orpc/nest'
+import type { UserId } from '@repo/domain'
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoryOwnerGuard } from './repository-owner.guard'
 
@@ -23,17 +25,17 @@ export class RepositoriesController {
 
 	@UseGuards(RepositoryOwnerGuard)
 	@Implement(contract.repositories.list)
-	list(@Session() session: UserSession) {
+	list(@TargetUserId() targetUserId: UserId) {
 		return implement(contract.repositories.list).handler(() =>
-			this.repositoriesService.list(session.user.id)
+			this.repositoriesService.list(targetUserId)
 		)
 	}
 
 	@UseGuards(RepositoryOwnerGuard)
 	@Implement(contract.repositories.get)
-	get(@Session() session: UserSession) {
+	get(@TargetUserId() targetUserId: UserId) {
 		return implement(contract.repositories.get).handler(({ input }) =>
-			this.repositoriesService.get(session.user.id, input)
+			this.repositoriesService.get(targetUserId, input)
 		)
 	}
 }
