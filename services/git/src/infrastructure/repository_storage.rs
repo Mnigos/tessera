@@ -211,9 +211,33 @@ async fn is_bare_repository(
             .await
             .map(|metadata| metadata.is_dir())
             .unwrap_or(false)
-        && config
-            .lines()
-            .any(|line| line.replace(char::is_whitespace, "") == "bare=true"))
+        && config_has_core_bare_enabled(&config))
+}
+
+fn config_has_core_bare_enabled(config: &str) -> bool {
+    let mut in_core_section = false;
+    let mut bare = None;
+
+    for line in config.lines().map(str::trim) {
+        if line.starts_with('[') && line.ends_with(']') {
+            in_core_section = line == "[core]";
+            continue;
+        }
+
+        if !in_core_section {
+            continue;
+        }
+
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+
+        if key.trim() == "bare" {
+            bare = Some(value.trim() == "true");
+        }
+    }
+
+    bare.unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -248,5 +272,31 @@ mod tests {
         let error = storage.repository_path("../outside").unwrap_err();
 
         assert!(matches!(error, RepositoryError::InvalidRepositoryId));
+    }
+
+    #[test]
+    fn config_bare_check_uses_core_section_last_value() {
+        let config = r#"
+            [other]
+                bare = true
+            [core]
+                bare = true
+                bare = false
+        "#;
+
+        assert!(!config_has_core_bare_enabled(config));
+    }
+
+    #[test]
+    fn config_bare_check_accepts_core_bare_true() {
+        let config = r#"
+            [other]
+                bare = false
+            [core]
+                bare = false
+                bare = true
+        "#;
+
+        assert!(config_has_core_bare_enabled(config));
     }
 }

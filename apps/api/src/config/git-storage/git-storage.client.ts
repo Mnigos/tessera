@@ -2,13 +2,19 @@ import { status } from '@grpc/grpc-js'
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import type { ClientGrpc } from '@nestjs/microservices'
 import type { RepositoryId } from '@repo/domain'
-import { firstValueFrom } from 'rxjs'
+import {
+	catchError,
+	firstValueFrom,
+	type OperatorFunction,
+	throwError,
+} from 'rxjs'
 import {
 	ExternalServiceError,
 	GatewayTimeoutError,
 	ServiceUnavailableError,
 } from '~/shared/errors'
 import {
+	type CreateRepositoryResponse,
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
 	type HealthResponse,
@@ -40,32 +46,32 @@ export class GitStorageClient implements OnModuleInit {
 	}
 
 	async health(): Promise<HealthResponse> {
-		try {
-			return await firstValueFrom(this.service.health({}))
-		} catch (error) {
-			throw toGitStorageError(error)
-		}
+		return await firstValueFrom(
+			this.service.health({}).pipe(mapGitStorageErrors())
+		)
 	}
 
 	async createRepository({
 		repositoryId,
 	}: GitStorageCreateRepositoryParams): Promise<GitStorageCreateRepositoryResult> {
-		try {
-			const response = await firstValueFrom(
-				this.service.createRepository({ repositoryId })
-			)
+		const response = await firstValueFrom(
+			this.service
+				.createRepository({ repositoryId })
+				.pipe(mapGitStorageErrors<CreateRepositoryResponse>())
+		)
 
-			if (!response.storagePath)
-				throw new ExternalServiceError('git storage', {
-					repositoryId,
-					reason: 'missing_storage_path',
-				})
+		if (!response.storagePath)
+			throw new ExternalServiceError('git storage', {
+				repositoryId,
+				reason: 'missing_storage_path',
+			})
 
-			return { storagePath: response.storagePath }
-		} catch (error) {
-			throw toGitStorageError(error)
-		}
+		return { storagePath: response.storagePath }
 	}
+}
+
+function mapGitStorageErrors<T>(): OperatorFunction<T, T> {
+	return catchError(error => throwError(() => toGitStorageError(error)))
 }
 
 function toGitStorageError(error: unknown) {
