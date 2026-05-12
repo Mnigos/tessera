@@ -89,7 +89,7 @@ describe(RepositoriesController.name, () => {
 	test('delegates list requests to the repositories service', async () => {
 		const listSpy = vi
 			.spyOn(repositoriesService, 'list')
-			.mockResolvedValue({ repositories: [repository] })
+			.mockResolvedValue([repository])
 
 		expect(
 			await repositoriesController.list(mockUserId)['~orpc'].handler({

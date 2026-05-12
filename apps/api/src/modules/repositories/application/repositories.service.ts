@@ -65,12 +65,10 @@ export class RepositoriesService {
 		}
 	}
 
-	async list(userId: UserId) {
+	async list(userId: UserId): Promise<RepositoryWithOwner[]> {
 		const repositories = await this.repositoriesRepository.list({ userId })
 
-		return {
-			repositories: repositories.map(toRepositoryOutput),
-		}
+		return repositories.map(toRepositoryOutput)
 	}
 
 	async get(

@@ -26,9 +26,9 @@ export class RepositoriesController {
 	@UseGuards(RepositoryOwnerGuard)
 	@Implement(contract.repositories.list)
 	list(@TargetUserId() targetUserId: UserId) {
-		return implement(contract.repositories.list).handler(() =>
-			this.repositoriesService.list(targetUserId)
-		)
+		return implement(contract.repositories.list).handler(async () => ({
+			repositories: await this.repositoriesService.list(targetUserId),
+		}))
 	}
 
 	@UseGuards(RepositoryOwnerGuard)
