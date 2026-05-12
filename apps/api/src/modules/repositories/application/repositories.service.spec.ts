@@ -130,13 +130,11 @@ describe(RepositoriesService.name, () => {
 			.spyOn(repositoriesRepository, 'list')
 			.mockResolvedValue([repository])
 
-		expect(await repositoriesService.list(mockUserId)).toEqual({
-			repositories: [
-				expect.objectContaining({
-					repository: expect.objectContaining({ slug: repository.slug }),
-				}),
-			],
-		})
+		expect(await repositoriesService.list(mockUserId)).toEqual([
+			expect.objectContaining({
+				repository: expect.objectContaining({ slug: repository.slug }),
+			}),
+		])
 		expect(listSpy).toHaveBeenCalledWith({ userId: mockUserId })
 	})
 
