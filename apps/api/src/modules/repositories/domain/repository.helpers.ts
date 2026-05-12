@@ -22,12 +22,7 @@ export function normalizeRepositoryName(name: string): RepositoryName {
 }
 
 export function normalizeRepositorySlug(value: string): RepositorySlug {
-	const normalizedSlug = value
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/^-+|-+$/g, '')
-		.replace(/-{2,}/g, '-')
+	const normalizedSlug = normalizeSlugValue(value)
 
 	if (!REPOSITORY_SLUG_REGEX.test(normalizedSlug))
 		throw new InvalidRepositorySlugError(value)
@@ -36,4 +31,28 @@ export function normalizeRepositorySlug(value: string): RepositorySlug {
 		throw new InvalidRepositorySlugError(value)
 
 	return brand<string, 'repository_slug'>(normalizedSlug)
+}
+
+export function normalizeGeneratedRepositorySlug(
+	value: string
+): RepositorySlug {
+	const normalizedSlug = normalizeSlugValue(value).slice(
+		0,
+		REPOSITORY_SLUG_MAX_LENGTH
+	)
+	const trimmedSlug = normalizedSlug.replace(/-+$/g, '')
+
+	if (!REPOSITORY_SLUG_REGEX.test(trimmedSlug))
+		throw new InvalidRepositorySlugError(value)
+
+	return brand<string, 'repository_slug'>(trimmedSlug)
+}
+
+function normalizeSlugValue(value: string) {
+	return value
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/^-+|-+$/g, '')
+		.replace(/-{2,}/g, '-')
 }

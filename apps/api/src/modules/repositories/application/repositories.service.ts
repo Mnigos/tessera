@@ -13,6 +13,7 @@ import {
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
 import {
+	normalizeGeneratedRepositorySlug,
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
@@ -39,7 +40,9 @@ export class RepositoriesService {
 		if (!currentUsername) throw new RepositoryCreatorUsernameRequiredError()
 
 		const name = normalizeRepositoryName(input.name)
-		const slug = normalizeRepositorySlug(input.slug ?? input.name)
+		const slug = input.slug
+			? normalizeRepositorySlug(input.slug)
+			: normalizeGeneratedRepositorySlug(input.name)
 
 		try {
 			return toRepositoryOutput(
