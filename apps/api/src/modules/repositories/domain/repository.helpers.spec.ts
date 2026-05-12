@@ -4,6 +4,7 @@ import {
 	InvalidRepositorySlugError,
 } from './repository.errors'
 import {
+	normalizeGeneratedRepositorySlug,
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from './repository.helpers'
@@ -36,6 +37,18 @@ describe('repository helpers', () => {
 	test('rejects slugs longer than the contract limit', () => {
 		expect(() => normalizeRepositorySlug('a'.repeat(65))).toThrow(
 			InvalidRepositorySlugError
+		)
+	})
+
+	test('truncates generated slugs to the contract limit', () => {
+		expect(normalizeGeneratedRepositorySlug('a'.repeat(120))).toBe(
+			'a'.repeat(64) as RepositorySlug
+		)
+	})
+
+	test('trims trailing dashes after generated slug truncation', () => {
+		expect(normalizeGeneratedRepositorySlug(`${'a'.repeat(63)} !!!`)).toBe(
+			'a'.repeat(63) as RepositorySlug
 		)
 	})
 })
