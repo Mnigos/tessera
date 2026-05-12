@@ -1,14 +1,19 @@
+import { GitStorageClient } from '@config/git-storage'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	GetRepositoryInput,
 	RepositoryWithOwner,
 } from '@repo/contracts'
-import type { UserId } from '@repo/domain'
+import type { RepositoryId, UserId } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
-import { toRepositoryOutput } from '../domain/repository'
+import {
+	type RepositoryWithOwner as RepositoryWithOwnerEntity,
+	toRepositoryOutput,
+} from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
@@ -29,7 +34,8 @@ export class RepositoriesService {
 	private readonly logger = new Logger(RepositoriesService.name)
 
 	constructor(
-		private readonly repositoriesRepository: RepositoriesRepository
+		private readonly repositoriesRepository: RepositoriesRepository,
+		private readonly gitStorageClient: GitStorageClient
 	) {}
 
 	async create(
@@ -44,17 +50,17 @@ export class RepositoriesService {
 			? normalizeRepositorySlug(input.slug)
 			: normalizeGeneratedRepositorySlug(input.name)
 
+		let repository: RepositoryWithOwnerEntity
+
 		try {
-			return toRepositoryOutput(
-				await this.repositoriesRepository.create({
-					userId,
-					name,
-					slug,
-					username: currentUsername,
-					description,
-					visibility,
-				})
-			)
+			repository = await this.repositoriesRepository.create({
+				userId,
+				name,
+				slug,
+				username: currentUsername,
+				description,
+				visibility,
+			})
 		} catch (error) {
 			if (isUniqueViolation(error, REPOSITORY_SLUG_UNIQUE_CONSTRAINTS))
 				throw new DuplicateRepositorySlugError(slug)
@@ -63,6 +69,26 @@ export class RepositoriesService {
 				'Failed to create repository',
 				error instanceof Error ? error.stack : undefined
 			)
+
+			throw error
+		}
+
+		try {
+			const { storagePath } = await this.gitStorageClient.createRepository({
+				repositoryId: repository.id,
+			})
+			const repositoryWithStorage =
+				await this.repositoriesRepository.updateStoragePath({
+					repositoryId: repository.id,
+					storagePath,
+					username: currentUsername,
+				})
+
+			if (!repositoryWithStorage) throw new RepositoryCreateFailedError()
+
+			return toRepositoryOutput(repositoryWithStorage)
+		} catch (error) {
+			await this.cleanupCreatedRepository(repository.id)
 
 			throw error
 		}
@@ -86,5 +112,16 @@ export class RepositoriesService {
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
 		return toRepositoryOutput(repository)
+	}
+
+	private async cleanupCreatedRepository(repositoryId: RepositoryId) {
+		try {
+			await this.repositoriesRepository.delete({ repositoryId })
+		} catch (cleanupError) {
+			this.logger.error(
+				'Failed to cleanup repository metadata after git storage failure',
+				cleanupError instanceof Error ? cleanupError.stack : undefined
+			)
+		}
 	}
 }

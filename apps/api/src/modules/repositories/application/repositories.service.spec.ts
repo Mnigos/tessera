@@ -1,9 +1,11 @@
+import { GitStorageClient } from '@config/git-storage'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
@@ -40,6 +42,16 @@ describe(RepositoriesService.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						findOwned: vi.fn(),
+						updateStoragePath: vi.fn(),
+						delete: vi.fn(),
+					},
+				},
+				{
+					provide: GitStorageClient,
+					useValue: {
+						createRepository: vi.fn().mockResolvedValue({
+							storagePath: '/var/lib/tessera/repositories/repo.git',
+						}),
 					},
 				},
 			],
@@ -58,6 +70,14 @@ describe(RepositoriesService.name, () => {
 		const createSpy = vi
 			.spyOn(repositoriesRepository, 'create')
 			.mockResolvedValue(repository)
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const createRepositorySpy = vi.spyOn(gitStorageClient, 'createRepository')
+		const updateStoragePathSpy = vi
+			.spyOn(repositoriesRepository, 'updateStoragePath')
+			.mockResolvedValue({
+				...repository,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+			})
 
 		expect(
 			await repositoriesService.create(mockUserId, 'marta', {
@@ -71,7 +91,7 @@ describe(RepositoriesService.name, () => {
 				visibility: 'private',
 				description: 'Notes',
 				defaultBranch: 'main',
-				storagePath: undefined,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
@@ -87,6 +107,45 @@ describe(RepositoriesService.name, () => {
 			description: undefined,
 			visibility: undefined,
 		})
+		expect(createRepositorySpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+		})
+		expect(updateStoragePathSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			username: 'marta',
+		})
+	})
+
+	test('cleans up metadata when git storage creation fails', async () => {
+		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'createRepository'
+		).mockRejectedValue(new Error('git storage failed'))
+		const deleteSpy = vi.spyOn(repositoriesRepository, 'delete')
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toThrow('git storage failed')
+		expect(deleteSpy).toHaveBeenCalledWith({ repositoryId: repository.id })
+	})
+
+	test('cleans up metadata when storage path persistence fails', async () => {
+		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
+		vi.spyOn(repositoriesRepository, 'updateStoragePath').mockResolvedValue(
+			undefined
+		)
+		const deleteSpy = vi.spyOn(repositoriesRepository, 'delete')
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toBeInstanceOf(RepositoryCreateFailedError)
+		expect(deleteSpy).toHaveBeenCalledWith({ repositoryId: repository.id })
 	})
 
 	test('maps duplicate owner slug database errors to a conflict', async () => {
