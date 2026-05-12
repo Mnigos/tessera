@@ -1,31 +1,7 @@
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { SessionOutput } from '@repo/contracts'
-import type { UserId } from '@repo/domain'
-import type { UserSession } from '../types/user-session'
+import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { AuthService } from './auth.service'
-
-const userId = '00000000-0000-4000-8000-000000000001' as UserId
-const now = new Date('2026-01-01T00:00:00.000Z')
-
-function createSession(image: string | null): UserSession {
-	return {
-		user: {
-			id: userId,
-			name: 'GitHub User',
-			email: 'user@example.com',
-			emailVerified: true,
-			image,
-			username: 'github-user',
-			createdAt: now,
-			updatedAt: now,
-		},
-		session: {
-			id: '00000000-0000-4000-8000-000000000901',
-			userId,
-			expiresAt: now,
-		},
-	}
-}
 
 describe(AuthService.name, () => {
 	let moduleRef: TestingModule
@@ -51,11 +27,16 @@ describe(AuthService.name, () => {
 	test('maps username into the product auth session output', () => {
 		expect(
 			authService.getSession(
-				createSession('avatar.jpg')
+				createMockSession({
+					email: 'user@example.com',
+					image: 'avatar.jpg',
+					name: 'GitHub User',
+					username: 'github-user',
+				})
 			) satisfies SessionOutput
 		).toEqual({
 			user: {
-				id: userId,
+				id: mockUserId,
 				email: 'user@example.com',
 				username: 'github-user',
 				displayName: 'GitHub User',
@@ -65,14 +46,13 @@ describe(AuthService.name, () => {
 	})
 
 	test('omits absent avatar urls', () => {
-		expect(authService.getSession(createSession(null))).toMatchObject({
+		expect(authService.getSession(createMockSession())).toMatchObject({
 			user: { avatarUrl: undefined },
 		})
 	})
 
 	test('omits absent usernames', () => {
-		const session = createSession(null)
-		session.user.username = null
+		const session = createMockSession({ username: null })
 
 		expect(authService.getSession(session)).toMatchObject({
 			user: { username: undefined },
