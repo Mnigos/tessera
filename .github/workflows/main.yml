@@ -19,6 +19,9 @@ jobs:
       - name: Check JS files 🐱
         run: bun run check
 
+      - name: Check Rust formatting 🦀
+        run: bun run format:rust
+
   typecheck:
     name: 'Typecheck 🔍'
     runs-on: ubuntu-latest

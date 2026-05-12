@@ -22,6 +22,7 @@
     "start:api": "bun run --filter @repo/api start",
     "check": "ultracite check",
     "check:fix": "ultracite fix --unsafe",
+    "format:rust": "turbo format --filter @repo/git-service",
     "typecheck": "turbo typecheck",
     "test": "turbo test",
     "test:api": "bun --filter @repo/api test",
