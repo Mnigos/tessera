@@ -44,11 +44,11 @@ const config = defineConfig({
 				'/repositories/**': {
 					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/repositories/**`,
 				},
-				'/users': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/users`,
+				'/user': {
+					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/user`,
 				},
-				'/users/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/users/**`,
+				'/user/**': {
+					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/user/**`,
 				},
 			},
 		}),
