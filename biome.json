@@ -18,6 +18,8 @@
       "!**/out",
       "!**/storybook-static",
       "!**/.turbo",
+      "!**/target",
+      "!apps/api/src/config/git-storage/generated",
       "!**/routeTree.gen.ts",
       "!**/.agents/skills/impeccable/scripts",
       "!**/modern-screenshot.umd.js",

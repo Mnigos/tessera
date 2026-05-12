@@ -16,6 +16,7 @@
     "dev": "turbo dev",
     "dev:web": "bun --filter @repo/web dev",
     "dev:api": "bun --filter @repo/api dev",
+    "dev:git": "bun --filter @repo/git-service dev",
     "start": "turbo start",
     "start:web": "bun run --filter @repo/web start",
     "start:api": "bun run --filter @repo/api start",
@@ -44,6 +45,7 @@
     "packages": [
       "apps/*",
       "packages/*",
+      "services/*",
       "tooling/*"
     ],
     "catalog": {

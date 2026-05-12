@@ -33,7 +33,11 @@
     "REDIS_URL",
     "AUTH_SECRET",
     "GITHUB_CLIENT_ID",
-    "GITHUB_CLIENT_SECRET"
+    "GITHUB_CLIENT_SECRET",
+    "GIT_SERVICE_HOST",
+    "GIT_SERVICE_PORT",
+    "GIT_STORAGE_ROOT",
+    "GIT_STORAGE_GIT_BINARY"
   ],
   "globalPassThroughEnv": ["NODE_ENV", "CI", "npm_lifecycle_event"]
 }
