@@ -5,7 +5,7 @@ export const publicUserSchema = z.object({
 	id: z.uuid().brand<'user_id'>(),
 	username: z.string().min(1),
 	displayName: z.string(),
-	avatarUrl: z.url().optional(),
+	avatarUrl: z.string().optional(),
 })
 export type PublicUser = z.infer<typeof publicUserSchema>
 
