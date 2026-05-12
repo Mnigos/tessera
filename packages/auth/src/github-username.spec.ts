@@ -104,7 +104,6 @@ describe(preserveExistingUsernameOnUpdate.name, () => {
 			})
 		).toEqual({
 			name: 'Updated Name',
-			username: undefined,
 		})
 	})
 
