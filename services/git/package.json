@@ -5,6 +5,8 @@
   "scripts": {
     "build": "cargo build -p tessera-git",
     "dev": "cargo run -p tessera-git",
+    "format": "cargo fmt --check",
+    "format:fix": "cargo fmt",
     "test": "cargo test -p tessera-git"
   }
 }
