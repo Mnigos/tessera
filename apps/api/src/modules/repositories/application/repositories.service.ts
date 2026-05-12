@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	GetRepositoryInput,
@@ -25,6 +25,8 @@ const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 
 @Injectable()
 export class RepositoriesService {
+	private readonly logger = new Logger(RepositoriesService.name)
+
 	constructor(
 		private readonly repositoriesRepository: RepositoriesRepository
 	) {}
@@ -53,6 +55,11 @@ export class RepositoriesService {
 		} catch (error) {
 			if (isUniqueViolation(error, REPOSITORY_SLUG_UNIQUE_CONSTRAINTS))
 				throw new DuplicateRepositorySlugError(slug)
+
+			this.logger.error(
+				'Failed to create repository',
+				error instanceof Error ? error.stack : undefined
+			)
 
 			throw error
 		}
