@@ -1,4 +1,4 @@
-import { eq, user } from '@repo/db'
+import { account, and, eq, user } from '@repo/db'
 import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
@@ -90,18 +90,32 @@ export function initAuth({
 			github: {
 				clientId: githubClientId ?? '',
 				clientSecret: githubClientSecret ?? '',
-				mapProfileToUser: async profile => ({
-					username: await resolveGitHubUsername(profile, async username => {
-						const foundUser = await db.query.user.findFirst({
-							where: eq(user.username, username),
-							columns: {
-								id: true,
-							},
-						})
+				mapProfileToUser: async profile => {
+					const existingAccount = await db.query.account.findFirst({
+						where: and(
+							eq(account.providerId, 'github'),
+							eq(account.accountId, String(profile.id))
+						),
+						columns: {
+							id: true,
+						},
+					})
 
-						return foundUser !== undefined
-					}),
-				}),
+					if (existingAccount) return {}
+
+					return {
+						username: await resolveGitHubUsername(profile, async username => {
+							const foundUser = await db.query.user.findFirst({
+								where: eq(user.username, username),
+								columns: {
+									id: true,
+								},
+							})
+
+							return foundUser !== undefined
+						}),
+					}
+				},
 			},
 		},
 		plugins: [organization()],
