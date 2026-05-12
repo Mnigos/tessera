@@ -8,6 +8,13 @@
       "when": 1778535441903,
       "tag": "0000_dazzling_killraven",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1778601814501,
+      "tag": "0001_puzzling_rawhide_kid",
+      "breakpoints": true
     }
   ]
 }
