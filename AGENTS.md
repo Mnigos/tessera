@@ -36,6 +36,7 @@
 - Prefer `function` declarations for extracted block-body functions.
 - Use arrows for callbacks and concise expression helpers.
 - Keep params/props interfaces directly above their use.
+- Destructure params or input objects when only their fields are used.
 - Use app aliases and package imports; avoid cross-app relative imports.
 - Do not create frontend barrel files in `apps/web`.
 - Use kebab-case file names.

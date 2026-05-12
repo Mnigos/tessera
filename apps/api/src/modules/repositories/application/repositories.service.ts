@@ -31,7 +31,7 @@ export class RepositoriesService {
 	async create(
 		userId: UserId,
 		currentUsername: string | undefined,
-		input: CreateRepositoryInput
+		{ description, visibility, ...input }: CreateRepositoryInput
 	): Promise<RepositoryWithOwner> {
 		if (!currentUsername) throw new RepositoryNotFoundError()
 
@@ -45,8 +45,8 @@ export class RepositoriesService {
 					name,
 					slug,
 					username: currentUsername,
-					description: input.description,
-					visibility: input.visibility,
+					description,
+					visibility,
 				})
 			)
 		} catch (error) {
