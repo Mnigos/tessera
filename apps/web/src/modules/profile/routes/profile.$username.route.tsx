@@ -26,9 +26,10 @@ export const Route = createFileRoute('/profile/$username')({
 
 		const { username, displayName } = profile.user
 
-		await context.queryClient.ensureQueryData(
-			context.orpc.repositories.list.queryOptions({ input: { username } })
-		)
+		if (context.user?.username === username)
+			await context.queryClient.ensureQueryData(
+				context.orpc.repositories.list.queryOptions({ input: { username } })
+			)
 
 		return {
 			displayName,

@@ -4,6 +4,7 @@ import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
@@ -121,7 +122,7 @@ describe(RepositoriesService.name, () => {
 			repositoriesService.create(mockUserId, undefined, {
 				name: 'Tessera Notes',
 			})
-		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		).rejects.toBeInstanceOf(RepositoryCreatorUsernameRequiredError)
 	})
 
 	test('lists repositories for the authenticated username', async () => {

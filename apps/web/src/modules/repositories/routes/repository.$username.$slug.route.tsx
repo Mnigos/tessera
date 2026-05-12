@@ -50,7 +50,7 @@ function RepositoryRoute() {
 	if (repositoryQuery.isLoading)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
-				<div className="space-y-4">
+				<div className="flex flex-col gap-4">
 					<div className="h-5 max-w-56 animate-pulse rounded-md bg-secondary/70" />
 					<div className="h-10 max-w-lg animate-pulse rounded-md bg-secondary" />
 					<div className="h-24 animate-pulse rounded-md bg-secondary/50" />

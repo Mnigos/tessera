@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
@@ -10,6 +11,11 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { db } from '@repo/db/client'
 import { repositories, session, user } from '@repo/db/schema'
 import { makeSignature } from 'better-auth/crypto'
+import { migrate } from 'drizzle-orm/postgres-js/migrator'
+
+const MIGRATIONS_FOLDER = fileURLToPath(
+	new URL('../../../../packages/db/migrations', import.meta.url)
+)
 
 @Module({
 	imports: [
@@ -69,6 +75,8 @@ describe('Repositories integration', () => {
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
 		vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+
+		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
 		moduleRef = await Test.createTestingModule({
 			imports: [RepositoriesIntegrationTestModule],
@@ -212,7 +220,7 @@ describe('Repositories integration', () => {
 		])
 		expect(
 			body.repositories.every(item => item.owner.username === 'marta')
-		).toBe(true)
+		).toBeTruthy()
 	})
 
 	test('hides another username when listing repositories', async () => {
