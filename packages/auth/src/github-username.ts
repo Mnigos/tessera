@@ -105,6 +105,7 @@ export async function resolveGitHubUsername(
 }
 
 export type UserUpdateData = Record<string, unknown>
+export type HasExistingUsername = (email: string) => Promise<boolean>
 
 /**
  * Removes provider username updates so an existing Tessera username is preserved.
@@ -112,10 +113,16 @@ export type UserUpdateData = Record<string, unknown>
  * Better Auth may remap provider profile data on later sign-ins; this helper
  * keeps Tessera's username stable once it has been assigned.
  */
-export function preserveExistingUsernameOnUpdate<TData extends UserUpdateData>(
-	userUpdateData: TData
-) {
+export async function preserveExistingUsernameOnUpdate<
+	TData extends UserUpdateData,
+>(userUpdateData: TData, hasExistingUsername: HasExistingUsername) {
 	if (!('username' in userUpdateData)) return userUpdateData
+
+	if (
+		typeof userUpdateData.email === 'string' &&
+		!(await hasExistingUsername(userUpdateData.email))
+	)
+		return userUpdateData
 
 	const { username: _username, ...nextUserData } = userUpdateData
 

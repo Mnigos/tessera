@@ -96,20 +96,53 @@ describe(resolveGitHubUsername.name, () => {
 })
 
 describe(preserveExistingUsernameOnUpdate.name, () => {
-	test('removes provider username updates from later sign-ins', () => {
-		expect(
-			preserveExistingUsernameOnUpdate({
-				name: 'Updated Name',
-				username: 'next-username',
-			})
-		).toEqual({
+	test('removes provider username updates when the user already has one', async () => {
+		await expect(
+			preserveExistingUsernameOnUpdate(
+				{
+					email: 'github-user@example.com',
+					name: 'Updated Name',
+					username: 'next-username',
+				},
+				async () => true
+			)
+		).resolves.toEqual({
+			email: 'github-user@example.com',
 			name: 'Updated Name',
 		})
 	})
 
-	test('returns update data unchanged when username is absent', () => {
+	test('keeps provider username updates when the user does not have one yet', async () => {
+		const updateData = {
+			email: 'github-user@example.com',
+			name: 'Updated Name',
+			username: 'github-user',
+		}
+
+		await expect(
+			preserveExistingUsernameOnUpdate(updateData, async () => false)
+		).resolves.toBe(updateData)
+	})
+
+	test('removes ambiguous provider username updates without an email lookup key', async () => {
+		await expect(
+			preserveExistingUsernameOnUpdate(
+				{
+					name: 'Updated Name',
+					username: 'next-username',
+				},
+				async () => false
+			)
+		).resolves.toEqual({
+			name: 'Updated Name',
+		})
+	})
+
+	test('returns update data unchanged when username is absent', async () => {
 		const updateData = { name: 'Updated Name' }
 
-		expect(preserveExistingUsernameOnUpdate(updateData)).toBe(updateData)
+		await expect(
+			preserveExistingUsernameOnUpdate(updateData, async () => true)
+		).resolves.toBe(updateData)
 	})
 })

@@ -124,12 +124,23 @@ export function initAuth({
 		databaseHooks: {
 			user: {
 				update: {
-					before: userUpdateData => {
-						const nextUserData =
-							preserveExistingUsernameOnUpdate(userUpdateData)
-						if (nextUserData === userUpdateData) return Promise.resolve()
+					before: async userUpdateData => {
+						const nextUserData = await preserveExistingUsernameOnUpdate(
+							userUpdateData,
+							async email => {
+								const foundUser = await db.query.user.findFirst({
+									where: eq(user.email, email.toLowerCase()),
+									columns: {
+										username: true,
+									},
+								})
 
-						return Promise.resolve({ data: nextUserData })
+								return !!foundUser?.username
+							}
+						)
+						if (nextUserData === userUpdateData) return
+
+						return { data: nextUserData }
 					},
 				},
 			},

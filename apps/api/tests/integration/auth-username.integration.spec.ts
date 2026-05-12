@@ -55,14 +55,31 @@ describe('GitHub auth username integration', () => {
 		expect(normalizeUsername('  GitHub User!!  ')).toBe('github-user')
 	})
 
-	test('preserves existing usernames on later sign-ins', () => {
-		expect(
-			preserveExistingUsernameOnUpdate({
-				name: 'Updated Name',
-				username: 'next-username',
-			})
-		).toEqual({
+	test('preserves existing usernames on later sign-ins', async () => {
+		await expect(
+			preserveExistingUsernameOnUpdate(
+				{
+					email: 'github-user@example.com',
+					name: 'Updated Name',
+					username: 'next-username',
+				},
+				async () => true
+			)
+		).resolves.toEqual({
+			email: 'github-user@example.com',
 			name: 'Updated Name',
 		})
+	})
+
+	test('allows username assignment when an existing user is missing one', async () => {
+		const updateData = {
+			email: 'github-user@example.com',
+			name: 'Updated Name',
+			username: 'github-user',
+		}
+
+		await expect(
+			preserveExistingUsernameOnUpdate(updateData, async () => false)
+		).resolves.toBe(updateData)
 	})
 })
