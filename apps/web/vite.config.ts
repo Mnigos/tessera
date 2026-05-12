@@ -4,7 +4,10 @@ import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { nitro } from 'nitro/vite'
 import { defineConfig } from 'vite'
+import { env } from './src/env'
 import { routes } from './src/routes'
+
+const apiUrl = env.API_URL
 
 const config = defineConfig({
 	plugins: [
@@ -21,34 +24,34 @@ const config = defineConfig({
 			compressPublicAssets: true,
 			routeRules: {
 				'/auth/session': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/auth/session`,
+					proxy: `${apiUrl}/auth/session`,
 				},
 				'/auth/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/auth/**`,
+					proxy: `${apiUrl}/auth/**`,
 				},
 				'/health/ping': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/health/ping`,
+					proxy: `${apiUrl}/health/ping`,
 				},
 				'/health/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/health/**`,
+					proxy: `${apiUrl}/health/**`,
 				},
 				'/organizations': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/organizations`,
+					proxy: `${apiUrl}/organizations`,
 				},
 				'/organizations/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/organizations/**`,
+					proxy: `${apiUrl}/organizations/**`,
 				},
 				'/repositories': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/repositories`,
+					proxy: `${apiUrl}/repositories`,
 				},
 				'/repositories/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/repositories/**`,
+					proxy: `${apiUrl}/repositories/**`,
 				},
 				'/user': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/user`,
+					proxy: `${apiUrl}/user`,
 				},
 				'/user/**': {
-					proxy: `${process.env.API_URL ?? 'http://localhost:4000'}/user/**`,
+					proxy: `${apiUrl}/user/**`,
 				},
 			},
 		}),
