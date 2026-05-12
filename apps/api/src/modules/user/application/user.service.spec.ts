@@ -19,6 +19,7 @@ describe(UserService.name, () => {
 					provide: UserRepository,
 					useValue: {
 						findProfile: vi.fn(),
+						findUserId: vi.fn(),
 					},
 				},
 			],
@@ -80,5 +81,24 @@ describe(UserService.name, () => {
 				username: 'missing-user',
 			},
 		})
+	})
+
+	test('finds a user id by username', async () => {
+		const findUserIdSpy = vi
+			.spyOn(userRepository, 'findUserId')
+			.mockResolvedValue(userId)
+
+		expect(await userService.findUserId({ username: 'github-user' })).toBe(
+			userId
+		)
+		expect(findUserIdSpy).toHaveBeenCalledWith({ username: 'github-user' })
+	})
+
+	test('throws ProfileNotFoundError when finding a missing user id', async () => {
+		vi.spyOn(userRepository, 'findUserId').mockResolvedValue(undefined)
+
+		await expect(
+			userService.findUserId({ username: 'missing-user' })
+		).rejects.toBeInstanceOf(ProfileNotFoundError)
 	})
 })
