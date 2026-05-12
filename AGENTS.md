@@ -29,6 +29,7 @@
   - `orpc-contracts`
   - `zod-schemas`
   - `better-auth`
+  - `rust-service-patterns`
   - `impeccable` for UI/design craft
 
 ## Code Style
