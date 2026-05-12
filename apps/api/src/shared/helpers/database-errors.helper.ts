@@ -6,6 +6,7 @@ interface DatabaseConstraintError {
 }
 
 const UNIQUE_VIOLATION_CODE = '23505'
+const DATABASE_CONSTRAINT_ERROR_CODES = new Set([UNIQUE_VIOLATION_CODE])
 
 export function isUniqueViolation(
 	error: unknown,
@@ -27,7 +28,8 @@ function findDatabaseConstraintError(
 	error: unknown
 ): DatabaseConstraintError | undefined {
 	if (!isDatabaseConstraintError(error)) return undefined
-	if (error.code) return error
+	if (error.code && DATABASE_CONSTRAINT_ERROR_CODES.has(error.code))
+		return error
 
 	return findDatabaseConstraintError(error.cause)
 }

@@ -27,6 +27,21 @@ describe('database error helpers', () => {
 		).toBe(true)
 	})
 
+	test('keeps walking wrapped errors with non-database codes', () => {
+		expect(
+			isUniqueViolation(
+				{
+					code: 'REPOSITORY_CREATE_FAILED',
+					cause: {
+						code: '23505',
+						constraint: 'repositories_owner_user_slug_unique',
+					},
+				},
+				new Set(['repositories_owner_user_slug_unique'])
+			)
+		).toBe(true)
+	})
+
 	test('rejects non-matching constraints', () => {
 		expect(
 			isUniqueViolation(
