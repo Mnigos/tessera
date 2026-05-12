@@ -1,5 +1,6 @@
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
+import { GitStorageModule } from '@config/git-storage'
 import { QueueModule } from '@config/queue'
 import { RedisModule } from '@config/redis'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
@@ -16,6 +17,7 @@ import { APP_FILTER } from '@nestjs/core'
 	imports: [
 		EnvModule,
 		DatabaseModule,
+		GitStorageModule,
 		RedisModule,
 		QueueModule,
 		StorageModule,
