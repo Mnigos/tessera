@@ -163,10 +163,44 @@ async fn create_repository_rejects_existing_bare_repository_with_internal_symlin
     assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn create_repository_rejects_repository_path_replaced_by_symlink_before_git_init() {
+    let temp_dir = TempDir::new().unwrap();
+    let outside_dir = TempDir::new().unwrap();
+    let git_script = temp_dir.path().join("replace-with-symlink.sh");
+    fs::write(
+        &git_script,
+        format!(
+            "#!/bin/sh\nrm -rf \"$3\"\nln -s '{}' \"$3\"\nexit 0\n",
+            outside_dir.path().display()
+        ),
+    )
+    .unwrap();
+    make_executable(&git_script);
+    let storage = storage(temp_dir.path(), git_script.to_str().unwrap());
+
+    let error = storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
+}
+
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
 }
 
 fn repository_id() -> RepositoryId {
     RepositoryId::parse(REPOSITORY_ID).unwrap()
+}
+
+#[cfg(unix)]
+fn make_executable(path: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut permissions = fs::metadata(path).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(path, permissions).unwrap();
 }

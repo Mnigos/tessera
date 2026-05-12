@@ -56,6 +56,12 @@ impl RepositoryStorage {
             return Err(RepositoryError::ExistingPathNotBare);
         }
 
+        fs::create_dir(&repository_path)
+            .await
+            .map_err(RepositoryError::StorageIo)?;
+
+        reject_symlink(&repository_path).await?;
+
         let output = timeout(
             Duration::from_secs(15),
             Command::new(&self.git_binary)
@@ -214,13 +220,26 @@ async fn is_bare_repository(
         && config_has_core_bare_enabled(&config))
 }
 
+async fn reject_symlink(path: &Path) -> Result<(), RepositoryError> {
+    if fs::symlink_metadata(path)
+        .await
+        .map_err(RepositoryError::StorageIo)?
+        .file_type()
+        .is_symlink()
+    {
+        return Err(RepositoryError::PathEscapesStorageRoot);
+    }
+
+    Ok(())
+}
+
 fn config_has_core_bare_enabled(config: &str) -> bool {
     let mut in_core_section = false;
     let mut bare = None;
 
     for line in config.lines().map(str::trim) {
         if line.starts_with('[') && line.ends_with(']') {
-            in_core_section = line == "[core]";
+            in_core_section = line.eq_ignore_ascii_case("[core]");
             continue;
         }
 
@@ -232,12 +251,19 @@ fn config_has_core_bare_enabled(config: &str) -> bool {
             continue;
         };
 
-        if key.trim() == "bare" {
-            bare = Some(value.trim() == "true");
+        if key.trim().eq_ignore_ascii_case("bare") {
+            bare = Some(is_git_truthy(value.trim()));
         }
     }
 
     bare.unwrap_or(false)
+}
+
+fn is_git_truthy(value: &str) -> bool {
+    matches!(
+        value.to_ascii_lowercase().as_str(),
+        "true" | "yes" | "on" | "1"
+    )
 }
 
 #[cfg(test)]
@@ -295,6 +321,16 @@ mod tests {
             [core]
                 bare = false
                 bare = true
+        "#;
+
+        assert!(config_has_core_bare_enabled(config));
+    }
+
+    #[test]
+    fn config_bare_check_accepts_case_insensitive_git_booleans() {
+        let config = r#"
+            [Core]
+                Bare = Yes
         "#;
 
         assert!(config_has_core_bare_enabled(config));
