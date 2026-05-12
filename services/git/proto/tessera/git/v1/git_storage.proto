@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package tessera.git.v1;
+
+service GitStorageService {
+  rpc Health(HealthRequest) returns (HealthResponse);
+  rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
+}
+
+message HealthRequest {}
+
+message HealthResponse {
+  string status = 1;
+}
+
+message CreateRepositoryRequest {
+  string repository_id = 1;
+}
+
+message CreateRepositoryResponse {
+  string storage_path = 1;
+}
