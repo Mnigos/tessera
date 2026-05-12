@@ -1,11 +1,13 @@
-use std::env;
-use std::path::{Component, Path, PathBuf};
+use std::path::PathBuf;
 
 use tokio::fs;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{RepositoryCreated, RepositoryError, RepositoryId};
+use crate::infrastructure::bare_repository::is_bare_repository;
+use crate::infrastructure::repository_paths::{normalize_root, repositories_root, repository_path};
+use crate::infrastructure::repository_security::reject_symlink;
 
 #[derive(Clone, Debug)]
 pub struct RepositoryStorage {
@@ -120,152 +122,6 @@ impl RepositoryStorage {
     }
 }
 
-fn repository_path(storage_root: &Path, repository_id: &RepositoryId) -> PathBuf {
-    repositories_root(storage_root).join(format!("{repository_id}.git"))
-}
-
-fn repositories_root(storage_root: &Path) -> PathBuf {
-    storage_root.join("repositories")
-}
-
-fn normalize_root(storage_root: PathBuf) -> PathBuf {
-    let absolute_root = if storage_root.is_absolute() {
-        storage_root
-    } else {
-        env::current_dir()
-            .unwrap_or_else(|_| PathBuf::from("."))
-            .join(storage_root)
-    };
-
-    normalize_path(&absolute_root)
-}
-
-fn normalize_path(path: &Path) -> PathBuf {
-    let mut normalized = PathBuf::new();
-
-    for component in path.components() {
-        match component {
-            Component::CurDir => {}
-            Component::ParentDir => {
-                if !normalized.pop() {
-                    normalized.push(component.as_os_str());
-                }
-            }
-            _ => normalized.push(component.as_os_str()),
-        }
-    }
-
-    normalized
-}
-
-async fn is_bare_repository(
-    path: &Path,
-    repositories_root: &Path,
-) -> Result<bool, RepositoryError> {
-    let metadata = fs::symlink_metadata(path)
-        .await
-        .map_err(RepositoryError::StorageIo)?;
-
-    if metadata.file_type().is_symlink() {
-        return Err(RepositoryError::PathEscapesStorageRoot);
-    }
-
-    let canonical_repositories_root = fs::canonicalize(repositories_root)
-        .await
-        .map_err(RepositoryError::StorageIo)?;
-    let canonical_path = fs::canonicalize(path)
-        .await
-        .map_err(RepositoryError::StorageIo)?;
-
-    if !canonical_path.starts_with(canonical_repositories_root) {
-        return Err(RepositoryError::PathEscapesStorageRoot);
-    }
-
-    for marker_path in [
-        path.join("HEAD"),
-        path.join("config"),
-        path.join("objects"),
-        path.join("refs"),
-    ] {
-        let Ok(marker_metadata) = fs::symlink_metadata(&marker_path).await else {
-            return Ok(false);
-        };
-
-        if marker_metadata.file_type().is_symlink() {
-            return Err(RepositoryError::PathEscapesStorageRoot);
-        }
-    }
-
-    let config_path = path.join("config");
-    let Ok(config) = fs::read_to_string(config_path).await else {
-        return Ok(false);
-    };
-
-    Ok(fs::metadata(path)
-        .await
-        .map(|metadata| metadata.is_dir())
-        .unwrap_or(false)
-        && fs::metadata(path.join("HEAD"))
-            .await
-            .map(|metadata| metadata.is_file())
-            .unwrap_or(false)
-        && fs::metadata(path.join("objects"))
-            .await
-            .map(|metadata| metadata.is_dir())
-            .unwrap_or(false)
-        && fs::metadata(path.join("refs"))
-            .await
-            .map(|metadata| metadata.is_dir())
-            .unwrap_or(false)
-        && config_has_core_bare_enabled(&config))
-}
-
-async fn reject_symlink(path: &Path) -> Result<(), RepositoryError> {
-    if fs::symlink_metadata(path)
-        .await
-        .map_err(RepositoryError::StorageIo)?
-        .file_type()
-        .is_symlink()
-    {
-        return Err(RepositoryError::PathEscapesStorageRoot);
-    }
-
-    Ok(())
-}
-
-fn config_has_core_bare_enabled(config: &str) -> bool {
-    let mut in_core_section = false;
-    let mut bare = None;
-
-    for line in config.lines().map(str::trim) {
-        if line.starts_with('[') && line.ends_with(']') {
-            in_core_section = line.eq_ignore_ascii_case("[core]");
-            continue;
-        }
-
-        if !in_core_section {
-            continue;
-        }
-
-        let Some((key, value)) = line.split_once('=') else {
-            continue;
-        };
-
-        if key.trim().eq_ignore_ascii_case("bare") {
-            bare = Some(is_git_truthy(value.trim()));
-        }
-    }
-
-    bare.unwrap_or(false)
-}
-
-fn is_git_truthy(value: &str) -> bool {
-    matches!(
-        value.to_ascii_lowercase().as_str(),
-        "true" | "yes" | "on" | "1"
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,41 +154,5 @@ mod tests {
         let error = storage.repository_path("../outside").unwrap_err();
 
         assert!(matches!(error, RepositoryError::InvalidRepositoryId));
-    }
-
-    #[test]
-    fn config_bare_check_uses_core_section_last_value() {
-        let config = r#"
-            [other]
-                bare = true
-            [core]
-                bare = true
-                bare = false
-        "#;
-
-        assert!(!config_has_core_bare_enabled(config));
-    }
-
-    #[test]
-    fn config_bare_check_accepts_core_bare_true() {
-        let config = r#"
-            [other]
-                bare = false
-            [core]
-                bare = false
-                bare = true
-        "#;
-
-        assert!(config_has_core_bare_enabled(config));
-    }
-
-    #[test]
-    fn config_bare_check_accepts_case_insensitive_git_booleans() {
-        let config = r#"
-            [Core]
-                Bare = Yes
-        "#;
-
-        assert!(config_has_core_bare_enabled(config));
     }
 }
