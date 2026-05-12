@@ -117,8 +117,7 @@ export function preserveExistingUsernameOnUpdate<TData extends UserUpdateData>(
 ) {
 	if (!('username' in userUpdateData)) return userUpdateData
 
-	return {
-		...userUpdateData,
-		username: undefined,
-	}
+	const { username: _username, ...nextUserData } = userUpdateData
+
+	return nextUserData
 }

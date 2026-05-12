@@ -63,7 +63,6 @@ describe('GitHub auth username integration', () => {
 			})
 		).toEqual({
 			name: 'Updated Name',
-			username: undefined,
 		})
 	})
 })
