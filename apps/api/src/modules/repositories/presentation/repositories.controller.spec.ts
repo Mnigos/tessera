@@ -1,8 +1,10 @@
+import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoriesController } from './repositories.controller'
+import { RepositoryOwnerGuard } from './repository-owner.guard'
 
 const repository = {
 	repository: {
@@ -38,6 +40,18 @@ describe(RepositoriesController.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						get: vi.fn(),
+					},
+				},
+				{
+					provide: RepositoryOwnerGuard,
+					useValue: {
+						canActivate: vi.fn(),
+					},
+				},
+				{
+					provide: UserService,
+					useValue: {
+						findUserId: vi.fn(),
 					},
 				},
 			],
@@ -78,11 +92,11 @@ describe(RepositoriesController.name, () => {
 			.mockResolvedValue({ repositories: [repository] })
 
 		expect(
-			await repositoriesController.list(session)['~orpc'].handler({
+			await repositoriesController.list(mockUserId)['~orpc'].handler({
 				input: { username: 'marta' },
 				context: {},
 				path: ['repositories', 'list'],
-				procedure: repositoriesController.list(session),
+				procedure: repositoriesController.list(mockUserId),
 				lastEventId: undefined,
 				errors: {},
 			})
@@ -96,11 +110,11 @@ describe(RepositoriesController.name, () => {
 			.mockResolvedValue(repository)
 
 		expect(
-			await repositoriesController.get(session)['~orpc'].handler({
+			await repositoriesController.get(mockUserId)['~orpc'].handler({
 				input: { username: 'marta', slug: repository.repository.slug },
 				context: {},
 				path: ['repositories', 'get'],
-				procedure: repositoriesController.get(session),
+				procedure: repositoriesController.get(mockUserId),
 				lastEventId: undefined,
 				errors: {},
 			})
