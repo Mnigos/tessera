@@ -1,7 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
-import { GitStorageClient } from '@config/git-storage'
+import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
@@ -23,6 +23,7 @@ const MIGRATIONS_FOLDER = fileURLToPath(
 	imports: [
 		EnvModule,
 		DatabaseModule,
+		GitStorageModule,
 		RPCModule,
 		AuthModule,
 		RepositoriesModule,
