@@ -27,6 +27,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Do not add trivial pass-through helpers that only reshape a couple fields once.
 - Domain logic that does not need injected dependencies should be a standalone helper, not a private service method.
 - Prefer standalone helpers for dependency-free domain logic instead of private service methods.
+- When an adapter naturally maps maybe-present persistence data, let it accept optional input and return `undefined` so callers can use `toDomain(row)` instead of `row ? toDomain(row) : undefined`.
 - Keep private service methods when the service is small or the method uses class dependencies such as injected services, repositories, clients, or loggers.
 
 ## Common Decisions

@@ -21,6 +21,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Use auth decorators from `@modules/auth`; `@RequireAuth()` is a decorator, not a guard.
 - Use `@AllowAnonymous()` or `@OptionalAuth()` only when the endpoint truly supports anonymous access.
 - Put request/session/target-user gates that only allow or reject a request in guards, especially when they depend on `@Session()`, `ProfileVisibilityGuard`-resolved `targetUserId`, billing access, or eligibility flags.
+- For route-param ownership or visibility guards, inspect comparable guards in Tessera and reference repos first. Rigtch's `ProfileVisibilityGuard` reads `request.params.username` and stores resolved target data on the request.
 - Services own business logic, orchestration, ownership checks, domain errors, logging, and calls to other services.
 - Private service methods are fine for small services or logic that needs class dependencies; otherwise move dependency-free domain logic into module helpers.
 - Services must import and reuse Zod-inferred contract types instead of redefining matching inline shapes.
@@ -45,7 +46,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Validate resource existence before ownership checks when that preserves existing API semantics.
 - Use specific domain errors: `NotFoundError` for missing resources, `ForbiddenError` for denied access, `ConflictError` for uniqueness conflicts, and external-service errors for provider failures.
 - Override domain error messages only when user-facing clarity matters; otherwise rely on default messages.
-- Use database error helpers from `~/shared/helpers/database-errors.helper` to map unique and foreign-key violations.
+- Use generic database error helpers from `~/shared/helpers/database-errors.helper` to detect constraint failures; keep resource-specific constraint names and mappings in the service that turns them into domain errors.
 - When wrapping a caught error in an internal or external-service domain error, preserve the original error as the cause if the local error API supports it.
 - Export a repository from a module only when another module genuinely needs data access; otherwise export the service.
 - When another module needs a fact that belongs to this bounded context, keep raw table access inside this module and expose that fact through the service.
