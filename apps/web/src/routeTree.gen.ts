@@ -12,6 +12,7 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as modulesProfileRoutesProfileDotrouteRouteImport } from './modules/profile/routes/profile.route'
 import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/home/routes/index.route'
 import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
+import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
 
 const modulesProfileRoutesProfileDotrouteRoute =
@@ -32,6 +33,14 @@ const modulesProfileRoutesProfileDotusernameDotrouteRoute =
     path: '/$username',
     getParentRoute: () => modulesProfileRoutesProfileDotrouteRoute,
   } as any)
+const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute =
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug',
+      path: '/$username/$slug',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const modulesAuthRoutesApiDotauthDotDotrouteRoute =
   modulesAuthRoutesApiDotauthDotDotrouteRouteImport.update({
     id: '/api/auth/$',
@@ -42,12 +51,14 @@ const modulesAuthRoutesApiDotauthDotDotrouteRoute =
 export interface FileRoutesByFullPath {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
@@ -55,20 +66,38 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/profile' | '/profile/$username' | '/api/auth/$'
+  fullPaths:
+    | '/'
+    | '/profile'
+    | '/$username/$slug'
+    | '/profile/$username'
+    | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/profile' | '/profile/$username' | '/api/auth/$'
-  id: '__root__' | '/' | '/profile' | '/profile/$username' | '/api/auth/$'
+  to:
+    | '/'
+    | '/profile'
+    | '/$username/$slug'
+    | '/profile/$username'
+    | '/api/auth/$'
+  id:
+    | '__root__'
+    | '/'
+    | '/profile'
+    | '/$username/$slug'
+    | '/profile/$username'
+    | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   modulesHomeRoutesIndexDotrouteRoute: typeof modulesHomeRoutesIndexDotrouteRoute
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
 }
 
@@ -94,6 +123,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile/$username'
       preLoaderRoute: typeof modulesProfileRoutesProfileDotusernameDotrouteRouteImport
       parentRoute: typeof modulesProfileRoutesProfileDotrouteRoute
+    }
+    '/$username/$slug': {
+      id: '/$username/$slug'
+      path: '/$username/$slug'
+      fullPath: '/$username/$slug'
+      preLoaderRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
       id: '/api/auth/$'
@@ -124,6 +160,8 @@ const rootRouteChildren: RootRouteChildren = {
   modulesHomeRoutesIndexDotrouteRoute: modulesHomeRoutesIndexDotrouteRoute,
   modulesProfileRoutesProfileDotrouteRoute:
     modulesProfileRoutesProfileDotrouteRouteWithChildren,
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute:
+    modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute,
   modulesAuthRoutesApiDotauthDotDotrouteRoute:
     modulesAuthRoutesApiDotauthDotDotrouteRoute,
 }
