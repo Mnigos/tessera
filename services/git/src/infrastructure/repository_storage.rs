@@ -175,11 +175,6 @@ async fn is_bare_repository(
         return Err(RepositoryError::PathEscapesStorageRoot);
     }
 
-    let config_path = path.join("config");
-    let Ok(config) = fs::read_to_string(config_path).await else {
-        return Ok(false);
-    };
-
     for marker_path in [
         path.join("HEAD"),
         path.join("config"),
@@ -194,6 +189,11 @@ async fn is_bare_repository(
             return Err(RepositoryError::PathEscapesStorageRoot);
         }
     }
+
+    let config_path = path.join("config");
+    let Ok(config) = fs::read_to_string(config_path).await else {
+        return Ok(false);
+    };
 
     Ok(fs::metadata(path)
         .await
