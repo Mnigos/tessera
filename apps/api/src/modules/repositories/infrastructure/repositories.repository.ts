@@ -2,6 +2,7 @@ import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
 import { and, asc, eq, repositories } from '@repo/db'
 import type {
+	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
 	RepositoryVisibility,
@@ -27,6 +28,15 @@ interface CreateParams extends UserParams {
 
 interface OwnedRepositoryParams extends UserParams {
 	slug: RepositorySlug
+}
+
+interface RepositoryIdParams {
+	repositoryId: RepositoryId
+}
+
+interface UpdateStoragePathParams extends RepositoryIdParams {
+	storagePath: string
+	username: string
 }
 
 @Injectable()
@@ -99,5 +109,40 @@ export class RepositoriesRepository {
 			...repository,
 			ownerUser: { username },
 		}
+	}
+
+	async updateStoragePath({
+		repositoryId,
+		storagePath,
+		username,
+	}: UpdateStoragePathParams): Promise<RepositoryWithOwner | undefined> {
+		const [repository] = await this.db
+			.update(repositories)
+			.set({ storagePath })
+			.where(eq(repositories.id, repositoryId))
+			.returning({
+				id: repositories.id,
+				name: repositories.name,
+				slug: repositories.slug,
+				description: repositories.description,
+				visibility: repositories.visibility,
+				ownerUserId: repositories.ownerUserId,
+				ownerOrganizationId: repositories.ownerOrganizationId,
+				defaultBranch: repositories.defaultBranch,
+				storagePath: repositories.storagePath,
+				createdAt: repositories.createdAt,
+				updatedAt: repositories.updatedAt,
+			})
+
+		if (!repository) return undefined
+
+		return {
+			...repository,
+			ownerUser: { username },
+		}
+	}
+
+	async delete({ repositoryId }: RepositoryIdParams): Promise<void> {
+		await this.db.delete(repositories).where(eq(repositories.id, repositoryId))
 	}
 }

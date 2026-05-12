@@ -1,7 +1,7 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { eq, repositories } from '@repo/db'
-import type { RepositoryName, RepositorySlug } from '@repo/domain'
+import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
 import { RepositoriesRepository } from './repositories.repository'
@@ -13,8 +13,14 @@ describe(RepositoriesRepository.name, () => {
 	const findManyMock = vi.fn()
 	const findFirstRepositoryMock = vi.fn()
 	const insertMock = vi.fn()
+	const updateMock = vi.fn()
+	const deleteMock = vi.fn()
 	const valuesMock = vi.fn()
+	const setMock = vi.fn()
+	const whereMock = vi.fn()
+	const deleteWhereMock = vi.fn()
 	const returningMock = vi.fn()
+	const updateReturningMock = vi.fn()
 
 	beforeEach(async () => {
 		returningMock.mockResolvedValue([
@@ -26,6 +32,18 @@ describe(RepositoriesRepository.name, () => {
 		])
 		valuesMock.mockReturnValue({ returning: returningMock })
 		insertMock.mockReturnValue({ values: valuesMock })
+		updateReturningMock.mockResolvedValue([
+			{
+				id: '00000000-0000-4000-8000-000000000002',
+				slug: 'notes',
+				name: 'Notes',
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+			},
+		])
+		whereMock.mockReturnValue({ returning: updateReturningMock })
+		setMock.mockReturnValue({ where: whereMock })
+		updateMock.mockReturnValue({ set: setMock })
+		deleteMock.mockReturnValue({ where: deleteWhereMock })
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -40,6 +58,8 @@ describe(RepositoriesRepository.name, () => {
 							},
 						},
 						insert: insertMock,
+						update: updateMock,
+						delete: deleteMock,
 					},
 				},
 			],
@@ -112,5 +132,57 @@ describe(RepositoriesRepository.name, () => {
 				username: 'marta',
 			})
 		).rejects.toBeInstanceOf(RepositoryCreateFailedError)
+	})
+
+	test('persists storage path for a created repository', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		expect(
+			await repositoriesRepository.updateStoragePath({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				username: 'marta',
+			})
+		).toEqual({
+			id: repositoryId,
+			slug: 'notes',
+			name: 'Notes',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ownerUser: { username: 'marta' },
+		})
+		expect(updateMock).toHaveBeenCalledWith(repositories)
+		expect(setMock).toHaveBeenCalledWith({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		expect(whereMock).toHaveBeenCalledWith(eq(repositories.id, repositoryId))
+		expect(updateReturningMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: repositories.id,
+				storagePath: repositories.storagePath,
+			})
+		)
+	})
+
+	test('returns undefined when storage path update finds no repository', async () => {
+		updateReturningMock.mockResolvedValue([])
+
+		await expect(
+			repositoriesRepository.updateStoragePath({
+				repositoryId: '00000000-0000-4000-8000-000000000404' as RepositoryId,
+				storagePath: '/var/lib/tessera/repositories/missing.git',
+				username: 'marta',
+			})
+		).resolves.toBeUndefined()
+	})
+
+	test('deletes a repository by id for cleanup', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		await repositoriesRepository.delete({ repositoryId })
+
+		expect(deleteMock).toHaveBeenCalledWith(repositories)
+		expect(deleteWhereMock).toHaveBeenCalledWith(
+			eq(repositories.id, repositoryId)
+		)
 	})
 })
