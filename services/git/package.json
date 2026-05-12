@@ -1,0 +1,10 @@
+{
+  "name": "@repo/git-service",
+  "version": "0.0.1",
+  "private": true,
+  "scripts": {
+    "build": "cargo build -p tessera-git",
+    "dev": "cargo run -p tessera-git",
+    "test": "cargo test -p tessera-git"
+  }
+}
