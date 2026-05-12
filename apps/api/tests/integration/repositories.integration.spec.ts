@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
+import { GitStorageClient } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
@@ -12,6 +13,7 @@ import { db } from '@repo/db/client'
 import { repositories, session, user } from '@repo/db/schema'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { ExternalServiceError } from '~/shared/errors'
 
 const MIGRATIONS_FOLDER = fileURLToPath(
 	new URL('../../../../packages/db/migrations', import.meta.url)
@@ -71,6 +73,7 @@ describe('Repositories integration', () => {
 	let moduleRef: TestingModule
 	let app: INestApplication
 	let adapter: HonoAdapter
+	let gitStorageCreateRepository: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -78,9 +81,18 @@ describe('Repositories integration', () => {
 
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
+		gitStorageCreateRepository = vi.fn(({ repositoryId }) =>
+			Promise.resolve({
+				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
+			})
+		)
+
 		moduleRef = await Test.createTestingModule({
 			imports: [RepositoriesIntegrationTestModule],
-		}).compile()
+		})
+			.overrideProvider(GitStorageClient)
+			.useValue({ createRepository: gitStorageCreateRepository })
+			.compile()
 
 		adapter = new HonoAdapter()
 		app = moduleRef.createNestApplication(adapter)
@@ -90,6 +102,11 @@ describe('Repositories integration', () => {
 
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
+		gitStorageCreateRepository.mockImplementation(({ repositoryId }) =>
+			Promise.resolve({
+				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
+			})
+		)
 	})
 
 	afterAll(async () => {
@@ -134,7 +151,13 @@ describe('Repositories integration', () => {
 			},
 		})
 		expect(body.repository.id).toEqual(expect.any(String))
+		expect(body.repository.storagePath).toBe(
+			`/var/lib/tessera/repositories/${body.repository.id}.git`
+		)
 		expect(Date.parse(body.repository.createdAt)).not.toBeNaN()
+		expect(gitStorageCreateRepository).toHaveBeenCalledWith({
+			repositoryId: body.repository.id,
+		})
 	})
 
 	test('creates a repository with a normalized custom slug', async () => {
@@ -159,7 +182,27 @@ describe('Repositories integration', () => {
 			name: 'Roadmap',
 			description: 'Launch notes',
 			visibility: 'public',
+			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
 		})
+	})
+
+	test('cleans up metadata when git storage creation fails', async () => {
+		gitStorageCreateRepository.mockRejectedValueOnce(
+			new ExternalServiceError('git storage')
+		)
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		const response = await createRepository({ name: 'Notes' }, headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(502)
+		expect(body).toMatchObject({
+			code: 'BAD_GATEWAY',
+			message: 'git storage request failed',
+		})
+		expect(await db.query.repositories.findMany()).toHaveLength(0)
 	})
 
 	test('rejects duplicate slugs for the same user', async () => {
