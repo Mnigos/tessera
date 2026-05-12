@@ -34,6 +34,9 @@
           "arguments": ["biome", "format", "--stdin-file-path", "{buffer_path}"]
         }
       }
+    },
+    "Rust": {
+      "tab_size": 4
     }
   }
 }
