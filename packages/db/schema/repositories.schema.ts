@@ -2,6 +2,7 @@ import type {
 	OrganizationId,
 	RepositoryId,
 	RepositoryName,
+	RepositorySlug,
 	RepositoryVisibility,
 	UserId,
 } from '@repo/domain'
@@ -27,6 +28,7 @@ export const repositories = pgTable(
 	'repositories',
 	{
 		id: uuid('id').primaryKey().defaultRandom().$type<RepositoryId>(),
+		slug: text('slug').notNull().$type<RepositorySlug>(),
 		name: text('name').notNull().$type<RepositoryName>(),
 		description: text('description'),
 		visibility: repositoryVisibilityEnum('visibility')
@@ -52,13 +54,13 @@ export const repositories = pgTable(
 		index('repositories_owner_organization_id_idx').on(
 			table.ownerOrganizationId
 		),
-		unique('repositories_owner_user_name_unique').on(
+		unique('repositories_owner_user_slug_unique').on(
 			table.ownerUserId,
-			table.name
+			table.slug
 		),
-		unique('repositories_owner_organization_name_unique').on(
+		unique('repositories_owner_organization_slug_unique').on(
 			table.ownerOrganizationId,
-			table.name
+			table.slug
 		),
 	]
 )
