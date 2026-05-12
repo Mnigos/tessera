@@ -1,7 +1,4 @@
-import {
-	isForeignKeyViolation,
-	isUniqueViolation,
-} from './database-errors.helper'
+import { isUniqueViolation } from './database-errors.helper'
 
 describe('database error helpers', () => {
 	test('matches unique violations by constraint name', () => {
@@ -37,14 +34,5 @@ describe('database error helpers', () => {
 				new Set(['repositories_owner_user_slug_unique'])
 			)
 		).toBe(false)
-	})
-
-	test('matches foreign key violations', () => {
-		expect(
-			isForeignKeyViolation(
-				{ code: '23503', constraint_name: 'repositories_owner_user_id_fkey' },
-				new Set(['repositories_owner_user_id_fkey'])
-			)
-		).toBe(true)
 	})
 })

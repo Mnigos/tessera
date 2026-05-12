@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { eq, repositories } from '@repo/db'
 import type { RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
+import { RepositoryCreateFailedError } from '../domain/repository.errors'
 import { RepositoriesRepository } from './repositories.repository'
 
 describe(RepositoriesRepository.name, () => {
@@ -98,5 +99,18 @@ describe(RepositoriesRepository.name, () => {
 			})
 		)
 		expect(findFirstRepositoryMock).not.toHaveBeenCalled()
+	})
+
+	test('throws a domain error when insert returning is empty', async () => {
+		returningMock.mockResolvedValue([])
+
+		await expect(
+			repositoriesRepository.create({
+				userId: mockUserId,
+				name: 'Notes' as RepositoryName,
+				slug: 'notes' as RepositorySlug,
+				username: 'marta',
+			})
+		).rejects.toBeInstanceOf(RepositoryCreateFailedError)
 	})
 })

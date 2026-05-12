@@ -9,6 +9,7 @@ import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import { toRepositoryOutput } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
 import {
@@ -33,7 +34,7 @@ export class RepositoriesService {
 		currentUsername: string | undefined,
 		{ description, visibility, ...input }: CreateRepositoryInput
 	): Promise<RepositoryWithOwner> {
-		if (!currentUsername) throw new RepositoryNotFoundError()
+		if (!currentUsername) throw new RepositoryCreatorUsernameRequiredError()
 
 		const name = normalizeRepositoryName(input.name)
 		const slug = normalizeRepositorySlug(input.slug ?? input.name)

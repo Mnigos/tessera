@@ -23,4 +23,5 @@ FROM normalized_repositories
 WHERE "repositories"."id" = normalized_repositories."id";--> statement-breakpoint
 ALTER TABLE "repositories" ALTER COLUMN "slug" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "repositories" ADD CONSTRAINT "repositories_owner_user_slug_unique" UNIQUE("owner_user_id","slug");--> statement-breakpoint
-ALTER TABLE "repositories" ADD CONSTRAINT "repositories_owner_organization_slug_unique" UNIQUE("owner_organization_id","slug");
+ALTER TABLE "repositories" ADD CONSTRAINT "repositories_owner_organization_slug_unique" UNIQUE("owner_organization_id","slug");--> statement-breakpoint
+ALTER TABLE "repositories" ADD CONSTRAINT "repositories_exactly_one_owner_check" CHECK (((case when "owner_user_id" is not null then 1 else 0 end) + (case when "owner_organization_id" is not null then 1 else 0 end)) = 1);

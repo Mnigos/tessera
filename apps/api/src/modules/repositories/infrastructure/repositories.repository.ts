@@ -11,6 +11,7 @@ import {
 	type RepositoryWithOwner,
 	toRepositoryWithOwner,
 } from '../domain/repository'
+import { RepositoryCreateFailedError } from '../domain/repository.errors'
 
 interface UserParams {
 	userId: UserId
@@ -92,7 +93,7 @@ export class RepositoriesRepository {
 				updatedAt: repositories.updatedAt,
 			})
 
-		if (!repository) throw new Error('Failed to create repository')
+		if (!repository) throw new RepositoryCreateFailedError()
 
 		return {
 			...repository,

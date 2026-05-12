@@ -6,8 +6,9 @@ import type {
 	RepositoryVisibility,
 	UserId,
 } from '@repo/domain'
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
+	check,
 	index,
 	pgEnum,
 	pgTable,
@@ -61,6 +62,10 @@ export const repositories = pgTable(
 		unique('repositories_owner_organization_slug_unique').on(
 			table.ownerOrganizationId,
 			table.slug
+		),
+		check(
+			'repositories_exactly_one_owner_check',
+			sql`((case when ${table.ownerUserId} is not null then 1 else 0 end) + (case when ${table.ownerOrganizationId} is not null then 1 else 0 end)) = 1`
 		),
 	]
 )

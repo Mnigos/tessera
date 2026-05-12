@@ -1,4 +1,9 @@
-import { BadRequestError, ConflictError, NotFoundError } from '~/shared/errors'
+import {
+	BadRequestError,
+	ConflictError,
+	InternalError,
+	NotFoundError,
+} from '~/shared/errors'
 
 export class InvalidRepositoryNameError extends BadRequestError {
 	constructor(name: string) {
@@ -15,6 +20,20 @@ export class InvalidRepositorySlugError extends BadRequestError {
 export class DuplicateRepositorySlugError extends ConflictError {
 	constructor(slug: string) {
 		super('repository slug', { slug })
+	}
+}
+
+export class RepositoryCreatorUsernameRequiredError extends BadRequestError {
+	constructor() {
+		super(
+			'repository creator username',
+			{
+				field: 'username',
+				location: 'session',
+				reason: 'missing_session_username',
+			},
+			'Repository creator username is required'
+		)
 	}
 }
 
@@ -35,5 +54,11 @@ export class RepositoryOwnerUsernameRequiredError extends BadRequestError {
 export class RepositoryNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super('repository', context)
+	}
+}
+
+export class RepositoryCreateFailedError extends InternalError {
+	constructor() {
+		super('repository create')
 	}
 }
