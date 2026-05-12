@@ -1,9 +1,14 @@
 import { ORPCError, safe } from '@orpc/client'
-import { Avatar } from '@repo/ui/components/avatar'
 import { createFileRoute, notFound } from '@tanstack/react-router'
+import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { CreateRepositorySection } from '@/modules/repositories/components/create-repository-section'
+import { useRepositoriesListQuery } from '@/modules/repositories/hooks/use-repositories-list.query'
+import {
+	ProfileHeader,
+	ProfileHeaderSkeleton,
+} from '../components/profile-header'
+import { ProfileRepositoriesSection } from '../components/profile-repositories-section'
 import { useProfileQuery } from '../hooks/use-profile.query'
-
-const NOT_FOUND_STATUSES = [404]
 
 export const Route = createFileRoute('/profile/$username')({
 	loader: async ({ context, params }) => {
@@ -15,14 +20,19 @@ export const Route = createFileRoute('/profile/$username')({
 			)
 		)
 
-		if (error instanceof ORPCError && NOT_FOUND_STATUSES.includes(error.status))
-			throw notFound()
+		if (error instanceof ORPCError && error.status === 404) throw notFound()
 
 		if (error) throw error
 
+		const { username, displayName } = profile.user
+
+		await context.queryClient.ensureQueryData(
+			context.orpc.repositories.list.queryOptions({ input: { username } })
+		)
+
 		return {
-			displayName: profile.user.displayName,
-			username: profile.user.username,
+			displayName,
+			username,
 		}
 	},
 	head: ({ loaderData }) => ({
@@ -41,13 +51,17 @@ export const Route = createFileRoute('/profile/$username')({
 
 function ProfileUsernameRoute() {
 	const { username } = Route.useParams()
+	const { user } = useAuth()
 	const profileQuery = useProfileQuery(username)
 	const profile = profileQuery.data?.user
+	const isViewerProfile = user?.username === username
+	const repositoriesQuery = useRepositoriesListQuery(username, isViewerProfile)
 
 	if (profileQuery.isLoading)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
-				<div className="h-24 animate-pulse bg-secondary" />
+				<ProfileHeaderSkeleton />
+				<div className="mt-10 h-48 animate-pulse rounded-md bg-secondary/60" />
 			</main>
 		)
 
@@ -62,29 +76,18 @@ function ProfileUsernameRoute() {
 
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-8">
-			<section className="flex items-center gap-4">
-				{profile.avatarUrl ? (
-					<img
-						alt=""
-						className="size-20 rounded-lg"
-						height="80"
-						src={profile.avatarUrl}
-						width="80"
+			<ProfileHeader profile={profile} />
+			{isViewerProfile && (
+				<section className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+					<ProfileRepositoriesSection
+						isError={repositoriesQuery.isError}
+						isLoading={repositoriesQuery.isLoading}
+						repositories={repositoriesQuery.data?.repositories ?? []}
+						username={username}
 					/>
-				) : (
-					<Avatar
-						className="size-20 rounded-lg"
-						displayName={profile.displayName}
-						size="lg"
-					/>
-				)}
-				<div className="min-w-0">
-					<h1 className="truncate font-semibold text-3xl tracking-normal">
-						{profile.displayName}
-					</h1>
-					<p className="truncate text-muted-foreground">@{profile.username}</p>
-				</div>
-			</section>
+					<CreateRepositorySection username={username} />
+				</section>
+			)}
 		</main>
 	)
 }
