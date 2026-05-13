@@ -14,7 +14,7 @@ use crate::storage::infrastructure::repository_security::reject_symlink;
 #[derive(Clone, Debug)]
 pub struct RepositoryStorage {
     storage_root: PathBuf,
-    git_binary: PathBuf,
+    pub(super) git_binary: PathBuf,
 }
 
 impl RepositoryStorage {
@@ -161,7 +161,6 @@ impl RepositoryStorage {
 
         Ok(())
     }
-
     async fn ensure_repositories_root(&self) -> Result<(), RepositoryError> {
         ensure_repositories_root(&self.storage_root).await
     }
