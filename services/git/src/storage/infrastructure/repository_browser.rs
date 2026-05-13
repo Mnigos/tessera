@@ -75,7 +75,7 @@ impl RepositoryStorage {
 
         let value =
             String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
-        Ok(Some(value.trim_end_matches('\n').to_string()))
+        Ok(Some(value.trim().to_string()))
     }
 
     async fn resolve_default_branch(
@@ -84,17 +84,18 @@ impl RepositoryStorage {
         requested_branch: Option<&str>,
         symbolic_head: Option<&str>,
     ) -> Result<Option<(String, String)>, RepositoryError> {
-        if let Some(branch_name) = requested_branch
-            && let Some(commit_id) = self.resolve_branch(repository_path, branch_name).await?
-        {
-            return Ok(Some((branch_name.to_string(), commit_id)));
+        if let Some(branch_name) = requested_branch {
+            if let Some(commit_id) = self.resolve_branch(repository_path, branch_name).await? {
+                return Ok(Some((branch_name.to_string(), commit_id)));
+            }
         }
 
-        if let Some(branch_name) = symbolic_head
-            && requested_branch != Some(branch_name)
-            && let Some(commit_id) = self.resolve_branch(repository_path, branch_name).await?
-        {
-            return Ok(Some((branch_name.to_string(), commit_id)));
+        if let Some(branch_name) = symbolic_head {
+            if requested_branch != Some(branch_name) {
+                if let Some(commit_id) = self.resolve_branch(repository_path, branch_name).await? {
+                    return Ok(Some((branch_name.to_string(), commit_id)));
+                }
+            }
         }
 
         Ok(None)
@@ -121,7 +122,7 @@ impl RepositoryStorage {
         let commit_id =
             String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
 
-        Ok(Some(commit_id.trim_end_matches('\n').to_string()))
+        Ok(Some(commit_id.trim().to_string()))
     }
 
     async fn root_tree_entries(
@@ -258,11 +259,19 @@ fn validate_git_ref(value: &str) -> Result<(), RepositoryError> {
         || value.starts_with('-')
         || value.starts_with('/')
         || value.ends_with('/')
+        || value.ends_with('.')
+        || value.ends_with(".lock")
         || value.contains('\0')
         || value.contains("..")
         || value.contains("//")
         || value.contains("@{")
         || value.contains('\\')
+        || value.chars().any(|character| {
+            matches!(
+                character,
+                ' ' | '\t' | '\r' | '\n' | '~' | '^' | ':' | '?' | '*' | '['
+            )
+        })
         || value.split('/').any(|part| part == "." || part == "..")
     {
         return Err(RepositoryError::InvalidRepositoryRef);
