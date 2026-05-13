@@ -71,8 +71,8 @@ fn config_has_core_bare_enabled(config: &str) -> bool {
     let mut bare = None;
 
     for line in config.lines().map(str::trim) {
-        if line.starts_with('[') && line.ends_with(']') {
-            in_core_section = line.eq_ignore_ascii_case("[core]");
+        if let Some(section) = parse_section_header(line) {
+            in_core_section = section.eq_ignore_ascii_case("core");
             continue;
         }
 
@@ -103,6 +103,10 @@ fn strip_inline_comment(value: &str) -> &str {
     value
         .split_once([';', '#'])
         .map_or(value, |(before_comment, _)| before_comment)
+}
+
+fn parse_section_header(line: &str) -> Option<&str> {
+    line.strip_prefix('[')?.strip_suffix(']').map(str::trim)
 }
 
 #[cfg(test)]
@@ -138,7 +142,7 @@ mod tests {
     #[test]
     fn config_bare_check_accepts_case_insensitive_git_booleans() {
         let config = r#"
-            [Core]
+            [ Core ]
                 Bare = Yes
         "#;
 
