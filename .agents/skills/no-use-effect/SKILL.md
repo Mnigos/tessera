@@ -227,7 +227,7 @@ function handleMeasuredNode(node: HTMLDivElement | null) {
 return <div ref={handleMeasuredNode}>Content</div>;
 ```
 
-In React 19+, callback refs support cleanup return values. For earlier versions, store cleanup logic in a ref inside a custom hook. If a callback ref becomes expensive, isolate the DOM-owning component instead of adding manual memoization.
+In React 19+, callback refs support cleanup return values. For earlier versions, store cleanup logic in a ref inside a custom hook. Do not wrap callback refs in `useCallback` just to stabilize identity; React Compiler handles ordinary component optimization. If a callback ref becomes expensive, isolate the DOM-owning component instead of adding manual memoization.
 
 ### Subscribing to external stores
 

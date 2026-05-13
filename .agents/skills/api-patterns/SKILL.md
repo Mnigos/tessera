@@ -17,6 +17,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 ## Working Rules
 
 - Controllers bind oRPC contracts to handlers, extract session/auth data, and delegate to services.
+- Name transport-specific controllers with a dot qualifier before `.controller`, such as `git-authorization.grpc.controller.ts`; keep the class name descriptive, such as `GitAuthorizationGrpcController`.
 - Controllers do not contain business logic, repository access, or response reshaping beyond passing contract input onward.
 - Use auth decorators from `@modules/auth`; `@RequireAuth()` is a decorator, not a guard.
 - Use `@AllowAnonymous()` or `@OptionalAuth()` only when the endpoint truly supports anonymous access.
