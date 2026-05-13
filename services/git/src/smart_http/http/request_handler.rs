@@ -1,4 +1,3 @@
-use axum::body;
 use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, Method, Response, StatusCode};
@@ -12,7 +11,6 @@ use crate::smart_http::http::response::{
 };
 
 const SMART_HTTP_BODY_LIMIT_BYTES: usize = 16 * 1024 * 1024;
-const SMART_HTTP_RECEIVE_PACK_BODY_LIMIT_BYTES: usize = 512 * 1024 * 1024;
 
 pub async fn handle_smart_http_root(
     State(service): State<SmartHttpService>,
@@ -92,22 +90,24 @@ async fn handle(
         None
     };
 
-    let body_limit = if is_receive_pack {
-        SMART_HTTP_RECEIVE_PACK_BODY_LIMIT_BYTES
+    let (body, content_length) = if is_receive_pack {
+        (body, content_length(&headers))
     } else {
-        SMART_HTTP_BODY_LIMIT_BYTES
-    };
-    let body = match body::to_bytes(body, body_limit).await {
-        Ok(body) => body,
-        Err(error) => {
-            tracing::warn!(
-                method = %method,
-                path = %request_label,
-                query = ?query,
-                error = %error,
-                "smart_http rejected oversized or invalid body"
-            );
-            return empty_response(StatusCode::PAYLOAD_TOO_LARGE);
+        match axum::body::to_bytes(body, SMART_HTTP_BODY_LIMIT_BYTES).await {
+            Ok(body) => {
+                let content_length = body.len() as u64;
+                (body.into(), Some(content_length))
+            }
+            Err(error) => {
+                tracing::warn!(
+                    method = %method,
+                    path = %request_label,
+                    query = ?query,
+                    error = %error,
+                    "smart_http rejected oversized or invalid body"
+                );
+                return empty_response(StatusCode::PAYLOAD_TOO_LARGE);
+            }
         }
     };
 
@@ -118,6 +118,7 @@ async fn handle(
         path,
         query: query.clone(),
         headers,
+        content_length,
         body,
         basic_credentials,
     };
@@ -207,6 +208,13 @@ fn basic_credentials_for_request(
     parse_basic_authorization_header(header).map(Some)
 }
 
+fn content_length(headers: &HeaderMap) -> Option<u64> {
+    headers
+        .get(http::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse().ok())
+}
+
 fn parse_basic_authorization_header(header: &str) -> Result<BasicCredentials, SmartHttpError> {
     let encoded = header
         .strip_prefix("Basic ")
@@ -286,6 +294,14 @@ mod tests {
             basic_credentials_for_request("git-receive-pack", None, &HeaderMap::new()).unwrap_err();
 
         assert_eq!(error, SmartHttpError::MissingCredentials);
+    }
+
+    #[test]
+    fn parses_content_length_header() {
+        let mut headers = HeaderMap::new();
+        headers.insert(http::header::CONTENT_LENGTH, "42".parse().unwrap());
+
+        assert_eq!(content_length(&headers), Some(42));
     }
 
     #[tokio::test]

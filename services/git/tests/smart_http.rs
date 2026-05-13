@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
-use bytes::Bytes;
+use axum::body::Body;
 use http::{HeaderMap, Method};
 use tempfile::TempDir;
 use tessera_git::RepositoryId;
@@ -148,7 +148,8 @@ fn info_refs_request() -> SmartHttpRequest {
         path: "info/refs".to_string(),
         query: Some("service=git-upload-pack".to_string()),
         headers: HeaderMap::new(),
-        body: Bytes::new(),
+        content_length: Some(0),
+        body: Body::empty(),
         basic_credentials: None,
     }
 }
@@ -161,7 +162,8 @@ fn receive_pack_request(basic_credentials: Option<BasicCredentials>) -> SmartHtt
         path: "git-receive-pack".to_string(),
         query: None,
         headers: HeaderMap::new(),
-        body: Bytes::new(),
+        content_length: Some(0),
+        body: Body::empty(),
         basic_credentials,
     }
 }

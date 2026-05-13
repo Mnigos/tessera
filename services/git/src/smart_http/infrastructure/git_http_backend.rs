@@ -1,6 +1,8 @@
 use std::path::PathBuf;
 
+use axum::body::Body;
 use bytes::Bytes;
+use http_body_util::BodyExt;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
@@ -41,7 +43,10 @@ impl GitHttpBackend {
             .env("REQUEST_METHOD", request.method.to_string())
             .env("PATH_INFO", path_info)
             .env("QUERY_STRING", request.query.unwrap_or_default())
-            .env("CONTENT_LENGTH", request.body.len().to_string())
+            .env(
+                "CONTENT_LENGTH",
+                request.content_length.unwrap_or_default().to_string(),
+            )
             .env(
                 "CONTENT_TYPE",
                 request
@@ -59,11 +64,17 @@ impl GitHttpBackend {
             .spawn()
             .map_err(|_| SmartHttpError::BackendFailed)?;
 
-        if let Some(stdin) = child.stdin.as_mut() {
-            stdin
-                .write_all(&request.body)
-                .await
-                .map_err(|_| SmartHttpError::BackendFailed)?;
+        if let Some(mut stdin) = child.stdin.take() {
+            let mut body = request.body;
+            while let Some(frame) = body.frame().await {
+                let frame = frame.map_err(|_| SmartHttpError::BackendFailed)?;
+                if let Some(data) = frame.data_ref() {
+                    stdin
+                        .write_all(data)
+                        .await
+                        .map_err(|_| SmartHttpError::BackendFailed)?;
+                }
+            }
         }
 
         let output = timeout(Duration::from_secs(30), child.wait_with_output())
@@ -86,7 +97,8 @@ pub struct GitHttpBackendRequest {
     pub path: String,
     pub query: Option<String>,
     pub content_type: Option<String>,
-    pub body: Bytes,
+    pub content_length: Option<u64>,
+    pub body: Body,
     pub remote_user: Option<String>,
 }
 

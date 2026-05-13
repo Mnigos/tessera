@@ -932,6 +932,7 @@ dependencies = [
  "bytes",
  "dotenvy",
  "http",
+ "http-body-util",
  "prost",
  "protoc-bin-vendored",
  "tempfile",

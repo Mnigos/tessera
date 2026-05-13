@@ -8,6 +8,7 @@ import {
 	UnauthorizedError,
 } from '~/shared/errors'
 import { RepositoriesService } from '../application/repositories.service'
+import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
 import { GitAuthorizationGrpcController } from './git-authorization.grpc.controller'
 
 describe(GitAuthorizationGrpcController.name, () => {
@@ -167,13 +168,19 @@ describe(GitAuthorizationGrpcController.name, () => {
 
 	test('maps failed preconditions and unknown errors to grpc statuses', async () => {
 		vi.spyOn(repositoriesService, 'authorizeGitRepositoryWrite')
-			.mockRejectedValueOnce(new InternalError('repository storage path'))
+			.mockRejectedValueOnce(new RepositoryStoragePathMissingError())
 			.mockRejectedValueOnce(new Error('boom'))
+			.mockRejectedValueOnce(new InternalError('repository create'))
 
 		await expect(
 			controller.authorizeWrite(createWriteRequest(), createMetadata())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.FAILED_PRECONDITION }),
+		})
+		await expect(
+			controller.authorizeWrite(createWriteRequest(), createMetadata())
+		).rejects.toMatchObject({
+			error: expect.objectContaining({ code: status.INTERNAL }),
 		})
 		await expect(
 			controller.authorizeWrite(createWriteRequest(), createMetadata())

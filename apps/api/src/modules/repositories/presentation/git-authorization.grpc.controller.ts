@@ -12,6 +12,7 @@ import { GrpcMethod, RpcException } from '@nestjs/microservices'
 import type { RepositorySlug } from '@repo/domain'
 import { DomainError } from '~/shared/errors/domain.error'
 import { RepositoriesService } from '../application/repositories.service'
+import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
 
 @Controller()
 export class GitAuthorizationGrpcController
@@ -74,7 +75,8 @@ function getGrpcStatus(error: unknown) {
 	if (error.code === 'UNAUTHORIZED') return status.UNAUTHENTICATED
 	if (error.code === 'FORBIDDEN') return status.PERMISSION_DENIED
 	if (error.code === 'NOT_FOUND') return status.NOT_FOUND
-	if (error.code === 'INTERNAL_SERVER_ERROR') return status.FAILED_PRECONDITION
+	if (error instanceof RepositoryStoragePathMissingError)
+		return status.FAILED_PRECONDITION
 
 	return status.INTERNAL
 }

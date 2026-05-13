@@ -1,4 +1,5 @@
 use async_trait::async_trait;
+use axum::body::Body;
 use bytes::Bytes;
 use http::{HeaderMap, Method};
 
@@ -109,6 +110,7 @@ where
                     .get(http::header::CONTENT_TYPE)
                     .and_then(|value| value.to_str().ok())
                     .map(str::to_string),
+                content_length: request.content_length,
                 body: request.body,
                 remote_user: authorized.metadata.authenticated_username,
             })
@@ -140,7 +142,8 @@ pub struct SmartHttpRequest {
     pub path: String,
     pub query: Option<String>,
     pub headers: HeaderMap,
-    pub body: Bytes,
+    pub content_length: Option<u64>,
+    pub body: Body,
     pub basic_credentials: Option<BasicCredentials>,
 }
 
