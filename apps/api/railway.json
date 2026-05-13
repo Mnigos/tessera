@@ -13,8 +13,7 @@
       "packages/auth/**",
       "packages/contracts/**",
       "packages/db/**",
-      "packages/domain/**",
-      "packages/storage/**"
+      "packages/domain/**"
     ]
   },
   "deploy": {
