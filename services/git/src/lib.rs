@@ -8,5 +8,8 @@ pub mod proto {
 }
 
 pub use config::Config;
-pub use domain::{RepositoryCreated, RepositoryError, RepositoryId};
+pub use domain::{
+    RepositoryBrowserSummary, RepositoryCreated, RepositoryError, RepositoryId, RepositoryReadme,
+    RepositoryTreeEntry, RepositoryTreeEntryKind,
+};
 pub use storage::{GitStorageApplication, GitStorageGrpcService, RepositoryStorage};
