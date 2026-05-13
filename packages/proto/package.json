@@ -1,0 +1,9 @@
+{
+  "name": "@repo/proto",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "clean": "git clean -xdf .cache .turbo node_modules",
+    "typecheck": "echo \"No TypeScript files to check in proto\""
+  }
+}

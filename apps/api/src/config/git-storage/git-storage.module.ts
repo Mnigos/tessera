@@ -7,7 +7,9 @@ import { TESSERA_GIT_V1_PACKAGE_NAME } from './generated/tessera/git/v1/git_stor
 import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
 
 const GIT_STORAGE_PROTO_RELATIVE_PATH =
-	'services/git/proto/tessera/git/v1/git_storage.proto'
+	'packages/proto/tessera/git/v1/git_storage.proto'
+const GIT_AUTHORIZATION_PROTO_RELATIVE_PATH =
+	'packages/proto/tessera/git/v1/git_authorization.proto'
 
 @Global()
 @Module({
@@ -34,15 +36,23 @@ const GIT_STORAGE_PROTO_RELATIVE_PATH =
 })
 export class GitStorageModule {}
 
-function resolveGitStorageProtoPath() {
+export function resolveGitStorageProtoPath() {
+	return resolveProtoPath(GIT_STORAGE_PROTO_RELATIVE_PATH)
+}
+
+export function resolveGitAuthorizationProtoPath() {
+	return resolveProtoPath(GIT_AUTHORIZATION_PROTO_RELATIVE_PATH)
+}
+
+function resolveProtoPath(relativePath: string) {
 	const candidates = [
-		resolve(process.cwd(), GIT_STORAGE_PROTO_RELATIVE_PATH),
-		resolve(process.cwd(), '../../', GIT_STORAGE_PROTO_RELATIVE_PATH),
+		resolve(process.cwd(), relativePath),
+		resolve(process.cwd(), '../../', relativePath),
 	]
 
 	return (
 		candidates.find(candidate => existsSync(candidate)) ??
 		candidates[0] ??
-		resolve(GIT_STORAGE_PROTO_RELATIVE_PATH)
+		resolve(relativePath)
 	)
 }
