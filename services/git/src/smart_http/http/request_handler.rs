@@ -68,7 +68,9 @@ async fn handle(
     let request_label = format!("{username}/{repo_slug}.git/{path}");
     let is_receive_pack = match is_receive_pack_request(&path, query.as_deref()) {
         Ok(is_receive_pack) => is_receive_pack,
-        Err(error) => return smart_http_error_response(error, &method, &request_label, &query),
+        Err(error) => {
+            return smart_http_error_response(error, &method, &request_label, &query, false);
+        }
     };
     let basic_credentials = match basic_credentials_for_request(is_receive_pack, &headers) {
         Ok(credentials) => credentials,
@@ -87,7 +89,15 @@ async fn handle(
             .await
         {
             Ok(authorized) => Some(authorized),
-            Err(error) => return smart_http_error_response(error, &method, &request_label, &query),
+            Err(error) => {
+                return smart_http_error_response(
+                    error,
+                    &method,
+                    &request_label,
+                    &query,
+                    is_receive_pack,
+                );
+            }
         }
     } else {
         None
@@ -144,7 +154,9 @@ async fn handle(
                 .body(Body::from(response.body))
                 .unwrap_or_else(|_| empty_response(StatusCode::INTERNAL_SERVER_ERROR))
         }
-        Err(error) => smart_http_error_response(error, &method, &request_label, &query),
+        Err(error) => {
+            smart_http_error_response(error, &method, &request_label, &query, is_receive_pack)
+        }
     }
 }
 
@@ -153,6 +165,7 @@ fn smart_http_error_response(
     method: &Method,
     request_label: &str,
     query: &Option<String>,
+    is_receive_pack: bool,
 ) -> Response<Body> {
     let status = smart_http_error_to_status(&error);
     tracing::warn!(
@@ -169,6 +182,10 @@ fn smart_http_error_response(
             | SmartHttpError::InvalidCredentials
             | SmartHttpError::Unauthorized
     ) {
+        if matches!(error, SmartHttpError::Unauthorized) && !is_receive_pack {
+            return empty_response(status);
+        }
+
         basic_auth_challenge_response(error)
     } else {
         empty_response(status)
@@ -310,6 +327,44 @@ mod tests {
         headers.insert(http::header::CONTENT_LENGTH, "42".parse().unwrap());
 
         assert_eq!(content_length(&headers), Some(42));
+    }
+
+    #[test]
+    fn read_authorization_denials_do_not_challenge_for_basic_credentials() {
+        let response = smart_http_error_response(
+            SmartHttpError::Unauthorized,
+            &Method::GET,
+            "mona/repo.git/info/refs",
+            &Some("service=git-upload-pack".to_string()),
+            false,
+        );
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert!(
+            !response
+                .headers()
+                .contains_key(http::header::WWW_AUTHENTICATE)
+        );
+    }
+
+    #[test]
+    fn write_authorization_denials_challenge_for_basic_credentials() {
+        let response = smart_http_error_response(
+            SmartHttpError::Unauthorized,
+            &Method::POST,
+            "mona/repo.git/git-receive-pack",
+            &None,
+            true,
+        );
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_eq!(
+            response
+                .headers()
+                .get(http::header::WWW_AUTHENTICATE)
+                .unwrap(),
+            "Basic realm=\"Tessera Git\""
+        );
     }
 
     #[tokio::test]
