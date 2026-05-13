@@ -1,0 +1,36 @@
+syntax = "proto3";
+
+package tessera.git.v1;
+
+service GitAuthorizationService {
+  rpc AuthorizeRead(AuthorizeReadRequest) returns (AuthorizeReadResponse);
+  rpc AuthorizeWrite(AuthorizeWriteRequest) returns (AuthorizeWriteResponse);
+}
+
+message AuthorizeReadRequest {
+  string owner_username = 1;
+  string repository_slug = 2;
+  string service = 3;
+  string action = 4;
+}
+
+message AuthorizeReadResponse {
+  string repository_id = 1;
+  string storage_path = 2;
+  string trusted_user = 3;
+}
+
+message AuthorizeWriteRequest {
+  string owner_username = 1;
+  string repository_slug = 2;
+  string service = 3;
+  string action = 4;
+  string basic_username = 5;
+  string token = 6;
+}
+
+message AuthorizeWriteResponse {
+  string repository_id = 1;
+  string storage_path = 2;
+  string trusted_user = 3;
+}

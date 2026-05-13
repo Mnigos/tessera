@@ -4,8 +4,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     tonic_prost_build::configure().compile_with_config(
         prost_config,
-        &["proto/tessera/git/v1/git_storage.proto"],
-        &["proto"],
+        &[
+            "../../packages/proto/tessera/git/v1/git_storage.proto",
+            "../../packages/proto/tessera/git/v1/git_authorization.proto",
+        ],
+        &["../../packages/proto"],
     )?;
 
     Ok(())

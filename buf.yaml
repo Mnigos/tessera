@@ -1,8 +1,0 @@
-version: v2
-modules:
-  - path: services/git/proto
-lint:
-  use:
-    - STANDARD
-  except:
-    - PACKAGE_DIRECTORY_MATCH
