@@ -1,6 +1,7 @@
 import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { GitAccessTokensSection } from '@/modules/git-access-tokens/components/git-access-tokens-section'
 import { CreateRepositorySection } from '@/modules/repositories/components/create-repository-section'
 import { useRepositoriesListQuery } from '@/modules/repositories/hooks/use-repositories-list.query'
 import {
@@ -27,9 +28,14 @@ export const Route = createFileRoute('/profile/$username')({
 		const { username, displayName } = profile.user
 
 		if (context.user?.username === username)
-			await context.queryClient.ensureQueryData(
-				context.orpc.repositories.list.queryOptions({ input: { username } })
-			)
+			await Promise.all([
+				context.queryClient.ensureQueryData(
+					context.orpc.repositories.list.queryOptions({ input: { username } })
+				),
+				context.queryClient.ensureQueryData(
+					context.orpc.gitAccessTokens.list.queryOptions()
+				),
+			])
 
 		return {
 			displayName,
@@ -79,15 +85,18 @@ function ProfileUsernameRoute() {
 		<main className="mx-auto max-w-6xl px-6 py-8">
 			<ProfileHeader profile={profile} />
 			{isViewerProfile && (
-				<section className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
-					<ProfileRepositoriesSection
-						isError={repositoriesQuery.isError}
-						isLoading={repositoriesQuery.isLoading}
-						repositories={repositoriesQuery.data?.repositories ?? []}
-						username={username}
-					/>
-					<CreateRepositorySection username={username} />
-				</section>
+				<>
+					<section className="mt-10 grid gap-6 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
+						<ProfileRepositoriesSection
+							isError={repositoriesQuery.isError}
+							isLoading={repositoriesQuery.isLoading}
+							repositories={repositoriesQuery.data?.repositories ?? []}
+							username={username}
+						/>
+						<CreateRepositorySection username={username} />
+					</section>
+					<GitAccessTokensSection enabled={isViewerProfile} />
+				</>
 			)}
 		</main>
 	)

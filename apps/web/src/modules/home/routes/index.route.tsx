@@ -42,7 +42,11 @@ function HomeRoute() {
 
 					<div>
 						{isAuthenticated ? (
-							<Button render={<Link to="/profile" />} size="lg">
+							<Button
+								nativeButton={false}
+								render={<Link to="/profile" />}
+								size="lg"
+							>
 								<Code2 className="size-5" />
 								Open profile
 							</Button>
