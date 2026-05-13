@@ -25,6 +25,7 @@ Required for production:
 - `API_URL`
 - `GITHUB_CLIENT_ID`
 - `GITHUB_CLIENT_SECRET`
+- `INTERNAL_API_TOKEN`
 
 Optional:
 
