@@ -11,6 +11,7 @@ interface CreateGitAccessTokenFormProps {
 	createdToken?: string
 	isError: boolean
 	isPending: boolean
+	onPermissionsError: () => void
 	onSubmit: (input: CreateGitAccessTokenInput, form: HTMLFormElement) => void
 	permissionsError: boolean
 }
@@ -19,15 +20,21 @@ export function CreateGitAccessTokenForm({
 	createdToken,
 	isError,
 	isPending,
+	onPermissionsError,
 	onSubmit,
 	permissionsError,
 }: Readonly<CreateGitAccessTokenFormProps>) {
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()
-		onSubmit(
-			getCreateGitAccessTokenInput(new FormData(event.currentTarget)),
-			event.currentTarget
+		const input = getCreateGitAccessTokenInput(
+			new FormData(event.currentTarget)
 		)
+		if (!input) {
+			onPermissionsError()
+			return
+		}
+
+		onSubmit(input, event.currentTarget)
 	}
 
 	return (
@@ -54,6 +61,7 @@ export function CreateGitAccessTokenForm({
 					<input
 						className="h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
 						id="git-token-name"
+						maxLength={64}
 						name="name"
 						placeholder="optional"
 					/>

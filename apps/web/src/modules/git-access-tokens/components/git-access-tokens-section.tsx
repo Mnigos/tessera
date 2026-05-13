@@ -27,11 +27,6 @@ export function GitAccessTokensSection({
 		input: CreateGitAccessTokenInput,
 		form: HTMLFormElement
 	) {
-		if (input.permissions.length === 0) {
-			setPermissionsError(true)
-			return
-		}
-
 		setPermissionsError(false)
 		createAccessToken.mutate(input, {
 			onSuccess: ({ token }) => {
@@ -58,6 +53,7 @@ export function GitAccessTokensSection({
 				createdToken={createdToken}
 				isError={createAccessToken.isError}
 				isPending={createAccessToken.isPending}
+				onPermissionsError={() => setPermissionsError(true)}
 				onSubmit={handleSubmit}
 				permissionsError={permissionsError}
 			/>

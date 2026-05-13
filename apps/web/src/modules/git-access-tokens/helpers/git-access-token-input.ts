@@ -11,6 +11,8 @@ export function getCreateGitAccessTokenInput(formData: FormData) {
 		selectedPermissions.includes(permission)
 	)
 
+	if (permissions.length === 0) return undefined
+
 	return {
 		name: name || undefined,
 		permissions: permissions as [

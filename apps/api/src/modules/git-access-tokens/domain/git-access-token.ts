@@ -1,17 +1,24 @@
 import type { GitAccessToken } from '@repo/contracts'
 import type { ApiKey } from '@repo/db'
 
-type GitAccessTokenId = GitAccessToken['id']
-
-function parseRecord(
-	value: string | null
+export function parseRecord(
+	value: unknown
 ): Record<string, string[]> | undefined {
 	if (!value) return undefined
 
 	try {
-		const parsed = JSON.parse(value) as unknown
+		const parsed =
+			typeof value === 'string' ? (JSON.parse(value) as unknown) : value
 		if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
 			return undefined
+
+		const entries = Object.entries(parsed)
+		const isValid = entries.every(
+			([, actions]) =>
+				Array.isArray(actions) &&
+				actions.every(action => typeof action === 'string')
+		)
+		if (!isValid) return undefined
 
 		return parsed as Record<string, string[]>
 	} catch {
@@ -21,7 +28,7 @@ function parseRecord(
 
 export function toGitAccessTokenOutput(apiKey: ApiKey): GitAccessToken {
 	return {
-		id: apiKey.id as GitAccessTokenId,
+		id: apiKey.id,
 		name: apiKey.name ?? undefined,
 		prefix: apiKey.prefix ?? undefined,
 		start: apiKey.start ?? undefined,

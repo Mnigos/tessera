@@ -8,7 +8,7 @@ export type GitAccessTokenPermission = z.infer<
 >
 
 export const gitAccessTokenSchema = z.object({
-	id: z.uuid().brand<'git_access_token_id'>(),
+	id: z.uuid().brand<'apikey_id'>(),
 	name: z.string().optional(),
 	prefix: z.string().optional(),
 	start: z.string().optional(),
@@ -39,7 +39,7 @@ export type CreateGitAccessTokenOutput = z.infer<
 >
 
 export const revokeGitAccessTokenInputSchema = z.object({
-	id: z.uuid().brand<'git_access_token_id'>(),
+	id: z.uuid().brand<'apikey_id'>(),
 })
 export type RevokeGitAccessTokenInput = z.infer<
 	typeof revokeGitAccessTokenInputSchema

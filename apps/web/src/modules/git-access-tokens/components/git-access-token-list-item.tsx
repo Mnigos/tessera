@@ -23,7 +23,7 @@ export function GitAccessTokenListItem({
 					{getAccessTokenMetadata(accessToken)}
 				</p>
 				<p className="text-muted-foreground text-xs">
-					Created {accessToken.createdAt.toLocaleDateString()}
+					Created {formatAccessTokenDate(accessToken.createdAt)}
 				</p>
 			</div>
 			<Button
@@ -38,6 +38,10 @@ export function GitAccessTokenListItem({
 			</Button>
 		</div>
 	)
+}
+
+function formatAccessTokenDate(date: Date) {
+	return date.toISOString().split('T')[0]
 }
 
 function getAccessTokenMetadata(accessToken: GitAccessToken) {

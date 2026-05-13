@@ -1,4 +1,4 @@
-import type { UserId } from '@repo/domain'
+import type { ApiKeyId, UserId } from '@repo/domain'
 import { relations } from 'drizzle-orm'
 import {
 	boolean,
@@ -7,6 +7,7 @@ import {
 	pgTable,
 	text,
 	timestamp,
+	uniqueIndex,
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { invitation, member } from './organizations.schema'
@@ -110,7 +111,7 @@ export type NewVerification = typeof verification.$inferInsert
 export const apikey = pgTable(
 	'apikey',
 	{
-		id: uuid('id').primaryKey().defaultRandom(),
+		id: uuid('id').primaryKey().defaultRandom().$type<ApiKeyId>(),
 		configId: text('config_id').notNull(),
 		name: text('name'),
 		start: text('start'),
@@ -141,8 +142,13 @@ export const apikey = pgTable(
 	},
 	table => [
 		index('apikey_config_id_idx').on(table.configId),
-		index('apikey_key_idx').on(table.key),
+		uniqueIndex('apikey_key_idx').on(table.key),
 		index('apikey_reference_id_idx').on(table.referenceId),
+		index('apikey_reference_config_enabled_idx').on(
+			table.referenceId,
+			table.configId,
+			table.enabled
+		),
 	]
 )
 
