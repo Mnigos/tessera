@@ -1,13 +1,15 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use tokio::fs;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{RepositoryCreated, RepositoryError, RepositoryId};
-use crate::infrastructure::bare_repository::is_bare_repository;
-use crate::infrastructure::repository_paths::{normalize_root, repositories_root, repository_path};
-use crate::infrastructure::repository_security::reject_symlink;
+use crate::storage::infrastructure::bare_repository::is_bare_repository;
+use crate::storage::infrastructure::repository_paths::{
+    normalize_root, repositories_root, repository_path,
+};
+use crate::storage::infrastructure::repository_security::reject_symlink;
 
 #[derive(Clone, Debug)]
 pub struct RepositoryStorage {
@@ -34,6 +36,10 @@ impl RepositoryStorage {
         repository_id: &RepositoryId,
     ) -> Result<RepositoryCreated, RepositoryError> {
         let repository_path = repository_path(&self.storage_root, repository_id);
+        eprintln!(
+            "[tessera-git] creating repository repository_id={repository_id} path={}",
+            repository_path.display()
+        );
         self.ensure_repositories_root().await?;
 
         if let Ok(metadata) = fs::symlink_metadata(&repository_path).await
@@ -50,6 +56,7 @@ impl RepositoryStorage {
         {
             if is_bare_repository(&repository_path, &repositories_root).await? {
                 return Ok(RepositoryCreated {
+                    storage_path: repository_path.display().to_string(),
                     path: repository_path,
                     created: false,
                 });
@@ -68,10 +75,58 @@ impl RepositoryStorage {
             return Err(error);
         }
 
+        let storage_path = repository_path.display().to_string();
+        eprintln!(
+            "[tessera-git] repository created repository_id={repository_id} storage_path={storage_path}"
+        );
+
         Ok(RepositoryCreated {
             path: repository_path,
+            storage_path,
             created: true,
         })
+    }
+
+    pub async fn existing_bare_repository_path(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+    ) -> Result<PathBuf, RepositoryError> {
+        let repository_id = RepositoryId::parse(repository_id)?;
+        let repository_path = repository_path(&self.storage_root, &repository_id);
+        eprintln!(
+            "[tessera-git] resolving repository repository_id={repository_id} storage_path={storage_path} path={}",
+            repository_path.display()
+        );
+
+        if storage_path != repository_path.display().to_string() {
+            return Err(RepositoryError::StoragePathMismatch);
+        }
+
+        self.ensure_repositories_root().await?;
+
+        if !fs::try_exists(&repository_path)
+            .await
+            .map_err(RepositoryError::StorageIo)?
+        {
+            return Err(RepositoryError::ExistingPathNotBare);
+        }
+
+        let repositories_root = repositories_root(&self.storage_root);
+
+        if !is_bare_repository(&repository_path, &repositories_root).await? {
+            eprintln!(
+                "[tessera-git] repository path is not bare repository repository_id={repository_id} path={}",
+                repository_path.display()
+            );
+            return Err(RepositoryError::ExistingPathNotBare);
+        }
+
+        eprintln!(
+            "[tessera-git] repository ready repository_id={repository_id} path={}",
+            repository_path.display()
+        );
+        Ok(repository_path)
     }
 
     async fn initialize_created_repository(
@@ -94,45 +149,60 @@ impl RepositoryStorage {
             return Err(RepositoryError::GitProcessFailed);
         }
 
-        let repositories_root = repositories_root(&self.storage_root);
-
-        if !is_bare_repository(&repository_path, &repositories_root).await? {
-            return Err(RepositoryError::GitProcessFailed);
-        }
+        self.ensure_bare_repository_in_root(&self.storage_root, repository_path)
+            .await?;
 
         Ok(())
     }
 
     async fn ensure_repositories_root(&self) -> Result<(), RepositoryError> {
-        fs::create_dir_all(&self.storage_root)
-            .await
-            .map_err(RepositoryError::StorageIo)?;
+        ensure_repositories_root(&self.storage_root).await
+    }
 
-        let repositories_root = repositories_root(&self.storage_root);
+    async fn ensure_bare_repository_in_root(
+        &self,
+        storage_root: &Path,
+        repository_path: &PathBuf,
+    ) -> Result<(), RepositoryError> {
+        let repositories_root = repositories_root(storage_root);
 
-        if let Ok(metadata) = fs::symlink_metadata(&repositories_root).await
-            && metadata.file_type().is_symlink()
-        {
-            return Err(RepositoryError::PathEscapesStorageRoot);
-        }
-
-        fs::create_dir_all(&repositories_root)
-            .await
-            .map_err(RepositoryError::StorageIo)?;
-
-        let canonical_root = fs::canonicalize(&self.storage_root)
-            .await
-            .map_err(RepositoryError::StorageIo)?;
-        let canonical_repositories_root = fs::canonicalize(&repositories_root)
-            .await
-            .map_err(RepositoryError::StorageIo)?;
-
-        if !canonical_repositories_root.starts_with(canonical_root) {
-            return Err(RepositoryError::PathEscapesStorageRoot);
+        if !is_bare_repository(repository_path, &repositories_root).await? {
+            return Err(RepositoryError::GitProcessFailed);
         }
 
         Ok(())
     }
+}
+
+async fn ensure_repositories_root(storage_root: &Path) -> Result<(), RepositoryError> {
+    fs::create_dir_all(storage_root)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
+
+    let repositories_root = repositories_root(storage_root);
+
+    if let Ok(metadata) = fs::symlink_metadata(&repositories_root).await
+        && metadata.file_type().is_symlink()
+    {
+        return Err(RepositoryError::PathEscapesStorageRoot);
+    }
+
+    fs::create_dir_all(&repositories_root)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
+
+    let canonical_root = fs::canonicalize(storage_root)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
+    let canonical_repositories_root = fs::canonicalize(&repositories_root)
+        .await
+        .map_err(RepositoryError::StorageIo)?;
+
+    if !canonical_repositories_root.starts_with(canonical_root) {
+        return Err(RepositoryError::PathEscapesStorageRoot);
+    }
+
+    Ok(())
 }
 
 async fn cleanup_created_repository(repository_path: &PathBuf) {

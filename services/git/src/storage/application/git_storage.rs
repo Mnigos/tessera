@@ -1,5 +1,5 @@
 use crate::domain::{RepositoryCreated, RepositoryError, RepositoryId};
-use crate::infrastructure::RepositoryStorage;
+use crate::storage::infrastructure::RepositoryStorage;
 
 #[derive(Clone, Debug)]
 pub struct GitStorageApplication {
