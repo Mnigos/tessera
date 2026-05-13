@@ -85,7 +85,7 @@ fn config_has_core_bare_enabled(config: &str) -> bool {
         };
 
         if key.trim().eq_ignore_ascii_case("bare") {
-            bare = Some(is_git_truthy(value.trim()));
+            bare = Some(is_git_truthy(strip_inline_comment(value).trim()));
         }
     }
 
@@ -97,6 +97,12 @@ fn is_git_truthy(value: &str) -> bool {
         value.to_ascii_lowercase().as_str(),
         "true" | "yes" | "on" | "1"
     )
+}
+
+fn strip_inline_comment(value: &str) -> &str {
+    value
+        .split_once([';', '#'])
+        .map_or(value, |(before_comment, _)| before_comment)
 }
 
 #[cfg(test)]
@@ -134,6 +140,17 @@ mod tests {
         let config = r#"
             [Core]
                 Bare = Yes
+        "#;
+
+        assert!(config_has_core_bare_enabled(config));
+    }
+
+    #[test]
+    fn config_bare_check_ignores_inline_comments() {
+        let config = r#"
+            [core]
+                bare = true ; repository is bare
+                bare = on # last value wins
         "#;
 
         assert!(config_has_core_bare_enabled(config));

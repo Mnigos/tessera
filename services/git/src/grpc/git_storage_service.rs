@@ -52,8 +52,11 @@ impl GitStorageService for GitStorageGrpcService {
 
 fn repository_error_to_status(error: RepositoryError) -> Status {
     match error {
-        RepositoryError::InvalidRepositoryId | RepositoryError::PathEscapesStorageRoot => {
+        RepositoryError::InvalidRepositoryId => {
             Status::invalid_argument("repository_id must be an opaque UUID")
+        }
+        RepositoryError::PathEscapesStorageRoot => {
+            Status::internal("repository storage path failed safety validation")
         }
         RepositoryError::ExistingPathNotBare => {
             Status::failed_precondition("repository path exists but is not a bare git repository")
