@@ -5,6 +5,7 @@ package tessera.git.v1;
 service GitStorageService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
+  rpc GetRepositoryBrowserSummary(GetRepositoryBrowserSummaryRequest) returns (GetRepositoryBrowserSummaryResponse);
 }
 
 message HealthRequest {}
@@ -19,4 +20,41 @@ message CreateRepositoryRequest {
 
 message CreateRepositoryResponse {
   string storage_path = 1;
+}
+
+message GetRepositoryBrowserSummaryRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string default_branch = 3;
+}
+
+message GetRepositoryBrowserSummaryResponse {
+  bool is_empty = 1;
+  string default_branch = 2;
+  repeated RepositoryTreeEntry root_entries = 3;
+  RepositoryReadme readme = 4;
+}
+
+message RepositoryTreeEntry {
+  string name = 1;
+  string object_id = 2;
+  RepositoryTreeEntryKind kind = 3;
+  uint64 size_bytes = 4;
+  string path = 5;
+  string mode = 6;
+}
+
+enum RepositoryTreeEntryKind {
+  REPOSITORY_TREE_ENTRY_KIND_UNSPECIFIED = 0;
+  REPOSITORY_TREE_ENTRY_KIND_FILE = 1;
+  REPOSITORY_TREE_ENTRY_KIND_DIRECTORY = 2;
+  REPOSITORY_TREE_ENTRY_KIND_SYMLINK = 3;
+  REPOSITORY_TREE_ENTRY_KIND_SUBMODULE = 4;
+}
+
+message RepositoryReadme {
+  string filename = 1;
+  string object_id = 2;
+  bytes content = 3;
+  bool is_truncated = 4;
 }
