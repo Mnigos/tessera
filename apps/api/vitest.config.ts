@@ -22,6 +22,7 @@ export default defineConfig({
 			GITHUB_CLIENT_ID: 'test-github-client-id',
 			GITHUB_CLIENT_SECRET: 'test-github-client-secret',
 			REDIS_URL: 'redis://localhost:6379',
+			INTERNAL_API_TOKEN: 'test-internal-token',
 		},
 		coverage: {
 			include: [

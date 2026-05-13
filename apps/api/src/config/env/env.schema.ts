@@ -9,7 +9,7 @@ export const envSchema = z.object({
 	DB_SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().positive().default(250),
 	REDIS_URL: z.string().default('redis://localhost:6379'),
 	GIT_SERVICE_URL: z.string().default('localhost:50051'),
-	INTERNAL_API_TOKEN: z.string().min(1).optional(),
+	INTERNAL_API_TOKEN: z.string().min(1),
 	CACHE_REDIS_DB: z.coerce.number().int().min(0).default(1),
 	BULL_BOARD_PATH: z.string().default('/admin/queues'),
 	BULL_BOARD_USERNAME: z.string().optional(),
