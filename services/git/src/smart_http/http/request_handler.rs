@@ -4,7 +4,7 @@ use axum::http::{HeaderMap, Method, Response, StatusCode};
 use base64::Engine;
 
 use crate::smart_http::application::{SmartHttpAuthorizationContext, SmartHttpRequest};
-use crate::smart_http::domain::{BasicCredentials, SmartHttpError};
+use crate::smart_http::domain::{BasicCredentials, SmartHttpError, query_service};
 use crate::smart_http::http::SmartHttpService;
 use crate::smart_http::http::response::{
     basic_auth_challenge_response, empty_response, smart_http_error_to_status,
@@ -210,24 +210,6 @@ fn basic_credentials_for_request(
         .map_err(|_| SmartHttpError::InvalidCredentials)?;
 
     parse_basic_authorization_header(header).map(Some)
-}
-
-fn query_service(query: Option<&str>) -> Result<Option<&str>, SmartHttpError> {
-    let Some(query) = query else {
-        return Ok(None);
-    };
-    let mut services = query.split('&').filter_map(|part| {
-        let (key, value) = part.split_once('=')?;
-
-        (key == "service").then_some(value)
-    });
-    let service = services.next();
-
-    if services.next().is_some() {
-        return Err(SmartHttpError::UnsupportedService);
-    }
-
-    Ok(service)
 }
 
 fn content_length(headers: &HeaderMap) -> Option<u64> {
