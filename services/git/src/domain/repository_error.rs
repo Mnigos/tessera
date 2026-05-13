@@ -5,6 +5,7 @@ pub enum RepositoryError {
     InvalidRepositoryId,
     PathEscapesStorageRoot,
     ExistingPathNotBare,
+    StoragePathMismatch,
     StorageIo(std::io::Error),
     GitProcessIo(std::io::Error),
     GitProcessFailed,
@@ -19,6 +20,12 @@ impl fmt::Display for RepositoryError {
             }
             Self::ExistingPathNotBare => {
                 write!(formatter, "repository path exists but is not bare")
+            }
+            Self::StoragePathMismatch => {
+                write!(
+                    formatter,
+                    "repository storage path does not match storage root"
+                )
             }
             Self::StorageIo(error) => write!(formatter, "storage I/O failed: {error}"),
             Self::GitProcessIo(error) => write!(formatter, "git process I/O failed: {error}"),
