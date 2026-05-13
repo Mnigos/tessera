@@ -48,6 +48,11 @@ impl GitHttpBackend {
                     .content_type
                     .unwrap_or_else(|| "application/x-git-upload-pack-request".to_string()),
             )
+            .envs(
+                request
+                    .remote_user
+                    .map(|remote_user| ("REMOTE_USER", remote_user)),
+            )
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::null())
@@ -82,6 +87,7 @@ pub struct GitHttpBackendRequest {
     pub query: Option<String>,
     pub content_type: Option<String>,
     pub body: Bytes,
+    pub remote_user: Option<String>,
 }
 
 fn parse_cgi_response(output: Bytes) -> Result<SmartHttpResponse, SmartHttpError> {
