@@ -54,6 +54,36 @@ export const getRepositoryInputSchema = z.object({
 })
 export type GetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
 
+export const repositoryTreeEntrySchema = z.object({
+	name: z.string(),
+	objectId: z.string(),
+	kind: z.enum(['file', 'directory', 'symlink', 'submodule', 'unknown']),
+	sizeBytes: z.number().int().nonnegative(),
+	path: z.string(),
+	mode: z.string(),
+})
+export type RepositoryTreeEntry = z.infer<typeof repositoryTreeEntrySchema>
+
+export const repositoryReadmeSchema = z.object({
+	filename: z.string(),
+	objectId: z.string(),
+	content: z.string(),
+	isTruncated: z.boolean(),
+})
+export type RepositoryReadme = z.infer<typeof repositoryReadmeSchema>
+
+export const repositoryBrowserSummarySchema = z.object({
+	repository: repositorySchema,
+	owner: repositoryOwnerSchema,
+	isEmpty: z.boolean(),
+	defaultBranch: z.string(),
+	rootEntries: z.array(repositoryTreeEntrySchema),
+	readme: repositoryReadmeSchema.optional(),
+})
+export type RepositoryBrowserSummary = z.infer<
+	typeof repositoryBrowserSummarySchema
+>
+
 export const repositoriesContract = {
 	create: oc
 		.route({ method: 'POST', path: '/repositories' })
@@ -67,4 +97,11 @@ export const repositoriesContract = {
 		.route({ method: 'GET', path: '/repositories/{username}/{slug}' })
 		.input(getRepositoryInputSchema)
 		.output(repositoryWithOwnerSchema),
+	getBrowserSummary: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/browser',
+		})
+		.input(getRepositoryInputSchema)
+		.output(repositoryBrowserSummarySchema),
 }

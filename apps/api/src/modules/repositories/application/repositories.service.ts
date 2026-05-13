@@ -5,6 +5,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	GetRepositoryInput,
+	RepositoryBrowserSummary,
 	RepositoryWithOwner,
 } from '@repo/contracts'
 import type {
@@ -139,6 +140,42 @@ export class RepositoriesService {
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
 		return toRepositoryOutput(repository)
+	}
+
+	async getBrowserSummary(
+		viewerUserId: UserId | undefined,
+		{ slug, username }: GetRepositoryInput
+	): Promise<RepositoryBrowserSummary> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (
+			repository.visibility === 'private' &&
+			repository.ownerUserId !== viewerUserId
+		)
+			throw new RepositoryNotFoundError({ slug, username })
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		const browserSummary =
+			await this.gitStorageClient.getRepositoryBrowserSummary({
+				repositoryId: repository.id,
+				storagePath: repository.storagePath,
+				defaultBranch: repository.defaultBranch,
+			})
+		const repositoryOutput = toRepositoryOutput(repository)
+
+		return {
+			...repositoryOutput,
+			...browserSummary,
+		}
 	}
 
 	async authorizeGitRepositoryRead({
