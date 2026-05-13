@@ -4,7 +4,6 @@ import { GitStorageModule } from '@config/git-storage'
 import { QueueModule } from '@config/queue'
 import { RedisModule } from '@config/redis'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
-import { StorageModule } from '@config/storage'
 import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
 import { HealthModule } from '@modules/health'
@@ -20,7 +19,6 @@ import { APP_FILTER } from '@nestjs/core'
 		GitStorageModule,
 		RedisModule,
 		QueueModule,
-		StorageModule,
 		RPCModule,
 		AuthModule,
 		UserModule,

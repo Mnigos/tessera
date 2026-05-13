@@ -43,7 +43,6 @@
         "@repo/contracts": "workspace:*",
         "@repo/db": "workspace:*",
         "@repo/domain": "workspace:*",
-        "@repo/storage": "workspace:*",
         "@scalar/core": "^0.3.37",
         "@thallesp/nestjs-better-auth": "^2.6.0",
         "better-auth": "^1.6.9",
@@ -165,18 +164,6 @@
     "packages/domain": {
       "name": "@repo/domain",
       "dependencies": {
-        "zod": "catalog:",
-      },
-      "devDependencies": {
-        "@repo/typescript-config": "*",
-        "@types/bun": "catalog:",
-        "typescript": "catalog:",
-      },
-    },
-    "packages/storage": {
-      "name": "@repo/storage",
-      "dependencies": {
-        "@t3-oss/env-core": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {
@@ -742,8 +729,6 @@
     "@repo/domain": ["@repo/domain@workspace:packages/domain"],
 
     "@repo/git-service": ["@repo/git-service@workspace:services/git"],
-
-    "@repo/storage": ["@repo/storage@workspace:packages/storage"],
 
     "@repo/tailwind-config": ["@repo/tailwind-config@workspace:tooling/tailwind-config"],
 

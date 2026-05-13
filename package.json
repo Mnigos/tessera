@@ -35,8 +35,6 @@
     "docker:postgres:down": "docker compose down",
     "docker:redis": "docker compose up --build -V redis -d",
     "docker:redis:down": "docker compose down",
-    "docker:minio": "docker compose up --build -V minio -d",
-    "docker:minio:down": "docker compose down",
     "clean": "git clean -xdf node_modules",
     "clean:workspaces": "turbo run clean",
     "prepare": "husky",

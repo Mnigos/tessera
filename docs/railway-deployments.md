@@ -10,7 +10,7 @@ Tessera deploys as two Railway app services plus managed data services.
 | Web | `/apps/web/railway.json` | `/` | `/` |
 | Postgres | Railway Postgres plugin | n/a | n/a |
 | Redis | Railway Redis plugin | n/a | n/a |
-| Object storage | MinIO or S3-compatible provider | n/a | n/a |
+| Git storage | Railway Volume attached to the Git service | n/a | n/a |
 
 Keep both app services rooted at `/`. The build and start commands use root workspace scripts such as `bun run build:api` and `bun run start:web`.
 
@@ -25,15 +25,6 @@ Required for production:
 - `API_URL`
 - `GITHUB_CLIENT_ID`
 - `GITHUB_CLIENT_SECRET`
-
-Storage variables:
-
-- `S3_ENDPOINT`
-- `S3_BUCKET`
-- `S3_ACCESS_KEY_ID`
-- `S3_SECRET_ACCESS_KEY`
-- `S3_REGION`
-- `S3_FORCE_PATH_STYLE`
 
 Optional:
 

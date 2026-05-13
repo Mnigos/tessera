@@ -11,7 +11,7 @@ Open source Git collaboration platform scaffold.
 - Drizzle + Postgres schema package
 - Better Auth with GitHub social login
 - Redis/BullMQ queue foundation
-- MinIO/S3-compatible storage package
+- Rust Git service with filesystem-backed repository storage
 - Shared domain primitives and UI package
 
 ## Getting Started

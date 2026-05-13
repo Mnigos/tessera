@@ -44,12 +44,12 @@ Completed:
 - `packages/db` uses Drizzle and Postgres.
 - `packages/domain` contains branded IDs and domain primitives.
 - `packages/ui` copied from `game-notes`.
-- `packages/storage` copied/adapted from `rigtch-fm`.
+- Git repositories use filesystem-backed storage.
 - `services/git` placeholder exists.
 - GitHub social login configured in Better Auth.
 - Web `/api/auth/*` proxy route preserved.
 - Postgres, Redis, BullMQ, and S3-compatible storage setup exists.
-- Docker Compose exists for API, Postgres, Redis, and MinIO.
+- Docker Compose exists for API, Postgres, and Redis.
 - Railway configs exist for API and web.
 - Initial Drizzle migration generated.
 - `SPEC.md`, `PLAN.md`, `PRODUCT.md`, `DESIGN.md`, `README.md`, and Railway docs exist.
