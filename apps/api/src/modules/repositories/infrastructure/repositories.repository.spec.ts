@@ -1,6 +1,6 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { eq, repositories } from '@repo/db'
+import { and, eq, repositories } from '@repo/db'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
@@ -15,6 +15,11 @@ describe(RepositoriesRepository.name, () => {
 	const insertMock = vi.fn()
 	const updateMock = vi.fn()
 	const deleteMock = vi.fn()
+	const selectMock = vi.fn()
+	const fromMock = vi.fn()
+	const innerJoinMock = vi.fn()
+	const selectWhereMock = vi.fn()
+	const limitMock = vi.fn()
 	const valuesMock = vi.fn()
 	const setMock = vi.fn()
 	const whereMock = vi.fn()
@@ -44,6 +49,26 @@ describe(RepositoriesRepository.name, () => {
 		setMock.mockReturnValue({ where: whereMock })
 		updateMock.mockReturnValue({ set: setMock })
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
+		limitMock.mockResolvedValue([
+			{
+				id: '00000000-0000-4000-8000-000000000002',
+				slug: 'notes',
+				name: 'Notes',
+				description: null,
+				visibility: 'public',
+				ownerUserId: mockUserId,
+				ownerOrganizationId: null,
+				defaultBranch: 'main',
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+				ownerUsername: 'marta',
+			},
+		])
+		selectWhereMock.mockReturnValue({ limit: limitMock })
+		innerJoinMock.mockReturnValue({ where: selectWhereMock })
+		fromMock.mockReturnValue({ innerJoin: innerJoinMock })
+		selectMock.mockReturnValue({ from: fromMock })
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -60,6 +85,7 @@ describe(RepositoriesRepository.name, () => {
 						insert: insertMock,
 						update: updateMock,
 						delete: deleteMock,
+						select: selectMock,
 					},
 				},
 			],
@@ -119,6 +145,79 @@ describe(RepositoriesRepository.name, () => {
 			})
 		)
 		expect(findFirstRepositoryMock).not.toHaveBeenCalled()
+	})
+
+	test('finds a repository by owner username and slug', async () => {
+		expect(
+			await repositoriesRepository.find({
+				username: 'marta',
+				slug: 'notes' as RepositorySlug,
+			})
+		).toEqual({
+			id: '00000000-0000-4000-8000-000000000002',
+			slug: 'notes',
+			name: 'Notes',
+			description: null,
+			visibility: 'public',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:00:00Z'),
+			ownerUser: { username: 'marta' },
+		})
+		expect(selectMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				id: repositories.id,
+				storagePath: repositories.storagePath,
+			})
+		)
+		expect(fromMock).toHaveBeenCalledWith(repositories)
+		expect(limitMock).toHaveBeenCalledWith(1)
+	})
+
+	test('finds a repository by owner user id and slug', async () => {
+		findFirstRepositoryMock.mockResolvedValue({
+			id: '00000000-0000-4000-8000-000000000002',
+			slug: 'notes',
+			name: 'Notes',
+			ownerUser: { username: 'marta' },
+		})
+
+		await expect(
+			repositoriesRepository.find({
+				userId: mockUserId,
+				slug: 'notes' as RepositorySlug,
+			})
+		).resolves.toEqual({
+			id: '00000000-0000-4000-8000-000000000002',
+			slug: 'notes',
+			name: 'Notes',
+			ownerUser: { username: 'marta' },
+		})
+		expect(findFirstRepositoryMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				where: and(
+					eq(repositories.ownerUserId, mockUserId),
+					eq(repositories.slug, 'notes' as RepositorySlug)
+				),
+				with: {
+					ownerUser: { columns: { username: true } },
+				},
+			})
+		)
+	})
+
+	test('returns undefined when owner username and slug lookup misses', async () => {
+		limitMock.mockResolvedValue([])
+
+		await expect(
+			repositoriesRepository.find({
+				username: 'marta',
+				slug: 'missing' as RepositorySlug,
+			})
+		).resolves.toBeUndefined()
 	})
 
 	test('throws a domain error when insert returning is empty', async () => {
