@@ -4,6 +4,7 @@
   "type": "module",
   "exports": {
     ".": "./index.ts",
+    "./git-access-tokens/*": "./src/git-access-tokens/*.ts",
     "./shared/*": "./src/shared/*.ts",
     "./users/*": "./src/users/*.ts",
     "./organizations/*": "./src/organizations/*.ts",
