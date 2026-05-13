@@ -15,10 +15,12 @@ import {
 } from '~/shared/errors'
 import {
 	type CreateRepositoryResponse,
+	type GetRepositoryBrowserSummaryResponse,
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
 	type HealthResponse,
 } from './generated/tessera/git/v1/git_storage'
+import { toRepositoryBrowserSummary } from './git-storage.helpers'
 
 export const GIT_STORAGE_GRPC_CLIENT = Symbol('GIT_STORAGE_GRPC_CLIENT')
 
@@ -28,6 +30,35 @@ export interface GitStorageCreateRepositoryParams {
 
 export interface GitStorageCreateRepositoryResult {
 	storagePath: string
+}
+
+export interface GitStorageGetRepositoryBrowserSummaryParams {
+	defaultBranch: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageRepositoryTreeEntry {
+	kind: 'directory' | 'file' | 'submodule' | 'symlink' | 'unknown'
+	mode: string
+	name: string
+	objectId: string
+	path: string
+	sizeBytes: number
+}
+
+export interface GitStorageRepositoryReadme {
+	content: string
+	filename: string
+	isTruncated: boolean
+	objectId: string
+}
+
+export interface GitStorageRepositoryBrowserSummary {
+	defaultBranch: string
+	isEmpty: boolean
+	readme?: GitStorageRepositoryReadme
+	rootEntries: GitStorageRepositoryTreeEntry[]
 }
 
 @Injectable()
@@ -67,6 +98,24 @@ export class GitStorageClient implements OnModuleInit {
 			})
 
 		return { storagePath: response.storagePath }
+	}
+
+	async getRepositoryBrowserSummary({
+		defaultBranch,
+		repositoryId,
+		storagePath,
+	}: GitStorageGetRepositoryBrowserSummaryParams): Promise<GitStorageRepositoryBrowserSummary> {
+		const response = await firstValueFrom(
+			this.service
+				.getRepositoryBrowserSummary({
+					repositoryId,
+					storagePath,
+					defaultBranch,
+				})
+				.pipe(mapGitStorageErrors<GetRepositoryBrowserSummaryResponse>())
+		)
+
+		return toRepositoryBrowserSummary(response)
 	}
 }
 
