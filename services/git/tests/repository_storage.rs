@@ -387,12 +387,31 @@ async fn browser_summary_rejects_unsafe_default_branch() {
     let storage = storage(temp_dir.path(), "git");
     let repository = storage.create_repository(&repository_id()).await.unwrap();
 
-    let error = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "../main")
-        .await
-        .unwrap_err();
+    for branch_name in [
+        "../main",
+        "main.lock",
+        "main.",
+        "feature/a b",
+        "feature/a\tb",
+        "feature/a\rb",
+        "feature/a\nb",
+        "feature/a~b",
+        "feature/a^b",
+        "feature/a:b",
+        "feature/a?b",
+        "feature/a*b",
+        "feature/a[b",
+    ] {
+        let error = storage
+            .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, branch_name)
+            .await
+            .unwrap_err();
 
-    assert!(matches!(error, RepositoryError::InvalidRepositoryRef));
+        assert!(
+            matches!(error, RepositoryError::InvalidRepositoryRef),
+            "expected {branch_name:?} to be rejected"
+        );
+    }
 }
 
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
