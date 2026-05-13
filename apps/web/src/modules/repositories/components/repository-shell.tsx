@@ -3,6 +3,7 @@ import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Check, Copy } from 'lucide-react'
 import { useRef, useState } from 'react'
+import { useMountEffect } from '@/shared/hooks/use-mount-effect'
 import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
 
 const COPY_FEEDBACK_DURATION_MS = 2000
@@ -19,6 +20,10 @@ export function RepositoryShell({
 	const [isCloneUrlCopied, setIsCloneUrlCopied] = useState(false)
 	const copyFeedbackTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
 	const cloneUrl = getRepositoryCloneUrl(repository, owner)
+
+	useMountEffect(() => () => {
+		if (copyFeedbackTimeout.current) clearTimeout(copyFeedbackTimeout.current)
+	})
 
 	async function handleCopyCloneUrl() {
 		if (!cloneUrl) return

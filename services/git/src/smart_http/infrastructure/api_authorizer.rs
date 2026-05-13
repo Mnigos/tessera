@@ -10,16 +10,19 @@ use crate::smart_http::domain::{SmartHttpError, SmartHttpRepositoryMetadata};
 
 #[derive(Clone, Debug)]
 pub struct ApiSmartHttpAuthorizer {
-    endpoint_url: String,
+    channel: Option<Channel>,
     token: Option<String>,
 }
 
 impl ApiSmartHttpAuthorizer {
     pub fn new(endpoint_url: String, token: Option<String>) -> Self {
-        Self {
-            endpoint_url,
-            token,
+        let channel = build_channel(endpoint_url);
+
+        if channel.is_none() {
+            tracing::error!("authorization unavailable: GIT_API_GRPC_URL is empty or invalid");
         }
+
+        Self { channel, token }
     }
 }
 
@@ -29,11 +32,6 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
         &self,
         request: SmartHttpAuthorizationRequest,
     ) -> Result<SmartHttpRepositoryMetadata, SmartHttpError> {
-        if self.endpoint_url.is_empty() {
-            tracing::error!("authorization unavailable: GIT_API_GRPC_URL is empty");
-            return Err(SmartHttpError::AuthorizationUnavailable);
-        }
-
         tracing::info!(
             username = %request.username,
             repo_slug = %request.repo_slug,
@@ -42,18 +40,11 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
             "authorizing git smart HTTP request"
         );
 
-        let channel = Endpoint::from_shared(self.endpoint_url.clone())
-            .map_err(|error| {
-                tracing::error!(error = %error, "authorization gRPC endpoint was invalid");
-                SmartHttpError::AuthorizationUnavailable
-            })?
-            .connect()
-            .await
-            .map_err(|error| {
-                tracing::error!(error = %error, "authorization gRPC connection failed");
-                SmartHttpError::AuthorizationUnavailable
-            })?;
-        let mut client = GitAuthorizationServiceClient::new(channel);
+        let mut client = GitAuthorizationServiceClient::new(
+            self.channel
+                .clone()
+                .ok_or(SmartHttpError::AuthorizationUnavailable)?,
+        );
 
         if request.action.is_write() {
             let basic_credentials = request
@@ -80,6 +71,19 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
 
         authorize_read(&mut client, grpc_request, self.token.as_deref()).await
     }
+}
+
+fn build_channel(endpoint_url: String) -> Option<Channel> {
+    if endpoint_url.trim().is_empty() {
+        return None;
+    }
+
+    Endpoint::from_shared(endpoint_url)
+        .inspect_err(
+            |error| tracing::error!(error = %error, "authorization gRPC endpoint was invalid"),
+        )
+        .ok()
+        .map(|endpoint| endpoint.connect_lazy())
 }
 
 async fn authorize_read(
@@ -154,7 +158,7 @@ mod tests {
     use crate::proto::{AuthorizeReadRequest, AuthorizeWriteRequest};
     use crate::smart_http::domain::SmartHttpError;
 
-    use super::{status_to_smart_http_error, with_authorization_metadata};
+    use super::{build_channel, status_to_smart_http_error, with_authorization_metadata};
 
     #[test]
     fn constructs_write_request_with_credentials_and_metadata() {
@@ -218,5 +222,11 @@ mod tests {
             status_to_smart_http_error(tonic::Status::new(Code::PermissionDenied, "")),
             SmartHttpError::Unauthorized
         );
+    }
+
+    #[tokio::test]
+    async fn builds_reusable_channel_from_valid_endpoint() {
+        assert!(build_channel("http://localhost:50053".to_string()).is_some());
+        assert!(build_channel("not a uri with spaces".to_string()).is_none());
     }
 }
