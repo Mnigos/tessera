@@ -23,5 +23,6 @@ Use this skill to triage and fix review findings without blindly applying commen
 - Keep fixes scoped to validated findings.
 - Do not resolve GitHub review threads or create comments unless the user explicitly asks.
 - Do not create commits or branches unless explicitly asked.
+- When committing review fixes, name the commit after the concrete behavior changed, not the review process. Avoid subjects like "address review findings" or "fix review comments".
 - Before editing, read at least 3 similar files matching the changed file type.
 - Use relevant domain skills such as `testing-patterns`, `api-patterns`, `database-patterns`, `web-app-patterns`, or `ui-components` when the touched area matches them.
