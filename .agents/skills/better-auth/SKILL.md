@@ -19,6 +19,8 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Server auth configuration lives in `packages/auth`; Nest integration lives in the API auth module.
 - Web auth client setup lives in `packages/auth/client` and app-level auth client wiring.
 - Server plugins and client plugins must align.
+- Before adding or debugging a Better Auth plugin with persistence, read the official plugin docs and the installed package source/types for expected model/table names, field names, and API methods.
+- For Drizzle-backed Better Auth plugin tables, make the schema export key match Better Auth's model name exactly; do not add explicit adapter schema aliases or workarounds unless the docs or installed adapter types require them.
 - Use the better-auth client for sign-in, sign-out, provider redirects, and plugin actions.
 - Use oRPC/TanStack Query for web session state; do not use `authClient.useSession()` for app session reads.
 - Cross-origin auth fetches need `credentials: 'include'`.

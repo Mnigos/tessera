@@ -8,6 +8,7 @@
 
 - Be concise when reporting information.
 - Prefer concrete file paths, commands, and outcomes over broad narration.
+- When adding or requiring an environment variable, explicitly tell the user and provide either a safe example value or instructions for obtaining the value.
 
 ## Before Editing
 

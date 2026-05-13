@@ -37,7 +37,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - When a component mixes data orchestration with several visual states, keep the orchestration component thin and extract loading, error, empty, and success/list rendering into focused child components.
 - Do not create frontend barrel files in `apps/web`; import concrete files directly.
 - Use direct imports from `@repo/ui`, local `@/` paths, and existing module boundaries.
-- Avoid manual memoization; React Compiler handles ordinary component optimization.
+- Avoid manual memoization; React Compiler handles ordinary component optimization. Do not add `useCallback` or `useMemo` unless a library API explicitly requires referential stability, and prefer a smaller component or plain function first.
 
 ## Common Decisions
 
