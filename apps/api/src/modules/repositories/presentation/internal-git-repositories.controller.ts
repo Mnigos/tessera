@@ -1,4 +1,4 @@
-import { Body, Controller, Post, UseGuards } from '@nestjs/common'
+import { Body, Controller, HttpCode, Post, UseGuards } from '@nestjs/common'
 import { BadRequestError } from '~/shared/errors'
 import { RepositoriesService } from '../application/repositories.service'
 import { InternalBearerTokenGuard } from './internal-bearer-token.guard'
@@ -10,6 +10,7 @@ export class InternalGitRepositoriesController {
 	constructor(private readonly repositoriesService: RepositoriesService) {}
 
 	@Post('/authorize-read')
+	@HttpCode(200)
 	authorizeRead(@Body() body: unknown) {
 		const result = authorizeGitRepositoryReadInputSchema.safeParse(body)
 
