@@ -3,6 +3,9 @@ use std::fmt;
 #[derive(Debug)]
 pub enum RepositoryError {
     InvalidRepositoryId,
+    InvalidRepositoryPath,
+    InvalidRepositoryRef,
+    InvalidGitOutput,
     PathEscapesStorageRoot,
     ExistingPathNotBare,
     StoragePathMismatch,
@@ -15,6 +18,9 @@ impl fmt::Display for RepositoryError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidRepositoryId => write!(formatter, "repository id must be a valid UUID"),
+            Self::InvalidRepositoryPath => write!(formatter, "repository path is invalid"),
+            Self::InvalidRepositoryRef => write!(formatter, "repository ref is invalid"),
+            Self::InvalidGitOutput => write!(formatter, "git output is invalid"),
             Self::PathEscapesStorageRoot => {
                 write!(formatter, "repository path escapes storage root")
             }
