@@ -28,6 +28,7 @@ export function GitAccessTokensSection({
 		form: HTMLFormElement
 	) {
 		setPermissionsError(false)
+		setCreatedToken(undefined)
 		createAccessToken.mutate(input, {
 			onSuccess: ({ token }) => {
 				setCreatedToken(token)
