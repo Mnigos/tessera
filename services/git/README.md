@@ -29,7 +29,7 @@ Configuration defaults are local-only:
 - `GIT_STORAGE_ROOT`: OS temp directory scoped to the process
 - `GIT_STORAGE_GIT_BINARY`: `git`
 - `GIT_API_GRPC_URL`: required API gRPC endpoint for smart HTTP authorization, for example `http://localhost:50053`
-- `GIT_API_GRPC_AUTHORIZATION_TOKEN`: required bearer token for the API authorization service
+- `GIT_API_GRPC_AUTHORIZATION_TOKEN`: required raw internal token for the API authorization service. Set this to the same value as `INTERNAL_API_TOKEN`, for example `test-internal-token`; the Git service sends it as a bearer token.
 
 ## Smart HTTP
 

@@ -67,7 +67,7 @@ export class RepositoryCreateFailedError extends InternalError {
 
 export class InternalGitRepositoryAuthorizationError extends UnauthorizedError {
 	constructor() {
-		super('internal git repository read')
+		super('internal git repository')
 	}
 }
 
