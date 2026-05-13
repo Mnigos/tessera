@@ -2,19 +2,30 @@ use std::fmt;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SmartHttpAction {
-    InfoRefs,
+    UploadPackInfoRefs,
     UploadPack,
+    ReceivePackInfoRefs,
+    ReceivePack,
 }
 
 impl SmartHttpAction {
     pub fn cgi_service_name(self) -> &'static str {
         match self {
-            Self::InfoRefs | Self::UploadPack => "git-upload-pack",
+            Self::UploadPackInfoRefs | Self::UploadPack => "git-upload-pack",
+            Self::ReceivePackInfoRefs | Self::ReceivePack => "git-receive-pack",
         }
     }
 
-    pub fn is_info_refs(self) -> bool {
-        matches!(self, Self::InfoRefs)
+    pub fn action_name(self) -> &'static str {
+        match self {
+            Self::UploadPackInfoRefs | Self::ReceivePackInfoRefs => "info_refs",
+            Self::UploadPack => "upload_pack",
+            Self::ReceivePack => "receive_pack",
+        }
+    }
+
+    pub fn is_write(self) -> bool {
+        matches!(self, Self::ReceivePackInfoRefs | Self::ReceivePack)
     }
 }
 
@@ -22,8 +33,9 @@ impl SmartHttpAction {
 pub enum SmartHttpError {
     InvalidPath,
     UnsupportedMethod,
-    PushRejected,
     UnsupportedService,
+    MissingCredentials,
+    InvalidCredentials,
     AuthorizationUnavailable,
     Unauthorized,
     InvalidRepositoryMetadata,
@@ -37,8 +49,9 @@ impl fmt::Display for SmartHttpError {
         match self {
             Self::InvalidPath => write!(formatter, "invalid smart HTTP path"),
             Self::UnsupportedMethod => write!(formatter, "unsupported smart HTTP method"),
-            Self::PushRejected => write!(formatter, "git push is not supported"),
             Self::UnsupportedService => write!(formatter, "unsupported Git smart HTTP service"),
+            Self::MissingCredentials => write!(formatter, "git credentials are required"),
+            Self::InvalidCredentials => write!(formatter, "git credentials are invalid"),
             Self::AuthorizationUnavailable => {
                 write!(formatter, "authorization service unavailable")
             }
@@ -59,4 +72,11 @@ impl std::error::Error for SmartHttpError {}
 pub struct SmartHttpRepositoryMetadata {
     pub repository_id: String,
     pub storage_path: String,
+    pub authenticated_username: Option<String>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BasicCredentials {
+    pub username: String,
+    pub token: String,
 }

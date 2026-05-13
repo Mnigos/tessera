@@ -1,3 +1,5 @@
 mod smart_http;
 
-pub use smart_http::{SmartHttpAction, SmartHttpError, SmartHttpRepositoryMetadata};
+pub use smart_http::{
+    BasicCredentials, SmartHttpAction, SmartHttpError, SmartHttpRepositoryMetadata,
+};

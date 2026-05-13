@@ -8,7 +8,9 @@ use tessera_git::RepositoryId;
 use tessera_git::smart_http::application::{
     SmartHttpApplication, SmartHttpAuthorizationRequest, SmartHttpAuthorizer, SmartHttpRequest,
 };
-use tessera_git::smart_http::domain::{SmartHttpError, SmartHttpRepositoryMetadata};
+use tessera_git::smart_http::domain::{
+    BasicCredentials, SmartHttpError, SmartHttpRepositoryMetadata,
+};
 use tessera_git::smart_http::infrastructure::GitHttpBackend;
 use tessera_git::storage::infrastructure::RepositoryStorage;
 
@@ -86,6 +88,39 @@ async fn smart_http_serves_upload_pack_info_refs() {
     );
 }
 
+#[tokio::test]
+async fn smart_http_rejects_receive_pack_without_credentials_before_backend() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    storage.create_repository(&repository_id()).await.unwrap();
+    let application = application(temp_dir.path(), MISSING_GIT_BINARY, REPOSITORY_ID);
+
+    let error = application
+        .handle(receive_pack_request(None))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, SmartHttpError::MissingCredentials);
+}
+
+#[tokio::test]
+async fn smart_http_authorizes_receive_pack_before_backend() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    storage.create_repository(&repository_id()).await.unwrap();
+    let application = application(temp_dir.path(), MISSING_GIT_BINARY, REPOSITORY_ID);
+
+    let error = application
+        .handle(receive_pack_request(Some(BasicCredentials {
+            username: "mona".to_string(),
+            token: "token".to_string(),
+        })))
+        .await
+        .unwrap_err();
+
+    assert_eq!(error, SmartHttpError::BackendFailed);
+}
+
 fn application(
     storage_root: &Path,
     git_binary: &str,
@@ -114,6 +149,20 @@ fn info_refs_request() -> SmartHttpRequest {
         query: Some("service=git-upload-pack".to_string()),
         headers: HeaderMap::new(),
         body: Bytes::new(),
+        basic_credentials: None,
+    }
+}
+
+fn receive_pack_request(basic_credentials: Option<BasicCredentials>) -> SmartHttpRequest {
+    SmartHttpRequest {
+        username: "mona".to_string(),
+        repo_slug: "repo".to_string(),
+        method: Method::POST,
+        path: "git-receive-pack".to_string(),
+        query: None,
+        headers: HeaderMap::new(),
+        body: Bytes::new(),
+        basic_credentials,
     }
 }
 
@@ -144,6 +193,7 @@ impl SmartHttpAuthorizer for FakeAuthorizer {
         Ok(SmartHttpRepositoryMetadata {
             repository_id: self.repository_id.clone(),
             storage_path: self.storage_path.clone(),
+            authenticated_username: Some("mona".to_string()),
         })
     }
 }
