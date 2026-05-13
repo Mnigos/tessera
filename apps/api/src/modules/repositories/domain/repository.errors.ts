@@ -1,8 +1,10 @@
 import {
 	BadRequestError,
 	ConflictError,
+	ForbiddenError,
 	InternalError,
 	NotFoundError,
+	UnauthorizedError,
 } from '~/shared/errors'
 
 export class InvalidRepositoryNameError extends BadRequestError {
@@ -60,5 +62,23 @@ export class RepositoryNotFoundError extends NotFoundError {
 export class RepositoryCreateFailedError extends InternalError {
 	constructor() {
 		super('repository create')
+	}
+}
+
+export class InternalGitRepositoryAuthorizationError extends UnauthorizedError {
+	constructor() {
+		super('internal git repository read')
+	}
+}
+
+export class PrivateRepositoryGitReadForbiddenError extends ForbiddenError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository git read', context)
+	}
+}
+
+export class RepositoryStoragePathMissingError extends InternalError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository storage path', context)
 	}
 }
