@@ -1,8 +1,11 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { and, apikey, eq } from '@repo/db'
+import type { ApiKeyId } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { GitAccessTokensRepository } from './git-access-tokens.repository'
+
+const tokenId = '00000000-0000-4000-8000-000000000010' as ApiKeyId
 
 describe(GitAccessTokensRepository.name, () => {
 	let moduleRef: TestingModule
@@ -60,13 +63,13 @@ describe(GitAccessTokensRepository.name, () => {
 		expect(
 			await gitAccessTokensRepository.findOwned({
 				userId: mockUserId,
-				tokenId: '00000000-0000-4000-8000-000000000010',
+				tokenId,
 			})
 		).toEqual({ name: 'Laptop' })
 		expect(findFirstMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: and(
-					eq(apikey.id, '00000000-0000-4000-8000-000000000010'),
+					eq(apikey.id, tokenId),
 					eq(apikey.referenceId, mockUserId),
 					eq(apikey.configId, 'git-access-tokens')
 				),

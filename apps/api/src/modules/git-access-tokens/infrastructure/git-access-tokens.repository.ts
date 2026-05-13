@@ -2,14 +2,14 @@ import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
 import { GIT_ACCESS_TOKEN_CONFIG_ID } from '@repo/auth'
 import { and, apikey, asc, eq } from '@repo/db'
-import type { UserId } from '@repo/domain'
+import type { ApiKeyId, UserId } from '@repo/domain'
 
 interface UserParams {
 	userId: UserId
 }
 
 interface TokenParams extends UserParams {
-	tokenId: string
+	tokenId: ApiKeyId
 }
 
 @Injectable()

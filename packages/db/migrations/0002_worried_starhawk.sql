@@ -25,5 +25,6 @@ CREATE TABLE "apikey" (
 --> statement-breakpoint
 ALTER TABLE "apikey" ADD CONSTRAINT "apikey_reference_id_user_id_fk" FOREIGN KEY ("reference_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
 CREATE INDEX "apikey_config_id_idx" ON "apikey" USING btree ("config_id");--> statement-breakpoint
-CREATE INDEX "apikey_key_idx" ON "apikey" USING btree ("key");--> statement-breakpoint
-CREATE INDEX "apikey_reference_id_idx" ON "apikey" USING btree ("reference_id");
+CREATE UNIQUE INDEX "apikey_key_idx" ON "apikey" USING btree ("key");--> statement-breakpoint
+CREATE INDEX "apikey_reference_id_idx" ON "apikey" USING btree ("reference_id");--> statement-breakpoint
+CREATE INDEX "apikey_reference_config_enabled_idx" ON "apikey" USING btree ("reference_id","config_id","enabled");

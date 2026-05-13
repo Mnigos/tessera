@@ -13,7 +13,7 @@ import type {
 } from '@repo/contracts'
 import type { UserId } from '@repo/domain'
 import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
-import { toGitAccessTokenOutput } from '../domain/git-access-token'
+import { parseRecord, toGitAccessTokenOutput } from '../domain/git-access-token'
 import {
 	GitAccessTokenNotFoundError,
 	GitAccessTokenPermissionDeniedError,
@@ -67,7 +67,7 @@ export class GitAccessTokensService {
 				prefix: createdToken.prefix ?? undefined,
 				start: createdToken.start ?? undefined,
 				enabled: createdToken.enabled,
-				permissions: createdToken.permissions ?? undefined,
+				permissions: parseRecord(createdToken.permissions),
 				expiresAt: createdToken.expiresAt ?? undefined,
 				lastRequest: createdToken.lastRequest ?? undefined,
 				createdAt: createdToken.createdAt,
@@ -82,7 +82,7 @@ export class GitAccessTokensService {
 		return accessTokens.map(toGitAccessTokenOutput)
 	}
 
-	async revoke(userId: UserId, tokenId: string): Promise<void> {
+	async revoke(userId: UserId, tokenId: GitAccessTokenId): Promise<void> {
 		const accessToken = await this.gitAccessTokensRepository.findOwned({
 			userId,
 			tokenId,
@@ -120,7 +120,7 @@ export class GitAccessTokensService {
 				reason: verifiedToken.error?.code ?? 'invalid_token',
 			})
 
-		const permissions = verifiedToken.key.permissions ?? {}
+		const permissions = parseRecord(verifiedToken.key.permissions) ?? {}
 		if (!hasGitAccessTokenPermission(permissions, requiredPermission))
 			throw new GitAccessTokenPermissionDeniedError({ requiredPermission })
 

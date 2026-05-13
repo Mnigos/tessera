@@ -1,5 +1,6 @@
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { Auth } from '@repo/auth'
+import type { ApiKeyId } from '@repo/domain'
 import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
 import { mockUserId } from '~/shared/test-utils'
 import {
@@ -12,7 +13,7 @@ import { GitAccessTokensService } from './git-access-tokens.service'
 
 const createdAt = new Date('2026-05-12T00:00:00Z')
 const apiKey = {
-	id: '00000000-0000-4000-8000-000000000010',
+	id: '00000000-0000-4000-8000-000000000010' as ApiKeyId,
 	configId: 'git-access-tokens',
 	name: 'Laptop',
 	start: 'tes_git_abc',
@@ -145,6 +146,27 @@ describe(GitAccessTokensService.name, () => {
 		)
 	})
 
+	test('parses created token permissions returned as JSON', async () => {
+		vi.spyOn(betterAuthService.api, 'createApiKey').mockResolvedValue({
+			...apiKey,
+			key: 'tes_git_raw-secret',
+			permissions: JSON.stringify({ git: ['read'] }),
+		})
+
+		expect(
+			await gitAccessTokensService.create(mockUserId, {
+				name: 'Read only',
+				permissions: ['git:read'],
+			})
+		).toEqual(
+			expect.objectContaining({
+				accessToken: expect.objectContaining({
+					permissions: { git: ['read'] },
+				}),
+			})
+		)
+	})
+
 	test('revokes an owned token through Better Auth', async () => {
 		const findOwnedSpy = vi
 			.spyOn(gitAccessTokensRepository, 'findOwned')
@@ -187,6 +209,24 @@ describe(GitAccessTokensService.name, () => {
 				...apiKey,
 				permissions: { git: ['read', 'write'] },
 			},
+		})
+
+		expect(
+			await gitAccessTokensService.verify({
+				rawToken: 'tes_git_raw-secret',
+				requiredPermission: 'git:write',
+			})
+		).toEqual({
+			userId: mockUserId,
+			permissions: { git: ['read', 'write'] },
+		})
+	})
+
+	test('verifies a raw token with permissions returned as JSON', async () => {
+		vi.spyOn(betterAuthService.api, 'verifyApiKey').mockResolvedValue({
+			valid: true,
+			error: null,
+			key: apiKey as never,
 		})
 
 		expect(
