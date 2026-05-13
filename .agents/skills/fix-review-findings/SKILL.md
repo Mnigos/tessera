@@ -7,15 +7,21 @@ description: Use when the user pastes or references code review findings from Co
 
 Use this skill to triage and fix review findings without blindly applying comments.
 
+## Related Skills
+
+- Use `inline-review-markers` when findings are left directly in code as markers such as `//REVIEW:`.
+
 ## Flow
 
 1. Parse findings into a checklist.
+   - When findings are inline code markers, scan broadly before fixing: exact marker, lowercase variants, block-comment variants, and common action markers such as `TODO`, `FIXME`, `BUG`, `HACK`, and `XXX`.
 2. Inspect referenced code, surrounding behavior, and relevant tests.
 3. Classify each finding as valid, invalid, duplicate, already fixed, or needs user decision.
 4. Fix valid findings only.
 5. Add or update tests when behavior changes.
 6. Run relevant checks.
-7. Report fixed and not-fixed findings with reasons.
+7. Before reporting complete, rerun the broad marker scan and confirm no relevant review/action markers remain.
+8. Report fixed and not-fixed findings with reasons.
 
 ## Rules
 
