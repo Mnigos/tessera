@@ -35,6 +35,12 @@ const config = defineConfig({
 				'/health/**': {
 					proxy: `${apiUrl}/health/**`,
 				},
+				'/git-access-tokens': {
+					proxy: `${apiUrl}/git-access-tokens`,
+				},
+				'/git-access-tokens/**': {
+					proxy: `${apiUrl}/git-access-tokens/**`,
+				},
 				'/organizations': {
 					proxy: `${apiUrl}/organizations`,
 				},
