@@ -77,6 +77,12 @@ export class PrivateRepositoryGitReadForbiddenError extends ForbiddenError {
 	}
 }
 
+export class RepositoryGitWriteForbiddenError extends ForbiddenError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository git write', context)
+	}
+}
+
 export class RepositoryStoragePathMissingError extends InternalError {
 	constructor(context?: Record<string, unknown>) {
 		super('repository storage path', context)

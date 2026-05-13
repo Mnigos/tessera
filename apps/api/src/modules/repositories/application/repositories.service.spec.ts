@@ -1,13 +1,22 @@
+import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
+import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
+import type {
+	RepositoryId,
+	RepositoryName,
+	RepositorySlug,
+	UserId,
+} from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	InternalGitRepositoryAuthorizationError,
 	PrivateRepositoryGitReadForbiddenError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
@@ -33,6 +42,7 @@ describe(RepositoriesService.name, () => {
 	let moduleRef: TestingModule
 	let repositoriesService: RepositoriesService
 	let repositoriesRepository: RepositoriesRepository
+	let gitAccessTokensService: GitAccessTokensService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -56,11 +66,27 @@ describe(RepositoriesService.name, () => {
 						}),
 					},
 				},
+				{
+					provide: GitAccessTokensService,
+					useValue: {
+						verify: vi.fn().mockResolvedValue({
+							userId: mockUserId,
+							permissions: { git: ['read', 'write'] },
+						}),
+					},
+				},
+				{
+					provide: EnvService,
+					useValue: {
+						get: vi.fn().mockReturnValue('test-internal-token'),
+					},
+				},
 			],
 		}).compile()
 
 		repositoriesService = moduleRef.get(RepositoriesService)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
+		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
 	})
 
 	afterEach(async () => {
@@ -239,12 +265,14 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeGitRepositoryRead({
+				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: repository.slug,
 			})
 		).toEqual({
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: '',
 		})
 		expect(findSpy).toHaveBeenCalledWith({
 			username: 'marta',
@@ -257,6 +285,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
+				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
 			})
@@ -268,6 +297,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
+				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -283,6 +313,95 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
+				internalAuthorization: 'Bearer test-internal-token',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+	})
+
+	test('rejects git reads without the internal bearer token', async () => {
+		await expect(
+			repositoriesService.authorizeGitRepositoryRead({
+				internalAuthorization: undefined,
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(InternalGitRepositoryAuthorizationError)
+	})
+
+	test('authorizes git writes for repository owners with storage metadata', async () => {
+		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const verifySpy = vi.spyOn(gitAccessTokensService, 'verify')
+
+		expect(
+			await repositoriesService.authorizeGitRepositoryWrite({
+				internalAuthorization: 'Bearer test-internal-token',
+				rawToken: 'tes_git_raw-secret',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: mockUserId,
+		})
+		expect(verifySpy).toHaveBeenCalledWith({
+			rawToken: 'tes_git_raw-secret',
+			requiredPermission: 'git:write',
+		})
+		expect(findSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: repository.slug,
+		})
+	})
+
+	test('forbids git writes for non-owners', async () => {
+		vi.spyOn(gitAccessTokensService, 'verify').mockResolvedValue({
+			userId: '00000000-0000-4000-8000-000000000099' as UserId,
+			permissions: { git: ['read', 'write'] },
+		})
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryWrite({
+				internalAuthorization: 'Bearer test-internal-token',
+				rawToken: 'tes_git_raw-secret',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
+	})
+
+	test('throws when a git write repository is unknown', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryWrite({
+				internalAuthorization: 'Bearer test-internal-token',
+				rawToken: 'tes_git_raw-secret',
+				username: 'marta',
+				slug: 'missing' as RepositorySlug,
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('throws when a writable repository has no storage path', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: null,
+		})
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryWrite({
+				internalAuthorization: 'Bearer test-internal-token',
+				rawToken: 'tes_git_raw-secret',
 				username: 'marta',
 				slug: repository.slug,
 			})
