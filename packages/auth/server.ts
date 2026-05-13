@@ -1,8 +1,15 @@
+import { apiKey } from '@better-auth/api-key'
 import { account, and, eq, user } from '@repo/db'
 import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { organization } from 'better-auth/plugins'
+import {
+	GIT_ACCESS_TOKEN_CONFIG_ID,
+	GIT_ACCESS_TOKEN_DEFAULT_PERMISSION,
+	GIT_ACCESS_TOKEN_PERMISSIONS,
+	GIT_ACCESS_TOKEN_PREFIX,
+} from './src/git-access-tokens'
 import {
 	preserveExistingUsernameOnUpdate,
 	resolveGitHubUsername,
@@ -118,7 +125,21 @@ export function initAuth({
 				},
 			},
 		},
-		plugins: [organization()],
+		plugins: [
+			organization(),
+			apiKey([
+				{
+					configId: GIT_ACCESS_TOKEN_CONFIG_ID,
+					defaultPrefix: GIT_ACCESS_TOKEN_PREFIX,
+					maximumNameLength: 64,
+					references: 'user',
+					permissions: {
+						defaultPermissions:
+							GIT_ACCESS_TOKEN_PERMISSIONS[GIT_ACCESS_TOKEN_DEFAULT_PERMISSION],
+					},
+				},
+			]),
+		],
 		trustedOrigins,
 		advanced: authAdvanced,
 		databaseHooks: {
