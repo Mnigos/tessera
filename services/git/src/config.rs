@@ -45,7 +45,8 @@ impl Config {
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
         let api_authorization_url = env::var("GIT_API_AUTHORIZATION_URL")
             .map_err(|_| ConfigError::MissingApiAuthorizationUrl)?;
-        let api_authorization_token = env::var("GIT_API_AUTHORIZATION_TOKEN").ok();
+        let api_authorization_token = env::var("GIT_API_AUTHORIZATION_TOKEN")
+            .map_err(|_| ConfigError::MissingApiAuthorizationToken)?;
 
         Ok(Self {
             host,
@@ -55,7 +56,7 @@ impl Config {
             storage_root,
             git_binary,
             api_authorization_url,
-            api_authorization_token,
+            api_authorization_token: Some(api_authorization_token),
         })
     }
 
@@ -98,6 +99,7 @@ pub enum ConfigError {
     InvalidHttpPort,
     InvalidSocketAddress,
     MissingApiAuthorizationUrl,
+    MissingApiAuthorizationToken,
 }
 
 impl fmt::Display for ConfigError {
@@ -113,6 +115,9 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingApiAuthorizationUrl => {
                 write!(formatter, "GIT_API_AUTHORIZATION_URL is required")
+            }
+            Self::MissingApiAuthorizationToken => {
+                write!(formatter, "GIT_API_AUTHORIZATION_TOKEN is required")
             }
         }
     }

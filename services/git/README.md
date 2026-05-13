@@ -29,7 +29,7 @@ Configuration defaults are local-only:
 - `GIT_STORAGE_ROOT`: OS temp directory scoped to the process
 - `GIT_STORAGE_GIT_BINARY`: `git`
 - `GIT_API_AUTHORIZATION_URL`: required for smart HTTP authorization
-- `GIT_API_AUTHORIZATION_TOKEN`: optional bearer token for the API authorization endpoint
+- `GIT_API_AUTHORIZATION_TOKEN`: required bearer token for the API authorization endpoint
 
 ## Smart HTTP
 
