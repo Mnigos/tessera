@@ -3,6 +3,7 @@ import { relations } from 'drizzle-orm'
 import {
 	boolean,
 	index,
+	integer,
 	pgTable,
 	text,
 	timestamp,
@@ -106,9 +107,52 @@ export const verification = pgTable(
 export type Verification = typeof verification.$inferSelect
 export type NewVerification = typeof verification.$inferInsert
 
+export const apikey = pgTable(
+	'apikey',
+	{
+		id: uuid('id').primaryKey().defaultRandom(),
+		configId: text('config_id').notNull(),
+		name: text('name'),
+		start: text('start'),
+		prefix: text('prefix'),
+		key: text('key').notNull(),
+		referenceId: uuid('reference_id')
+			.notNull()
+			.$type<UserId>()
+			.references(() => user.id, { onDelete: 'cascade' }),
+		refillInterval: integer('refill_interval'),
+		refillAmount: integer('refill_amount'),
+		lastRefillAt: timestamp('last_refill_at'),
+		enabled: boolean('enabled').default(true),
+		rateLimitEnabled: boolean('rate_limit_enabled').default(true),
+		rateLimitTimeWindow: integer('rate_limit_time_window'),
+		rateLimitMax: integer('rate_limit_max'),
+		requestCount: integer('request_count').default(0),
+		remaining: integer('remaining'),
+		lastRequest: timestamp('last_request'),
+		expiresAt: timestamp('expires_at'),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+		updatedAt: timestamp('updated_at')
+			.defaultNow()
+			.$onUpdate(() => new Date())
+			.notNull(),
+		permissions: text('permissions'),
+		metadata: text('metadata'),
+	},
+	table => [
+		index('apikey_config_id_idx').on(table.configId),
+		index('apikey_key_idx').on(table.key),
+		index('apikey_reference_id_idx').on(table.referenceId),
+	]
+)
+
+export type ApiKey = typeof apikey.$inferSelect
+export type NewApiKey = typeof apikey.$inferInsert
+
 export const userRelations = relations(user, ({ many }) => ({
 	sessions: many(session),
 	accounts: many(account),
+	apiKeys: many(apikey),
 	organizationMemberships: many(member),
 	repositories: many(repositories),
 	invitationsSent: many(invitation),
@@ -120,4 +164,8 @@ export const sessionRelations = relations(session, ({ one }) => ({
 
 export const accountRelations = relations(account, ({ one }) => ({
 	user: one(user, { fields: [account.userId], references: [user.id] }),
+}))
+
+export const apiKeyRelations = relations(apikey, ({ one }) => ({
+	user: one(user, { fields: [apikey.referenceId], references: [user.id] }),
 }))
