@@ -1,5 +1,9 @@
 import type { Repository, RepositoryOwner } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
+import { Check, Copy } from 'lucide-react'
+import { useState } from 'react'
+import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
 
 interface RepositoryShellProps {
 	owner: RepositoryOwner
@@ -10,6 +14,16 @@ export function RepositoryShell({
 	owner,
 	repository,
 }: Readonly<RepositoryShellProps>) {
+	const [isCloneUrlCopied, setIsCloneUrlCopied] = useState(false)
+	const cloneUrl = getRepositoryCloneUrl(repository, owner)
+
+	function handleCopyCloneUrl() {
+		if (!cloneUrl) return
+
+		navigator.clipboard.writeText(cloneUrl).catch(() => undefined)
+		setIsCloneUrlCopied(true)
+	}
+
 	return (
 		<section className="flex flex-col gap-6">
 			<div className="flex flex-col gap-2">
@@ -28,6 +42,38 @@ export function RepositoryShell({
 					</span>
 				</div>
 			</div>
+			<Card className="gap-4 p-5">
+				<div className="flex flex-col gap-1">
+					<h2 className="font-semibold text-lg tracking-normal">Clone</h2>
+					<p className="text-muted-foreground text-sm">
+						Use HTTPS to clone this repository.
+					</p>
+				</div>
+				{cloneUrl ? (
+					<div className="flex flex-col gap-2 sm:flex-row">
+						<code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-input bg-muted px-3 py-2 text-sm">
+							{cloneUrl}
+						</code>
+						<Button
+							className="sm:w-fit"
+							onClick={handleCopyCloneUrl}
+							type="button"
+							variant="outline"
+						>
+							{isCloneUrlCopied ? (
+								<Check className="size-4" />
+							) : (
+								<Copy className="size-4" />
+							)}
+							{isCloneUrlCopied ? 'Copied' : 'Copy'}
+						</Button>
+					</div>
+				) : (
+					<p className="rounded-md border border-dashed p-3 text-muted-foreground text-sm">
+						Clone URL is not configured yet.
+					</p>
+				)}
+			</Card>
 			<Card className="p-5">
 				<dl className="grid gap-4 sm:grid-cols-2">
 					<RepositoryDetail label="Owner" value={owner.username} />
