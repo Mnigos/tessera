@@ -15,6 +15,7 @@
     "@orpc/tanstack-query": "1.14.1",
     "@repo/auth": "workspace:*",
     "@repo/contracts": "workspace:*",
+    "@repo/domain": "workspace:*",
     "@repo/ui": "workspace:*",
     "@t3-oss/env-core": "catalog:",
     "@tailwindcss/vite": "catalog:",
