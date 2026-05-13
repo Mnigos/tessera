@@ -16,6 +16,7 @@ export const envSchema = z.object({
 	BULL_BOARD_PASSWORD: z.string().optional(),
 	APP_URL: z.string().default('http://localhost:3000'),
 	API_URL: z.string().default('http://localhost:4000'),
+	API_GRPC_URL: z.string().default('localhost:50053'),
 	AUTH_SECRET: z.string().default('development-auth-secret'),
 	GITHUB_CLIENT_ID: z.string().optional(),
 	GITHUB_CLIENT_SECRET: z.string().optional(),
