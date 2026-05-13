@@ -1,4 +1,6 @@
+import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
+import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
@@ -18,9 +20,11 @@ import {
 } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	InternalGitRepositoryAuthorizationError,
 	PrivateRepositoryGitReadForbiddenError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
@@ -46,13 +50,22 @@ interface CreateRepositoryMetadataParams {
 }
 
 export interface AuthorizeGitRepositoryReadInput {
+	internalAuthorization: string | undefined
 	slug: RepositorySlug
 	username: string
 }
 
-export interface GitRepositoryReadAuthorization {
+export interface AuthorizeGitRepositoryWriteInput {
+	internalAuthorization: string | undefined
+	rawToken: string | undefined
+	slug: RepositorySlug
+	username: string
+}
+
+export interface GitRepositoryAuthorization {
 	repositoryId: RepositoryId
 	storagePath: string
+	trustedUser: string
 }
 
 @Injectable()
@@ -61,7 +74,9 @@ export class RepositoriesService {
 
 	constructor(
 		private readonly repositoriesRepository: RepositoriesRepository,
-		private readonly gitStorageClient: GitStorageClient
+		private readonly gitStorageClient: GitStorageClient,
+		private readonly gitAccessTokensService: GitAccessTokensService,
+		private readonly envService: EnvService
 	) {}
 
 	async create(
@@ -127,9 +142,12 @@ export class RepositoriesService {
 	}
 
 	async authorizeGitRepositoryRead({
+		internalAuthorization,
 		slug,
 		username,
-	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryReadAuthorization> {
+	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryAuthorization> {
+		this.assertInternalAuthorization(internalAuthorization)
+
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
@@ -150,6 +168,44 @@ export class RepositoriesService {
 		return {
 			repositoryId: repository.id,
 			storagePath: repository.storagePath,
+			trustedUser: '',
+		}
+	}
+
+	async authorizeGitRepositoryWrite({
+		internalAuthorization,
+		rawToken,
+		slug,
+		username,
+	}: AuthorizeGitRepositoryWriteInput): Promise<GitRepositoryAuthorization> {
+		this.assertInternalAuthorization(internalAuthorization)
+
+		const { userId } = await this.gitAccessTokensService.verify({
+			rawToken,
+			requiredPermission: 'git:write',
+		})
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (repository.ownerUserId !== userId)
+			throw new RepositoryGitWriteForbiddenError({
+				repositoryId: repository.id,
+				userId,
+			})
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			trustedUser: userId,
 		}
 	}
 
@@ -192,5 +248,12 @@ export class RepositoriesService {
 				cleanupError instanceof Error ? cleanupError.stack : undefined
 			)
 		}
+	}
+
+	private assertInternalAuthorization(authorization: string | undefined) {
+		const expectedToken = this.envService.get('INTERNAL_API_TOKEN')
+
+		if (!expectedToken || authorization !== `Bearer ${expectedToken}`)
+			throw new InternalGitRepositoryAuthorizationError()
 	}
 }
