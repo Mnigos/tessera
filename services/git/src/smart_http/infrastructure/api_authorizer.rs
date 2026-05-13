@@ -29,9 +29,7 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
         request: SmartHttpAuthorizationRequest,
     ) -> Result<SmartHttpRepositoryMetadata, SmartHttpError> {
         if self.endpoint_url.is_empty() {
-            eprintln!(
-                "[tessera-git] authorization unavailable: GIT_API_AUTHORIZATION_URL is empty"
-            );
+            tracing::error!("authorization unavailable: GIT_API_AUTHORIZATION_URL is empty");
             return Err(SmartHttpError::AuthorizationUnavailable);
         }
 
@@ -43,9 +41,12 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
         } else {
             "upload_pack".to_string()
         };
-        eprintln!(
-            "[tessera-git] authorizing git read username={username} repo_slug={repo_slug} operation={operation} endpoint={}",
-            self.endpoint_url
+        tracing::info!(
+            username = %username,
+            repo_slug = %repo_slug,
+            operation = %operation,
+            endpoint = %self.endpoint_url,
+            "authorizing git read"
         );
 
         let mut builder = self.client.post(&self.endpoint_url).json(&AuthorizeBody {
@@ -60,9 +61,10 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
         }
 
         let response = builder.send().await.map_err(|error| {
-            eprintln!(
-                "[tessera-git] authorization request failed endpoint={} error={error}",
-                self.endpoint_url
+            tracing::error!(
+                endpoint = %self.endpoint_url,
+                error = %error,
+                "authorization request failed"
             );
             SmartHttpError::AuthorizationUnavailable
         })?;
@@ -74,9 +76,10 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
                 .json::<AuthorizeResponse>()
                 .await
                 .map_err(|error| {
-                    eprintln!(
-                        "[tessera-git] authorization response JSON was invalid endpoint={} error={error}",
-                        self.endpoint_url
+                    tracing::error!(
+                        endpoint = %self.endpoint_url,
+                        error = %error,
+                        "authorization response JSON was invalid"
                     );
                     SmartHttpError::InvalidRepositoryMetadata
                 })?;
@@ -89,15 +92,17 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
             status,
             StatusCode::UNAUTHORIZED | StatusCode::FORBIDDEN | StatusCode::NOT_FOUND
         ) {
-            eprintln!(
-                "[tessera-git] authorization denied endpoint={} status={}",
-                self.endpoint_url, status
+            tracing::warn!(
+                endpoint = %self.endpoint_url,
+                status = %status,
+                "authorization denied"
             );
             Err(SmartHttpError::Unauthorized)
         } else {
-            eprintln!(
-                "[tessera-git] authorization service returned unexpected status endpoint={} status={status}",
-                self.endpoint_url
+            tracing::error!(
+                endpoint = %self.endpoint_url,
+                status = %status,
+                "authorization service returned unexpected status"
             );
             Err(SmartHttpError::AuthorizationUnavailable)
         }

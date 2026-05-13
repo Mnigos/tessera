@@ -36,9 +36,10 @@ impl RepositoryStorage {
         repository_id: &RepositoryId,
     ) -> Result<RepositoryCreated, RepositoryError> {
         let repository_path = repository_path(&self.storage_root, repository_id);
-        eprintln!(
-            "[tessera-git] creating repository repository_id={repository_id} path={}",
-            repository_path.display()
+        tracing::info!(
+            repository_id = %repository_id,
+            path = %repository_path.display(),
+            "creating repository"
         );
         self.ensure_repositories_root().await?;
 
@@ -76,8 +77,10 @@ impl RepositoryStorage {
         }
 
         let storage_path = repository_path.display().to_string();
-        eprintln!(
-            "[tessera-git] repository created repository_id={repository_id} storage_path={storage_path}"
+        tracing::info!(
+            repository_id = %repository_id,
+            storage_path = %storage_path,
+            "repository created"
         );
 
         Ok(RepositoryCreated {
@@ -94,9 +97,11 @@ impl RepositoryStorage {
     ) -> Result<PathBuf, RepositoryError> {
         let repository_id = RepositoryId::parse(repository_id)?;
         let repository_path = repository_path(&self.storage_root, &repository_id);
-        eprintln!(
-            "[tessera-git] resolving repository repository_id={repository_id} storage_path={storage_path} path={}",
-            repository_path.display()
+        tracing::info!(
+            repository_id = %repository_id,
+            storage_path = %storage_path,
+            path = %repository_path.display(),
+            "resolving repository"
         );
 
         if storage_path != repository_path.display().to_string() {
@@ -115,16 +120,18 @@ impl RepositoryStorage {
         let repositories_root = repositories_root(&self.storage_root);
 
         if !is_bare_repository(&repository_path, &repositories_root).await? {
-            eprintln!(
-                "[tessera-git] repository path is not bare repository repository_id={repository_id} path={}",
-                repository_path.display()
+            tracing::warn!(
+                repository_id = %repository_id,
+                path = %repository_path.display(),
+                "repository path is not bare repository"
             );
             return Err(RepositoryError::ExistingPathNotBare);
         }
 
-        eprintln!(
-            "[tessera-git] repository ready repository_id={repository_id} path={}",
-            repository_path.display()
+        tracing::info!(
+            repository_id = %repository_id,
+            path = %repository_path.display(),
+            "repository ready"
         );
         Ok(repository_path)
     }
