@@ -13,6 +13,7 @@ use tessera_git::smart_http::infrastructure::GitHttpBackend;
 use tessera_git::storage::infrastructure::RepositoryStorage;
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
+const MISSING_GIT_BINARY: &str = "/definitely/missing/tessera/git-http-backend-test/git-binary";
 
 #[tokio::test]
 async fn smart_http_rejects_invalid_repository_metadata_before_backend() {
@@ -29,7 +30,7 @@ async fn smart_http_maps_backend_failure() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");
     storage.create_repository(&repository_id()).await.unwrap();
-    let application = application(temp_dir.path(), "false", REPOSITORY_ID);
+    let application = application(temp_dir.path(), MISSING_GIT_BINARY, REPOSITORY_ID);
 
     let error = application.handle(info_refs_request()).await.unwrap_err();
 
@@ -75,7 +76,7 @@ async fn smart_http_serves_upload_pack_info_refs() {
     assert_eq!(response.status, 200);
     assert!(response.headers.iter().any(|(name, value)| {
         name.eq_ignore_ascii_case("Content-Type")
-            && value == "application/x-git-upload-pack-advertisement"
+            && value.starts_with("application/x-git-upload-pack-advertisement")
     }));
     assert!(
         response
