@@ -12,6 +12,15 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum RepositoryTreeEntryKind {
+  REPOSITORY_TREE_ENTRY_KIND_UNSPECIFIED = 0,
+  REPOSITORY_TREE_ENTRY_KIND_FILE = 1,
+  REPOSITORY_TREE_ENTRY_KIND_DIRECTORY = 2,
+  REPOSITORY_TREE_ENTRY_KIND_SYMLINK = 3,
+  REPOSITORY_TREE_ENTRY_KIND_SUBMODULE = 4,
+  UNRECOGNIZED = -1,
+}
+
 export interface HealthRequest {
 }
 
@@ -25,6 +34,35 @@ export interface CreateRepositoryRequest {
 
 export interface CreateRepositoryResponse {
   storagePath: string;
+}
+
+export interface GetRepositoryBrowserSummaryRequest {
+  repositoryId: string;
+  storagePath: string;
+  defaultBranch: string;
+}
+
+export interface GetRepositoryBrowserSummaryResponse {
+  isEmpty: boolean;
+  defaultBranch: string;
+  rootEntries: RepositoryTreeEntry[];
+  readme: RepositoryReadme | undefined;
+}
+
+export interface RepositoryTreeEntry {
+  name: string;
+  objectId: string;
+  kind: RepositoryTreeEntryKind;
+  sizeBytes: number;
+  path: string;
+  mode: string;
+}
+
+export interface RepositoryReadme {
+  filename: string;
+  objectId: string;
+  content: Uint8Array;
+  isTruncated: boolean;
 }
 
 export const TESSERA_GIT_V1_PACKAGE_NAME = "tessera.git.v1";
@@ -166,10 +204,306 @@ export const CreateRepositoryResponse: MessageFns<CreateRepositoryResponse> = {
   },
 };
 
+function createBaseGetRepositoryBrowserSummaryRequest(): GetRepositoryBrowserSummaryRequest {
+  return { repositoryId: "", storagePath: "", defaultBranch: "" };
+}
+
+export const GetRepositoryBrowserSummaryRequest: MessageFns<GetRepositoryBrowserSummaryRequest> = {
+  encode(message: GetRepositoryBrowserSummaryRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.defaultBranch !== "") {
+      writer.uint32(26).string(message.defaultBranch);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryBrowserSummaryRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryBrowserSummaryRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.defaultBranch = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseGetRepositoryBrowserSummaryResponse(): GetRepositoryBrowserSummaryResponse {
+  return { isEmpty: false, defaultBranch: "", rootEntries: [], readme: undefined };
+}
+
+export const GetRepositoryBrowserSummaryResponse: MessageFns<GetRepositoryBrowserSummaryResponse> = {
+  encode(message: GetRepositoryBrowserSummaryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.isEmpty !== false) {
+      writer.uint32(8).bool(message.isEmpty);
+    }
+    if (message.defaultBranch !== "") {
+      writer.uint32(18).string(message.defaultBranch);
+    }
+    for (const v of message.rootEntries) {
+      RepositoryTreeEntry.encode(v!, writer.uint32(26).fork()).join();
+    }
+    if (message.readme !== undefined) {
+      RepositoryReadme.encode(message.readme, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryBrowserSummaryResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryBrowserSummaryResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.isEmpty = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.defaultBranch = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.rootEntries.push(RepositoryTreeEntry.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.readme = RepositoryReadme.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryTreeEntry(): RepositoryTreeEntry {
+  return { name: "", objectId: "", kind: 0, sizeBytes: 0, path: "", mode: "" };
+}
+
+export const RepositoryTreeEntry: MessageFns<RepositoryTreeEntry> = {
+  encode(message: RepositoryTreeEntry, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.objectId !== "") {
+      writer.uint32(18).string(message.objectId);
+    }
+    if (message.kind !== 0) {
+      writer.uint32(24).int32(message.kind);
+    }
+    if (message.sizeBytes !== 0) {
+      writer.uint32(32).uint64(message.sizeBytes);
+    }
+    if (message.path !== "") {
+      writer.uint32(42).string(message.path);
+    }
+    if (message.mode !== "") {
+      writer.uint32(50).string(message.mode);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryTreeEntry {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryTreeEntry();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.objectId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.sizeBytes = longToNumber(reader.uint64());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.mode = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryReadme(): RepositoryReadme {
+  return { filename: "", objectId: "", content: new Uint8Array(0), isTruncated: false };
+}
+
+export const RepositoryReadme: MessageFns<RepositoryReadme> = {
+  encode(message: RepositoryReadme, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.filename !== "") {
+      writer.uint32(10).string(message.filename);
+    }
+    if (message.objectId !== "") {
+      writer.uint32(18).string(message.objectId);
+    }
+    if (message.content.length !== 0) {
+      writer.uint32(26).bytes(message.content);
+    }
+    if (message.isTruncated !== false) {
+      writer.uint32(32).bool(message.isTruncated);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryReadme {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryReadme();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.filename = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.objectId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.isTruncated = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 export interface GitStorageServiceClient {
   health(request: HealthRequest, metadata?: Metadata): Observable<HealthResponse>;
 
   createRepository(request: CreateRepositoryRequest, metadata?: Metadata): Observable<CreateRepositoryResponse>;
+
+  getRepositoryBrowserSummary(
+    request: GetRepositoryBrowserSummaryRequest,
+    metadata?: Metadata,
+  ): Observable<GetRepositoryBrowserSummaryResponse>;
 }
 
 export interface GitStorageServiceController {
@@ -182,11 +516,19 @@ export interface GitStorageServiceController {
     request: CreateRepositoryRequest,
     metadata?: Metadata,
   ): Promise<CreateRepositoryResponse> | Observable<CreateRepositoryResponse> | CreateRepositoryResponse;
+
+  getRepositoryBrowserSummary(
+    request: GetRepositoryBrowserSummaryRequest,
+    metadata?: Metadata,
+  ):
+    | Promise<GetRepositoryBrowserSummaryResponse>
+    | Observable<GetRepositoryBrowserSummaryResponse>
+    | GetRepositoryBrowserSummaryResponse;
 }
 
 export function GitStorageServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["health", "createRepository"];
+    const grpcMethods: string[] = ["health", "createRepository", "getRepositoryBrowserSummary"];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("GitStorageService", method)(constructor.prototype[method], method, descriptor);
@@ -223,11 +565,36 @@ export const GitStorageServiceService = {
       Buffer.from(CreateRepositoryResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): CreateRepositoryResponse => CreateRepositoryResponse.decode(value),
   },
+  getRepositoryBrowserSummary: {
+    path: "/tessera.git.v1.GitStorageService/GetRepositoryBrowserSummary" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetRepositoryBrowserSummaryRequest): Buffer =>
+      Buffer.from(GetRepositoryBrowserSummaryRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetRepositoryBrowserSummaryRequest =>
+      GetRepositoryBrowserSummaryRequest.decode(value),
+    responseSerialize: (value: GetRepositoryBrowserSummaryResponse): Buffer =>
+      Buffer.from(GetRepositoryBrowserSummaryResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetRepositoryBrowserSummaryResponse =>
+      GetRepositoryBrowserSummaryResponse.decode(value),
+  },
 } as const;
 
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
   health: handleUnaryCall<HealthRequest, HealthResponse>;
   createRepository: handleUnaryCall<CreateRepositoryRequest, CreateRepositoryResponse>;
+  getRepositoryBrowserSummary: handleUnaryCall<GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse>;
+}
+
+function longToNumber(int64: { toString(): string }): number {
+  const num = globalThis.Number(int64.toString());
+  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
+  }
+  return num;
 }
 
 export interface MessageFns<T> {
