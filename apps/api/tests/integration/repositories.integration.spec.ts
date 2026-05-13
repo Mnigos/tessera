@@ -45,7 +45,6 @@ interface RepositoryResponseBody {
 		visibility: 'public' | 'private'
 		description?: string
 		defaultBranch: string
-		storagePath?: string
 		createdAt: string
 		updatedAt: string
 	}
@@ -62,6 +61,11 @@ interface ErrorResponseBody {
 	defined: true
 	code: string
 	message: string
+}
+
+interface GitReadAuthorizationResponseBody {
+	repositoryId: string
+	storagePath: string
 }
 
 interface CreateIntegrationUserOptions {
@@ -152,9 +156,6 @@ describe('Repositories integration', () => {
 			},
 		})
 		expect(body.repository.id).toEqual(expect.any(String))
-		expect(body.repository.storagePath).toBe(
-			`/var/lib/tessera/repositories/${body.repository.id}.git`
-		)
 		expect(Date.parse(body.repository.createdAt)).not.toBeNaN()
 		expect(gitStorageCreateRepository).toHaveBeenCalledWith({
 			repositoryId: body.repository.id,
@@ -183,7 +184,6 @@ describe('Repositories integration', () => {
 			name: 'Roadmap',
 			description: 'Launch notes',
 			visibility: 'public',
-			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
 		})
 	})
 
@@ -336,6 +336,101 @@ describe('Repositories integration', () => {
 		})
 	})
 
+	test('rejects internal git read authorization without a bearer token', async () => {
+		const response = await authorizeGitRepositoryRead({
+			username: 'marta',
+			slug: 'notes',
+		})
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(401)
+		expect(body).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: 'internal git repository read authentication required',
+		})
+	})
+
+	test('rejects internal git read authorization with an invalid bearer token', async () => {
+		const headers = new Headers()
+		headers.set('authorization', 'Bearer wrong-token')
+
+		const response = await authorizeGitRepositoryRead(
+			{
+				username: 'marta',
+				slug: 'notes',
+			},
+			headers
+		)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(401)
+		expect(body).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: 'internal git repository read authentication required',
+		})
+	})
+
+	test('returns not found for unknown internal git read repositories', async () => {
+		const response = await authorizeGitRepositoryReadWithToken({
+			username: 'marta',
+			slug: 'missing',
+		})
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+	})
+
+	test('authorizes internal git reads for public repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		const createResponse = await createRepository(
+			{ name: 'Notes', visibility: 'public' },
+			headers
+		)
+		const createdRepository =
+			(await createResponse.json()) as RepositoryResponseBody
+
+		const response = await authorizeGitRepositoryReadWithToken({
+			username: 'marta',
+			slug: 'notes',
+		})
+		const body = (await response.json()) as GitReadAuthorizationResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toEqual({
+			repositoryId: createdRepository.repository.id,
+			storagePath: `/var/lib/tessera/repositories/${createdRepository.repository.id}.git`,
+		})
+		expect(body).not.toHaveProperty('slug')
+		expect(body).not.toHaveProperty('username')
+	})
+
+	test('forbids internal git reads for private repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', visibility: 'private' }, headers)
+
+		const response = await authorizeGitRepositoryReadWithToken({
+			username: 'marta',
+			slug: 'notes',
+		})
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(403)
+		expect(body).toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'repository git read access denied',
+		})
+	})
+
 	async function createIntegrationSessionHeaders(
 		options: CreateIntegrationUserOptions
 	) {
@@ -398,6 +493,27 @@ describe('Repositories integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}`,
 			{ headers }
+		)
+	}
+
+	function authorizeGitRepositoryReadWithToken(input: object) {
+		const headers = new Headers()
+		headers.set('authorization', 'Bearer test-internal-token')
+
+		return authorizeGitRepositoryRead(input, headers)
+	}
+
+	function authorizeGitRepositoryRead(input: object, headers?: Headers) {
+		const requestHeaders = new Headers(headers)
+		requestHeaders.set('content-type', 'application/json')
+
+		return adapter.hono.request(
+			'http://localhost/internal/git/repositories/authorize-read',
+			{
+				method: 'POST',
+				headers: requestHeaders,
+				body: JSON.stringify(input),
+			}
 		)
 	}
 })
