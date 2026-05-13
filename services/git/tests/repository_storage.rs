@@ -210,6 +210,10 @@ async fn browser_summary_returns_empty_state_for_empty_repository() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");
     let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let default_branch = git_stdout(
+        &repository.path,
+        ["symbolic-ref", "--quiet", "--short", "HEAD"],
+    );
 
     let summary = storage
         .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "")
@@ -217,7 +221,7 @@ async fn browser_summary_returns_empty_state_for_empty_repository() {
         .unwrap();
 
     assert!(summary.is_empty);
-    assert_eq!(summary.default_branch, "main");
+    assert_eq!(summary.default_branch, default_branch.trim());
     assert!(summary.root_entries.is_empty());
     assert!(summary.readme.is_none());
 }
@@ -471,11 +475,26 @@ fn git<const N: usize>(bare_repository_path: &Path, args: [&str; N]) {
     command_vec(Path::new("."), command_args);
 }
 
+fn git_stdout<const N: usize>(bare_repository_path: &Path, args: [&str; N]) -> String {
+    let mut command_args = vec!["git", "--git-dir", bare_repository_path.to_str().unwrap()];
+    command_args.extend(args);
+    let output = command_output(Path::new("."), command_args);
+
+    String::from_utf8(output.stdout).unwrap()
+}
+
 fn command<const N: usize>(current_dir: &Path, args: [&str; N]) {
     command_vec(current_dir, args);
 }
 
 fn command_vec<'a, T>(current_dir: &Path, args: T)
+where
+    T: IntoIterator<Item = &'a str>,
+{
+    command_output(current_dir, args);
+}
+
+fn command_output<'a, T>(current_dir: &Path, args: T) -> std::process::Output
 where
     T: IntoIterator<Item = &'a str>,
 {
@@ -493,6 +512,8 @@ where
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+
+    output
 }
 
 #[cfg(unix)]
