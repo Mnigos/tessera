@@ -68,6 +68,24 @@ impl fmt::Display for SmartHttpError {
 
 impl std::error::Error for SmartHttpError {}
 
+pub fn query_service(query: Option<&str>) -> Result<Option<&str>, SmartHttpError> {
+    let Some(query) = query else {
+        return Ok(None);
+    };
+    let mut services = query.split('&').filter_map(|part| {
+        let (key, value) = part.split_once('=')?;
+
+        (key == "service").then_some(value)
+    });
+    let service = services.next();
+
+    if services.next().is_some() {
+        return Err(SmartHttpError::UnsupportedService);
+    }
+
+    Ok(service)
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SmartHttpRepositoryMetadata {
     pub repository_id: String,

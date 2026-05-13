@@ -5,7 +5,7 @@ use http::{HeaderMap, Method};
 
 use crate::domain::RepositoryError;
 use crate::smart_http::domain::{
-    BasicCredentials, SmartHttpAction, SmartHttpError, SmartHttpRepositoryMetadata,
+    BasicCredentials, SmartHttpAction, SmartHttpError, SmartHttpRepositoryMetadata, query_service,
 };
 use crate::smart_http::infrastructure::{GitHttpBackend, GitHttpBackendRequest};
 use crate::storage::infrastructure::RepositoryStorage;
@@ -170,9 +170,9 @@ fn parse_smart_http_request(
             return Err(SmartHttpError::UnsupportedMethod);
         }
 
-        let service = query_service(query)?.ok_or(SmartHttpError::UnsupportedService)?;
+        let service = query_service(query.as_deref())?.ok_or(SmartHttpError::UnsupportedService)?;
 
-        return match service.as_str() {
+        return match service {
             "git-upload-pack" => Ok(ParsedSmartHttpRequest {
                 action: SmartHttpAction::UploadPackInfoRefs,
                 cgi_path: "/info/refs".to_string(),
@@ -208,24 +208,6 @@ fn parse_smart_http_request(
     }
 
     Err(SmartHttpError::InvalidPath)
-}
-
-fn query_service(query: &Option<String>) -> Result<Option<String>, SmartHttpError> {
-    let Some(query) = query.as_ref() else {
-        return Ok(None);
-    };
-    let mut services = query.split('&').filter_map(|part| {
-        let (key, value) = part.split_once('=')?;
-
-        (key == "service").then(|| value.to_string())
-    });
-    let service = services.next();
-
-    if services.next().is_some() {
-        return Err(SmartHttpError::UnsupportedService);
-    }
-
-    Ok(service)
 }
 
 fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
