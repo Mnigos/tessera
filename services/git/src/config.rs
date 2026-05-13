@@ -17,8 +17,8 @@ pub struct Config {
     pub http_port: u16,
     pub storage_root: PathBuf,
     pub git_binary: PathBuf,
-    pub api_authorization_url: String,
-    pub api_authorization_token: Option<String>,
+    pub api_grpc_url: String,
+    pub api_grpc_authorization_token: Option<String>,
 }
 
 impl Config {
@@ -43,10 +43,10 @@ impl Config {
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
-        let api_authorization_url = env::var("GIT_API_AUTHORIZATION_URL")
-            .map_err(|_| ConfigError::MissingApiAuthorizationUrl)?;
-        let api_authorization_token = env::var("GIT_API_AUTHORIZATION_TOKEN")
-            .map_err(|_| ConfigError::MissingApiAuthorizationToken)?;
+        let api_grpc_url =
+            env::var("GIT_API_GRPC_URL").map_err(|_| ConfigError::MissingApiGrpcUrl)?;
+        let api_grpc_authorization_token = env::var("GIT_API_GRPC_AUTHORIZATION_TOKEN")
+            .map_err(|_| ConfigError::MissingApiGrpcAuthorizationToken)?;
 
         Ok(Self {
             host,
@@ -55,8 +55,8 @@ impl Config {
             http_port: http_port.unwrap_or(DEFAULT_HTTP_PORT),
             storage_root,
             git_binary,
-            api_authorization_url,
-            api_authorization_token: Some(api_authorization_token),
+            api_grpc_url,
+            api_grpc_authorization_token: Some(api_grpc_authorization_token),
         })
     }
 
@@ -98,8 +98,8 @@ pub enum ConfigError {
     InvalidPort,
     InvalidHttpPort,
     InvalidSocketAddress,
-    MissingApiAuthorizationUrl,
-    MissingApiAuthorizationToken,
+    MissingApiGrpcUrl,
+    MissingApiGrpcAuthorizationToken,
 }
 
 impl fmt::Display for ConfigError {
@@ -113,11 +113,11 @@ impl fmt::Display for ConfigError {
                     "GIT_SERVICE_HOST and GIT_SERVICE_PORT must form a socket address"
                 )
             }
-            Self::MissingApiAuthorizationUrl => {
-                write!(formatter, "GIT_API_AUTHORIZATION_URL is required")
+            Self::MissingApiGrpcUrl => {
+                write!(formatter, "GIT_API_GRPC_URL is required")
             }
-            Self::MissingApiAuthorizationToken => {
-                write!(formatter, "GIT_API_AUTHORIZATION_TOKEN is required")
+            Self::MissingApiGrpcAuthorizationToken => {
+                write!(formatter, "GIT_API_GRPC_AUTHORIZATION_TOKEN is required")
             }
         }
     }
