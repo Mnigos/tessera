@@ -18,9 +18,11 @@ import {
 } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	PrivateRepositoryGitReadForbiddenError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
+	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
 import {
 	normalizeGeneratedRepositorySlug,
@@ -41,6 +43,16 @@ interface CreateRepositoryMetadataParams {
 	userId: UserId
 	username: string
 	visibility: CreateRepositoryInput['visibility']
+}
+
+export interface AuthorizeGitRepositoryReadInput {
+	slug: RepositorySlug
+	username: string
+}
+
+export interface GitRepositoryReadAuthorization {
+	repositoryId: RepositoryId
+	storagePath: string
 }
 
 @Injectable()
@@ -104,7 +116,7 @@ export class RepositoriesService {
 		userId: UserId,
 		{ slug, username }: GetRepositoryInput
 	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.findOwned({
+		const repository = await this.repositoriesRepository.find({
 			userId,
 			slug,
 		})
@@ -112,6 +124,33 @@ export class RepositoriesService {
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
 		return toRepositoryOutput(repository)
+	}
+
+	async authorizeGitRepositoryRead({
+		slug,
+		username,
+	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryReadAuthorization> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (repository.visibility === 'private')
+			throw new PrivateRepositoryGitReadForbiddenError({
+				repositoryId: repository.id,
+			})
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+		}
 	}
 
 	private async createRepositoryMetadata({

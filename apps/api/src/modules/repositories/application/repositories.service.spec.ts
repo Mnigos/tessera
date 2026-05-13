@@ -5,9 +5,11 @@ import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	PrivateRepositoryGitReadForbiddenError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryNotFoundError,
+	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { RepositoriesService } from './repositories.service'
@@ -41,7 +43,7 @@ describe(RepositoriesService.name, () => {
 					useValue: {
 						create: vi.fn(),
 						list: vi.fn(),
-						findOwned: vi.fn(),
+						find: vi.fn(),
 						updateStoragePath: vi.fn(),
 						delete: vi.fn(),
 					},
@@ -91,7 +93,6 @@ describe(RepositoriesService.name, () => {
 				visibility: 'private',
 				description: 'Notes',
 				defaultBranch: 'main',
-				storagePath: '/var/lib/tessera/repositories/repo.git',
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
@@ -198,8 +199,8 @@ describe(RepositoriesService.name, () => {
 	})
 
 	test('gets an owned repository by username and repository slug', async () => {
-		const findOwnedSpy = vi
-			.spyOn(repositoriesRepository, 'findOwned')
+		const findSpy = vi
+			.spyOn(repositoriesRepository, 'find')
 			.mockResolvedValue(repository)
 
 		expect(
@@ -212,14 +213,14 @@ describe(RepositoriesService.name, () => {
 				repository: expect.objectContaining({ slug: repository.slug }),
 			})
 		)
-		expect(findOwnedSpy).toHaveBeenCalledWith({
+		expect(findSpy).toHaveBeenCalledWith({
 			userId: mockUserId,
 			slug: repository.slug,
 		})
 	})
 
 	test('throws when an owned repository is unknown', async () => {
-		vi.spyOn(repositoriesRepository, 'findOwned').mockResolvedValue(undefined)
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
 
 		await expect(
 			repositoriesService.get(mockUserId, {
@@ -227,5 +228,64 @@ describe(RepositoriesService.name, () => {
 				slug: 'missing' as RepositorySlug,
 			})
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('authorizes git reads for public repositories with storage metadata', async () => {
+		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.authorizeGitRepositoryRead({
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		expect(findSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: repository.slug,
+		})
+	})
+
+	test('throws when a git read repository is unknown', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryRead({
+				username: 'marta',
+				slug: 'missing' as RepositorySlug,
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('forbids git reads for private repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(repository)
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryRead({
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(PrivateRepositoryGitReadForbiddenError)
+	})
+
+	test('throws when a public git read repository has no storage path', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: null,
+		})
+
+		await expect(
+			repositoriesService.authorizeGitRepositoryRead({
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
 	})
 })
