@@ -212,11 +212,14 @@ fn parse_smart_http_request(
 
 fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
     match error {
-        RepositoryError::InvalidRepositoryId => SmartHttpError::InvalidRepositoryMetadata,
+        RepositoryError::InvalidRepositoryId
+        | RepositoryError::InvalidRepositoryPath
+        | RepositoryError::InvalidRepositoryRef => SmartHttpError::InvalidRepositoryMetadata,
         RepositoryError::PathEscapesStorageRoot
         | RepositoryError::ExistingPathNotBare
         | RepositoryError::StoragePathMismatch
-        | RepositoryError::StorageIo(_) => SmartHttpError::RepositoryUnavailable,
+        | RepositoryError::StorageIo(_)
+        | RepositoryError::InvalidGitOutput => SmartHttpError::RepositoryUnavailable,
         RepositoryError::GitProcessIo(_) | RepositoryError::GitProcessFailed => {
             SmartHttpError::BackendFailed
         }
