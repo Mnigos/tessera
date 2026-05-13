@@ -43,7 +43,8 @@ impl Config {
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
-        let api_authorization_url = env::var("GIT_API_AUTHORIZATION_URL").unwrap_or_default();
+        let api_authorization_url = env::var("GIT_API_AUTHORIZATION_URL")
+            .map_err(|_| ConfigError::MissingApiAuthorizationUrl)?;
         let api_authorization_token = env::var("GIT_API_AUTHORIZATION_TOKEN").ok();
 
         Ok(Self {
@@ -96,6 +97,7 @@ pub enum ConfigError {
     InvalidPort,
     InvalidHttpPort,
     InvalidSocketAddress,
+    MissingApiAuthorizationUrl,
 }
 
 impl fmt::Display for ConfigError {
@@ -108,6 +110,9 @@ impl fmt::Display for ConfigError {
                     formatter,
                     "GIT_SERVICE_HOST and GIT_SERVICE_PORT must form a socket address"
                 )
+            }
+            Self::MissingApiAuthorizationUrl => {
+                write!(formatter, "GIT_API_AUTHORIZATION_URL is required")
             }
         }
     }

@@ -7,7 +7,7 @@ pub fn empty_response(status: StatusCode) -> Response<Body> {
     Response::builder()
         .status(status)
         .body(Body::empty())
-        .unwrap()
+        .expect("failed to build empty HTTP response")
 }
 
 pub fn smart_http_error_to_status(error: &SmartHttpError) -> StatusCode {

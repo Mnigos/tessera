@@ -64,9 +64,11 @@ async fn handle(
 ) -> Response<Body> {
     let request_label = format!("{username}/{repo_slug}.git/{path}");
     if is_receive_pack_request(&path, query.as_deref()) {
-        eprintln!(
-            "[tessera-git] smart_http rejected receive-pack request method={method} path={request_label} query={:?}",
-            query
+        tracing::warn!(
+            method = %method,
+            path = %request_label,
+            query = ?query,
+            "smart_http rejected receive-pack request"
         );
         return empty_response(StatusCode::FORBIDDEN);
     }
@@ -74,9 +76,12 @@ async fn handle(
     let body = match body::to_bytes(body, SMART_HTTP_BODY_LIMIT_BYTES).await {
         Ok(body) => body,
         Err(error) => {
-            eprintln!(
-                "[tessera-git] smart_http rejected oversized/invalid body method={method} path={request_label} query={:?} error={error}",
-                query
+            tracing::warn!(
+                method = %method,
+                path = %request_label,
+                query = ?query,
+                error = %error,
+                "smart_http rejected oversized or invalid body"
             );
             return empty_response(StatusCode::PAYLOAD_TOO_LARGE);
         }
@@ -105,10 +110,13 @@ async fn handle(
         }
         Err(error) => {
             let status = smart_http_error_to_status(&error);
-            eprintln!(
-                "[tessera-git] smart_http failed method={method} path={request_label} query={:?} status={} error={error}",
-                query,
-                status.as_u16()
+            tracing::warn!(
+                method = %method,
+                path = %request_label,
+                query = ?query,
+                status = status.as_u16(),
+                error = %error,
+                "smart_http failed"
             );
             empty_response(status)
         }

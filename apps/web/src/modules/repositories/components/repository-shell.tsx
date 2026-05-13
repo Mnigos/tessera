@@ -2,8 +2,10 @@ import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Check, Copy } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
+
+const COPY_FEEDBACK_DURATION_MS = 2000
 
 interface RepositoryShellProps {
 	owner: RepositoryOwner
@@ -15,13 +17,28 @@ export function RepositoryShell({
 	repository,
 }: Readonly<RepositoryShellProps>) {
 	const [isCloneUrlCopied, setIsCloneUrlCopied] = useState(false)
+	const copyFeedbackTimeout = useRef<ReturnType<typeof setTimeout>>(undefined)
 	const cloneUrl = getRepositoryCloneUrl(repository, owner)
 
-	function handleCopyCloneUrl() {
+	useMountEffect(() => () => {
+		if (copyFeedbackTimeout.current) clearTimeout(copyFeedbackTimeout.current)
+	})
+
+	async function handleCopyCloneUrl() {
 		if (!cloneUrl) return
 
-		navigator.clipboard.writeText(cloneUrl).catch(() => undefined)
-		setIsCloneUrlCopied(true)
+		try {
+			await navigator.clipboard.writeText(cloneUrl)
+			if (copyFeedbackTimeout.current) clearTimeout(copyFeedbackTimeout.current)
+
+			setIsCloneUrlCopied(true)
+			copyFeedbackTimeout.current = setTimeout(
+				() => setIsCloneUrlCopied(false),
+				COPY_FEEDBACK_DURATION_MS
+			)
+		} catch {
+			setIsCloneUrlCopied(false)
+		}
 	}
 
 	return (
@@ -90,6 +107,11 @@ export function RepositoryShell({
 			</Card>
 		</section>
 	)
+}
+
+function useMountEffect(effect: () => undefined | (() => void)) {
+	// biome-ignore lint/correctness/useExhaustiveDependencies: mount-only cleanup for event-owned timeout
+	useEffect(effect, [])
 }
 
 interface RepositoryDetailProps {

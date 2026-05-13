@@ -59,12 +59,13 @@ Required for production:
 1. Create the Railway project.
 2. Add Postgres.
 3. Add Redis.
-4. Configure S3-compatible storage.
+4. Create the Git service and attach a Railway Volume for `GIT_STORAGE_ROOT`.
 5. Create the API service using `/apps/api/railway.json`.
-6. Set API variables, including `DATABASE_URL` and `REDIS_URL`.
-7. Deploy API and verify `/health/ping`.
-8. Create the Web service using `/apps/web/railway.json`.
-9. Set Web variables using the final API and Web domains.
-10. Deploy Web and verify `/`.
+6. Set API variables, including `DATABASE_URL`, `REDIS_URL`, and `INTERNAL_API_TOKEN`.
+7. Set Git service variables, including `GIT_API_AUTHORIZATION_URL` and `GIT_API_AUTHORIZATION_TOKEN`.
+8. Deploy API and verify `/health/ping`.
+9. Create the Web service using `/apps/web/railway.json`.
+10. Set Web variables using the final API, Git HTTP, and Web domains.
+11. Deploy Web and verify `/`.
 
 API migrations run during Railway predeploy with `bun run db:migrate`.
