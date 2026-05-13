@@ -35,7 +35,8 @@ impl GitHttpBackend {
             .ok_or(SmartHttpError::RepositoryUnavailable)?;
         let path_info = format!("/{repository_name}{}", request.path);
 
-        let mut child = Command::new(&self.git_binary)
+        let mut command = Command::new(&self.git_binary);
+        command
             .arg("http-backend")
             .env_clear()
             .env("GIT_PROJECT_ROOT", project_root)
@@ -43,10 +44,6 @@ impl GitHttpBackend {
             .env("REQUEST_METHOD", request.method.to_string())
             .env("PATH_INFO", path_info)
             .env("QUERY_STRING", request.query.unwrap_or_default())
-            .env(
-                "CONTENT_LENGTH",
-                request.content_length.unwrap_or_default().to_string(),
-            )
             .env(
                 "CONTENT_TYPE",
                 request
@@ -60,9 +57,13 @@ impl GitHttpBackend {
             )
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::null())
-            .spawn()
-            .map_err(|_| SmartHttpError::BackendFailed)?;
+            .stderr(std::process::Stdio::null());
+
+        if let Some(content_length) = request.content_length {
+            command.env("CONTENT_LENGTH", content_length.to_string());
+        }
+
+        let mut child = command.spawn().map_err(|_| SmartHttpError::BackendFailed)?;
 
         if let Some(mut stdin) = child.stdin.take() {
             let mut body = request.body;

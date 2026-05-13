@@ -66,11 +66,14 @@ async fn handle(
     body: Body,
 ) -> Response<Body> {
     let request_label = format!("{username}/{repo_slug}.git/{path}");
-    let basic_credentials = match basic_credentials_for_request(&path, query.as_deref(), &headers) {
+    let is_receive_pack = match is_receive_pack_request(&path, query.as_deref()) {
+        Ok(is_receive_pack) => is_receive_pack,
+        Err(error) => return smart_http_error_response(error, &method, &request_label, &query),
+    };
+    let basic_credentials = match basic_credentials_for_request(is_receive_pack, &headers) {
         Ok(credentials) => credentials,
         Err(error) => return basic_auth_challenge_response(error),
     };
-    let is_receive_pack = is_receive_pack_request(&path, query.as_deref());
     let authorized = if is_receive_pack {
         match service
             .authorize(SmartHttpAuthorizationContext {
@@ -178,22 +181,23 @@ fn parse_repo_git_segment(repo_git: &str) -> Option<String> {
     (!repo_slug.is_empty()).then(|| repo_slug.to_string())
 }
 
-fn is_receive_pack_request(path: &str, query: Option<&str>) -> bool {
-    path == "git-receive-pack"
-        || (path == "info/refs"
-            && query.is_some_and(|query| {
-                query
-                    .split('&')
-                    .any(|part| part == "service=git-receive-pack")
-            }))
+fn is_receive_pack_request(path: &str, query: Option<&str>) -> Result<bool, SmartHttpError> {
+    if path == "git-receive-pack" {
+        return Ok(true);
+    }
+
+    if path != "info/refs" {
+        return Ok(false);
+    }
+
+    Ok(query_service(query)? == Some("git-receive-pack"))
 }
 
 fn basic_credentials_for_request(
-    path: &str,
-    query: Option<&str>,
+    is_receive_pack: bool,
     headers: &HeaderMap,
 ) -> Result<Option<BasicCredentials>, SmartHttpError> {
-    if !is_receive_pack_request(path, query) {
+    if !is_receive_pack {
         return Ok(None);
     }
 
@@ -206,6 +210,24 @@ fn basic_credentials_for_request(
         .map_err(|_| SmartHttpError::InvalidCredentials)?;
 
     parse_basic_authorization_header(header).map(Some)
+}
+
+fn query_service(query: Option<&str>) -> Result<Option<&str>, SmartHttpError> {
+    let Some(query) = query else {
+        return Ok(None);
+    };
+    let mut services = query.split('&').filter_map(|part| {
+        let (key, value) = part.split_once('=')?;
+
+        (key == "service").then_some(value)
+    });
+    let service = services.next();
+
+    if services.next().is_some() {
+        return Err(SmartHttpError::UnsupportedService);
+    }
+
+    Ok(service)
 }
 
 fn content_length(headers: &HeaderMap) -> Option<u64> {
@@ -253,24 +275,18 @@ mod tests {
 
     #[test]
     fn detects_receive_pack_info_refs_before_body_read() {
-        assert!(is_receive_pack_request(
-            "info/refs",
-            Some("service=git-receive-pack")
-        ));
+        assert!(is_receive_pack_request("info/refs", Some("service=git-receive-pack")).unwrap());
     }
 
     #[test]
     fn detects_receive_pack_post_before_body_read() {
-        assert!(is_receive_pack_request("git-receive-pack", None));
+        assert!(is_receive_pack_request("git-receive-pack", None).unwrap());
     }
 
     #[test]
     fn allows_upload_pack_requests() {
-        assert!(!is_receive_pack_request(
-            "info/refs",
-            Some("service=git-upload-pack")
-        ));
-        assert!(!is_receive_pack_request("git-upload-pack", None));
+        assert!(!is_receive_pack_request("info/refs", Some("service=git-upload-pack")).unwrap());
+        assert!(!is_receive_pack_request("git-upload-pack", None).unwrap());
     }
 
     #[test]
@@ -290,10 +306,20 @@ mod tests {
 
     #[test]
     fn receive_pack_requires_basic_credentials() {
-        let error =
-            basic_credentials_for_request("git-receive-pack", None, &HeaderMap::new()).unwrap_err();
+        let error = basic_credentials_for_request(true, &HeaderMap::new()).unwrap_err();
 
         assert_eq!(error, SmartHttpError::MissingCredentials);
+    }
+
+    #[test]
+    fn rejects_duplicate_info_refs_service_values() {
+        let error = is_receive_pack_request(
+            "info/refs",
+            Some("service=git-upload-pack&service=git-receive-pack"),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, SmartHttpError::UnsupportedService);
     }
 
     #[test]

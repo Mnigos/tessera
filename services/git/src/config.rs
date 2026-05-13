@@ -43,10 +43,11 @@ impl Config {
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
-        let api_grpc_url =
-            env::var("GIT_API_GRPC_URL").map_err(|_| ConfigError::MissingApiGrpcUrl)?;
-        let api_grpc_authorization_token = env::var("GIT_API_GRPC_AUTHORIZATION_TOKEN")
-            .map_err(|_| ConfigError::MissingApiGrpcAuthorizationToken)?;
+        let api_grpc_url = required_env("GIT_API_GRPC_URL", ConfigError::MissingApiGrpcUrl)?;
+        let api_grpc_authorization_token = required_env(
+            "GIT_API_GRPC_AUTHORIZATION_TOKEN",
+            ConfigError::MissingApiGrpcAuthorizationToken,
+        )?;
 
         Ok(Self {
             host,
@@ -81,6 +82,16 @@ fn default_storage_root() -> PathBuf {
     env::temp_dir().join(format!("tessera-git-{}", process::id()))
 }
 
+fn required_env(name: &str, error: ConfigError) -> Result<String, ConfigError> {
+    let value = env::var(name).map_err(|_| error)?;
+
+    if value.trim().is_empty() {
+        return Err(error);
+    }
+
+    Ok(value)
+}
+
 fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, ConfigError> {
     let host = if host.contains(':') && !host.starts_with('[') {
         format!("[{}]", host)
@@ -93,7 +104,7 @@ fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, ConfigError> {
         .map_err(|_| ConfigError::InvalidSocketAddress)
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum ConfigError {
     InvalidPort,
     InvalidHttpPort,

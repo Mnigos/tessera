@@ -170,7 +170,7 @@ fn parse_smart_http_request(
             return Err(SmartHttpError::UnsupportedMethod);
         }
 
-        let service = query_service(query).ok_or(SmartHttpError::UnsupportedService)?;
+        let service = query_service(query)?.ok_or(SmartHttpError::UnsupportedService)?;
 
         return match service.as_str() {
             "git-upload-pack" => Ok(ParsedSmartHttpRequest {
@@ -210,14 +210,22 @@ fn parse_smart_http_request(
     Err(SmartHttpError::InvalidPath)
 }
 
-fn query_service(query: &Option<String>) -> Option<String> {
-    let query = query.as_ref()?;
-
-    query.split('&').find_map(|part| {
+fn query_service(query: &Option<String>) -> Result<Option<String>, SmartHttpError> {
+    let Some(query) = query.as_ref() else {
+        return Ok(None);
+    };
+    let mut services = query.split('&').filter_map(|part| {
         let (key, value) = part.split_once('=')?;
 
         (key == "service").then(|| value.to_string())
-    })
+    });
+    let service = services.next();
+
+    if services.next().is_some() {
+        return Err(SmartHttpError::UnsupportedService);
+    }
+
+    Ok(service)
 }
 
 fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
@@ -277,5 +285,17 @@ mod tests {
 
         assert_eq!(parsed.action, SmartHttpAction::ReceivePack);
         assert_eq!(parsed.cgi_path, "/git-receive-pack");
+    }
+
+    #[test]
+    fn rejects_duplicate_info_refs_service_values() {
+        let error = parse_smart_http_request(
+            &Method::GET,
+            "info/refs",
+            &Some("service=git-upload-pack&service=git-receive-pack".to_string()),
+        )
+        .unwrap_err();
+
+        assert_eq!(error, SmartHttpError::UnsupportedService);
     }
 }
