@@ -2,7 +2,8 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use tempfile::TempDir;
-use tessera_git::{RepositoryError, RepositoryId, RepositoryStorage};
+use tessera_git::storage::infrastructure::RepositoryStorage;
+use tessera_git::{RepositoryError, RepositoryId};
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
 

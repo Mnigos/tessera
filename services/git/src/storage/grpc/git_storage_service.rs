@@ -1,11 +1,11 @@
-use crate::application::GitStorageApplication;
 use crate::config::Config;
 use crate::domain::RepositoryError;
-use crate::infrastructure::RepositoryStorage;
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
     CreateRepositoryRequest, CreateRepositoryResponse, HealthRequest, HealthResponse,
 };
+use crate::storage::application::GitStorageApplication;
+use crate::storage::infrastructure::RepositoryStorage;
 use tonic::{Request, Response, Status};
 
 #[derive(Clone, Debug)]
@@ -45,7 +45,7 @@ impl GitStorageService for GitStorageGrpcService {
             .map_err(repository_error_to_status)?;
 
         Ok(Response::new(CreateRepositoryResponse {
-            storage_path: repository.path.display().to_string(),
+            storage_path: repository.storage_path,
         }))
     }
 }
@@ -60,6 +60,9 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         }
         RepositoryError::ExistingPathNotBare => {
             Status::failed_precondition("repository path exists but is not a bare git repository")
+        }
+        RepositoryError::StoragePathMismatch => {
+            Status::failed_precondition("repository storage path does not match storage root")
         }
         RepositoryError::StorageIo(_)
         | RepositoryError::GitProcessIo(_)
