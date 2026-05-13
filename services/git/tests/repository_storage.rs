@@ -80,6 +80,21 @@ async fn create_repository_maps_git_process_failure() {
     assert!(matches!(error, RepositoryError::GitProcessFailed));
 }
 
+#[tokio::test]
+async fn create_repository_cleans_up_directory_after_git_process_failure() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "false");
+    let repository_path = storage.repository_path(REPOSITORY_ID).unwrap();
+
+    let error = storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::GitProcessFailed));
+    assert!(!repository_path.exists());
+}
+
 #[cfg(unix)]
 #[tokio::test]
 async fn create_repository_rejects_repositories_symlink_escape() {

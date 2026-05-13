@@ -62,8 +62,23 @@ impl RepositoryStorage {
             .await
             .map_err(RepositoryError::StorageIo)?;
 
-        reject_symlink(&repository_path).await?;
+        if let Err(error) = self.initialize_created_repository(&repository_path).await {
+            cleanup_created_repository(&repository_path).await;
 
+            return Err(error);
+        }
+
+        Ok(RepositoryCreated {
+            path: repository_path,
+            created: true,
+        })
+    }
+
+    async fn initialize_created_repository(
+        &self,
+        repository_path: &PathBuf,
+    ) -> Result<(), RepositoryError> {
+        reject_symlink(repository_path).await?;
         let output = timeout(
             Duration::from_secs(15),
             Command::new(&self.git_binary)
@@ -75,19 +90,17 @@ impl RepositoryStorage {
         .await
         .map_err(|_| RepositoryError::GitProcessFailed)?
         .map_err(RepositoryError::GitProcessIo)?;
-
         if !output.status.success() {
             return Err(RepositoryError::GitProcessFailed);
         }
+
+        let repositories_root = repositories_root(&self.storage_root);
 
         if !is_bare_repository(&repository_path, &repositories_root).await? {
             return Err(RepositoryError::GitProcessFailed);
         }
 
-        Ok(RepositoryCreated {
-            path: repository_path,
-            created: true,
-        })
+        Ok(())
     }
 
     async fn ensure_repositories_root(&self) -> Result<(), RepositoryError> {
@@ -120,6 +133,10 @@ impl RepositoryStorage {
 
         Ok(())
     }
+}
+
+async fn cleanup_created_repository(repository_path: &PathBuf) {
+    let _ = fs::remove_dir_all(repository_path).await;
 }
 
 #[cfg(test)]
