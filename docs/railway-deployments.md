@@ -62,8 +62,8 @@ Required for production:
 3. Add Redis.
 4. Create the Git service and attach a Railway Volume for `GIT_STORAGE_ROOT`.
 5. Create the API service using `/apps/api/railway.json`.
-6. Set API variables, including `DATABASE_URL`, `REDIS_URL`, and `INTERNAL_API_TOKEN`.
-7. Set Git service variables, including `GIT_API_AUTHORIZATION_URL` and `GIT_API_AUTHORIZATION_TOKEN`.
+6. Set API variables, including `DATABASE_URL`, `REDIS_URL`, `INTERNAL_API_TOKEN`, and `API_GRPC_URL`.
+7. Set Git service variables, including `GIT_API_GRPC_URL` and `GIT_API_GRPC_AUTHORIZATION_TOKEN`.
 8. Deploy API and verify `/health/ping`.
 9. Create the Web service using `/apps/web/railway.json`.
 10. Set Web variables using the final API, Git HTTP, and Web domains.
