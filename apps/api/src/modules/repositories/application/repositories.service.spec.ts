@@ -64,6 +64,26 @@ describe(RepositoriesService.name, () => {
 						createRepository: vi.fn().mockResolvedValue({
 							storagePath: '/var/lib/tessera/repositories/repo.git',
 						}),
+						getRepositoryBrowserSummary: vi.fn().mockResolvedValue({
+							isEmpty: false,
+							defaultBranch: 'main',
+							rootEntries: [
+								{
+									name: 'README.md',
+									objectId: 'abc123',
+									kind: 'file',
+									sizeBytes: 42,
+									path: 'README.md',
+									mode: '100644',
+								},
+							],
+							readme: {
+								filename: 'README.md',
+								objectId: 'abc123',
+								content: '# Tessera',
+								isTruncated: false,
+							},
+						}),
 					},
 				},
 				{
@@ -254,6 +274,134 @@ describe(RepositoriesService.name, () => {
 				slug: 'missing' as RepositorySlug,
 			})
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('gets a public repository browser summary for anonymous readers', async () => {
+		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		expect(
+			await repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repository: expect.objectContaining({ slug: repository.slug }),
+			owner: { username: 'marta' },
+			isEmpty: false,
+			defaultBranch: 'main',
+			rootEntries: [
+				{
+					name: 'README.md',
+					objectId: 'abc123',
+					kind: 'file',
+					sizeBytes: 42,
+					path: 'README.md',
+					mode: '100644',
+				},
+			],
+			readme: {
+				filename: 'README.md',
+				objectId: 'abc123',
+				content: '# Tessera',
+				isTruncated: false,
+			},
+		})
+		expect(findSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: repository.slug,
+		})
+		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'main',
+		})
+	})
+
+	test('gets a private repository browser summary for the owner', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		expect(
+			await repositoriesService.getBrowserSummary(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({ slug: repository.slug }),
+				rootEntries: [
+					{
+						name: 'README.md',
+						objectId: 'abc123',
+						kind: 'file',
+						sizeBytes: 42,
+						path: 'README.md',
+						mode: '100644',
+					},
+				],
+			})
+		)
+		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalled()
+	})
+
+	test('hides private browser reads from non-owners before calling git storage', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		await expect(
+			repositoriesService.getBrowserSummary(
+				'00000000-0000-4000-8000-000000000099' as UserId,
+				{
+					username: 'marta',
+					slug: repository.slug,
+				}
+			)
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryBrowserSummarySpy).not.toHaveBeenCalled()
+	})
+
+	test('throws before calling git storage when browser summary storage path is missing', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: null,
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		await expect(
+			repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+		expect(getRepositoryBrowserSummarySpy).not.toHaveBeenCalled()
 	})
 
 	test('authorizes git reads for public repositories with storage metadata', async () => {
