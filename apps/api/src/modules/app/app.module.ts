@@ -6,6 +6,7 @@ import { RedisModule } from '@config/redis'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
+import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { HealthModule } from '@modules/health'
 import { RepositoriesModule } from '@modules/repositories'
 import { UserModule } from '@modules/user'
@@ -22,6 +23,7 @@ import { APP_FILTER } from '@nestjs/core'
 		RPCModule,
 		AuthModule,
 		UserModule,
+		GitAccessTokensModule,
 		RepositoriesModule,
 		DocsModule,
 		HealthModule,
