@@ -1,9 +1,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 
 use tempfile::TempDir;
 use tessera_git::storage::infrastructure::RepositoryStorage;
-use tessera_git::{RepositoryError, RepositoryId};
+use tessera_git::{RepositoryError, RepositoryId, RepositoryTreeEntryKind};
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
 
@@ -204,12 +205,275 @@ async fn create_repository_rejects_repository_path_replaced_by_symlink_before_gi
     assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
 }
 
+#[tokio::test]
+async fn browser_summary_returns_empty_state_for_empty_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "")
+        .await
+        .unwrap();
+
+    assert!(summary.is_empty);
+    assert_eq!(summary.default_branch, "main");
+    assert!(summary.root_entries.is_empty());
+    assert!(summary.readme.is_none());
+}
+
+#[tokio::test]
+async fn browser_summary_returns_root_entries_without_readme() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[
+            ("src/lib.rs", "pub fn hello() {}\n"),
+            ("notes.txt", "notes\n"),
+        ],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .await
+        .unwrap();
+
+    assert!(!summary.is_empty);
+    assert_eq!(summary.default_branch, "main");
+    assert_eq!(summary.root_entries.len(), 2);
+    assert!(
+        summary.root_entries.iter().any(|entry| {
+            entry.name == "notes.txt" && entry.kind == RepositoryTreeEntryKind::File
+        })
+    );
+    assert!(
+        summary.root_entries.iter().any(|entry| {
+            entry.name == "src" && entry.kind == RepositoryTreeEntryKind::Directory
+        })
+    );
+    assert!(summary.readme.is_none());
+}
+
+#[tokio::test]
+async fn browser_summary_returns_readme_by_priority_and_preserves_filename() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[
+            ("README.txt", "lower priority\n"),
+            ("README.markdown", "# Chosen\n"),
+        ],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .await
+        .unwrap();
+    let readme = summary.readme.unwrap();
+
+    assert_eq!(readme.filename, "README.markdown");
+    assert_eq!(readme.content, b"# Chosen\n");
+    assert!(!readme.is_truncated);
+}
+
+#[tokio::test]
+async fn browser_summary_matches_readme_case_insensitively() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("readme.md", "# Lowercase\n")],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .await
+        .unwrap();
+    let readme = summary.readme.unwrap();
+
+    assert_eq!(readme.filename, "readme.md");
+    assert_eq!(readme.content, b"# Lowercase\n");
+}
+
+#[tokio::test]
+async fn browser_summary_prefers_requested_default_branch_before_symbolic_head() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "develop",
+        &[("README.md", "develop\n")],
+    );
+    git(
+        &repository.path,
+        ["symbolic-ref", "HEAD", "refs/heads/main"],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "develop")
+        .await
+        .unwrap();
+
+    assert_eq!(summary.default_branch, "develop");
+    assert_eq!(summary.readme.unwrap().content, b"develop\n");
+}
+
+#[tokio::test]
+async fn browser_summary_falls_back_to_symbolic_head_when_requested_branch_is_missing() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "missing")
+        .await
+        .unwrap();
+
+    assert_eq!(summary.default_branch, "main");
+    assert_eq!(summary.readme.unwrap().content, b"main\n");
+}
+
+#[tokio::test]
+async fn browser_summary_truncates_oversized_readme() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let content = "a".repeat(256 * 1024 + 7);
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", &content)],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .await
+        .unwrap();
+    let readme = summary.readme.unwrap();
+
+    assert_eq!(readme.content.len(), 256 * 1024);
+    assert!(readme.is_truncated);
+}
+
+#[tokio::test]
+async fn browser_summary_rejects_unsafe_default_branch() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let error = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "../main")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::InvalidRepositoryRef));
+}
+
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
 }
 
 fn repository_id() -> RepositoryId {
     RepositoryId::parse(REPOSITORY_ID).unwrap()
+}
+
+fn push_commit(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    files: &[(&str, &str)],
+) {
+    let worktree = TempDir::new_in(temp_root).unwrap();
+    command(
+        worktree.path(),
+        ["git", "init", "--initial-branch", branch_name],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.name", "Tessera Test"],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.email", "test@example.com"],
+    );
+
+    for (file_path, content) in files {
+        let path = worktree.path().join(file_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    command(worktree.path(), ["git", "add", "."]);
+    command(worktree.path(), ["git", "commit", "-m", "test commit"]);
+    command(
+        worktree.path(),
+        [
+            "git",
+            "push",
+            bare_repository_path.to_str().unwrap(),
+            &format!("HEAD:refs/heads/{branch_name}"),
+        ],
+    );
+    git(
+        bare_repository_path,
+        ["symbolic-ref", "HEAD", &format!("refs/heads/{branch_name}")],
+    );
+}
+
+fn git<const N: usize>(bare_repository_path: &Path, args: [&str; N]) {
+    let mut command_args = vec!["git", "--git-dir", bare_repository_path.to_str().unwrap()];
+    command_args.extend(args);
+    command_vec(Path::new("."), command_args);
+}
+
+fn command<const N: usize>(current_dir: &Path, args: [&str; N]) {
+    command_vec(current_dir, args);
+}
+
+fn command_vec<'a, T>(current_dir: &Path, args: T)
+where
+    T: IntoIterator<Item = &'a str>,
+{
+    let args: Vec<&str> = args.into_iter().collect();
+    let output = Command::new(args[0])
+        .current_dir(current_dir)
+        .args(&args[1..])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "command failed: {:?}\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[cfg(unix)]
