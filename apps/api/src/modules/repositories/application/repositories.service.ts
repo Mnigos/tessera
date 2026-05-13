@@ -5,7 +5,12 @@ import type {
 	GetRepositoryInput,
 	RepositoryWithOwner,
 } from '@repo/contracts'
-import type { RepositoryId, UserId } from '@repo/domain'
+import type {
+	RepositoryId,
+	RepositoryName,
+	RepositorySlug,
+	UserId,
+} from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
 	type RepositoryWithOwner as RepositoryWithOwnerEntity,
@@ -29,6 +34,15 @@ const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 	'repositories_owner_organization_slug_unique',
 ])
 
+interface CreateRepositoryMetadataParams {
+	description: string | undefined
+	name: RepositoryName
+	slug: RepositorySlug
+	userId: UserId
+	username: string
+	visibility: CreateRepositoryInput['visibility']
+}
+
 @Injectable()
 export class RepositoriesService {
 	private readonly logger = new Logger(RepositoriesService.name)
@@ -50,28 +64,14 @@ export class RepositoriesService {
 			? normalizeRepositorySlug(input.slug)
 			: normalizeGeneratedRepositorySlug(input.name)
 
-		let repository: RepositoryWithOwnerEntity
-
-		try {
-			repository = await this.repositoriesRepository.create({
-				userId,
-				name,
-				slug,
-				username: currentUsername,
-				description,
-				visibility,
-			})
-		} catch (error) {
-			if (isUniqueViolation(error, REPOSITORY_SLUG_UNIQUE_CONSTRAINTS))
-				throw new DuplicateRepositorySlugError(slug)
-
-			this.logger.error(
-				'Failed to create repository',
-				error instanceof Error ? error.stack : undefined
-			)
-
-			throw error
-		}
+		const repository = await this.createRepositoryMetadata({
+			userId,
+			name,
+			slug,
+			username: currentUsername,
+			description,
+			visibility,
+		})
 
 		try {
 			const { storagePath } = await this.gitStorageClient.createRepository({
@@ -112,6 +112,36 @@ export class RepositoriesService {
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
 		return toRepositoryOutput(repository)
+	}
+
+	private async createRepositoryMetadata({
+		description,
+		name,
+		slug,
+		userId,
+		username,
+		visibility,
+	}: CreateRepositoryMetadataParams): Promise<RepositoryWithOwnerEntity> {
+		try {
+			return await this.repositoriesRepository.create({
+				userId,
+				name,
+				slug,
+				username,
+				description,
+				visibility,
+			})
+		} catch (error) {
+			if (isUniqueViolation(error, REPOSITORY_SLUG_UNIQUE_CONSTRAINTS))
+				throw new DuplicateRepositorySlugError(slug)
+
+			this.logger.error(
+				'Failed to create repository',
+				error instanceof Error ? error.stack : undefined
+			)
+
+			throw error
+		}
 	}
 
 	private async cleanupCreatedRepository(repositoryId: RepositoryId) {
