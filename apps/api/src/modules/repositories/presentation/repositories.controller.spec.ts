@@ -14,7 +14,6 @@ const repository = {
 		visibility: 'private' as const,
 		description: undefined,
 		defaultBranch: 'main',
-		storagePath: undefined,
 		createdAt: new Date('2026-05-12T00:00:00Z'),
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
 	},

@@ -19,7 +19,6 @@ export const repositorySchema = z.object({
 	visibility: z.enum(['public', 'private']),
 	description: z.string().optional(),
 	defaultBranch: z.string(),
-	storagePath: z.string().optional(),
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
 })

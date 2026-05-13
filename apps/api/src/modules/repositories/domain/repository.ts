@@ -35,7 +35,6 @@ export function toRepositoryOutput(
 			visibility: repository.visibility,
 			description: repository.description ?? undefined,
 			defaultBranch: repository.defaultBranch,
-			storagePath: repository.storagePath ?? undefined,
 			createdAt: repository.createdAt,
 			updatedAt: repository.updatedAt,
 		},

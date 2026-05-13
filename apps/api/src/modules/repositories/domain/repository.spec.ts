@@ -31,7 +31,6 @@ describe('repository domain mapper', () => {
 				visibility: 'private',
 				description: undefined,
 				defaultBranch: 'main',
-				storagePath: undefined,
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
