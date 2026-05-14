@@ -91,22 +91,18 @@ interface CodeRow {
 	text?: string
 }
 
+interface HighlightedCodeLine {
+	number: number
+	html: string
+}
+
 interface HighlightedBlobPreview {
 	highlighted?: {
 		startLine: number
-		lines: Array<{
-			number: number
-			html: string
-		}>
+		lines: HighlightedCodeLine[]
 	}
-	highlightedRows?: Array<{
-		number: number
-		html: string
-	}>
-	rows?: Array<{
-		number: number
-		html: string
-	}>
+	highlightedRows?: HighlightedCodeLine[]
+	rows?: HighlightedCodeLine[]
 }
 
 function getCodeRows(
