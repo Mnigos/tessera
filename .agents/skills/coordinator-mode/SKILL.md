@@ -22,7 +22,8 @@ Worker agents own most file reading and editing for their assigned write sets.
 5. Re-delegate when dependencies appear. If a test worker is blocked because implementation files do not exist yet, re-engage after they do.
 6. Review worker diffs with targeted reads and tests. Do not redo worker research broadly.
 7. Use `review_gate` after non-trivial changes and wait for it unless it is clearly stuck.
-8. Run final verification and report worker outcomes, tests, and any skipped checks.
+8. Before final verification, scan the full working tree for inline review/action markers. Treat explicit action markers such as `REVIEW:`, `TODO:`, `FIXME:`, `BUG:`, `HACK:`, and `XXX:` as real markers; ignore ordinary words such as `preview`. If the marker belongs to an active worker's write set, send it back to that worker. Otherwise choose the domain skill by path first (`apps/web` -> `web-app-patterns`, `apps/api` -> `api-patterns`, `services/git` -> `rust-service-patterns`), then by language fallback.
+9. Run final verification and report worker outcomes, tests, and any skipped checks.
 
 ## Coordinator Limits
 
@@ -31,6 +32,7 @@ Worker agents own most file reading and editing for their assigned write sets.
 - If you edit files locally, keep edits small and explain why.
 - The worker that edits files must satisfy skill usage and similar-file reading rules for those files.
 - Prefer sending failing commands, stack traces, DB/test state, and suspected ownership area back to the owning worker before patching locally.
+- Worker prompts must explicitly tell workers not to leave `//REVIEW:`, `TODO`, `FIXME`, or similar action markers in code unless the user asked for a tracked marker.
 
 ## Worker Prompt Packet
 
