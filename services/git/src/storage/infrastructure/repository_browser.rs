@@ -5,11 +5,16 @@ use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{
-    RepositoryBrowserSummary, RepositoryError, RepositoryReadme, RepositoryTreeEntry,
-    RepositoryTreeEntryKind,
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryError, RepositoryReadme,
+    RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
+};
+use crate::storage::infrastructure::repository_browser_helpers::{
+    normalize_repository_path, normalize_requested_ref, parse_ls_tree_entries, treeish_path,
+    validate_git_ref, validate_object_id,
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
+const BLOB_PREVIEW_MAX_BYTES: usize = 512 * 1024;
 const README_MAX_BYTES: usize = 256 * 1024;
 const README_FILENAMES: [&str; 6] = [
     "README.md",
@@ -55,6 +60,89 @@ impl RepositoryStorage {
             default_branch: branch_name,
             root_entries,
             readme,
+        })
+    }
+
+    pub async fn get_repository_tree(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        ref_name: &str,
+        path: &str,
+    ) -> Result<RepositoryTree, RepositoryError> {
+        let repository_path = self
+            .existing_bare_repository_path(repository_id, storage_path)
+            .await?;
+        validate_git_ref(ref_name)?;
+        let path = normalize_repository_path(path)?;
+        let commit_id = self.resolve_commit_ref(&repository_path, ref_name).await?;
+        let treeish = treeish_path(&commit_id, &path);
+        let object_type = self.object_type(&repository_path, &treeish).await?;
+
+        if object_type != "tree" {
+            return Err(RepositoryError::WrongObjectKind);
+        }
+
+        let entries = self
+            .tree_entries(&repository_path, &treeish, path.as_deref().unwrap_or(""))
+            .await?;
+
+        Ok(RepositoryTree {
+            commit_id,
+            path: path.unwrap_or_default(),
+            entries,
+        })
+    }
+
+    pub async fn get_repository_blob(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        object_id: &str,
+    ) -> Result<RepositoryBlobPreview, RepositoryError> {
+        let repository_path = self
+            .existing_bare_repository_path(repository_id, storage_path)
+            .await?;
+        validate_object_id(object_id)?;
+        let object_type = self.object_type(&repository_path, object_id).await?;
+
+        if object_type != "blob" {
+            return Err(RepositoryError::WrongObjectKind);
+        }
+
+        let size_bytes = self.object_size(&repository_path, object_id).await?;
+
+        if size_bytes > BLOB_PREVIEW_MAX_BYTES as u64 {
+            return Ok(RepositoryBlobPreview::TooLarge {
+                object_id: object_id.to_string(),
+                size_bytes,
+                preview_limit_bytes: BLOB_PREVIEW_MAX_BYTES as u64,
+            });
+        }
+
+        let content = self.read_exact_blob(&repository_path, object_id).await?;
+
+        if content.contains(&0) {
+            return Ok(RepositoryBlobPreview::Binary {
+                object_id: object_id.to_string(),
+                size_bytes,
+                preview_limit_bytes: BLOB_PREVIEW_MAX_BYTES as u64,
+            });
+        }
+
+        let Ok(text) = String::from_utf8(content) else {
+            return Ok(RepositoryBlobPreview::Binary {
+                object_id: object_id.to_string(),
+                size_bytes,
+                preview_limit_bytes: BLOB_PREVIEW_MAX_BYTES as u64,
+            });
+        };
+
+        Ok(RepositoryBlobPreview::Text {
+            object_id: object_id.to_string(),
+            text,
+            size_bytes,
+            preview_limit_bytes: BLOB_PREVIEW_MAX_BYTES as u64,
         })
     }
 
@@ -138,7 +226,24 @@ impl RepositoryStorage {
             return Err(RepositoryError::GitProcessFailed);
         }
 
-        parse_ls_tree_entries(&output.stdout)
+        parse_ls_tree_entries(&output.stdout, "")
+    }
+
+    async fn tree_entries(
+        &self,
+        repository_path: &Path,
+        treeish: &str,
+        parent_path: &str,
+    ) -> Result<Vec<RepositoryTreeEntry>, RepositoryError> {
+        let output = self
+            .git(repository_path, ["ls-tree", "-z", "-l", treeish])
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::GitProcessFailed);
+        }
+
+        parse_ls_tree_entries(&output.stdout, parent_path)
     }
 
     async fn readme(
@@ -225,6 +330,86 @@ impl RepositoryStorage {
         }
     }
 
+    async fn read_exact_blob(
+        &self,
+        repository_path: &Path,
+        object_id: &str,
+    ) -> Result<Vec<u8>, RepositoryError> {
+        let output = self
+            .git(repository_path, ["cat-file", "blob", object_id])
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::GitProcessFailed);
+        }
+
+        Ok(output.stdout)
+    }
+
+    async fn object_type(
+        &self,
+        repository_path: &Path,
+        object_id: &str,
+    ) -> Result<String, RepositoryError> {
+        let output = self
+            .git(repository_path, ["cat-file", "-t", object_id])
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::RepositoryObjectNotFound);
+        }
+
+        let value =
+            String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
+
+        Ok(value.trim().to_string())
+    }
+
+    async fn object_size(
+        &self,
+        repository_path: &Path,
+        object_id: &str,
+    ) -> Result<u64, RepositoryError> {
+        let output = self
+            .git(repository_path, ["cat-file", "-s", object_id])
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::RepositoryObjectNotFound);
+        }
+
+        let value =
+            String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
+
+        value
+            .trim()
+            .parse()
+            .map_err(|_| RepositoryError::InvalidGitOutput)
+    }
+
+    async fn resolve_commit_ref(
+        &self,
+        repository_path: &Path,
+        ref_name: &str,
+    ) -> Result<String, RepositoryError> {
+        let ref_name = format!("{ref_name}^{{commit}}");
+        let output = self
+            .git(
+                repository_path,
+                ["rev-parse", "--verify", "--end-of-options", &ref_name],
+            )
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::RepositoryObjectNotFound);
+        }
+
+        let commit_id =
+            String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
+
+        Ok(commit_id.trim().to_string())
+    }
+
     async fn git<const N: usize>(
         &self,
         repository_path: &Path,
@@ -242,109 +427,4 @@ impl RepositoryStorage {
         .map_err(|_| RepositoryError::GitProcessFailed)?
         .map_err(RepositoryError::GitProcessIo)
     }
-}
-
-fn normalize_requested_ref(value: &str) -> Result<Option<String>, RepositoryError> {
-    let value = value.trim();
-
-    if value.is_empty() {
-        return Ok(None);
-    }
-
-    validate_git_ref(value)?;
-
-    Ok(Some(value.to_string()))
-}
-
-fn validate_git_ref(value: &str) -> Result<(), RepositoryError> {
-    if value.is_empty()
-        || value.starts_with('-')
-        || value.starts_with('/')
-        || value.ends_with('/')
-        || value.ends_with('.')
-        || value.ends_with(".lock")
-        || value.contains('\0')
-        || value.contains("..")
-        || value.contains("//")
-        || value.contains("@{")
-        || value.contains('\\')
-        || value.chars().any(|character| {
-            matches!(
-                character,
-                ' ' | '\t' | '\r' | '\n' | '~' | '^' | ':' | '?' | '*' | '['
-            )
-        })
-        || value.split('/').any(|part| part == "." || part == "..")
-    {
-        return Err(RepositoryError::InvalidRepositoryRef);
-    }
-
-    Ok(())
-}
-
-fn parse_ls_tree_entries(output: &[u8]) -> Result<Vec<RepositoryTreeEntry>, RepositoryError> {
-    if output.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let mut entries = Vec::new();
-
-    for raw_entry in output
-        .split(|byte| *byte == 0)
-        .filter(|entry| !entry.is_empty())
-    {
-        let tab_index = raw_entry
-            .iter()
-            .position(|byte| *byte == b'\t')
-            .ok_or(RepositoryError::InvalidGitOutput)?;
-        let metadata = std::str::from_utf8(&raw_entry[..tab_index])
-            .map_err(|_| RepositoryError::InvalidGitOutput)?;
-        let name = std::str::from_utf8(&raw_entry[tab_index + 1..])
-            .map_err(|_| RepositoryError::InvalidGitOutput)?;
-
-        if name.is_empty() || name.contains('/') {
-            return Err(RepositoryError::InvalidRepositoryPath);
-        }
-
-        let mut metadata_parts = metadata.split_whitespace();
-        let mode = metadata_parts
-            .next()
-            .ok_or(RepositoryError::InvalidGitOutput)?;
-        let object_type = metadata_parts
-            .next()
-            .ok_or(RepositoryError::InvalidGitOutput)?;
-        let object_id = metadata_parts
-            .next()
-            .ok_or(RepositoryError::InvalidGitOutput)?;
-        let size = metadata_parts
-            .next()
-            .ok_or(RepositoryError::InvalidGitOutput)?;
-
-        let kind = match (mode, object_type) {
-            ("040000", "tree") => RepositoryTreeEntryKind::Directory,
-            ("120000", "blob") => RepositoryTreeEntryKind::Symlink,
-            ("160000", "commit") => RepositoryTreeEntryKind::Submodule,
-            (_, "blob") => RepositoryTreeEntryKind::File,
-            _ => return Err(RepositoryError::InvalidGitOutput),
-        };
-        let size_bytes = if size == "-" {
-            0
-        } else {
-            size.parse()
-                .map_err(|_| RepositoryError::InvalidGitOutput)?
-        };
-
-        entries.push(RepositoryTreeEntry {
-            name: name.to_string(),
-            object_id: object_id.to_string(),
-            kind,
-            size_bytes,
-            path: name.to_string(),
-            mode: mode.to_string(),
-        });
-    }
-
-    entries.sort_by(|left, right| left.name.cmp(&right.name));
-
-    Ok(entries)
 }

@@ -4,7 +4,7 @@ use std::process::Command;
 
 use tempfile::TempDir;
 use tessera_git::storage::infrastructure::RepositoryStorage;
-use tessera_git::{RepositoryError, RepositoryId, RepositoryTreeEntryKind};
+use tessera_git::{RepositoryBlobPreview, RepositoryError, RepositoryId, RepositoryTreeEntryKind};
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
 
@@ -418,6 +418,284 @@ async fn browser_summary_rejects_unsafe_default_branch() {
     }
 }
 
+#[tokio::test]
+async fn repository_tree_returns_root_entries() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[
+            ("src/lib.rs", "pub fn hello() {}\n"),
+            ("notes.txt", "notes\n"),
+        ],
+    );
+
+    let tree = storage
+        .get_repository_tree(REPOSITORY_ID, &repository.storage_path, "main", "")
+        .await
+        .unwrap();
+
+    assert_eq!(tree.path, "");
+    assert_eq!(tree.entries.len(), 2);
+    assert!(tree.entries.iter().any(|entry| {
+        entry.name == "notes.txt"
+            && entry.path == "notes.txt"
+            && entry.kind == RepositoryTreeEntryKind::File
+    }));
+    assert!(tree.entries.iter().any(|entry| {
+        entry.name == "src"
+            && entry.path == "src"
+            && entry.kind == RepositoryTreeEntryKind::Directory
+    }));
+}
+
+#[tokio::test]
+async fn repository_tree_returns_nested_entries_with_full_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[
+            ("src/domain/mod.rs", "pub mod repository;\n"),
+            ("src/lib.rs", "pub mod domain;\n"),
+        ],
+    );
+
+    let tree = storage
+        .get_repository_tree(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "src/domain",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(tree.path, "src/domain");
+    assert_eq!(tree.entries.len(), 1);
+    assert_eq!(tree.entries[0].name, "mod.rs");
+    assert_eq!(tree.entries[0].path, "src/domain/mod.rs");
+    assert_eq!(tree.entries[0].kind, RepositoryTreeEntryKind::File);
+}
+
+#[tokio::test]
+async fn repository_tree_returns_not_found_for_missing_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+
+    let error = storage
+        .get_repository_tree(REPOSITORY_ID, &repository.storage_path, "main", "missing")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::RepositoryObjectNotFound));
+}
+
+#[tokio::test]
+async fn repository_tree_rejects_file_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+
+    let error = storage
+        .get_repository_tree(REPOSITORY_ID, &repository.storage_path, "main", "README.md")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::WrongObjectKind));
+}
+
+#[tokio::test]
+async fn repository_tree_rejects_unsafe_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+
+    for path in [
+        "/src",
+        "src/",
+        "src//lib.rs",
+        "src/../README.md",
+        "src/./lib.rs",
+        "src\\lib.rs",
+        "src\0lib.rs",
+    ] {
+        let error = storage
+            .get_repository_tree(REPOSITORY_ID, &repository.storage_path, "main", path)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, RepositoryError::InvalidRepositoryPath),
+            "expected {path:?} to be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn repository_tree_rejects_unsafe_refs() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+
+    for ref_name in [
+        "",
+        "../main",
+        "main.lock",
+        "feature/a b",
+        "feature/a\\b",
+        "feature/.hidden",
+    ] {
+        let error = storage
+            .get_repository_tree(REPOSITORY_ID, &repository.storage_path, ref_name, "")
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, RepositoryError::InvalidRepositoryRef),
+            "expected {ref_name:?} to be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn repository_blob_returns_text_preview() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hello\n")],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "README.md");
+
+    let blob = storage
+        .get_repository_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        blob,
+        RepositoryBlobPreview::Text {
+            object_id,
+            text: "hello\n".to_string(),
+            size_bytes: 6,
+            preview_limit_bytes: 512 * 1024,
+        }
+    );
+}
+
+#[tokio::test]
+async fn repository_blob_detects_binary_preview() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit_bytes(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("image.bin", &[0, 159, 146, 150])],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "image.bin");
+
+    let blob = storage
+        .get_repository_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        blob,
+        RepositoryBlobPreview::Binary {
+            object_id,
+            size_bytes: 4,
+            preview_limit_bytes: 512 * 1024,
+        }
+    );
+}
+
+#[tokio::test]
+async fn repository_blob_detects_oversized_preview() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let content = vec![b'a'; 512 * 1024 + 1];
+    push_commit_bytes(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("large.txt", &content)],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "large.txt");
+
+    let blob = storage
+        .get_repository_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        blob,
+        RepositoryBlobPreview::TooLarge {
+            object_id,
+            size_bytes: 512 * 1024 + 1,
+            preview_limit_bytes: 512 * 1024,
+        }
+    );
+}
+
+#[tokio::test]
+async fn repository_blob_rejects_directory_object() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("src/lib.rs", "hi\n")],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "src");
+
+    let error = storage
+        .get_repository_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::WrongObjectKind));
+}
+
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
 }
@@ -431,6 +709,19 @@ fn push_commit(
     bare_repository_path: &Path,
     branch_name: &str,
     files: &[(&str, &str)],
+) {
+    let files: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(file_path, content)| (*file_path, content.as_bytes()))
+        .collect();
+    push_commit_bytes(temp_root, bare_repository_path, branch_name, &files);
+}
+
+fn push_commit_bytes(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    files: &[(&str, &[u8])],
 ) {
     let worktree = TempDir::new_in(temp_root).unwrap();
     command(
@@ -467,6 +758,15 @@ fn push_commit(
         bare_repository_path,
         ["symbolic-ref", "HEAD", &format!("refs/heads/{branch_name}")],
     );
+}
+
+fn object_id_for_path(bare_repository_path: &Path, branch_name: &str, path: &str) -> String {
+    let output = git_stdout(
+        bare_repository_path,
+        ["rev-parse", &format!("{branch_name}:{path}")],
+    );
+
+    output.trim().to_string()
 }
 
 fn git<const N: usize>(bare_repository_path: &Path, args: [&str; N]) {

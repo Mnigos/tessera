@@ -1,10 +1,12 @@
 use crate::config::Config;
-use crate::domain::{RepositoryError, RepositoryTreeEntryKind};
+use crate::domain::{RepositoryBlobPreview, RepositoryError, RepositoryTreeEntryKind};
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
-    CreateRepositoryRequest, CreateRepositoryResponse, GetRepositoryBrowserSummaryRequest,
-    GetRepositoryBrowserSummaryResponse, HealthRequest, HealthResponse, RepositoryReadme,
-    RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
+    CreateRepositoryRequest, CreateRepositoryResponse, GetRepositoryBlobRequest,
+    GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
+    GetRepositoryBrowserSummaryResponse, GetRepositoryTreeRequest, GetRepositoryTreeResponse,
+    HealthRequest, HealthResponse, RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState,
+    RepositoryReadme, RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
 };
 use crate::storage::application::GitStorageApplication;
 use crate::storage::infrastructure::RepositoryStorage;
@@ -89,6 +91,58 @@ impl GitStorageService for GitStorageGrpcService {
             }),
         }))
     }
+
+    async fn get_repository_tree(
+        &self,
+        request: Request<GetRepositoryTreeRequest>,
+    ) -> Result<Response<GetRepositoryTreeResponse>, Status> {
+        let request = request.into_inner();
+        let tree = self
+            .application
+            .get_repository_tree(
+                &request.repository_id,
+                &request.storage_path,
+                &request.r#ref,
+                &request.path,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(GetRepositoryTreeResponse {
+            commit_id: tree.commit_id,
+            path: tree.path,
+            entries: tree
+                .entries
+                .into_iter()
+                .map(|entry| RepositoryTreeEntry {
+                    name: entry.name,
+                    object_id: entry.object_id,
+                    kind: proto_tree_entry_kind(entry.kind).into(),
+                    size_bytes: entry.size_bytes,
+                    path: entry.path,
+                    mode: entry.mode,
+                })
+                .collect(),
+        }))
+    }
+
+    async fn get_repository_blob(
+        &self,
+        request: Request<GetRepositoryBlobRequest>,
+    ) -> Result<Response<GetRepositoryBlobResponse>, Status> {
+        let request = request.into_inner();
+        let blob = self
+            .application
+            .get_repository_blob(
+                &request.repository_id,
+                &request.storage_path,
+                &request.object_id,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(proto_blob_preview(blob)))
+    }
 }
 
 fn repository_error_to_status(error: RepositoryError) -> Status {
@@ -102,7 +156,14 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         RepositoryError::InvalidRepositoryRef => {
             Status::invalid_argument("repository default branch is invalid")
         }
+        RepositoryError::InvalidObjectId => Status::invalid_argument("object_id is invalid"),
         RepositoryError::InvalidGitOutput => Status::internal("git returned invalid output"),
+        RepositoryError::RepositoryPathNotFound | RepositoryError::RepositoryObjectNotFound => {
+            Status::not_found("repository object was not found")
+        }
+        RepositoryError::WrongObjectKind => {
+            Status::failed_precondition("repository object has the wrong kind")
+        }
         RepositoryError::PathEscapesStorageRoot => {
             Status::internal("repository storage path failed safety validation")
         }
@@ -115,6 +176,45 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         RepositoryError::StorageIo(_)
         | RepositoryError::GitProcessIo(_)
         | RepositoryError::GitProcessFailed => Status::internal("repository git operation failed"),
+    }
+}
+
+fn proto_blob_preview(blob: RepositoryBlobPreview) -> GetRepositoryBlobResponse {
+    match blob {
+        RepositoryBlobPreview::Text {
+            object_id,
+            text,
+            size_bytes,
+            preview_limit_bytes,
+        } => GetRepositoryBlobResponse {
+            object_id,
+            state: ProtoRepositoryBlobPreviewState::Text.into(),
+            text,
+            size_bytes,
+            preview_limit_bytes,
+        },
+        RepositoryBlobPreview::Binary {
+            object_id,
+            size_bytes,
+            preview_limit_bytes,
+        } => GetRepositoryBlobResponse {
+            object_id,
+            state: ProtoRepositoryBlobPreviewState::Binary.into(),
+            text: String::new(),
+            size_bytes,
+            preview_limit_bytes,
+        },
+        RepositoryBlobPreview::TooLarge {
+            object_id,
+            size_bytes,
+            preview_limit_bytes,
+        } => GetRepositoryBlobResponse {
+            object_id,
+            state: ProtoRepositoryBlobPreviewState::TooLarge.into(),
+            text: String::new(),
+            size_bytes,
+            preview_limit_bytes,
+        },
     }
 }
 
