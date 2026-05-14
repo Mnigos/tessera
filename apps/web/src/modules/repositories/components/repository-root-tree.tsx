@@ -1,16 +1,7 @@
 import type { RepositoryTreeEntry } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
-import { Link } from '@tanstack/react-router'
-import {
-	File,
-	FileQuestion,
-	Folder,
-	LinkIcon,
-	type LucideIcon,
-	Package,
-} from 'lucide-react'
-import { formatTreeEntrySize } from '../helpers/format-tree-entry-size'
 import { getBlobHref, getTreeHref } from './repository-browser-breadcrumbs'
+import { RepositoryTreeEntryRow } from './repository-tree-entry-row'
 
 interface RepositoryRootTreeProps {
 	entries: RepositoryTreeEntry[]
@@ -34,12 +25,11 @@ export function RepositoryRootTree({
 			{entries.length > 0 ? (
 				<Card className="gap-0 divide-y divide-border p-0">
 					{entries.map(entry => (
-						<TreeEntryRow
+						<RepositoryTreeEntryRow
 							entry={entry}
+							href={getTreeEntryHref({ entry, refName, slug, username })}
 							key={`${entry.path}:${entry.objectId}`}
-							refName={refName}
-							slug={slug}
-							username={username}
+							testId="file-tree-row"
 						/>
 					))}
 				</Card>
@@ -49,57 +39,6 @@ export function RepositoryRootTree({
 				</Card>
 			)}
 		</section>
-	)
-}
-
-interface TreeEntryRowProps {
-	entry: RepositoryTreeEntry
-	refName: string
-	slug: string
-	username: string
-}
-
-function TreeEntryRow({
-	entry,
-	refName,
-	slug,
-	username,
-}: Readonly<TreeEntryRowProps>) {
-	const Icon = treeEntryIcons[entry.kind]
-	const href = getTreeEntryHref({ entry, refName, slug, username })
-	const rowContent = (
-		<>
-			<div className="flex min-w-0 items-center gap-3">
-				<Icon className="size-4 shrink-0 text-muted-foreground" />
-				<span className="truncate font-medium">{entry.name}</span>
-			</div>
-			<div className="flex items-center gap-3 text-muted-foreground text-xs">
-				<span className="hidden capitalize sm:inline">{entry.kind}</span>
-				<span>{formatTreeEntrySize(entry)}</span>
-			</div>
-		</>
-	)
-
-	if (!href)
-		return (
-			<div
-				className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm"
-				data-entry-name={entry.name}
-				data-testid="file-tree-row"
-			>
-				{rowContent}
-			</div>
-		)
-
-	return (
-		<Link
-			className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/40"
-			data-entry-name={entry.name}
-			data-testid="file-tree-row"
-			to={href}
-		>
-			{rowContent}
-		</Link>
 	)
 }
 
@@ -124,11 +63,3 @@ function getTreeEntryHref({
 
 	return undefined
 }
-
-const treeEntryIcons = {
-	directory: Folder,
-	file: File,
-	submodule: Package,
-	symlink: LinkIcon,
-	unknown: FileQuestion,
-} satisfies Record<RepositoryTreeEntry['kind'], LucideIcon>
