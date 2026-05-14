@@ -1,4 +1,5 @@
-import { Metadata, status } from '@grpc/grpc-js'
+import { EnvService } from '@config/env'
+import { status } from '@grpc/grpc-js'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, RepositorySlug } from '@repo/domain'
 import {
@@ -27,6 +28,12 @@ describe(GitAuthorizationGrpcController.name, () => {
 						authorizeGitRepositoryWrite: vi.fn(),
 					},
 				},
+				{
+					provide: EnvService,
+					useValue: {
+						get: vi.fn().mockReturnValue('test-internal-token'),
+					},
+				},
 			],
 		}).compile()
 
@@ -40,7 +47,6 @@ describe(GitAuthorizationGrpcController.name, () => {
 	})
 
 	test('delegates authorize read requests to the repositories service', async () => {
-		const metadata = createMetadata()
 		const authorizeGitRepositoryReadSpy = vi
 			.spyOn(repositoriesService, 'authorizeGitRepositoryRead')
 			.mockResolvedValue({
@@ -50,29 +56,24 @@ describe(GitAuthorizationGrpcController.name, () => {
 			})
 
 		expect(
-			await controller.authorizeRead(
-				{
-					ownerUsername: 'marta',
-					repositorySlug: 'notes',
-					service: 'git-upload-pack',
-					action: 'read',
-				},
-				metadata
-			)
+			await controller.authorizeRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-upload-pack',
+				action: 'read',
+			})
 		).toEqual({
 			repositoryId: '00000000-0000-4000-8000-000000000002',
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			trustedUser: '',
 		})
 		expect(authorizeGitRepositoryReadSpy).toHaveBeenCalledWith({
-			internalAuthorization: 'Bearer test-internal-token',
 			username: 'marta',
 			slug: 'notes' as RepositorySlug,
 		})
 	})
 
 	test('delegates authorize write requests to the repositories service', async () => {
-		const metadata = createMetadata()
 		const authorizeGitRepositoryWriteSpy = vi
 			.spyOn(repositoriesService, 'authorizeGitRepositoryWrite')
 			.mockResolvedValue({
@@ -81,20 +82,16 @@ describe(GitAuthorizationGrpcController.name, () => {
 				trustedUser: '00000000-0000-4000-8000-000000000001',
 			})
 
-		await controller.authorizeWrite(
-			{
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-receive-pack',
-				action: 'write',
-				basicUsername: 'marta',
-				token: 'tes_git_raw-secret',
-			},
-			metadata
-		)
+		await controller.authorizeWrite({
+			ownerUsername: 'marta',
+			repositorySlug: 'notes',
+			service: 'git-receive-pack',
+			action: 'write',
+			basicUsername: 'marta',
+			token: 'tes_git_raw-secret',
+		})
 
 		expect(authorizeGitRepositoryWriteSpy).toHaveBeenCalledWith({
-			internalAuthorization: 'Bearer test-internal-token',
 			username: 'marta',
 			slug: 'notes' as RepositorySlug,
 			rawToken: 'tes_git_raw-secret',
@@ -108,15 +105,12 @@ describe(GitAuthorizationGrpcController.name, () => {
 		).mockRejectedValue(new UnauthorizedError('git authorization'))
 
 		await expect(
-			controller.authorizeRead(
-				{
-					ownerUsername: 'marta',
-					repositorySlug: 'notes',
-					service: 'git-upload-pack',
-					action: 'read',
-				},
-				createMetadata()
-			)
+			controller.authorizeRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-upload-pack',
+				action: 'read',
+			})
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.UNAUTHENTICATED }),
 		})
@@ -129,17 +123,14 @@ describe(GitAuthorizationGrpcController.name, () => {
 		).mockRejectedValue(new ForbiddenError('repository git write'))
 
 		await expect(
-			controller.authorizeWrite(
-				{
-					ownerUsername: 'marta',
-					repositorySlug: 'notes',
-					service: 'git-receive-pack',
-					action: 'write',
-					basicUsername: 'marta',
-					token: 'tes_git_raw-secret',
-				},
-				createMetadata()
-			)
+			controller.authorizeWrite({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-receive-pack',
+				action: 'write',
+				basicUsername: 'marta',
+				token: 'tes_git_raw-secret',
+			})
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.PERMISSION_DENIED }),
 		})
@@ -152,15 +143,12 @@ describe(GitAuthorizationGrpcController.name, () => {
 		).mockRejectedValue(new NotFoundError('repository'))
 
 		await expect(
-			controller.authorizeRead(
-				{
-					ownerUsername: 'marta',
-					repositorySlug: 'missing',
-					service: 'git-upload-pack',
-					action: 'read',
-				},
-				createMetadata()
-			)
+			controller.authorizeRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'missing',
+				service: 'git-upload-pack',
+				action: 'read',
+			})
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.NOT_FOUND }),
 		})
@@ -173,29 +161,22 @@ describe(GitAuthorizationGrpcController.name, () => {
 			.mockRejectedValueOnce(new InternalError('repository create'))
 
 		await expect(
-			controller.authorizeWrite(createWriteRequest(), createMetadata())
+			controller.authorizeWrite(createWriteRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.FAILED_PRECONDITION }),
 		})
 		await expect(
-			controller.authorizeWrite(createWriteRequest(), createMetadata())
+			controller.authorizeWrite(createWriteRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.INTERNAL }),
 		})
 		await expect(
-			controller.authorizeWrite(createWriteRequest(), createMetadata())
+			controller.authorizeWrite(createWriteRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.INTERNAL }),
 		})
 	})
 })
-
-function createMetadata() {
-	const metadata = new Metadata()
-	metadata.set('authorization', 'Bearer test-internal-token')
-
-	return metadata
-}
 
 function createWriteRequest() {
 	return {

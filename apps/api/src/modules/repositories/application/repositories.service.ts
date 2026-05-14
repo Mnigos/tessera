@@ -1,4 +1,3 @@
-import { EnvService } from '@config/env'
 import {
 	GitStorageClient,
 	type GitStorageGetRepositoryBlobParams,
@@ -34,7 +33,6 @@ import {
 } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
-	InternalGitRepositoryAuthorizationError,
 	PrivateRepositoryGitReadForbiddenError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
@@ -74,13 +72,11 @@ interface ReadableRepositoryContext {
 }
 
 export interface AuthorizeGitRepositoryReadInput {
-	internalAuthorization: string | undefined
 	slug: RepositorySlug
 	username: string
 }
 
 export interface AuthorizeGitRepositoryWriteInput {
-	internalAuthorization: string | undefined
 	rawToken: string | undefined
 	slug: RepositorySlug
 	username: string
@@ -99,8 +95,7 @@ export class RepositoriesService {
 	constructor(
 		private readonly repositoriesRepository: RepositoriesRepository,
 		private readonly gitStorageClient: GitStorageClient,
-		private readonly gitAccessTokensService: GitAccessTokensService,
-		private readonly envService: EnvService
+		private readonly gitAccessTokensService: GitAccessTokensService
 	) {}
 
 	async create(
@@ -320,12 +315,9 @@ export class RepositoriesService {
 	}
 
 	async authorizeGitRepositoryRead({
-		internalAuthorization,
 		slug,
 		username,
 	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryAuthorization> {
-		this.assertInternalAuthorization(internalAuthorization)
-
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
@@ -351,13 +343,10 @@ export class RepositoriesService {
 	}
 
 	async authorizeGitRepositoryWrite({
-		internalAuthorization,
 		rawToken,
 		slug,
 		username,
 	}: AuthorizeGitRepositoryWriteInput): Promise<GitRepositoryAuthorization> {
-		this.assertInternalAuthorization(internalAuthorization)
-
 		const { userId } = await this.gitAccessTokensService.verify({
 			rawToken,
 			requiredPermission: 'git:write',
@@ -426,13 +415,6 @@ export class RepositoriesService {
 				cleanupError instanceof Error ? cleanupError.stack : undefined
 			)
 		}
-	}
-
-	private assertInternalAuthorization(authorization: string | undefined) {
-		const expectedToken = this.envService.get('INTERNAL_API_TOKEN')
-
-		if (!expectedToken || authorization !== `Bearer ${expectedToken}`)
-			throw new InternalGitRepositoryAuthorizationError()
 	}
 
 	private async getRepositoryTreeFromStorage(

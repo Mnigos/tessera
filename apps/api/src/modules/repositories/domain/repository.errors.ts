@@ -4,7 +4,6 @@ import {
 	ForbiddenError,
 	InternalError,
 	NotFoundError,
-	UnauthorizedError,
 } from '~/shared/errors'
 
 export class InvalidRepositoryNameError extends BadRequestError {
@@ -68,12 +67,6 @@ export class RepositoryBrowserInvalidRequestError extends BadRequestError {
 export class RepositoryCreateFailedError extends InternalError {
 	constructor() {
 		super('repository create')
-	}
-}
-
-export class InternalGitRepositoryAuthorizationError extends UnauthorizedError {
-	constructor() {
-		super('internal git repository')
 	}
 }
 

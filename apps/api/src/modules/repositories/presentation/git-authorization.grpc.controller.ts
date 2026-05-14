@@ -6,15 +6,17 @@ import {
 	GIT_AUTHORIZATION_SERVICE_NAME,
 	type GitAuthorizationServiceController,
 } from '@config/git-storage/generated/tessera/git/v1/git_authorization'
-import { type Metadata, status } from '@grpc/grpc-js'
-import { Controller } from '@nestjs/common'
+import { status } from '@grpc/grpc-js'
+import { Controller, UseGuards } from '@nestjs/common'
 import { GrpcMethod, RpcException } from '@nestjs/microservices'
 import type { RepositorySlug } from '@repo/domain'
 import { DomainError } from '~/shared/errors/domain.error'
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
+import { InternalGitAuthorizationGuard } from './internal-git-authorization.guard'
 
 @Controller()
+@UseGuards(InternalGitAuthorizationGuard)
 export class GitAuthorizationGrpcController
 	implements GitAuthorizationServiceController
 {
@@ -22,12 +24,10 @@ export class GitAuthorizationGrpcController
 
 	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeRead')
 	async authorizeRead(
-		request: AuthorizeReadRequest,
-		metadata?: Metadata
+		request: AuthorizeReadRequest
 	): Promise<AuthorizeReadResponse> {
 		try {
 			return await this.repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: getAuthorization(metadata),
 				username: request.ownerUsername,
 				slug: request.repositorySlug as RepositorySlug,
 			})
@@ -38,12 +38,10 @@ export class GitAuthorizationGrpcController
 
 	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeWrite')
 	async authorizeWrite(
-		request: AuthorizeWriteRequest,
-		metadata?: Metadata
+		request: AuthorizeWriteRequest
 	): Promise<AuthorizeWriteResponse> {
 		try {
 			return await this.repositoriesService.authorizeGitRepositoryWrite({
-				internalAuthorization: getAuthorization(metadata),
 				username: request.ownerUsername,
 				slug: request.repositorySlug as RepositorySlug,
 				rawToken: request.token,
@@ -52,12 +50,6 @@ export class GitAuthorizationGrpcController
 			throw toGrpcException(error)
 		}
 	}
-}
-
-function getAuthorization(metadata: Metadata | undefined): string | undefined {
-	const [authorization] = metadata?.get('authorization') ?? []
-
-	return typeof authorization === 'string' ? authorization : undefined
 }
 
 function toGrpcException(error: unknown) {
