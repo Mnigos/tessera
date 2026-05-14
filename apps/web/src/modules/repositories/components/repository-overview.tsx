@@ -48,7 +48,12 @@ export function RepositoryOverview({
 			) : (
 				<>
 					{readme && <RepositoryReadmePreview readme={readme} />}
-					<RepositoryRootTree entries={rootEntries} />
+					<RepositoryRootTree
+						entries={rootEntries}
+						refName={defaultBranch}
+						slug={repository.slug}
+						username={owner.username}
+					/>
 				</>
 			)}
 		</section>
