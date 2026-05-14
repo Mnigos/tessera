@@ -17,12 +17,19 @@ const logger = new Logger('RPC')
 				],
 				interceptors: [
 					onError((error: unknown) => {
-						if (
-							error instanceof ORPCError &&
-							error.cause instanceof ValidationError
-						) {
-							logger.error('Validation failed', error.data)
-						}
+						if (error instanceof ORPCError)
+							if (error.cause instanceof ValidationError)
+								logger.error(
+									error.cause.message,
+									error.cause.issues
+										.map(({ path, message }) => `[${path}]: ${message}`)
+										.reduce((acc, curr) => `${acc}\n ${curr}`, '')
+								)
+							else
+								logger.error(
+									'Something went wrong',
+									JSON.stringify(error.cause)
+								)
 					}),
 				],
 				context: { request },
