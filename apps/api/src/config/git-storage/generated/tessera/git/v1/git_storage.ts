@@ -84,6 +84,18 @@ export interface GetRepositoryBlobResponse {
   previewLimitBytes: number;
 }
 
+export interface GetRepositoryRawBlobRequest {
+  repositoryId: string;
+  storagePath: string;
+  objectId: string;
+}
+
+export interface GetRepositoryRawBlobResponse {
+  objectId: string;
+  content: Uint8Array;
+  sizeBytes: number;
+}
+
 export interface RepositoryTreeEntry {
   name: string;
   objectId: string;
@@ -637,6 +649,124 @@ export const GetRepositoryBlobResponse: MessageFns<GetRepositoryBlobResponse> = 
   },
 };
 
+function createBaseGetRepositoryRawBlobRequest(): GetRepositoryRawBlobRequest {
+  return { repositoryId: "", storagePath: "", objectId: "" };
+}
+
+export const GetRepositoryRawBlobRequest: MessageFns<GetRepositoryRawBlobRequest> = {
+  encode(message: GetRepositoryRawBlobRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.objectId !== "") {
+      writer.uint32(26).string(message.objectId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryRawBlobRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryRawBlobRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.objectId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseGetRepositoryRawBlobResponse(): GetRepositoryRawBlobResponse {
+  return { objectId: "", content: new Uint8Array(0), sizeBytes: 0 };
+}
+
+export const GetRepositoryRawBlobResponse: MessageFns<GetRepositoryRawBlobResponse> = {
+  encode(message: GetRepositoryRawBlobResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.objectId !== "") {
+      writer.uint32(10).string(message.objectId);
+    }
+    if (message.content.length !== 0) {
+      writer.uint32(18).bytes(message.content);
+    }
+    if (message.sizeBytes !== 0) {
+      writer.uint32(24).uint64(message.sizeBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryRawBlobResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryRawBlobResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.objectId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.content = reader.bytes();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.sizeBytes = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseRepositoryTreeEntry(): RepositoryTreeEntry {
   return { name: "", objectId: "", kind: 0, sizeBytes: 0, path: "", mode: "" };
 }
@@ -812,6 +942,11 @@ export interface GitStorageServiceClient {
   getRepositoryTree(request: GetRepositoryTreeRequest, metadata?: Metadata): Observable<GetRepositoryTreeResponse>;
 
   getRepositoryBlob(request: GetRepositoryBlobRequest, metadata?: Metadata): Observable<GetRepositoryBlobResponse>;
+
+  getRepositoryRawBlob(
+    request: GetRepositoryRawBlobRequest,
+    metadata?: Metadata,
+  ): Observable<GetRepositoryRawBlobResponse>;
 }
 
 export interface GitStorageServiceController {
@@ -842,6 +977,11 @@ export interface GitStorageServiceController {
     request: GetRepositoryBlobRequest,
     metadata?: Metadata,
   ): Promise<GetRepositoryBlobResponse> | Observable<GetRepositoryBlobResponse> | GetRepositoryBlobResponse;
+
+  getRepositoryRawBlob(
+    request: GetRepositoryRawBlobRequest,
+    metadata?: Metadata,
+  ): Promise<GetRepositoryRawBlobResponse> | Observable<GetRepositoryRawBlobResponse> | GetRepositoryRawBlobResponse;
 }
 
 export function GitStorageServiceControllerMethods() {
@@ -852,6 +992,7 @@ export function GitStorageServiceControllerMethods() {
       "getRepositoryBrowserSummary",
       "getRepositoryTree",
       "getRepositoryBlob",
+      "getRepositoryRawBlob",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
@@ -924,6 +1065,17 @@ export const GitStorageServiceService = {
       Buffer.from(GetRepositoryBlobResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): GetRepositoryBlobResponse => GetRepositoryBlobResponse.decode(value),
   },
+  getRepositoryRawBlob: {
+    path: "/tessera.git.v1.GitStorageService/GetRepositoryRawBlob" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetRepositoryRawBlobRequest): Buffer =>
+      Buffer.from(GetRepositoryRawBlobRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetRepositoryRawBlobRequest => GetRepositoryRawBlobRequest.decode(value),
+    responseSerialize: (value: GetRepositoryRawBlobResponse): Buffer =>
+      Buffer.from(GetRepositoryRawBlobResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetRepositoryRawBlobResponse => GetRepositoryRawBlobResponse.decode(value),
+  },
 } as const;
 
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
@@ -932,6 +1084,7 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   getRepositoryBrowserSummary: handleUnaryCall<GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse>;
   getRepositoryTree: handleUnaryCall<GetRepositoryTreeRequest, GetRepositoryTreeResponse>;
   getRepositoryBlob: handleUnaryCall<GetRepositoryBlobRequest, GetRepositoryBlobResponse>;
+  getRepositoryRawBlob: handleUnaryCall<GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse>;
 }
 
 function longToNumber(int64: { toString(): string }): number {

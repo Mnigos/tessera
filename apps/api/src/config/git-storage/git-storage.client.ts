@@ -17,6 +17,7 @@ import {
 	type CreateRepositoryResponse,
 	type GetRepositoryBlobResponse,
 	type GetRepositoryBrowserSummaryResponse,
+	type GetRepositoryRawBlobResponse,
 	type GetRepositoryTreeResponse,
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
@@ -25,8 +26,9 @@ import {
 import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
+	toRepositoryRawBlob,
 	toRepositoryTree,
-} from './git-storage.helpers'
+} from './git-storage.mappers'
 
 export const GIT_STORAGE_GRPC_CLIENT = Symbol('GIT_STORAGE_GRPC_CLIENT')
 
@@ -52,6 +54,12 @@ export interface GitStorageGetRepositoryTreeParams {
 }
 
 export interface GitStorageGetRepositoryBlobParams {
+	objectId: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageGetRepositoryRawBlobParams {
 	objectId: string
 	repositoryId: RepositoryId
 	storagePath: string
@@ -94,6 +102,12 @@ export type GitStorageRepositoryBlobPreview =
 export interface GitStorageRepositoryBlob {
 	objectId: string
 	preview: GitStorageRepositoryBlobPreview
+	sizeBytes: number
+}
+
+export interface GitStorageRepositoryRawBlob {
+	content: Uint8Array
+	objectId: string
 	sizeBytes: number
 }
 
@@ -190,6 +204,24 @@ export class GitStorageClient implements OnModuleInit {
 		)
 
 		return toRepositoryBlob(response)
+	}
+
+	async getRepositoryRawBlob({
+		objectId,
+		repositoryId,
+		storagePath,
+	}: GitStorageGetRepositoryRawBlobParams): Promise<GitStorageRepositoryRawBlob> {
+		const response = await firstValueFrom(
+			this.service
+				.getRepositoryRawBlob({
+					repositoryId,
+					storagePath,
+					objectId,
+				})
+				.pipe(mapGitStorageErrors<GetRepositoryRawBlobResponse>())
+		)
+
+		return toRepositoryRawBlob(response)
 	}
 }
 

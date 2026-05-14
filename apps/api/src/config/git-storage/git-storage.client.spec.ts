@@ -25,6 +25,7 @@ describe(GitStorageClient.name, () => {
 		getRepositoryBrowserSummary: ReturnType<typeof vi.fn>
 		getRepositoryTree: ReturnType<typeof vi.fn>
 		getRepositoryBlob: ReturnType<typeof vi.fn>
+		getRepositoryRawBlob: ReturnType<typeof vi.fn>
 	}
 
 	beforeEach(async () => {
@@ -90,6 +91,13 @@ describe(GitStorageClient.name, () => {
 					previewLimitBytes: 1_048_576,
 				})
 			),
+			getRepositoryRawBlob: vi.fn(() =>
+				of({
+					objectId: 'blob123',
+					content: new TextEncoder().encode('console.log("hi")'),
+					sizeBytes: 17,
+				})
+			),
 		}
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
@@ -118,12 +126,12 @@ describe(GitStorageClient.name, () => {
 	})
 
 	test('exposes typed health without leaking the grpc client', async () => {
-		await expect(client.health()).resolves.toEqual({ status: 'SERVING' })
+		expect(await client.health()).toEqual({ status: 'SERVING' })
 		expect(gitStorageService.health).toHaveBeenCalledWith({})
 	})
 
 	test('creates repository storage with only repository id', async () => {
-		await expect(client.createRepository({ repositoryId })).resolves.toEqual({
+		expect(await client.createRepository({ repositoryId })).toEqual({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 		})
 		expect(gitStorageService.createRepository).toHaveBeenCalledWith({
@@ -132,13 +140,13 @@ describe(GitStorageClient.name, () => {
 	})
 
 	test('maps repository browser summary without exposing the storage path', async () => {
-		await expect(
-			client.getRepositoryBrowserSummary({
+		expect(
+			await client.getRepositoryBrowserSummary({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				defaultBranch: 'main',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			isEmpty: false,
 			defaultBranch: 'main',
 			rootEntries: [
@@ -192,13 +200,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBrowserSummary({
+		expect(
+			await client.getRepositoryBrowserSummary({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				defaultBranch: 'main',
 			})
-		).resolves.toEqual(
+		).toEqual(
 			expect.objectContaining({
 				rootEntries: [
 					expect.objectContaining({
@@ -267,13 +275,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBlob({
+		expect(
+			await client.getRepositoryBlob({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				objectId: 'blob123',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			objectId: 'blob123',
 			sizeBytes: 5,
 			preview: {
@@ -299,13 +307,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBlob({
+		expect(
+			await client.getRepositoryBlob({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				objectId: 'blob123',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			objectId: 'blob123',
 			sizeBytes: 10,
 			preview: { type: 'binary' },
@@ -322,16 +330,44 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBlob({
+		expect(
+			await client.getRepositoryBlob({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				objectId: 'blob123',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			objectId: 'blob123',
 			sizeBytes: 2_097_152,
 			preview: { type: 'tooLarge', previewLimitBytes: 1_048_576 },
+		})
+	})
+
+	test('maps raw blob content bytes', async () => {
+		const content = new TextEncoder().encode('hello')
+		gitStorageService.getRepositoryRawBlob.mockReturnValue(
+			of({
+				objectId: 'blob123',
+				content,
+				sizeBytes: '5',
+			})
+		)
+
+		const rawBlob = await client.getRepositoryRawBlob({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			objectId: 'blob123',
+		})
+
+		expect(rawBlob).toEqual({
+			objectId: 'blob123',
+			content,
+			sizeBytes: 5,
+		})
+		expect(gitStorageService.getRepositoryRawBlob).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			objectId: 'blob123',
 		})
 	})
 
@@ -344,13 +380,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBrowserSummary({
+		expect(
+			await client.getRepositoryBrowserSummary({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				defaultBranch: 'main',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			isEmpty: true,
 			defaultBranch: 'main',
 			rootEntries: [],
@@ -371,13 +407,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		await expect(
-			client.getRepositoryBrowserSummary({
+		expect(
+			await client.getRepositoryBrowserSummary({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				defaultBranch: 'main',
 			})
-		).resolves.toEqual({
+		).toEqual({
 			isEmpty: false,
 			defaultBranch: 'main',
 			rootEntries: [],
