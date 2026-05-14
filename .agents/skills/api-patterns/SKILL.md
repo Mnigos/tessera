@@ -36,6 +36,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Do not add try-catch blocks that only rethrow domain errors or wrap unknown errors by default.
 - Do not catch errors in repositories; let services transform errors when needed.
 - Modules register internal dependencies in `providers` and export only what other modules need.
+- Module files should contain Nest wiring and module-level constants only. Move path resolution, mapping, validation, and other helper logic into dedicated helper files.
 - Module `index.ts` files should export modules and public providers only; do not export controllers, private helpers, or private interfaces.
 - Prefer exporting application services across module boundaries. Do not export or inject another module's repository just to answer a business question; add a small service method such as `findOwnedResource` or `assertOwnedResource`.
 - Keep module-specific helpers under the module; move generic helpers only when they meet `utils-helpers` rules.
