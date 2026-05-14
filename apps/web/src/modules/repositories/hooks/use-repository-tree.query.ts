@@ -1,5 +1,4 @@
-import type { RepositorySlug, RepositoryTree } from '@repo/contracts'
-import { repositorySlugSchema } from '@repo/contracts'
+import type { RepositoryTree } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
@@ -30,12 +29,8 @@ function getRepositoryTreeInput({
 }: RepositoryTreePathInput) {
 	return {
 		username,
-		slug: getRepositorySlug(slug),
+		slug,
 		ref,
 		path: path || undefined,
 	}
-}
-
-function getRepositorySlug(slug: string): RepositorySlug {
-	return repositorySlugSchema.parse(slug)
 }
