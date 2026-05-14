@@ -1,7 +1,17 @@
-import type { GetRepositoryBrowserSummaryResponse } from './generated/tessera/git/v1/git_storage'
-import { RepositoryTreeEntryKind } from './generated/tessera/git/v1/git_storage'
 import type {
+	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
+	GetRepositoryBlobResponse,
+	GetRepositoryBrowserSummaryResponse,
+	GetRepositoryTreeResponse,
+} from './generated/tessera/git/v1/git_storage'
+import {
+	RepositoryBlobPreviewState,
+	RepositoryTreeEntryKind,
+} from './generated/tessera/git/v1/git_storage'
+import type {
+	GitStorageRepositoryBlob,
 	GitStorageRepositoryBrowserSummary,
+	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
 } from './git-storage.client'
 
@@ -11,6 +21,9 @@ type RuntimeRepositoryBrowserSummaryResponse =
 	Partial<GetRepositoryBrowserSummaryResponse> & {
 		readme?: Partial<NonNullable<GetRepositoryBrowserSummaryResponse['readme']>>
 	}
+type RuntimeRepositoryTreeResponse = Partial<GetRepositoryTreeResponse>
+type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
+type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
 /** Maps the generated gRPC browser summary into the API-facing storage client shape. */
 export function toRepositoryBrowserSummary({
@@ -22,14 +35,7 @@ export function toRepositoryBrowserSummary({
 	return {
 		defaultBranch: defaultBranch ?? '',
 		isEmpty: isEmpty ?? false,
-		rootEntries: (rootEntries ?? []).map(entry => ({
-			name: entry.name,
-			objectId: entry.objectId,
-			kind: toRepositoryTreeEntryKind(entry.kind),
-			sizeBytes: Number(entry.sizeBytes ?? 0),
-			path: entry.path,
-			mode: entry.mode,
-		})),
+		rootEntries: (rootEntries ?? []).map(toRepositoryTreeEntry),
 		readme: readme
 			? {
 					filename: readme.filename ?? '',
@@ -41,8 +47,81 @@ export function toRepositoryBrowserSummary({
 	}
 }
 
+/** Maps a generated gRPC tree response into the API-facing storage client shape. */
+export function toRepositoryTree({
+	commitId,
+	entries,
+	path,
+}: RuntimeRepositoryTreeResponse): GitStorageRepositoryTree {
+	return {
+		commitId: commitId ?? '',
+		path: path ?? '',
+		entries: (entries ?? []).map(toRepositoryTreeEntry),
+	}
+}
+
+/** Maps a generated gRPC blob response into the API-facing storage client shape. */
+export function toRepositoryBlob({
+	objectId,
+	previewLimitBytes,
+	sizeBytes,
+	state,
+	text,
+}: RuntimeRepositoryBlobResponse): GitStorageRepositoryBlob {
+	return {
+		objectId: objectId ?? '',
+		sizeBytes: toUint64Number(sizeBytes),
+		preview: toRepositoryBlobPreview({
+			previewLimitBytes,
+			state,
+			text,
+		}),
+	}
+}
+
+function toRepositoryTreeEntry(
+	entry: RuntimeRepositoryTreeEntry
+): GitStorageRepositoryTreeEntry {
+	return {
+		name: entry.name ?? '',
+		objectId: entry.objectId ?? '',
+		kind: toRepositoryTreeEntryKind(entry.kind),
+		sizeBytes: toUint64Number(entry.sizeBytes),
+		path: entry.path ?? '',
+		mode: entry.mode ?? '',
+	}
+}
+
+function toRepositoryBlobPreview({
+	previewLimitBytes,
+	state,
+	text,
+}: Pick<
+	RuntimeRepositoryBlobResponse,
+	'previewLimitBytes' | 'state' | 'text'
+>) {
+	if (state === RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TEXT)
+		return {
+			type: 'text' as const,
+			content: text ?? '',
+		}
+
+	if (state === RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_BINARY)
+		return { type: 'binary' as const }
+
+	if (
+		state === RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TOO_LARGE
+	)
+		return {
+			type: 'tooLarge' as const,
+			previewLimitBytes: toUint64Number(previewLimitBytes),
+		}
+
+	return { type: 'binary' as const }
+}
+
 function toRepositoryTreeEntryKind(
-	kind: RepositoryTreeEntryKind
+	kind: RepositoryTreeEntryKind | undefined
 ): GitStorageRepositoryTreeEntry['kind'] {
 	if (kind === RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_FILE)
 		return 'file'
@@ -54,4 +133,8 @@ function toRepositoryTreeEntryKind(
 		return 'submodule'
 
 	return 'unknown'
+}
+
+function toUint64Number(value: number | string | undefined) {
+	return Number(value ?? 0)
 }

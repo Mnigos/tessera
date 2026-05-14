@@ -15,12 +15,18 @@ import {
 } from '~/shared/errors'
 import {
 	type CreateRepositoryResponse,
+	type GetRepositoryBlobResponse,
 	type GetRepositoryBrowserSummaryResponse,
+	type GetRepositoryTreeResponse,
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
 	type HealthResponse,
 } from './generated/tessera/git/v1/git_storage'
-import { toRepositoryBrowserSummary } from './git-storage.helpers'
+import {
+	toRepositoryBlob,
+	toRepositoryBrowserSummary,
+	toRepositoryTree,
+} from './git-storage.helpers'
 
 export const GIT_STORAGE_GRPC_CLIENT = Symbol('GIT_STORAGE_GRPC_CLIENT')
 
@@ -34,6 +40,19 @@ export interface GitStorageCreateRepositoryResult {
 
 export interface GitStorageGetRepositoryBrowserSummaryParams {
 	defaultBranch: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageGetRepositoryTreeParams {
+	path: string
+	ref: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageGetRepositoryBlobParams {
+	objectId: string
 	repositoryId: RepositoryId
 	storagePath: string
 }
@@ -59,6 +78,23 @@ export interface GitStorageRepositoryBrowserSummary {
 	isEmpty: boolean
 	readme?: GitStorageRepositoryReadme
 	rootEntries: GitStorageRepositoryTreeEntry[]
+}
+
+export interface GitStorageRepositoryTree {
+	commitId: string
+	entries: GitStorageRepositoryTreeEntry[]
+	path: string
+}
+
+export type GitStorageRepositoryBlobPreview =
+	| { type: 'text'; content: string }
+	| { type: 'binary' }
+	| { type: 'tooLarge'; previewLimitBytes: number }
+
+export interface GitStorageRepositoryBlob {
+	objectId: string
+	preview: GitStorageRepositoryBlobPreview
+	sizeBytes: number
 }
 
 @Injectable()
@@ -116,6 +152,44 @@ export class GitStorageClient implements OnModuleInit {
 		)
 
 		return toRepositoryBrowserSummary(response)
+	}
+
+	async getRepositoryTree({
+		path,
+		ref,
+		repositoryId,
+		storagePath,
+	}: GitStorageGetRepositoryTreeParams): Promise<GitStorageRepositoryTree> {
+		const response = await firstValueFrom(
+			this.service
+				.getRepositoryTree({
+					repositoryId,
+					storagePath,
+					ref,
+					path,
+				})
+				.pipe(mapGitStorageErrors<GetRepositoryTreeResponse>())
+		)
+
+		return toRepositoryTree(response)
+	}
+
+	async getRepositoryBlob({
+		objectId,
+		repositoryId,
+		storagePath,
+	}: GitStorageGetRepositoryBlobParams): Promise<GitStorageRepositoryBlob> {
+		const response = await firstValueFrom(
+			this.service
+				.getRepositoryBlob({
+					repositoryId,
+					storagePath,
+					objectId,
+				})
+				.pipe(mapGitStorageErrors<GetRepositoryBlobResponse>())
+		)
+
+		return toRepositoryBlob(response)
 	}
 }
 
