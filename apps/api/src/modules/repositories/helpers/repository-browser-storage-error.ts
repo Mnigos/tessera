@@ -1,6 +1,6 @@
 import { status } from '@grpc/grpc-js'
 import type { RepositorySlug } from '@repo/domain'
-import { ExternalServiceError } from '~/shared/errors'
+import { ExternalServiceError, PayloadTooLargeError } from '~/shared/errors'
 import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryNotFoundError,
@@ -29,6 +29,12 @@ export function toRepositoryBrowserReadError(
 
 	if (grpcCode === status.INVALID_ARGUMENT)
 		return new RepositoryBrowserInvalidRequestError({
+			...context,
+			grpcCode,
+		})
+
+	if (grpcCode === status.RESOURCE_EXHAUSTED)
+		return new PayloadTooLargeError('repository blob', {
 			...context,
 			grpcCode,
 		})

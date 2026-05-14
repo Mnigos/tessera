@@ -11,6 +11,7 @@ export {
 	GatewayTimeoutError,
 	InternalError,
 	NotFoundError,
+	PayloadTooLargeError,
 	ServiceUnavailableError,
 	UnauthorizedError,
 } from './errors'

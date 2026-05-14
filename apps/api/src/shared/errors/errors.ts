@@ -85,6 +85,23 @@ export class ConflictError extends DomainError {
 	}
 }
 
+export class PayloadTooLargeError extends DomainError {
+	constructor(
+		resource: string,
+		context?: Record<string, unknown>,
+		message?: string,
+		options?: DomainErrorOptions
+	) {
+		super(
+			'PAYLOAD_TOO_LARGE',
+			message ?? `${resource} is too large`,
+			'expected',
+			{ ...context, resource },
+			options
+		)
+	}
+}
+
 export class InternalError extends DomainError {
 	constructor(
 		resource: string,

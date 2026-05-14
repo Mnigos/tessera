@@ -74,6 +74,8 @@ describe('Repositories integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let gitStorageCreateRepository: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryTree: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -86,12 +88,35 @@ describe('Repositories integration', () => {
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
 			})
 		)
+		gitStorageGetRepositoryTree = vi.fn().mockResolvedValue({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file',
+					sizeBytes: 4,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		})
+		gitStorageGetRepositoryRawBlob = vi.fn().mockResolvedValue({
+			objectId: 'blob123',
+			content: new Uint8Array([0, 1, 2, 255]),
+			sizeBytes: 4,
+		})
 
 		moduleRef = await Test.createTestingModule({
 			imports: [RepositoriesIntegrationTestModule],
 		})
 			.overrideProvider(GitStorageClient)
-			.useValue({ createRepository: gitStorageCreateRepository })
+			.useValue({
+				createRepository: gitStorageCreateRepository,
+				getRepositoryTree: gitStorageGetRepositoryTree,
+				getRepositoryRawBlob: gitStorageGetRepositoryRawBlob,
+			})
 			.compile()
 
 		adapter = new HonoAdapter()
@@ -107,6 +132,25 @@ describe('Repositories integration', () => {
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
 			})
 		)
+		gitStorageGetRepositoryTree.mockResolvedValue({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file',
+					sizeBytes: 4,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		})
+		gitStorageGetRepositoryRawBlob.mockResolvedValue({
+			objectId: 'blob123',
+			content: new Uint8Array([0, 1, 2, 255]),
+			sizeBytes: 4,
+		})
 	})
 
 	afterAll(async () => {
@@ -331,6 +375,38 @@ describe('Repositories integration', () => {
 		})
 	})
 
+	test('returns raw blob bytes from the HTTP raw route', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getRawBlob('marta', 'notes', 'main', 'src/index.ts')
+
+		expect(response.status).toBe(200)
+		expect(response.headers.get('content-type')).toBe(
+			'application/octet-stream'
+		)
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+			new Uint8Array([0, 1, 2, 255])
+		)
+		expect(gitStorageGetRepositoryTree).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'main',
+				path: 'src',
+			})
+		)
+		expect(gitStorageGetRepositoryRawBlob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				objectId: 'blob123',
+			})
+		)
+	})
+
 	async function createIntegrationSessionHeaders(
 		options: CreateIntegrationUserOptions
 	) {
@@ -392,6 +468,21 @@ describe('Repositories integration', () => {
 	function getRepository(username: string, slug: string, headers: Headers) {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}`,
+			{ headers }
+		)
+	}
+
+	function getRawBlob(
+		username: string,
+		slug: string,
+		ref: string,
+		path: string,
+		headers?: Headers
+	) {
+		const searchParams = new URLSearchParams({ path })
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/raw/${ref}?${searchParams.toString()}`,
 			{ headers }
 		)
 	}

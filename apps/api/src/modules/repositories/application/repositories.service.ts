@@ -2,8 +2,10 @@ import { EnvService } from '@config/env'
 import {
 	GitStorageClient,
 	type GitStorageGetRepositoryBlobParams,
+	type GitStorageGetRepositoryRawBlobParams,
 	type GitStorageGetRepositoryTreeParams,
 	type GitStorageRepositoryBlob,
+	type GitStorageRepositoryRawBlob,
 	type GitStorageRepositoryTree,
 } from '@config/git-storage'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
@@ -14,6 +16,7 @@ import type {
 	GetRepositoryInput,
 	GetRepositoryTreeInput,
 	RepositoryBlob,
+	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
 	RepositoryTree,
 	RepositoryWithOwner,
@@ -44,6 +47,7 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
+import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import {
 	type RepositoryBrowserStorageErrorContext,
 	toRepositoryBrowserReadError,
@@ -257,6 +261,7 @@ export class RepositoriesService {
 			}
 		)
 		const repositoryOutput = toRepositoryOutput(repository)
+		const preview = await this.enrichBlobPreview(path, blob.preview)
 
 		return {
 			...repositoryOutput,
@@ -265,8 +270,53 @@ export class RepositoriesService {
 			name: entry.name,
 			objectId: blob.objectId,
 			sizeBytes: blob.sizeBytes,
-			preview: blob.preview,
+			preview,
 		}
+	}
+
+	async getRawBlob(
+		viewerUserId: UserId | undefined,
+		{ path, ref, slug, username }: GetRepositoryBlobInput
+	): Promise<Uint8Array<ArrayBufferLike>> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
+		)
+		const parentPath = getParentPath(path)
+		const tree = await this.getRepositoryTreeFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				ref,
+				path: parentPath,
+			},
+			{
+				username,
+				slug,
+				ref,
+				path,
+			}
+		)
+		const entry = tree.entries.find(treeEntry => treeEntry.path === path)
+
+		if (!entry || entry.kind !== 'file')
+			throw new RepositoryNotFoundError({ slug, username })
+
+		const blob = await this.getRepositoryRawBlobFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				objectId: entry.objectId,
+			},
+			{
+				username,
+				slug,
+				ref,
+				path,
+			}
+		)
+
+		return blob.content
 	}
 
 	async authorizeGitRepositoryRead({
@@ -404,6 +454,36 @@ export class RepositoriesService {
 			return await this.gitStorageClient.getRepositoryBlob(params)
 		} catch (error) {
 			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private async getRepositoryRawBlobFromStorage(
+		params: GitStorageGetRepositoryRawBlobParams,
+		context: RepositoryBrowserStorageErrorContext
+	): Promise<GitStorageRepositoryRawBlob> {
+		try {
+			return await this.gitStorageClient.getRepositoryRawBlob(params)
+		} catch (error) {
+			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private async enrichBlobPreview(
+		path: string,
+		preview: RepositoryBlobPreview
+	): Promise<RepositoryBlobPreview> {
+		if (preview.type !== 'text') return preview
+
+		const highlighted = await highlightRepositoryBlobPreview({
+			content: preview.content,
+			path,
+		})
+
+		if (!highlighted) return preview
+
+		return {
+			...preview,
+			...highlighted,
 		}
 	}
 
