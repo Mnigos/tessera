@@ -10,6 +10,9 @@ export const GIT_GRPC_LOADER_OPTIONS = {
 	keepCase: false,
 	longs: String,
 }
+export const GIT_STORAGE_RAW_BLOB_MAX_BYTES = 10 * 1024 * 1024
+export const GIT_STORAGE_MAX_RECEIVE_MESSAGE_BYTES =
+	GIT_STORAGE_RAW_BLOB_MAX_BYTES + 1024
 
 const GIT_STORAGE_PROTO_RELATIVE_PATH =
 	'packages/proto/tessera/git/v1/git_storage.proto'
@@ -28,6 +31,10 @@ const GIT_AUTHORIZATION_PROTO_RELATIVE_PATH =
 				useFactory: (envService: EnvService) => ({
 					transport: Transport.GRPC,
 					options: {
+						channelOptions: {
+							'grpc.max_receive_message_length':
+								GIT_STORAGE_MAX_RECEIVE_MESSAGE_BYTES,
+						},
 						loader: GIT_GRPC_LOADER_OPTIONS,
 						package: TESSERA_GIT_V1_PACKAGE_NAME,
 						protoPath: resolveGitStorageProtoPath(),
