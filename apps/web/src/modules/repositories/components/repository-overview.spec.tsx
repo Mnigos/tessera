@@ -4,7 +4,23 @@ import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { RepositoryOverview } from './repository-overview'
+
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({
+		children,
+		to,
+		...props
+	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+		children: ReactNode
+		to: string
+	}) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
+}))
 
 vi.mock('@repo/ui/components/sonner', async importOriginal => {
 	const actual =

@@ -1,4 +1,5 @@
 import { Card } from '@repo/ui/components/card'
+import { formatBytes } from '../helpers/format-tree-entry-size'
 import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
 import { RepositoryBrowserBreadcrumbs } from './repository-browser-breadcrumbs'
@@ -151,7 +152,7 @@ function BlobContent({ blob }: Readonly<BlobContentProps>) {
 			<div className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-4 py-3 text-sm">
 				<span className="min-w-0 truncate font-medium">{blob.name}</span>
 				<span className="text-muted-foreground">
-					{formatBlobSize(blob.sizeBytes)}
+					{formatBytes(blob.sizeBytes)}
 				</span>
 			</div>
 			<pre className="overflow-x-auto p-4 text-sm leading-6">
@@ -159,13 +160,4 @@ function BlobContent({ blob }: Readonly<BlobContentProps>) {
 			</pre>
 		</Card>
 	)
-}
-
-function formatBlobSize(sizeBytes: number) {
-	if (sizeBytes < 1024) return `${sizeBytes} B`
-
-	const kibibytes = sizeBytes / 1024
-	if (kibibytes < 1024) return `${kibibytes.toFixed(1)} KB`
-
-	return `${(kibibytes / 1024).toFixed(1)} MB`
 }

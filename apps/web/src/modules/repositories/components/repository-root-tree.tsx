@@ -1,5 +1,6 @@
 import type { RepositoryTreeEntry } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { Link } from '@tanstack/react-router'
 import {
 	File,
 	FileQuestion,
@@ -91,14 +92,14 @@ function TreeEntryRow({
 		)
 
 	return (
-		<a
+		<Link
 			className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/40"
 			data-entry-name={entry.name}
 			data-testid="file-tree-row"
-			href={href}
+			to={href}
 		>
 			{rowContent}
-		</a>
+		</Link>
 	)
 }
 
