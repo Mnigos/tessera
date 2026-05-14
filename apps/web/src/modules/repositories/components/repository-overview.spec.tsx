@@ -51,6 +51,14 @@ const baseSummary = {
 			path: 'package.json',
 			mode: '100644',
 		},
+		{
+			name: 'latest',
+			objectId: 'symlink-latest',
+			kind: 'symlink',
+			sizeBytes: 24,
+			path: 'latest',
+			mode: '120000',
+		},
 	],
 } satisfies RepositoryBrowserSummary
 
@@ -160,9 +168,31 @@ describe('RepositoryOverview', () => {
 		expect(srcRow).toBeTruthy()
 		expect(packageRow).toBeTruthy()
 		expect(within(srcRow as HTMLElement).getByText('directory')).toBeTruthy()
-		expect(within(srcRow as HTMLElement).getByText('040000')).toBeTruthy()
+		expect(within(srcRow as HTMLElement).getByText('-')).toBeTruthy()
 		expect(within(packageRow as HTMLElement).getByText('file')).toBeTruthy()
 		expect(within(packageRow as HTMLElement).getByText('1.5 KB')).toBeTruthy()
+	})
+
+	test('links root rows to tree and blob routes', () => {
+		render(<RepositoryOverview summary={getSummary()} />)
+
+		const rows = screen.getAllByTestId('file-tree-row')
+		const srcRow = rows.find(row => row.dataset.entryName === 'src')
+		const packageRow = rows.find(
+			row => row.dataset.entryName === 'package.json'
+		)
+		const symlinkRow = rows.find(row => row.dataset.entryName === 'latest')
+
+		expect(symlinkRow).toBeTruthy()
+		expect(srcRow?.getAttribute('href')).toBe(
+			'/mnigos/tessera-notes/tree/main/src'
+		)
+		expect(packageRow?.getAttribute('href')).toBe(
+			'/mnigos/tessera-notes/blob/main/package.json'
+		)
+		expect(symlinkRow?.getAttribute('href')).toBeNull()
+		expect(within(symlinkRow as HTMLElement).getByText('symlink')).toBeTruthy()
+		expect(within(symlinkRow as HTMLElement).getByText('24 B')).toBeTruthy()
 	})
 
 	test('shows clone and push commands for an empty repository', async () => {
