@@ -23,6 +23,7 @@ Use `linear-workflow` before implementation.
 6. Update the Linear issue status to `In Progress`.
 7. Inspect the codebase and read at least 3 similar files before edits.
 8. Implement the change, update tests when behavior changes, and run relevant checks.
+9. As the final implementation step, use `local-coderabbit-review` to run local CodeRabbit with `cr`, analyze the findings, fix valid issues, and rerun required checks.
 
 ## Rules
 
