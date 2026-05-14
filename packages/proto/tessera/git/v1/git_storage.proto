@@ -6,6 +6,8 @@ service GitStorageService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
   rpc GetRepositoryBrowserSummary(GetRepositoryBrowserSummaryRequest) returns (GetRepositoryBrowserSummaryResponse);
+  rpc GetRepositoryTree(GetRepositoryTreeRequest) returns (GetRepositoryTreeResponse);
+  rpc GetRepositoryBlob(GetRepositoryBlobRequest) returns (GetRepositoryBlobResponse);
 }
 
 message HealthRequest {}
@@ -35,6 +37,33 @@ message GetRepositoryBrowserSummaryResponse {
   RepositoryReadme readme = 4;
 }
 
+message GetRepositoryTreeRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string ref = 3;
+  string path = 4;
+}
+
+message GetRepositoryTreeResponse {
+  string commit_id = 1;
+  string path = 2;
+  repeated RepositoryTreeEntry entries = 3;
+}
+
+message GetRepositoryBlobRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string object_id = 3;
+}
+
+message GetRepositoryBlobResponse {
+  string object_id = 1;
+  RepositoryBlobPreviewState state = 2;
+  string text = 3;
+  uint64 size_bytes = 4;
+  uint64 preview_limit_bytes = 5;
+}
+
 message RepositoryTreeEntry {
   string name = 1;
   string object_id = 2;
@@ -57,4 +86,11 @@ message RepositoryReadme {
   string object_id = 2;
   bytes content = 3;
   bool is_truncated = 4;
+}
+
+enum RepositoryBlobPreviewState {
+  REPOSITORY_BLOB_PREVIEW_STATE_UNSPECIFIED = 0;
+  REPOSITORY_BLOB_PREVIEW_STATE_TEXT = 1;
+  REPOSITORY_BLOB_PREVIEW_STATE_BINARY = 2;
+  REPOSITORY_BLOB_PREVIEW_STATE_TOO_LARGE = 3;
 }
