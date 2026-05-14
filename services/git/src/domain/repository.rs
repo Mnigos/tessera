@@ -67,3 +67,10 @@ pub enum RepositoryBlobPreview {
         preview_limit_bytes: u64,
     },
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryRawBlob {
+    pub object_id: String,
+    pub content: Vec<u8>,
+    pub size_bytes: u64,
+}

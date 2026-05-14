@@ -8,6 +8,7 @@ service GitStorageService {
   rpc GetRepositoryBrowserSummary(GetRepositoryBrowserSummaryRequest) returns (GetRepositoryBrowserSummaryResponse);
   rpc GetRepositoryTree(GetRepositoryTreeRequest) returns (GetRepositoryTreeResponse);
   rpc GetRepositoryBlob(GetRepositoryBlobRequest) returns (GetRepositoryBlobResponse);
+  rpc GetRepositoryRawBlob(GetRepositoryRawBlobRequest) returns (GetRepositoryRawBlobResponse);
 }
 
 message HealthRequest {}
@@ -62,6 +63,18 @@ message GetRepositoryBlobResponse {
   string text = 3;
   uint64 size_bytes = 4;
   uint64 preview_limit_bytes = 5;
+}
+
+message GetRepositoryRawBlobRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string object_id = 3;
+}
+
+message GetRepositoryRawBlobResponse {
+  string object_id = 1;
+  bytes content = 2;
+  uint64 size_bytes = 3;
 }
 
 message RepositoryTreeEntry {

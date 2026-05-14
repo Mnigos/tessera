@@ -4,9 +4,10 @@ use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
     CreateRepositoryRequest, CreateRepositoryResponse, GetRepositoryBlobRequest,
     GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
-    GetRepositoryBrowserSummaryResponse, GetRepositoryTreeRequest, GetRepositoryTreeResponse,
-    HealthRequest, HealthResponse, RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState,
-    RepositoryReadme, RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
+    GetRepositoryBrowserSummaryResponse, GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse,
+    GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
+    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryReadme,
+    RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
 };
 use crate::storage::application::GitStorageApplication;
 use crate::storage::infrastructure::RepositoryStorage;
@@ -143,6 +144,28 @@ impl GitStorageService for GitStorageGrpcService {
 
         Ok(Response::new(proto_blob_preview(blob)))
     }
+
+    async fn get_repository_raw_blob(
+        &self,
+        request: Request<GetRepositoryRawBlobRequest>,
+    ) -> Result<Response<GetRepositoryRawBlobResponse>, Status> {
+        let request = request.into_inner();
+        let blob = self
+            .application
+            .get_repository_raw_blob(
+                &request.repository_id,
+                &request.storage_path,
+                &request.object_id,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(GetRepositoryRawBlobResponse {
+            object_id: blob.object_id,
+            content: blob.content,
+            size_bytes: blob.size_bytes,
+        }))
+    }
 }
 
 fn repository_error_to_status(error: RepositoryError) -> Status {
@@ -158,6 +181,7 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         }
         RepositoryError::InvalidObjectId => Status::invalid_argument("object_id is invalid"),
         RepositoryError::InvalidGitOutput => Status::internal("git returned invalid output"),
+        RepositoryError::BlobTooLarge => Status::resource_exhausted("repository blob is too large"),
         RepositoryError::RepositoryObjectNotFound => {
             Status::not_found("repository object was not found")
         }
