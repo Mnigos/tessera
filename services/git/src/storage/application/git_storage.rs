@@ -1,4 +1,7 @@
-use crate::domain::{RepositoryBrowserSummary, RepositoryCreated, RepositoryError, RepositoryId};
+use crate::domain::{
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCreated, RepositoryError,
+    RepositoryId, RepositoryTree,
+};
 use crate::storage::infrastructure::RepositoryStorage;
 
 #[derive(Clone, Debug)]
@@ -32,6 +35,29 @@ impl GitStorageApplication {
     ) -> Result<RepositoryBrowserSummary, RepositoryError> {
         self.storage
             .get_repository_browser_summary(repository_id, storage_path, default_branch)
+            .await
+    }
+
+    pub async fn get_repository_tree(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        ref_name: &str,
+        path: &str,
+    ) -> Result<RepositoryTree, RepositoryError> {
+        self.storage
+            .get_repository_tree(repository_id, storage_path, ref_name, path)
+            .await
+    }
+
+    pub async fn get_repository_blob(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        object_id: &str,
+    ) -> Result<RepositoryBlobPreview, RepositoryError> {
+        self.storage
+            .get_repository_blob(repository_id, storage_path, object_id)
             .await
     }
 }

@@ -16,6 +16,13 @@ pub struct RepositoryBrowserSummary {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryTree {
+    pub commit_id: String,
+    pub path: String,
+    pub entries: Vec<RepositoryTreeEntry>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct RepositoryTreeEntry {
     pub name: String,
     pub object_id: String,
@@ -39,4 +46,24 @@ pub struct RepositoryReadme {
     pub object_id: String,
     pub content: Vec<u8>,
     pub is_truncated: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RepositoryBlobPreview {
+    Text {
+        object_id: String,
+        text: String,
+        size_bytes: u64,
+        preview_limit_bytes: u64,
+    },
+    Binary {
+        object_id: String,
+        size_bytes: u64,
+        preview_limit_bytes: u64,
+    },
+    TooLarge {
+        object_id: String,
+        size_bytes: u64,
+        preview_limit_bytes: u64,
+    },
 }
