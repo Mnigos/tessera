@@ -13,13 +13,13 @@ pub(super) fn normalize_requested_ref(value: &str) -> Result<Option<String>, Rep
 }
 
 pub(super) fn normalize_repository_path(value: &str) -> Result<Option<String>, RepositoryError> {
+    let value = value.trim_matches('/');
+
     if value.is_empty() {
         return Ok(None);
     }
 
-    if value.starts_with('/')
-        || value.ends_with('/')
-        || value.contains('\0')
+    if value.contains('\0')
         || value.contains('\\')
         || value
             .split('/')
@@ -94,8 +94,7 @@ pub(super) fn parse_ls_tree_entries(
             .ok_or(RepositoryError::InvalidGitOutput)?;
         let metadata = std::str::from_utf8(&raw_entry[..tab_index])
             .map_err(|_| RepositoryError::InvalidGitOutput)?;
-        let name = std::str::from_utf8(&raw_entry[tab_index + 1..])
-            .map_err(|_| RepositoryError::InvalidGitOutput)?;
+        let name = String::from_utf8_lossy(&raw_entry[tab_index + 1..]);
 
         if name.is_empty() || name.contains('/') {
             return Err(RepositoryError::InvalidRepositoryPath);
@@ -148,4 +147,34 @@ pub(super) fn parse_ls_tree_entries(
     entries.sort_by(|left, right| left.name.cmp(&right.name));
 
     Ok(entries)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn normalize_repository_path_trims_boundary_slashes() {
+        assert_eq!(
+            normalize_repository_path("/src/domain/").unwrap(),
+            Some("src/domain".to_string())
+        );
+    }
+
+    #[test]
+    fn normalize_repository_path_rejects_inner_empty_segments() {
+        let error = normalize_repository_path("src//domain").unwrap_err();
+
+        assert!(matches!(error, RepositoryError::InvalidRepositoryPath));
+    }
+
+    #[test]
+    fn parse_ls_tree_entries_uses_lossy_names() {
+        let output = b"100644 blob 0123456789012345678901234567890123456789 12\tinvalid-\xff.rs\0";
+
+        let entries = parse_ls_tree_entries(output, "src").unwrap();
+
+        assert_eq!(entries[0].name, "invalid-\u{fffd}.rs");
+        assert_eq!(entries[0].path, "src/invalid-\u{fffd}.rs");
+    }
 }
