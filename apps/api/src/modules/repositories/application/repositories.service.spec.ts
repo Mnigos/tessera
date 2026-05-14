@@ -1,5 +1,6 @@
 import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
+import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
@@ -8,12 +9,14 @@ import type {
 	RepositorySlug,
 	UserId,
 } from '@repo/domain'
+import { ExternalServiceError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
 	InternalGitRepositoryAuthorizationError,
 	PrivateRepositoryGitReadForbiddenError,
+	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryGitWriteForbiddenError,
@@ -82,6 +85,28 @@ describe(RepositoriesService.name, () => {
 								objectId: 'abc123',
 								content: '# Tessera',
 								isTruncated: false,
+							},
+						}),
+						getRepositoryTree: vi.fn().mockResolvedValue({
+							commitId: 'commit123',
+							path: 'src',
+							entries: [
+								{
+									name: 'index.ts',
+									objectId: 'blob123',
+									kind: 'file',
+									sizeBytes: 17,
+									path: 'src/index.ts',
+									mode: '100644',
+								},
+							],
+						}),
+						getRepositoryBlob: vi.fn().mockResolvedValue({
+							objectId: 'blob123',
+							sizeBytes: 17,
+							preview: {
+								type: 'text',
+								content: 'console.log("hi")',
 							},
 						}),
 					},
@@ -402,6 +427,338 @@ describe(RepositoriesService.name, () => {
 			})
 		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
 		expect(getRepositoryBrowserSummarySpy).not.toHaveBeenCalled()
+	})
+
+	test('gets a public repository tree for anonymous readers', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryTreeSpy = vi.spyOn(gitStorageClient, 'getRepositoryTree')
+
+		expect(
+			await repositoriesService.getTree(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src',
+			})
+		).toEqual({
+			repository: expect.objectContaining({ slug: repository.slug }),
+			owner: { username: 'marta' },
+			ref: 'main',
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file',
+					sizeBytes: 17,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		})
+		expect(getRepositoryTreeSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			path: 'src',
+		})
+	})
+
+	test('gets a private repository tree for the owner', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		await expect(
+			repositoriesService.getTree(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: undefined,
+			})
+		).resolves.toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({ slug: repository.slug }),
+				path: 'src',
+			})
+		)
+	})
+
+	test('hides private tree reads from non-owners before calling git storage', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryTreeSpy = vi.spyOn(gitStorageClient, 'getRepositoryTree')
+
+		await expect(
+			repositoriesService.getTree(
+				'00000000-0000-4000-8000-000000000099' as UserId,
+				{
+					username: 'marta',
+					slug: repository.slug,
+					ref: 'main',
+					path: '',
+				}
+			)
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryTreeSpy).not.toHaveBeenCalled()
+	})
+
+	test('throws before calling git storage when tree storage path is missing', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: null,
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryTreeSpy = vi.spyOn(gitStorageClient, 'getRepositoryTree')
+
+		await expect(
+			repositoriesService.getTree(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: '',
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+		expect(getRepositoryTreeSpy).not.toHaveBeenCalled()
+	})
+
+	test('maps missing tree storage reads to repository not found', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.NOT_FOUND,
+			})
+		)
+
+		await expect(
+			repositoriesService.getTree(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'missing',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('maps wrong tree object kind storage reads to repository not found', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.FAILED_PRECONDITION,
+			})
+		)
+
+		await expect(
+			repositoriesService.getTree(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'README.md',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('maps invalid tree storage arguments to bad request', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		await expect(
+			repositoriesService.getTree(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: '../main',
+				path: '',
+			})
+		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
+	})
+
+	test('gets a repository blob by resolving its path through the parent tree', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryTreeSpy = vi.spyOn(gitStorageClient, 'getRepositoryTree')
+		const getRepositoryBlobSpy = vi.spyOn(gitStorageClient, 'getRepositoryBlob')
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toEqual({
+			repository: expect.objectContaining({ slug: repository.slug }),
+			owner: { username: 'marta' },
+			ref: 'main',
+			path: 'src/index.ts',
+			name: 'index.ts',
+			objectId: 'blob123',
+			sizeBytes: 17,
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+		})
+		expect(getRepositoryTreeSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			path: 'src',
+		})
+		expect(getRepositoryBlobSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			objectId: 'blob123',
+		})
+	})
+
+	test('throws when a blob path does not resolve to a file entry', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		vi.spyOn(gitStorageClient, 'getRepositoryTree').mockResolvedValue({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'components',
+					objectId: 'tree123',
+					kind: 'directory',
+					sizeBytes: 0,
+					path: 'src/components',
+					mode: '040000',
+				},
+			],
+		})
+		const getRepositoryBlobSpy = vi.spyOn(gitStorageClient, 'getRepositoryBlob')
+
+		await expect(
+			repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/components',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryBlobSpy).not.toHaveBeenCalled()
+	})
+
+	test('maps missing blob parent tree storage reads to repository not found', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.NOT_FOUND,
+			})
+		)
+		const getRepositoryBlobSpy = vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryBlob'
+		)
+
+		await expect(
+			repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'missing.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryBlobSpy).not.toHaveBeenCalled()
+	})
+
+	test('maps wrong blob object kind storage reads to repository not found', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		vi.spyOn(gitStorageClient, 'getRepositoryBlob').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.FAILED_PRECONDITION,
+			})
+		)
+
+		await expect(
+			repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('maps invalid blob storage arguments to bad request', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		vi.spyOn(gitStorageClient, 'getRepositoryBlob').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		await expect(
+			repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
 	})
 
 	test('authorizes git reads for public repositories with storage metadata', async () => {

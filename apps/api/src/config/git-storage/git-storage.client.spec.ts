@@ -7,7 +7,10 @@ import {
 	GatewayTimeoutError,
 	ServiceUnavailableError,
 } from '~/shared/errors'
-import { RepositoryTreeEntryKind } from './generated/tessera/git/v1/git_storage'
+import {
+	RepositoryBlobPreviewState,
+	RepositoryTreeEntryKind,
+} from './generated/tessera/git/v1/git_storage'
 import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
@@ -20,6 +23,8 @@ describe(GitStorageClient.name, () => {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
 		getRepositoryBrowserSummary: ReturnType<typeof vi.fn>
+		getRepositoryTree: ReturnType<typeof vi.fn>
+		getRepositoryBlob: ReturnType<typeof vi.fn>
 	}
 
 	beforeEach(async () => {
@@ -58,6 +63,31 @@ describe(GitStorageClient.name, () => {
 						content: new TextEncoder().encode('# Tessera'),
 						isTruncated: false,
 					},
+				})
+			),
+			getRepositoryTree: vi.fn(() =>
+				of({
+					commitId: 'commit123',
+					path: 'src',
+					entries: [
+						{
+							name: 'index.ts',
+							objectId: 'blob123',
+							kind: RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_FILE,
+							sizeBytes: 24,
+							path: 'src/index.ts',
+							mode: '100644',
+						},
+					],
+				})
+			),
+			getRepositoryBlob: vi.fn(() =>
+				of({
+					objectId: 'blob123',
+					state: RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TEXT,
+					text: 'console.log("hi")',
+					sizeBytes: 17,
+					previewLimitBytes: 1_048_576,
 				})
 			),
 		}
@@ -177,6 +207,132 @@ describe(GitStorageClient.name, () => {
 				],
 			})
 		)
+	})
+
+	test('maps repository tree entries and normalizes uint64 values', async () => {
+		gitStorageService.getRepositoryTree.mockReturnValue(
+			of({
+				commitId: 'commit123',
+				path: 'src',
+				entries: [
+					{
+						name: 'index.ts',
+						objectId: 'blob123',
+						kind: RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_FILE,
+						sizeBytes: '24',
+						path: 'src/index.ts',
+						mode: '100644',
+					},
+				],
+			})
+		)
+
+		expect(
+			await client.getRepositoryTree({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ref: 'main',
+				path: 'src',
+			})
+		).toEqual({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file',
+					sizeBytes: 24,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		})
+		expect(gitStorageService.getRepositoryTree).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			path: 'src',
+		})
+	})
+
+	test('maps text blob previews and normalizes uint64 values', async () => {
+		gitStorageService.getRepositoryBlob.mockReturnValue(
+			of({
+				objectId: 'blob123',
+				state: RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TEXT,
+				text: 'hello',
+				sizeBytes: '5',
+				previewLimitBytes: '1048576',
+			})
+		)
+
+		await expect(
+			client.getRepositoryBlob({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			})
+		).resolves.toEqual({
+			objectId: 'blob123',
+			sizeBytes: 5,
+			preview: {
+				type: 'text',
+				content: 'hello',
+			},
+		})
+		expect(gitStorageService.getRepositoryBlob).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			objectId: 'blob123',
+		})
+	})
+
+	test('maps binary and too large blob preview states', async () => {
+		gitStorageService.getRepositoryBlob.mockReturnValue(
+			of({
+				objectId: 'blob123',
+				state: RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_BINARY,
+				text: '',
+				sizeBytes: 10,
+				previewLimitBytes: 1_048_576,
+			})
+		)
+
+		await expect(
+			client.getRepositoryBlob({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			})
+		).resolves.toEqual({
+			objectId: 'blob123',
+			sizeBytes: 10,
+			preview: { type: 'binary' },
+		})
+
+		gitStorageService.getRepositoryBlob.mockReturnValue(
+			of({
+				objectId: 'blob123',
+				state:
+					RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TOO_LARGE,
+				text: '',
+				sizeBytes: 2_097_152,
+				previewLimitBytes: '1048576',
+			})
+		)
+
+		await expect(
+			client.getRepositoryBlob({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			})
+		).resolves.toEqual({
+			objectId: 'blob123',
+			sizeBytes: 2_097_152,
+			preview: { type: 'tooLarge', previewLimitBytes: 1_048_576 },
+		})
 	})
 
 	test('maps omitted grpc repeated root entries to an empty list', async () => {
