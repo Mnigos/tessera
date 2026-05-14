@@ -7,7 +7,6 @@ pub enum RepositoryError {
     InvalidRepositoryRef,
     InvalidObjectId,
     InvalidGitOutput,
-    RepositoryPathNotFound,
     RepositoryObjectNotFound,
     WrongObjectKind,
     PathEscapesStorageRoot,
@@ -26,7 +25,6 @@ impl fmt::Display for RepositoryError {
             Self::InvalidRepositoryRef => write!(formatter, "repository ref is invalid"),
             Self::InvalidObjectId => write!(formatter, "repository object id is invalid"),
             Self::InvalidGitOutput => write!(formatter, "git output is invalid"),
-            Self::RepositoryPathNotFound => write!(formatter, "repository path was not found"),
             Self::RepositoryObjectNotFound => write!(formatter, "repository object was not found"),
             Self::WrongObjectKind => write!(formatter, "repository object has the wrong kind"),
             Self::PathEscapesStorageRoot => {

@@ -219,7 +219,6 @@ fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
         RepositoryError::PathEscapesStorageRoot
         | RepositoryError::ExistingPathNotBare
         | RepositoryError::StoragePathMismatch
-        | RepositoryError::RepositoryPathNotFound
         | RepositoryError::RepositoryObjectNotFound
         | RepositoryError::WrongObjectKind
         | RepositoryError::StorageIo(_)
