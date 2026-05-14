@@ -6,6 +6,7 @@
     "dev": "bunx --bun vite dev",
     "build": "bunx --bun vite build",
     "start": "bun run .output/server/index.mjs",
+    "test": "vitest run --passWithNoTests",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -33,6 +34,8 @@
     "react-icons": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
     "tailwindcss": "catalog:",
     "zod": "catalog:"
   },
@@ -42,13 +45,18 @@
     "@babel/core": "7.29.0",
     "@babel/plugin-transform-runtime": "7.29.0",
     "@babel/runtime": "7.29.2",
+    "@testing-library/jest-dom": "^6.6.3",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
     "@rolldown/plugin-babel": "catalog:",
     "@types/bun": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "babel-plugin-react-compiler": "^1.0.0",
+    "happy-dom": "^20.5.0",
     "typescript": "catalog:",
-    "vite": "catalog:"
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }
