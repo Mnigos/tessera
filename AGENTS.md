@@ -45,6 +45,7 @@
 - Use descriptive names; avoid cryptic single-letter callback variables.
 - Use interfaces for object shapes.
 - Use type aliases for unions, primitives, and computed types.
+- Prefer `T[]` array syntax instead of `Array<T>`; for arrays of object shapes, create a small named interface or type and use `Type[]`.
 - Avoid redundant return types; keep explicit types for public/API contract surfaces.
 - Use `Promise.all` for independent async work.
 - Assign awaited results to named variables before transforming them; avoid chaining like `(await something()).map(...)`.
