@@ -1,3 +1,4 @@
+import { inspect } from 'node:util'
 import { Logger, Module } from '@nestjs/common'
 import { REQUEST } from '@nestjs/core'
 import { ORPCModule, onError } from '@orpc/nest'
@@ -17,19 +18,19 @@ const logger = new Logger('RPC')
 				],
 				interceptors: [
 					onError((error: unknown) => {
-						if (error instanceof ORPCError)
-							if (error.cause instanceof ValidationError)
-								logger.error(
-									error.cause.message,
-									error.cause.issues
-										.map(({ path, message }) => `[${path}]: ${message}`)
-										.reduce((acc, curr) => `${acc}\n ${curr}`, '')
-								)
-							else
-								logger.error(
-									'Something went wrong',
-									JSON.stringify(error.cause)
-								)
+						if (!(error instanceof ORPCError)) return
+
+						if (error.cause instanceof ValidationError) {
+							logger.error(
+								error.cause.message,
+								error.cause.issues
+									.map(({ path, message }) => `[${path}]: ${message}`)
+									.join('\n')
+							)
+							return
+						}
+
+						logger.error('Something went wrong', formatErrorCause(error.cause))
 					}),
 				],
 				context: { request },
@@ -39,3 +40,10 @@ const logger = new Logger('RPC')
 	],
 })
 export class RPCModule {}
+
+function formatErrorCause(cause: unknown) {
+	if (cause instanceof Error) return cause.stack ?? cause.message
+	if (typeof cause === 'string') return cause
+
+	return inspect(cause, { depth: 6 })
+}
