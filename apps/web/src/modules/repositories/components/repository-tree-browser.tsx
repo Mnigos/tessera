@@ -1,14 +1,4 @@
 import { Card } from '@repo/ui/components/card'
-import { Link } from '@tanstack/react-router'
-import {
-	File,
-	FileQuestion,
-	Folder,
-	LinkIcon,
-	type LucideIcon,
-	Package,
-} from 'lucide-react'
-import { formatTreeEntrySize } from '../helpers/format-tree-entry-size'
 import type { RepositoryTreeResult } from '../hooks/use-repository-tree.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import {
@@ -17,6 +7,7 @@ import {
 	RepositoryBrowserBreadcrumbs,
 } from './repository-browser-breadcrumbs'
 import { RepositoryBrowserMessage } from './repository-browser-message'
+import { RepositoryTreeEntryRow } from './repository-tree-entry-row'
 
 interface RepositoryTreeBrowserProps {
 	username: string
@@ -163,46 +154,14 @@ function TreeEntries({ tree }: Readonly<TreeEntriesProps>) {
 
 	return (
 		<Card className="gap-0 divide-y divide-border p-0">
-			{tree.entries.map(entry => {
-				const Icon = treeEntryIcons[entry.kind]
-				const href = getTreeEntryHref({ entry, tree })
-				const rowContent = (
-					<>
-						<div className="flex min-w-0 items-center gap-3">
-							<Icon className="size-4 shrink-0 text-muted-foreground" />
-							<span className="truncate font-medium">{entry.name}</span>
-						</div>
-						<div className="flex items-center gap-3 text-muted-foreground text-xs">
-							<span className="hidden capitalize sm:inline">{entry.kind}</span>
-							<span>{formatTreeEntrySize(entry)}</span>
-						</div>
-					</>
-				)
-
-				if (!href)
-					return (
-						<div
-							className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm"
-							data-entry-name={entry.name}
-							data-testid="nested-file-tree-row"
-							key={`${entry.path}:${entry.objectId}`}
-						>
-							{rowContent}
-						</div>
-					)
-
-				return (
-					<Link
-						className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/40"
-						data-entry-name={entry.name}
-						data-testid="nested-file-tree-row"
-						key={`${entry.path}:${entry.objectId}`}
-						to={href}
-					>
-						{rowContent}
-					</Link>
-				)
-			})}
+			{tree.entries.map(entry => (
+				<RepositoryTreeEntryRow
+					entry={entry}
+					href={getTreeEntryHref({ entry, tree })}
+					key={`${entry.path}:${entry.objectId}`}
+					testId="nested-file-tree-row"
+				/>
+			))}
 		</Card>
 	)
 }
@@ -231,11 +190,3 @@ function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {
 
 	return undefined
 }
-
-const treeEntryIcons = {
-	directory: Folder,
-	file: File,
-	submodule: Package,
-	symlink: LinkIcon,
-	unknown: FileQuestion,
-} satisfies Record<RepositoryTreeResult['entries'][number]['kind'], LucideIcon>
