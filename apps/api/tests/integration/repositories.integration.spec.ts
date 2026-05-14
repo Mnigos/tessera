@@ -57,6 +57,54 @@ interface RepositoryListResponseBody {
 	repositories: RepositoryResponseBody[]
 }
 
+interface RepositoryTreeEntryResponseBody {
+	name: string
+	objectId: string
+	kind: 'directory' | 'file' | 'submodule' | 'symlink' | 'unknown'
+	sizeBytes: number
+	path: string
+	mode: string
+}
+
+interface RepositoryBrowserSummaryResponseBody extends RepositoryResponseBody {
+	isEmpty: boolean
+	defaultBranch: string
+	rootEntries: RepositoryTreeEntryResponseBody[]
+	readme?: {
+		filename: string
+		objectId: string
+		content: string
+		isTruncated: boolean
+	}
+}
+
+interface RepositoryTreeResponseBody extends RepositoryResponseBody {
+	ref: string
+	commitId: string
+	path: string
+	entries: RepositoryTreeEntryResponseBody[]
+}
+
+interface RepositoryBlobResponseBody extends RepositoryResponseBody {
+	ref: string
+	path: string
+	name: string
+	objectId: string
+	sizeBytes: number
+	preview:
+		| {
+				type: 'text'
+				content: string
+		  }
+		| {
+				type: 'binary'
+		  }
+		| {
+				type: 'tooLarge'
+				previewLimitBytes: number
+		  }
+}
+
 interface ErrorResponseBody {
 	defined: true
 	code: string
@@ -74,12 +122,16 @@ describe('Repositories integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let gitStorageCreateRepository: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryBrowserSummary: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryTree: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
+		vi.spyOn(Logger, 'error').mockImplementation(() => undefined)
 		vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
@@ -88,6 +140,26 @@ describe('Repositories integration', () => {
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
 			})
 		)
+		gitStorageGetRepositoryBrowserSummary = vi.fn().mockResolvedValue({
+			isEmpty: false,
+			defaultBranch: 'main',
+			rootEntries: [
+				{
+					name: 'src',
+					objectId: 'tree123',
+					kind: 'directory',
+					sizeBytes: 0,
+					path: 'src',
+					mode: '040000',
+				},
+			],
+			readme: {
+				filename: 'README.md',
+				objectId: 'readme123',
+				content: '# Notes',
+				isTruncated: false,
+			},
+		})
 		gitStorageGetRepositoryTree = vi.fn().mockResolvedValue({
 			commitId: 'commit123',
 			path: 'src',
@@ -102,6 +174,14 @@ describe('Repositories integration', () => {
 				},
 			],
 		})
+		gitStorageGetRepositoryBlob = vi.fn().mockResolvedValue({
+			objectId: 'blob123',
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+			sizeBytes: 17,
+		})
 		gitStorageGetRepositoryRawBlob = vi.fn().mockResolvedValue({
 			objectId: 'blob123',
 			content: new Uint8Array([0, 1, 2, 255]),
@@ -114,7 +194,9 @@ describe('Repositories integration', () => {
 			.overrideProvider(GitStorageClient)
 			.useValue({
 				createRepository: gitStorageCreateRepository,
+				getRepositoryBrowserSummary: gitStorageGetRepositoryBrowserSummary,
 				getRepositoryTree: gitStorageGetRepositoryTree,
+				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				getRepositoryRawBlob: gitStorageGetRepositoryRawBlob,
 			})
 			.compile()
@@ -127,11 +209,36 @@ describe('Repositories integration', () => {
 
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
+		gitStorageCreateRepository.mockReset()
+		gitStorageGetRepositoryBrowserSummary.mockReset()
+		gitStorageGetRepositoryTree.mockReset()
+		gitStorageGetRepositoryBlob.mockReset()
+		gitStorageGetRepositoryRawBlob.mockReset()
 		gitStorageCreateRepository.mockImplementation(({ repositoryId }) =>
 			Promise.resolve({
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
 			})
 		)
+		gitStorageGetRepositoryBrowserSummary.mockResolvedValue({
+			isEmpty: false,
+			defaultBranch: 'main',
+			rootEntries: [
+				{
+					name: 'src',
+					objectId: 'tree123',
+					kind: 'directory',
+					sizeBytes: 0,
+					path: 'src',
+					mode: '040000',
+				},
+			],
+			readme: {
+				filename: 'README.md',
+				objectId: 'readme123',
+				content: '# Notes',
+				isTruncated: false,
+			},
+		})
 		gitStorageGetRepositoryTree.mockResolvedValue({
 			commitId: 'commit123',
 			path: 'src',
@@ -145,6 +252,14 @@ describe('Repositories integration', () => {
 					mode: '100644',
 				},
 			],
+		})
+		gitStorageGetRepositoryBlob.mockResolvedValue({
+			objectId: 'blob123',
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+			sizeBytes: 17,
 		})
 		gitStorageGetRepositoryRawBlob.mockResolvedValue({
 			objectId: 'blob123',
@@ -199,6 +314,19 @@ describe('Repositories integration', () => {
 		expect(gitStorageCreateRepository).toHaveBeenCalledWith({
 			repositoryId: body.repository.id,
 		})
+	})
+
+	test('rejects invalid create input before creating git storage', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		const response = await createRepository({ name: '' }, headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
+		expect(gitStorageCreateRepository).not.toHaveBeenCalled()
 	})
 
 	test('creates a repository with a normalized custom slug', async () => {
@@ -306,6 +434,17 @@ describe('Repositories integration', () => {
 		).toBeTruthy()
 	})
 
+	test('rejects unauthenticated repository list requests', async () => {
+		const response = await listRepositories('marta')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(401)
+		expect(body).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: 'Unauthorized',
+		})
+	})
+
 	test('hides another username when listing repositories', async () => {
 		const headers = await createIntegrationSessionHeaders({
 			username: 'marta',
@@ -326,20 +465,42 @@ describe('Repositories integration', () => {
 			username: 'marta',
 			email: 'marta@example.com',
 		})
-		await createRepository({ name: 'Notes' }, headers)
+		await createRepository(
+			{ name: 'Notes', description: 'Project notes', visibility: 'public' },
+			headers
+		)
 
 		const response = await getRepository('marta', 'notes', headers)
 		const body = (await response.json()) as RepositoryResponseBody
 
 		expect(response.status).toBe(200)
-		expect(body).toMatchObject({
+		expect(body).toEqual({
 			repository: {
+				id: expect.any(String),
 				slug: 'notes',
 				name: 'Notes',
+				visibility: 'public',
+				description: 'Project notes',
+				defaultBranch: 'main',
+				createdAt: expect.any(String),
+				updatedAt: expect.any(String),
 			},
 			owner: {
 				username: 'marta',
 			},
+		})
+		expect(Date.parse(body.repository.createdAt)).not.toBeNaN()
+		expect(Date.parse(body.repository.updatedAt)).not.toBeNaN()
+	})
+
+	test('rejects unauthenticated repository detail requests', async () => {
+		const response = await getRepository('marta', 'notes')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(401)
+		expect(body).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: 'Unauthorized',
 		})
 	})
 
@@ -375,6 +536,196 @@ describe('Repositories integration', () => {
 		})
 	})
 
+	test('returns public repository browser summary for anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getBrowserSummary('marta', 'notes')
+		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+				name: 'Notes',
+				visibility: 'public',
+				defaultBranch: 'main',
+			},
+			owner: {
+				username: 'marta',
+			},
+			isEmpty: false,
+			defaultBranch: 'main',
+			rootEntries: [
+				{
+					name: 'src',
+					objectId: 'tree123',
+					kind: 'directory',
+					sizeBytes: 0,
+					path: 'src',
+					mode: '040000',
+				},
+			],
+			readme: {
+				filename: 'README.md',
+				objectId: 'readme123',
+				content: '# Notes',
+				isTruncated: false,
+			},
+		})
+		expect(gitStorageGetRepositoryBrowserSummary).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId: body.repository.id,
+				defaultBranch: 'main',
+			})
+		)
+	})
+
+	test('returns private repository browser summary for the owner', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+
+		const response = await getBrowserSummary('marta', 'notes', headers)
+		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+				visibility: 'private',
+			},
+			owner: {
+				username: 'marta',
+			},
+		})
+	})
+
+	test('hides private repository browser summary from anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		gitStorageGetRepositoryBrowserSummary.mockClear()
+
+		const response = await getBrowserSummary('marta', 'notes')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+		expect(gitStorageGetRepositoryBrowserSummary).not.toHaveBeenCalled()
+	})
+
+	test('rejects invalid repository browser inputs before git storage reads', async () => {
+		const response = await getBrowserSummary('marta', 'bad_slug')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
+		expect(gitStorageGetRepositoryBrowserSummary).not.toHaveBeenCalled()
+	})
+
+	test('returns repository tree entries for public repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getTree('marta', 'notes', 'main', 'src')
+		const body = (await response.json()) as RepositoryTreeResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+			},
+			owner: {
+				username: 'marta',
+			},
+			ref: 'main',
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file',
+					sizeBytes: 4,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		})
+		expect(gitStorageGetRepositoryTree).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId: body.repository.id,
+				ref: 'main',
+				path: 'src',
+			})
+		)
+	})
+
+	test('returns blob previews for public repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getBlob('marta', 'notes', 'main', 'src/index.ts')
+		const body = (await response.json()) as RepositoryBlobResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+			},
+			owner: {
+				username: 'marta',
+			},
+			ref: 'main',
+			path: 'src/index.ts',
+			name: 'index.ts',
+			objectId: 'blob123',
+			sizeBytes: 17,
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+		})
+		expect(gitStorageGetRepositoryTree).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'main',
+				path: 'src',
+			})
+		)
+		expect(gitStorageGetRepositoryBlob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId: body.repository.id,
+				objectId: 'blob123',
+			})
+		)
+	})
+
 	test('returns raw blob bytes from the HTTP raw route', async () => {
 		const headers = await createIntegrationSessionHeaders({
 			username: 'marta',
@@ -405,6 +756,53 @@ describe('Repositories integration', () => {
 				objectId: 'blob123',
 			})
 		)
+	})
+
+	test('returns private raw blob bytes to the repository owner', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+
+		const response = await getRawBlob(
+			'marta',
+			'notes',
+			'main',
+			'src/index.ts',
+			headers
+		)
+
+		expect(response.status).toBe(200)
+		expect(new Uint8Array(await response.arrayBuffer())).toEqual(
+			new Uint8Array([0, 1, 2, 255])
+		)
+		expect(gitStorageGetRepositoryRawBlob).toHaveBeenCalledWith(
+			expect.objectContaining({
+				objectId: 'blob123',
+			})
+		)
+	})
+
+	test('hides private raw blob bytes from anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		gitStorageGetRepositoryTree.mockClear()
+		gitStorageGetRepositoryRawBlob.mockClear()
+
+		const response = await getRawBlob('marta', 'notes', 'main', 'src/index.ts')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+		expect(gitStorageGetRepositoryTree).not.toHaveBeenCalled()
+		expect(gitStorageGetRepositoryRawBlob).not.toHaveBeenCalled()
 	})
 
 	async function createIntegrationSessionHeaders(
@@ -459,15 +857,58 @@ describe('Repositories integration', () => {
 		})
 	}
 
-	function listRepositories(username: string, headers: Headers) {
+	function listRepositories(username: string, headers?: Headers) {
 		return adapter.hono.request(`http://localhost/repositories/${username}`, {
 			headers,
 		})
 	}
 
-	function getRepository(username: string, slug: string, headers: Headers) {
+	function getRepository(username: string, slug: string, headers?: Headers) {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}`,
+			{ headers }
+		)
+	}
+
+	function getBrowserSummary(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/browser`,
+			{ headers }
+		)
+	}
+
+	function getTree(
+		username: string,
+		slug: string,
+		ref: string,
+		path?: string,
+		headers?: Headers
+	) {
+		const searchParams = new URLSearchParams()
+		if (path) searchParams.set('path', path)
+		const query = searchParams.size ? `?${searchParams.toString()}` : ''
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/tree/${ref}${query}`,
+			{ headers }
+		)
+	}
+
+	function getBlob(
+		username: string,
+		slug: string,
+		ref: string,
+		path: string,
+		headers?: Headers
+	) {
+		const searchParams = new URLSearchParams({ path })
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/blob/${ref}?${searchParams.toString()}`,
 			{ headers }
 		)
 	}
