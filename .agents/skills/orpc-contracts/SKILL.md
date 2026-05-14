@@ -18,6 +18,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 
 - Contracts live in `packages/contracts/src/[name].contract.ts`.
 - Keep route paths, HTTP methods, input schemas, output schemas, and declared errors together.
+- Add new API endpoints through oRPC contracts by default, including file/download endpoints when oRPC supports the response type. Avoid bypassing contracts with native Nest HTTP routes unless oRPC has been checked and cannot represent the endpoint.
 - Always declare `.output()`.
 - Prefer `.route()` then `.errors()` then `.input()` then `.output()` unless nearby contracts use a different local order.
 - Export Zod-inferred types that API services or frontend code consume.
