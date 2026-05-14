@@ -4,6 +4,7 @@ import { REQUEST } from '@nestjs/core'
 import { ORPCModule, onError } from '@orpc/nest'
 import { ORPCError, ValidationError } from '@orpc/server'
 import { experimental_RethrowHandlerPlugin as RethrowHandlerPlugin } from '@orpc/server/plugins'
+import { orpcCodeToHttpStatus } from './http-status-code-map'
 
 const logger = new Logger('RPC')
 
@@ -30,7 +31,12 @@ const logger = new Logger('RPC')
 							return
 						}
 
-						logger.error('Something went wrong', formatErrorCause(error.cause))
+						const logMessage = `${error.code}: ${error.message}`
+						const status = orpcCodeToHttpStatus(error.code)
+
+						if (status >= 500)
+							logger.error(logMessage, formatErrorCause(error.cause))
+						else logger.warn(logMessage)
 					}),
 				],
 				context: { request },
