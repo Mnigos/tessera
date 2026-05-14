@@ -4,6 +4,7 @@ import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
 import { RepositoriesRepository } from './infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from './presentation/git-authorization.grpc.controller'
+import { InternalGitAuthorizationGuard } from './presentation/internal-git-authorization.guard'
 import { RepositoriesController } from './presentation/repositories.controller'
 import { RepositoryBrowserController } from './presentation/repository-browser.controller'
 import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
@@ -18,6 +19,7 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 	providers: [
 		RepositoriesService,
 		RepositoriesRepository,
+		InternalGitAuthorizationGuard,
 		RepositoryOwnerGuard,
 	],
 	exports: [RepositoriesService],

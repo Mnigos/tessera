@@ -1,4 +1,3 @@
-import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
@@ -14,7 +13,6 @@ import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
-	InternalGitRepositoryAuthorizationError,
 	PrivateRepositoryGitReadForbiddenError,
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
@@ -130,12 +128,6 @@ describe(RepositoriesService.name, () => {
 							userId: mockUserId,
 							permissions: { git: ['read', 'write'] },
 						}),
-					},
-				},
-				{
-					provide: EnvService,
-					useValue: {
-						get: vi.fn().mockReturnValue('test-internal-token'),
 					},
 				},
 			],
@@ -1067,7 +1059,6 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1087,7 +1078,6 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
 			})
@@ -1099,7 +1089,6 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1115,21 +1104,10 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: repository.slug,
 			})
 		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
-	})
-
-	test('rejects git reads without the internal bearer token', async () => {
-		await expect(
-			repositoriesService.authorizeGitRepositoryRead({
-				internalAuthorization: undefined,
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(InternalGitRepositoryAuthorizationError)
 	})
 
 	test('authorizes git writes for repository owners with storage metadata', async () => {
@@ -1141,7 +1119,6 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeGitRepositoryWrite({
-				internalAuthorization: 'Bearer test-internal-token',
 				rawToken: 'tes_git_raw-secret',
 				username: 'marta',
 				slug: repository.slug,
@@ -1173,7 +1150,6 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryWrite({
-				internalAuthorization: 'Bearer test-internal-token',
 				rawToken: 'tes_git_raw-secret',
 				username: 'marta',
 				slug: repository.slug,
@@ -1186,7 +1162,6 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryWrite({
-				internalAuthorization: 'Bearer test-internal-token',
 				rawToken: 'tes_git_raw-secret',
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
@@ -1202,7 +1177,6 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeGitRepositoryWrite({
-				internalAuthorization: 'Bearer test-internal-token',
 				rawToken: 'tes_git_raw-secret',
 				username: 'marta',
 				slug: repository.slug,
