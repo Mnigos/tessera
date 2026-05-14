@@ -56,8 +56,8 @@ describe('GitHub auth username integration', () => {
 	})
 
 	test('preserves existing usernames on later sign-ins', async () => {
-		await expect(
-			preserveExistingUsernameOnUpdate(
+		expect(
+			await preserveExistingUsernameOnUpdate(
 				{
 					email: 'github-user@example.com',
 					name: 'Updated Name',
@@ -65,7 +65,7 @@ describe('GitHub auth username integration', () => {
 				},
 				async () => true
 			)
-		).resolves.toEqual({
+		).toEqual({
 			email: 'github-user@example.com',
 			name: 'Updated Name',
 		})
@@ -78,8 +78,8 @@ describe('GitHub auth username integration', () => {
 			username: 'github-user',
 		}
 
-		await expect(
-			preserveExistingUsernameOnUpdate(updateData, async () => false)
-		).resolves.toBe(updateData)
+		expect(
+			await preserveExistingUsernameOnUpdate(updateData, async () => false)
+		).toBe(updateData)
 	})
 })
