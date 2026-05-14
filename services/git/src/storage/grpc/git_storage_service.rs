@@ -158,7 +158,7 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         }
         RepositoryError::InvalidObjectId => Status::invalid_argument("object_id is invalid"),
         RepositoryError::InvalidGitOutput => Status::internal("git returned invalid output"),
-        RepositoryError::RepositoryPathNotFound | RepositoryError::RepositoryObjectNotFound => {
+        RepositoryError::RepositoryObjectNotFound => {
             Status::not_found("repository object was not found")
         }
         RepositoryError::WrongObjectKind => {
