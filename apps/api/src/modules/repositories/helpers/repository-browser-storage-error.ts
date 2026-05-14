@@ -13,9 +13,6 @@ export interface RepositoryBrowserStorageErrorContext {
 	username: string
 }
 
-/**
- * Maps Git storage browser-read failures into repository API errors.
- */
 export function toRepositoryBrowserReadError(
 	error: unknown,
 	context: RepositoryBrowserStorageErrorContext

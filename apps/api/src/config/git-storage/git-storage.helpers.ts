@@ -25,7 +25,6 @@ type RuntimeRepositoryTreeResponse = Partial<GetRepositoryTreeResponse>
 type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
-/** Maps the generated gRPC browser summary into the API-facing storage client shape. */
 export function toRepositoryBrowserSummary({
 	defaultBranch,
 	isEmpty,
@@ -47,7 +46,6 @@ export function toRepositoryBrowserSummary({
 	}
 }
 
-/** Maps a generated gRPC tree response into the API-facing storage client shape. */
 export function toRepositoryTree({
 	commitId,
 	entries,
@@ -60,7 +58,6 @@ export function toRepositoryTree({
 	}
 }
 
-/** Maps a generated gRPC blob response into the API-facing storage client shape. */
 export function toRepositoryBlob({
 	objectId,
 	previewLimitBytes,
