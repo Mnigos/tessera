@@ -1,5 +1,4 @@
-import type { RepositoryBlob, RepositorySlug } from '@repo/contracts'
-import { repositorySlugSchema } from '@repo/contracts'
+import type { RepositoryBlob } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
@@ -30,12 +29,8 @@ function getRepositoryBlobInput({
 }: RepositoryBlobPathInput) {
 	return {
 		username,
-		slug: getRepositorySlug(slug),
+		slug,
 		ref,
 		path,
 	}
-}
-
-function getRepositorySlug(slug: string): RepositorySlug {
-	return repositorySlugSchema.parse(slug)
 }
