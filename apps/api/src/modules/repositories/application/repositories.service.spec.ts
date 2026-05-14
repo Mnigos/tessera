@@ -23,8 +23,15 @@ import {
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
+import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { RepositoriesService } from './repositories.service'
+
+vi.mock('../helpers/repository-blob-highlighting', () => ({
+	highlightRepositoryBlobPreview: vi.fn(),
+}))
+
+const textEncoder = new TextEncoder()
 
 const repository: RepositoryWithOwner = {
 	id: '00000000-0000-4000-8000-000000000003' as RepositoryId,
@@ -109,6 +116,11 @@ describe(RepositoriesService.name, () => {
 								content: 'console.log("hi")',
 							},
 						}),
+						getRepositoryRawBlob: vi.fn().mockResolvedValue({
+							objectId: 'blob123',
+							content: textEncoder.encode('console.log("hi")'),
+							sizeBytes: 17,
+						}),
 					},
 				},
 				{
@@ -132,6 +144,7 @@ describe(RepositoriesService.name, () => {
 		repositoriesService = moduleRef.get(RepositoriesService)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
+		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
 	})
 
 	afterEach(async () => {
@@ -476,14 +489,14 @@ describe(RepositoriesService.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 		})
 
-		await expect(
-			repositoriesService.getTree(mockUserId, {
+		expect(
+			await repositoriesService.getTree(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 				ref: 'main',
 				path: undefined,
 			})
-		).resolves.toEqual(
+		).toEqual(
 			expect.objectContaining({
 				repository: expect.objectContaining({ slug: repository.slug }),
 				path: 'src',
@@ -649,6 +662,165 @@ describe(RepositoriesService.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			objectId: 'blob123',
 		})
+		expect(highlightRepositoryBlobPreview).toHaveBeenCalledWith({
+			content: 'console.log("hi")',
+			path: 'src/index.ts',
+		})
+	})
+
+	test('adds syntax highlighting to text blob previews when detected', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue({
+			language: 'typescript',
+			highlighted: {
+				startLine: 1,
+				lines: [
+					{
+						number: 1,
+						html: '<span style="color:#0550ae">console</span>.log("hi")',
+					},
+				],
+			},
+		})
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+				language: 'typescript',
+				highlighted: {
+					startLine: 1,
+					lines: [
+						{
+							number: 1,
+							html: '<span style="color:#0550ae">console</span>.log("hi")',
+						},
+					],
+				},
+			},
+		})
+	})
+
+	test('keeps text blob previews unchanged when language detection falls back', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+		})
+	})
+
+	test('keeps text blob previews unchanged when highlighting fails', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({
+			preview: {
+				type: 'text',
+				content: 'console.log("hi")',
+			},
+		})
+	})
+
+	test('does not enrich binary blob previews', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryBlob'
+		).mockResolvedValue({
+			objectId: 'blob123',
+			sizeBytes: 17,
+			preview: {
+				type: 'binary',
+			},
+		})
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({
+			preview: {
+				type: 'binary',
+			},
+		})
+		expect(highlightRepositoryBlobPreview).not.toHaveBeenCalled()
+	})
+
+	test('does not enrich too-large blob previews', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryBlob'
+		).mockResolvedValue({
+			objectId: 'blob123',
+			sizeBytes: 2_097_152,
+			preview: {
+				type: 'tooLarge',
+				previewLimitBytes: 1_048_576,
+			},
+		})
+
+		expect(
+			await repositoriesService.getBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({
+			preview: {
+				type: 'tooLarge',
+				previewLimitBytes: 1_048_576,
+			},
+		})
+		expect(highlightRepositoryBlobPreview).not.toHaveBeenCalled()
 	})
 
 	test('throws when a blob path does not resolve to a file entry', async () => {
@@ -759,6 +931,131 @@ describe(RepositoriesService.name, () => {
 				path: 'src/index.ts',
 			})
 		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
+	})
+
+	test('returns raw text blob content after repository read authorization', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryTreeSpy = vi.spyOn(gitStorageClient, 'getRepositoryTree')
+		const getRepositoryRawBlobSpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryRawBlob'
+		)
+
+		expect(
+			await repositoriesService.getRawBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).toEqual(textEncoder.encode('console.log("hi")'))
+		expect(getRepositoryTreeSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			path: 'src',
+		})
+		expect(getRepositoryRawBlobSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			objectId: 'blob123',
+		})
+	})
+
+	test('rejects unauthorized raw blob access to private repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'private',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const getRepositoryTreeSpy = vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		)
+
+		await expect(
+			repositoriesService.getRawBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/index.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryTreeSpy).not.toHaveBeenCalled()
+	})
+
+	test('rejects directory raw blob paths before reading blob content', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockResolvedValue({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'components',
+					objectId: 'tree123',
+					kind: 'directory',
+					sizeBytes: 0,
+					path: 'src/components',
+					mode: '040000',
+				},
+			],
+		})
+		const getRepositoryRawBlobSpy = vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryRawBlob'
+		)
+
+		await expect(
+			repositoriesService.getRawBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/components',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryRawBlobSpy).not.toHaveBeenCalled()
+	})
+
+	test('rejects missing raw blob paths before reading blob content', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryTree'
+		).mockResolvedValue({
+			commitId: 'commit123',
+			path: 'src',
+			entries: [],
+		})
+		const getRepositoryRawBlobSpy = vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryRawBlob'
+		)
+
+		await expect(
+			repositoriesService.getRawBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				path: 'src/missing.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(getRepositoryRawBlobSpy).not.toHaveBeenCalled()
 	})
 
 	test('authorizes git reads for public repositories with storage metadata', async () => {

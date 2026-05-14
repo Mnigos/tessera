@@ -49,6 +49,7 @@ describe(RepositoriesController.name, () => {
 						getBrowserSummary: vi.fn(),
 						getTree: vi.fn(),
 						getBlob: vi.fn(),
+						getRawBlob: vi.fn(),
 					},
 				},
 				{
@@ -291,6 +292,40 @@ describe(RepositoriesController.name, () => {
 		})
 	})
 
+	test('delegates raw blob requests with an optional viewer', async () => {
+		const rawBlob = new TextEncoder().encode('console.log("hi")')
+		const getRawBlobSpy = vi
+			.spyOn(repositoriesService, 'getRawBlob')
+			.mockResolvedValue(rawBlob)
+
+		const file = await repositoryBrowserController
+			.getRawBlob(session)
+			['~orpc'].handler({
+				input: {
+					username: 'marta',
+					slug: repository.repository.slug,
+					ref: 'main',
+					path: 'src/index.ts',
+				},
+				context: {},
+				path: ['repositories', 'getRawBlob'],
+				procedure: repositoryBrowserController.getRawBlob(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+
+		expect(getRawBlobSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+			ref: 'main',
+			path: 'src/index.ts',
+		})
+		expect(file).toBeInstanceOf(File)
+		expect(file.name).toBe('index.ts')
+		expect(file.type).toBe('application/octet-stream')
+		expect(new Uint8Array(await file.arrayBuffer())).toEqual(rawBlob)
+	})
+
 	test('validates browser summary contract output without storage path', () => {
 		expect(
 			repositoryBrowserSummarySchema.parse({
@@ -361,11 +396,31 @@ describe(RepositoriesController.name, () => {
 				preview: {
 					type: 'text',
 					content: 'console.log("hi")',
+					language: 'typescript',
+					highlighted: {
+						startLine: 1,
+						lines: [
+							{
+								number: 1,
+								html: '<span style="color:#0550ae">console</span>.log("hi")',
+							},
+						],
+					},
 				},
 			}).preview
 		).toEqual({
 			type: 'text',
 			content: 'console.log("hi")',
+			language: 'typescript',
+			highlighted: {
+				startLine: 1,
+				lines: [
+					{
+						number: 1,
+						html: '<span style="color:#0550ae">console</span>.log("hi")',
+					},
+				],
+			},
 		})
 		expect(
 			repositoryBlobSchema.parse({

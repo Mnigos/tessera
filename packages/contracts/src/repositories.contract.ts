@@ -114,6 +114,18 @@ export const repositoryBlobPreviewSchema = z.discriminatedUnion('type', [
 	z.object({
 		type: z.literal('text'),
 		content: z.string(),
+		language: z.string().optional(),
+		highlighted: z
+			.object({
+				startLine: z.number().int().positive(),
+				lines: z.array(
+					z.object({
+						number: z.number().int().positive(),
+						html: z.string(),
+					})
+				),
+			})
+			.optional(),
 	}),
 	z.object({
 		type: z.literal('binary'),
@@ -171,4 +183,11 @@ export const repositoriesContract = {
 		})
 		.input(getRepositoryBlobInputSchema)
 		.output(repositoryBlobSchema),
+	getRawBlob: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/raw/{ref}',
+		})
+		.input(getRepositoryBlobInputSchema)
+		.output(z.file()),
 }

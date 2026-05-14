@@ -29,4 +29,24 @@ export class RepositoryBrowserController {
 			this.repositoriesService.getBlob(session?.user.id, input)
 		)
 	}
+
+	@Implement(contract.repositories.getRawBlob)
+	getRawBlob(@Session() session?: UserSession) {
+		return implement(contract.repositories.getRawBlob).handler(
+			async ({ input }) => {
+				const content = await this.repositoriesService.getRawBlob(
+					session?.user.id,
+					input
+				)
+
+				return new File([content], getRawBlobFilename(input.path), {
+					type: 'application/octet-stream',
+				})
+			}
+		)
+	}
+}
+
+function getRawBlobFilename(path: string) {
+	return encodeURIComponent(path.split('/').at(-1) || 'blob')
 }
