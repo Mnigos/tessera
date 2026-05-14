@@ -1,6 +1,10 @@
 import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { repositoryBrowserSummarySchema } from '@repo/contracts'
+import {
+	repositoryBlobSchema,
+	repositoryBrowserSummarySchema,
+	repositoryTreeSchema,
+} from '@repo/contracts'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { RepositoriesService } from '../application/repositories.service'
@@ -43,6 +47,8 @@ describe(RepositoriesController.name, () => {
 						list: vi.fn(),
 						get: vi.fn(),
 						getBrowserSummary: vi.fn(),
+						getTree: vi.fn(),
+						getBlob: vi.fn(),
 					},
 				},
 				{
@@ -201,6 +207,90 @@ describe(RepositoriesController.name, () => {
 		})
 	})
 
+	test('delegates tree requests with an optional viewer', async () => {
+		const tree = {
+			...repository,
+			ref: 'main',
+			commitId: 'commit123',
+			path: 'src',
+			entries: [
+				{
+					name: 'index.ts',
+					objectId: 'blob123',
+					kind: 'file' as const,
+					sizeBytes: 17,
+					path: 'src/index.ts',
+					mode: '100644',
+				},
+			],
+		}
+		const getTreeSpy = vi
+			.spyOn(repositoriesService, 'getTree')
+			.mockResolvedValue(tree)
+
+		expect(
+			await repositoryBrowserController.getTree(session)['~orpc'].handler({
+				input: {
+					username: 'marta',
+					slug: repository.repository.slug,
+					ref: 'main',
+					path: 'src',
+				},
+				context: {},
+				path: ['repositories', 'getTree'],
+				procedure: repositoryBrowserController.getTree(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(tree)
+		expect(getTreeSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+			ref: 'main',
+			path: 'src',
+		})
+	})
+
+	test('delegates blob requests with an optional viewer', async () => {
+		const blob = {
+			...repository,
+			ref: 'main',
+			path: 'src/index.ts',
+			name: 'index.ts',
+			objectId: 'blob123',
+			sizeBytes: 17,
+			preview: {
+				type: 'text' as const,
+				content: 'console.log("hi")',
+			},
+		}
+		const getBlobSpy = vi
+			.spyOn(repositoriesService, 'getBlob')
+			.mockResolvedValue(blob)
+
+		expect(
+			await repositoryBrowserController.getBlob(session)['~orpc'].handler({
+				input: {
+					username: 'marta',
+					slug: repository.repository.slug,
+					ref: 'main',
+					path: 'src/index.ts',
+				},
+				context: {},
+				path: ['repositories', 'getBlob'],
+				procedure: repositoryBrowserController.getBlob(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(blob)
+		expect(getBlobSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+			ref: 'main',
+			path: 'src/index.ts',
+		})
+	})
+
 	test('validates browser summary contract output without storage path', () => {
 		expect(
 			repositoryBrowserSummarySchema.parse({
@@ -229,5 +319,67 @@ describe(RepositoriesController.name, () => {
 				storagePath: expect.any(String),
 			})
 		)
+	})
+
+	test('validates tree contract output without storage path', () => {
+		expect(
+			repositoryTreeSchema.parse({
+				...repository,
+				ref: 'main',
+				commitId: 'commit123',
+				path: 'src',
+				entries: [
+					{
+						name: 'index.ts',
+						objectId: 'blob123',
+						kind: 'file',
+						sizeBytes: 17,
+						path: 'src/index.ts',
+						mode: '100644',
+					},
+				],
+			})
+		).toEqual(
+			expect.not.objectContaining({
+				storagePath: expect.any(String),
+			})
+		)
+	})
+
+	test('validates discriminated blob preview contract output', () => {
+		expect(
+			repositoryBlobSchema.parse({
+				...repository,
+				ref: 'main',
+				path: 'src/index.ts',
+				name: 'index.ts',
+				objectId: 'blob123',
+				sizeBytes: 17,
+				preview: {
+					type: 'text',
+					content: 'console.log("hi")',
+				},
+			}).preview
+		).toEqual({
+			type: 'text',
+			content: 'console.log("hi")',
+		})
+		expect(
+			repositoryBlobSchema.parse({
+				...repository,
+				ref: 'main',
+				path: 'dist/app.bin',
+				name: 'app.bin',
+				objectId: 'blob456',
+				sizeBytes: 2_097_152,
+				preview: {
+					type: 'tooLarge',
+					previewLimitBytes: 1_048_576,
+				},
+			}).preview
+		).toEqual({
+			type: 'tooLarge',
+			previewLimitBytes: 1_048_576,
+		})
 	})
 })
