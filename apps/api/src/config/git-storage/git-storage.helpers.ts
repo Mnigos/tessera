@@ -7,30 +7,35 @@ import type {
 
 const textDecoder = new TextDecoder()
 
+type RuntimeRepositoryBrowserSummaryResponse =
+	Partial<GetRepositoryBrowserSummaryResponse> & {
+		readme?: Partial<NonNullable<GetRepositoryBrowserSummaryResponse['readme']>>
+	}
+
 /** Maps the generated gRPC browser summary into the API-facing storage client shape. */
 export function toRepositoryBrowserSummary({
 	defaultBranch,
 	isEmpty,
 	readme,
 	rootEntries,
-}: GetRepositoryBrowserSummaryResponse): GitStorageRepositoryBrowserSummary {
+}: RuntimeRepositoryBrowserSummaryResponse): GitStorageRepositoryBrowserSummary {
 	return {
-		defaultBranch,
-		isEmpty,
-		rootEntries: rootEntries.map(entry => ({
+		defaultBranch: defaultBranch ?? '',
+		isEmpty: isEmpty ?? false,
+		rootEntries: (rootEntries ?? []).map(entry => ({
 			name: entry.name,
 			objectId: entry.objectId,
 			kind: toRepositoryTreeEntryKind(entry.kind),
-			sizeBytes: entry.sizeBytes,
+			sizeBytes: Number(entry.sizeBytes ?? 0),
 			path: entry.path,
 			mode: entry.mode,
 		})),
 		readme: readme
 			? {
-					filename: readme.filename,
-					objectId: readme.objectId,
-					content: textDecoder.decode(readme.content),
-					isTruncated: readme.isTruncated,
+					filename: readme.filename ?? '',
+					objectId: readme.objectId ?? '',
+					content: textDecoder.decode(readme.content ?? new Uint8Array()),
+					isTruncated: readme.isTruncated ?? false,
 				}
 			: undefined,
 	}

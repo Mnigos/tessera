@@ -6,6 +6,11 @@ import { ClientsModule, Transport } from '@nestjs/microservices'
 import { TESSERA_GIT_V1_PACKAGE_NAME } from './generated/tessera/git/v1/git_storage'
 import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
 
+export const GIT_GRPC_LOADER_OPTIONS = {
+	keepCase: false,
+	longs: String,
+}
+
 const GIT_STORAGE_PROTO_RELATIVE_PATH =
 	'packages/proto/tessera/git/v1/git_storage.proto'
 const GIT_AUTHORIZATION_PROTO_RELATIVE_PATH =
@@ -23,6 +28,7 @@ const GIT_AUTHORIZATION_PROTO_RELATIVE_PATH =
 				useFactory: (envService: EnvService) => ({
 					transport: Transport.GRPC,
 					options: {
+						loader: GIT_GRPC_LOADER_OPTIONS,
 						package: TESSERA_GIT_V1_PACKAGE_NAME,
 						protoPath: resolveGitStorageProtoPath(),
 						url: envService.get('GIT_SERVICE_URL'),

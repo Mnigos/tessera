@@ -143,6 +143,97 @@ describe(GitStorageClient.name, () => {
 		})
 	})
 
+	test('normalizes grpc uint64 size values returned as strings', async () => {
+		gitStorageService.getRepositoryBrowserSummary.mockReturnValue(
+			of({
+				isEmpty: false,
+				defaultBranch: 'main',
+				rootEntries: [
+					{
+						name: 'README.md',
+						objectId: 'def456',
+						kind: RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_FILE,
+						sizeBytes: '42',
+						path: 'README.md',
+						mode: '100644',
+					},
+				],
+				readme: undefined,
+			})
+		)
+
+		await expect(
+			client.getRepositoryBrowserSummary({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'main',
+			})
+		).resolves.toEqual(
+			expect.objectContaining({
+				rootEntries: [
+					expect.objectContaining({
+						sizeBytes: 42,
+					}),
+				],
+			})
+		)
+	})
+
+	test('maps omitted grpc repeated root entries to an empty list', async () => {
+		gitStorageService.getRepositoryBrowserSummary.mockReturnValue(
+			of({
+				isEmpty: true,
+				defaultBranch: 'main',
+				readme: undefined,
+			})
+		)
+
+		await expect(
+			client.getRepositoryBrowserSummary({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'main',
+			})
+		).resolves.toEqual({
+			isEmpty: true,
+			defaultBranch: 'main',
+			rootEntries: [],
+			readme: undefined,
+		})
+	})
+
+	test('maps omitted grpc scalar defaults before contract validation', async () => {
+		gitStorageService.getRepositoryBrowserSummary.mockReturnValue(
+			of({
+				defaultBranch: 'main',
+				rootEntries: [],
+				readme: {
+					filename: 'README.md',
+					objectId: 'def456',
+					content: new TextEncoder().encode('# Tessera'),
+				},
+			})
+		)
+
+		await expect(
+			client.getRepositoryBrowserSummary({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'main',
+			})
+		).resolves.toEqual({
+			isEmpty: false,
+			defaultBranch: 'main',
+			rootEntries: [],
+			readme: {
+				filename: 'README.md',
+				objectId: 'def456',
+				content: '# Tessera',
+				isTruncated: false,
+			},
+		})
+	})
+
 	test('maps missing storage path to an external service error', async () => {
 		gitStorageService.createRepository.mockReturnValue(of({}))
 
