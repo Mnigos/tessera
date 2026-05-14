@@ -1,4 +1,5 @@
 import { createServer } from 'node:net'
+import { EnvService } from '@config/env'
 import { resolveGitAuthorizationProtoPath } from '@config/git-storage'
 import {
 	GIT_AUTHORIZATION_SERVICE_NAME,
@@ -48,6 +49,12 @@ describe('Git authorization gRPC integration', () => {
 				{
 					provide: RepositoriesService,
 					useValue: repositoriesService,
+				},
+				{
+					provide: EnvService,
+					useValue: {
+						get: vi.fn().mockReturnValue('test-internal-token'),
+					},
 				},
 			],
 		}).compile()
@@ -113,7 +120,6 @@ describe('Git authorization gRPC integration', () => {
 		})
 		expect(repositoriesService.authorizeGitRepositoryRead).toHaveBeenCalledWith(
 			{
-				internalAuthorization: 'Bearer test-internal-token',
 				username: 'marta',
 				slug: 'notes',
 			}
@@ -151,11 +157,26 @@ describe('Git authorization gRPC integration', () => {
 		expect(
 			repositoriesService.authorizeGitRepositoryWrite
 		).toHaveBeenCalledWith({
-			internalAuthorization: 'Bearer test-internal-token',
 			username: 'marta',
 			slug: 'notes',
 			rawToken: 'tes_git_raw-secret',
 		})
+	})
+
+	test('rejects requests without internal authorization metadata before service delegation', async () => {
+		await expect(
+			firstValueFrom(
+				service.authorizeRead({
+					ownerUsername: 'marta',
+					repositorySlug: 'notes',
+					service: 'git-upload-pack',
+					action: 'info_refs',
+				})
+			)
+		).rejects.toMatchObject({ code: status.UNAUTHENTICATED })
+		expect(
+			repositoriesService.authorizeGitRepositoryRead
+		).not.toHaveBeenCalled()
 	})
 
 	test('maps authorization failures through grpc status codes', async () => {
