@@ -3,8 +3,14 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
+use tessera_git::proto::GetRepositoryRawBlobRequest;
+use tessera_git::proto::git_storage_service_server::GitStorageService;
 use tessera_git::storage::infrastructure::RepositoryStorage;
-use tessera_git::{RepositoryBlobPreview, RepositoryError, RepositoryId, RepositoryTreeEntryKind};
+use tessera_git::{
+    Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryError, RepositoryId,
+    RepositoryRawBlob, RepositoryTreeEntryKind,
+};
+use tonic::{Code, Request};
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
 
@@ -716,8 +722,194 @@ async fn repository_blob_rejects_directory_object() {
     assert!(matches!(error, RepositoryError::WrongObjectKind));
 }
 
+#[tokio::test]
+async fn repository_raw_blob_returns_exact_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit_bytes(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("data.bin", &[0, 1, 2, b'\n'])],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "data.bin");
+
+    let blob = storage
+        .get_repository_raw_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        blob,
+        RepositoryRawBlob {
+            object_id,
+            content: vec![0, 1, 2, b'\n'],
+            size_bytes: 4,
+        }
+    );
+}
+
+#[tokio::test]
+async fn repository_raw_blob_rejects_missing_object() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let missing_object_id = "0123456789012345678901234567890123456789";
+
+    let error = storage
+        .get_repository_raw_blob(REPOSITORY_ID, &repository.storage_path, missing_object_id)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::RepositoryObjectNotFound));
+}
+
+#[tokio::test]
+async fn repository_raw_blob_rejects_directory_object() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("src/lib.rs", "hi\n")],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "src");
+
+    let error = storage
+        .get_repository_raw_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::WrongObjectKind));
+}
+
+#[tokio::test]
+async fn repository_raw_blob_rejects_oversized_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let content = vec![b'a'; 10 * 1024 * 1024 + 1];
+    push_commit_bytes(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("large.bin", &content)],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "large.bin");
+
+    let error = storage
+        .get_repository_raw_blob(REPOSITORY_ID, &repository.storage_path, &object_id)
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::BlobTooLarge));
+}
+
+#[tokio::test]
+async fn repository_raw_blob_rejects_invalid_object_id() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let error = storage
+        .get_repository_raw_blob(REPOSITORY_ID, &repository.storage_path, "../HEAD")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::InvalidObjectId));
+}
+
+#[tokio::test]
+async fn repository_raw_blob_grpc_returns_exact_content() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit_bytes(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("data.bin", &[0, 1, 2, b'\n'])],
+    );
+    let object_id = object_id_for_path(&repository.path, "main", "data.bin");
+    let service = grpc_service(temp_dir.path());
+
+    let response = service
+        .get_repository_raw_blob(Request::new(GetRepositoryRawBlobRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path,
+            object_id: object_id.clone(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.object_id, object_id);
+    assert_eq!(response.content, vec![0, 1, 2, b'\n']);
+    assert_eq!(response.size_bytes, 4);
+}
+
+#[tokio::test]
+async fn repository_raw_blob_grpc_maps_errors_cleanly() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("src/lib.rs", "hi\n")],
+    );
+    let directory_object_id = object_id_for_path(&repository.path, "main", "src");
+    let service = grpc_service(temp_dir.path());
+
+    let missing = service
+        .get_repository_raw_blob(Request::new(GetRepositoryRawBlobRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path.clone(),
+            object_id: "0123456789012345678901234567890123456789".to_string(),
+        }))
+        .await
+        .unwrap_err();
+    let wrong_kind = service
+        .get_repository_raw_blob(Request::new(GetRepositoryRawBlobRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path.clone(),
+            object_id: directory_object_id,
+        }))
+        .await
+        .unwrap_err();
+    let invalid = service
+        .get_repository_raw_blob(Request::new(GetRepositoryRawBlobRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path,
+            object_id: "../HEAD".to_string(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(missing.code(), Code::NotFound);
+    assert_eq!(wrong_kind.code(), Code::FailedPrecondition);
+    assert_eq!(invalid.code(), Code::InvalidArgument);
+}
+
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
+}
+
+fn grpc_service(storage_root: &Path) -> GitStorageGrpcService {
+    GitStorageGrpcService::new(Config {
+        host: "::".to_string(),
+        port: 50051,
+        http_host: "::".to_string(),
+        http_port: 50052,
+        storage_root: storage_root.to_path_buf(),
+        git_binary: PathBuf::from("git"),
+        api_grpc_url: "http://localhost:50053".to_string(),
+        api_grpc_authorization_token: Some("test-internal-token".to_string()),
+    })
 }
 
 fn repository_id() -> RepositoryId {

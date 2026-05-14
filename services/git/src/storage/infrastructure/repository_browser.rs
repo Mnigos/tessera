@@ -5,8 +5,8 @@ use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{
-    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryError, RepositoryReadme,
-    RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryError, RepositoryRawBlob,
+    RepositoryReadme, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
 };
 use crate::storage::infrastructure::repository_browser_helpers::{
     normalize_repository_path, normalize_requested_ref, parse_ls_tree_entries, treeish_path,
@@ -15,6 +15,7 @@ use crate::storage::infrastructure::repository_browser_helpers::{
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
 const BLOB_PREVIEW_MAX_BYTES: usize = 512 * 1024;
+const RAW_BLOB_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const README_MAX_BYTES: usize = 256 * 1024;
 const README_FILENAMES: [&str; 6] = [
     "README.md",
@@ -143,6 +144,36 @@ impl RepositoryStorage {
             text,
             size_bytes,
             preview_limit_bytes: BLOB_PREVIEW_MAX_BYTES as u64,
+        })
+    }
+
+    pub async fn get_repository_raw_blob(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        object_id: &str,
+    ) -> Result<RepositoryRawBlob, RepositoryError> {
+        let repository_path = self
+            .existing_bare_repository_path(repository_id, storage_path)
+            .await?;
+        validate_object_id(object_id)?;
+        let object_type = self.object_type(&repository_path, object_id).await?;
+
+        if object_type != "blob" {
+            return Err(RepositoryError::WrongObjectKind);
+        }
+
+        let size_bytes = self.object_size(&repository_path, object_id).await?;
+        if size_bytes > RAW_BLOB_MAX_BYTES {
+            return Err(RepositoryError::BlobTooLarge);
+        }
+
+        let content = self.read_exact_blob(&repository_path, object_id).await?;
+
+        Ok(RepositoryRawBlob {
+            object_id: object_id.to_string(),
+            content,
+            size_bytes,
         })
     }
 
