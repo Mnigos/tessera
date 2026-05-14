@@ -537,8 +537,6 @@ async fn repository_tree_rejects_unsafe_paths() {
     );
 
     for path in [
-        "/src",
-        "src/",
         "src//lib.rs",
         "src/../README.md",
         "src/./lib.rs",
@@ -555,6 +553,28 @@ async fn repository_tree_rejects_unsafe_paths() {
             "expected {path:?} to be rejected"
         );
     }
+}
+
+#[tokio::test]
+async fn repository_tree_trims_boundary_slashes() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("src/lib.rs", "pub fn hello() {}\n")],
+    );
+
+    let tree = storage
+        .get_repository_tree(REPOSITORY_ID, &repository.storage_path, "main", "/src/")
+        .await
+        .unwrap();
+
+    assert_eq!(tree.path, "src");
+    assert_eq!(tree.entries.len(), 1);
+    assert_eq!(tree.entries[0].path, "src/lib.rs");
 }
 
 #[tokio::test]
