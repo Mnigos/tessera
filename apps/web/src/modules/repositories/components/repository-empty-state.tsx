@@ -1,3 +1,5 @@
+'use client'
+
 import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
