@@ -34,6 +34,8 @@ Use this skill to run the local `cr` CodeRabbit CLI, analyze returned findings, 
 6. Convert findings into a checklist and use `fix-review-findings`:
    - Verify every finding against current code before editing.
    - Classify each as valid, invalid, duplicate, already fixed, or needs user decision.
+   - Treat framework or stack-mismatched advice as invalid, even when severity is high.
+   - Treat broad structural advice, such as splitting a file for size alone, as needing judgment; prefer cohesion and local patterns over line-count rules.
    - Fix valid findings only.
 7. Add or update tests when behavior changes.
 8. Run focused checks for touched areas, then repo-required checks when the change is broad:
@@ -51,3 +53,4 @@ Use this skill to run the local `cr` CodeRabbit CLI, analyze returned findings, 
 - Do not claim a manual review came from CodeRabbit.
 - Do not run review comments or GitHub thread resolution unless explicitly asked.
 - Keep fixes scoped to the CodeRabbit findings and necessary tests.
+- Do not leave CodeRabbit findings as inline `//REVIEW:` comments in source files; either fix, skip with a reason, or ask the user when judgment is needed.

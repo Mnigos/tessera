@@ -23,6 +23,7 @@ Before editing, read:
   - `grpc/` for tonic request/response adapters and gRPC status mapping.
   - `config.rs` for env parsing and socket/storage configuration.
 - Do not place orchestration, filesystem behavior, gRPC adapter code, and config parsing together in one large file.
+- Do not split Rust files solely because they are several hundred lines long. Split when it separates cohesive responsibilities, such as pure parsing/validation helpers from Git process orchestration, and keep tiny one-off helpers local.
 - Keep generated protobuf includes behind `pub mod proto { tonic::include_proto!(...) }`.
 
 ## Git Storage Rules
