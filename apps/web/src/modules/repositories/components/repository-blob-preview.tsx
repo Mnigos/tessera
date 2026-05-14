@@ -4,6 +4,8 @@ import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
 import { RepositoryBrowserBreadcrumbs } from './repository-browser-breadcrumbs'
 import { RepositoryBrowserMessage } from './repository-browser-message'
+import { RepositoryCodeListing } from './repository-code-listing'
+import { RepositoryRawBlobAction } from './repository-raw-blob-action'
 
 interface RepositoryBlobPreviewProps {
 	username: string
@@ -128,36 +130,85 @@ interface BlobContentProps {
 function BlobContent({ blob }: Readonly<BlobContentProps>) {
 	if (blob.preview.type === 'tooLarge')
 		return (
-			<RepositoryBrowserMessage title="File is too large to preview">
+			<BlobMessageWithRawAction
+				blob={blob}
+				title="File is too large to preview"
+			>
 				Download or clone the repository to inspect this file locally.
-			</RepositoryBrowserMessage>
+			</BlobMessageWithRawAction>
 		)
 
 	if (blob.preview.type === 'binary')
 		return (
-			<RepositoryBrowserMessage title="Binary file">
+			<BlobMessageWithRawAction blob={blob} title="Binary file">
 				This file cannot be previewed as text.
-			</RepositoryBrowserMessage>
+			</BlobMessageWithRawAction>
 		)
 
 	if (!blob.preview.content)
 		return (
-			<RepositoryBrowserMessage title="Empty file">
+			<BlobMessageWithRawAction blob={blob} title="Empty file">
 				This file has no text content.
-			</RepositoryBrowserMessage>
+			</BlobMessageWithRawAction>
 		)
 
 	return (
 		<Card className="gap-0 overflow-hidden p-0">
 			<div className="flex flex-wrap items-center justify-between gap-2 border-border border-b px-4 py-3 text-sm">
-				<span className="min-w-0 truncate font-medium">{blob.name}</span>
-				<span className="text-muted-foreground">
-					{formatBytes(blob.sizeBytes)}
-				</span>
+				<div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+					<span className="min-w-0 truncate font-medium">{blob.name}</span>
+					<BlobLanguage preview={blob.preview} />
+					<span className="text-muted-foreground">
+						{formatBytes(blob.sizeBytes)}
+					</span>
+				</div>
+				<RepositoryRawBlobAction blob={blob} />
 			</div>
-			<pre className="overflow-x-auto p-4 text-sm leading-6">
-				<code>{blob.preview.content}</code>
-			</pre>
+			<RepositoryCodeListing blob={{ ...blob, preview: blob.preview }} />
 		</Card>
+	)
+}
+
+interface BlobMessageWithRawActionProps {
+	blob: RepositoryBlobResult
+	children: React.ReactNode
+	title: string
+}
+
+function BlobMessageWithRawAction({
+	blob,
+	children,
+	title,
+}: Readonly<BlobMessageWithRawActionProps>) {
+	return (
+		<div className="flex flex-col gap-3">
+			<RepositoryBrowserMessage title={title}>
+				{children}
+			</RepositoryBrowserMessage>
+			<div className="flex justify-start">
+				<RepositoryRawBlobAction blob={blob} />
+			</div>
+		</div>
+	)
+}
+
+interface HighlightedBlobPreview {
+	language?: string
+}
+
+interface BlobLanguageProps {
+	preview: RepositoryBlobResult['preview']
+}
+
+function BlobLanguage({ preview }: Readonly<BlobLanguageProps>) {
+	if (preview.type !== 'text') return null
+
+	const highlightedPreview = preview as typeof preview & HighlightedBlobPreview
+	if (!highlightedPreview.language) return null
+
+	return (
+		<span className="rounded border border-border px-1.5 py-0.5 font-mono text-muted-foreground text-xs">
+			{highlightedPreview.language}
+		</span>
 	)
 }

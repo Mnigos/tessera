@@ -198,7 +198,90 @@ describe('Repository browser components', () => {
 		expect(screen.getByText('42 B')).toBeTruthy()
 	})
 
-	test('renders binary and large blob states', () => {
+	test('renders highlighted blob rows with line numbers and raw action', () => {
+		blobQueryMock.mockReturnValue(
+			getQueryResult({
+				data: {
+					...baseBlob,
+					path: 'src/modules/index.ts',
+					preview: {
+						type: 'text',
+						content: 'export const moduleName = "repositories"\n',
+						language: 'typescript',
+						highlighted: {
+							startLine: 12,
+							lines: [
+								{
+									number: 12,
+									html: '<span class="hljs-keyword">export</span> const moduleName = <span class="hljs-string">"repositories"</span>',
+								},
+								{
+									number: 13,
+									html: '<span class="hljs-comment">// next line</span>',
+								},
+							],
+						},
+					},
+				},
+			})
+		)
+
+		render(
+			<RepositoryBlobPreview
+				path="src/modules/index.ts"
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		const rows = screen.getAllByTestId('repository-blob-code-row')
+
+		expect(rows).toHaveLength(2)
+		expect(rows[0]?.dataset.lineNumber).toBe('12')
+		expect(rows[0]?.dataset.path).toBe('src/modules/index.ts')
+		expect(rows[0]?.dataset.ref).toBe('main')
+		expect(within(rows[0] as HTMLElement).getByText('12')).toBeTruthy()
+		expect(screen.getByText('export')).toBeTruthy()
+		expect(screen.getByText('"repositories"')).toBeTruthy()
+		expect(screen.getByText('typescript')).toBeTruthy()
+		expect(screen.getByRole('link', { name: 'Raw' }).getAttribute('href')).toBe(
+			'/repositories/mnigos/tessera-notes/raw/main?path=src%2Fmodules%2Findex.ts'
+		)
+	})
+
+	test('renders plain text fallback rows with line numbers', () => {
+		blobQueryMock.mockReturnValue(
+			getQueryResult({
+				data: {
+					...baseBlob,
+					preview: {
+						type: 'text',
+						content: 'first line\nsecond line\n',
+					},
+				},
+			})
+		)
+
+		render(
+			<RepositoryBlobPreview
+				path="src/modules/index.ts"
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		const rows = screen.getAllByTestId('repository-blob-code-row')
+
+		expect(rows).toHaveLength(2)
+		expect(within(rows[0] as HTMLElement).getByText('1')).toBeTruthy()
+		expect(within(rows[0] as HTMLElement).getByText('first line')).toBeTruthy()
+		expect(within(rows[1] as HTMLElement).getByText('2')).toBeTruthy()
+		expect(within(rows[1] as HTMLElement).getByText('second line')).toBeTruthy()
+	})
+
+	test('renders binary and large blob states with raw actions', () => {
 		blobQueryMock.mockReturnValue(
 			getQueryResult({ data: { ...baseBlob, preview: { type: 'binary' } } })
 		)
@@ -216,6 +299,7 @@ describe('Repository browser components', () => {
 		expect(
 			screen.getByText('This file cannot be previewed as text.')
 		).toBeTruthy()
+		expect(screen.getByRole('link', { name: 'Raw' })).toBeTruthy()
 
 		blobQueryMock.mockReturnValue(
 			getQueryResult({
@@ -238,6 +322,7 @@ describe('Repository browser components', () => {
 		expect(
 			screen.getByRole('heading', { name: 'File is too large to preview' })
 		).toBeTruthy()
+		expect(screen.getByRole('link', { name: 'Raw' })).toBeTruthy()
 	})
 
 	test('renders not-found states when queries fail', () => {
