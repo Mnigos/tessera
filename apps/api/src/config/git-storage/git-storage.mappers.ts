@@ -2,6 +2,7 @@ import type {
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
 	GetRepositoryBlobResponse,
 	GetRepositoryBrowserSummaryResponse,
+	GetRepositoryRawBlobResponse,
 	GetRepositoryTreeResponse,
 } from './generated/tessera/git/v1/git_storage'
 import {
@@ -11,6 +12,7 @@ import {
 import type {
 	GitStorageRepositoryBlob,
 	GitStorageRepositoryBrowserSummary,
+	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
 } from './git-storage.client'
@@ -23,8 +25,12 @@ type RuntimeRepositoryBrowserSummaryResponse =
 	}
 type RuntimeRepositoryTreeResponse = Partial<GetRepositoryTreeResponse>
 type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
+type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
 type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
+/**
+ * Maps the git storage browser summary response into the API-facing repository browser model.
+ */
 export function toRepositoryBrowserSummary({
 	defaultBranch,
 	isEmpty,
@@ -46,6 +52,9 @@ export function toRepositoryBrowserSummary({
 	}
 }
 
+/**
+ * Maps the git storage tree response into the API-facing repository tree model.
+ */
 export function toRepositoryTree({
 	commitId,
 	entries,
@@ -58,6 +67,9 @@ export function toRepositoryTree({
 	}
 }
 
+/**
+ * Maps the git storage blob preview response into the API-facing repository blob model.
+ */
 export function toRepositoryBlob({
 	objectId,
 	previewLimitBytes,
@@ -73,6 +85,21 @@ export function toRepositoryBlob({
 			state,
 			text,
 		}),
+	}
+}
+
+/**
+ * Maps the git storage raw blob response into the API-facing raw blob byte model.
+ */
+export function toRepositoryRawBlob({
+	content,
+	objectId,
+	sizeBytes,
+}: RuntimeRepositoryRawBlobResponse): GitStorageRepositoryRawBlob {
+	return {
+		objectId: objectId ?? '',
+		content: content ?? new Uint8Array(),
+		sizeBytes: toUint64Number(sizeBytes),
 	}
 }
 
