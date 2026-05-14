@@ -14,6 +14,8 @@ import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/ho
 import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
+import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.tree.$ref.$.route'
+import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.blob.$ref.$.route'
 
 const modulesProfileRoutesProfileDotrouteRoute =
   modulesProfileRoutesProfileDotrouteRouteImport.update({
@@ -47,6 +49,22 @@ const modulesAuthRoutesApiDotauthDotDotrouteRoute =
     path: '/api/auth/$',
     getParentRoute: () => rootRouteImport,
   } as any)
+const modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute =
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/tree/$ref/$',
+      path: '/$username/$slug/tree/$ref/$',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute =
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/blob/$ref/$',
+      path: '/$username/$slug/blob/$ref/$',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 
 export interface FileRoutesByFullPath {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
@@ -54,6 +72,8 @@ export interface FileRoutesByFullPath {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
+  '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
 export interface FileRoutesByTo {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
@@ -61,6 +81,8 @@ export interface FileRoutesByTo {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
+  '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -69,6 +91,8 @@ export interface FileRoutesById {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
+  '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -78,6 +102,8 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/blob/$ref/$'
+    | '/$username/$slug/tree/$ref/$'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -85,6 +111,8 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/blob/$ref/$'
+    | '/$username/$slug/tree/$ref/$'
   id:
     | '__root__'
     | '/'
@@ -92,6 +120,8 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/blob/$ref/$'
+    | '/$username/$slug/tree/$ref/$'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -99,6 +129,8 @@ export interface RootRouteChildren {
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -138,6 +170,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$username/$slug/tree/$ref/$': {
+      id: '/$username/$slug/tree/$ref/$'
+      path: '/$username/$slug/tree/$ref/$'
+      fullPath: '/$username/$slug/tree/$ref/$'
+      preLoaderRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/blob/$ref/$': {
+      id: '/$username/$slug/blob/$ref/$'
+      path: '/$username/$slug/blob/$ref/$'
+      fullPath: '/$username/$slug/blob/$ref/$'
+      preLoaderRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
   }
 }
 
@@ -164,6 +210,10 @@ const rootRouteChildren: RootRouteChildren = {
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute,
   modulesAuthRoutesApiDotauthDotDotrouteRoute:
     modulesAuthRoutesApiDotauthDotDotrouteRoute,
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute:
+    modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute,
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute:
+    modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

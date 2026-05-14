@@ -10,4 +10,12 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug',
 		'modules/repositories/routes/repository.$username.$slug.route.tsx'
 	),
+	route(
+		'/$username/$slug/tree/$ref/$',
+		'modules/repositories/routes/repository.$username.$slug.tree.$ref.$.route.tsx'
+	),
+	route(
+		'/$username/$slug/blob/$ref/$',
+		'modules/repositories/routes/repository.$username.$slug.blob.$ref.$.route.tsx'
+	),
 ])
