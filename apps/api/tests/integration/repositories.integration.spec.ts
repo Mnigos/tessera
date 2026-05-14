@@ -85,24 +85,26 @@ interface RepositoryTreeResponseBody extends RepositoryResponseBody {
 	entries: RepositoryTreeEntryResponseBody[]
 }
 
+type RepositoryBlobPreviewResponseBody =
+	| {
+			type: 'text'
+			content: string
+	  }
+	| {
+			type: 'binary'
+	  }
+	| {
+			type: 'tooLarge'
+			previewLimitBytes: number
+	  }
+
 interface RepositoryBlobResponseBody extends RepositoryResponseBody {
 	ref: string
 	path: string
 	name: string
 	objectId: string
 	sizeBytes: number
-	preview:
-		| {
-				type: 'text'
-				content: string
-		  }
-		| {
-				type: 'binary'
-		  }
-		| {
-				type: 'tooLarge'
-				previewLimitBytes: number
-		  }
+	preview: RepositoryBlobPreviewResponseBody
 }
 
 interface ErrorResponseBody {
