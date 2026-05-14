@@ -1,13 +1,13 @@
 import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound } from '@tanstack/react-router'
-import { RepositoryShell } from '../components/repository-shell'
-import { useRepositoryQuery } from '../hooks/use-repository.query'
+import { RepositoryOverview } from '../components/repository-overview'
+import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 
 export const Route = createFileRoute('/$username/$slug')({
 	loader: async ({ context, params }) => {
 		const [error, repository] = await safe(
 			context.queryClient.ensureQueryData(
-				context.orpc.repositories.get.queryOptions({
+				context.orpc.repositories.getBrowserSummary.queryOptions({
 					input: { username: params.username, slug: params.slug },
 				})
 			)
@@ -43,9 +43,8 @@ export const Route = createFileRoute('/$username/$slug')({
 
 function RepositoryRoute() {
 	const { username, slug } = Route.useParams()
-	const repositoryQuery = useRepositoryQuery(username, slug)
-	const repository = repositoryQuery.data?.repository
-	const owner = repositoryQuery.data?.owner
+	const repositoryQuery = useRepositoryBrowserSummaryQuery(username, slug)
+	const summary = repositoryQuery.data
 
 	if (repositoryQuery.isLoading)
 		return (
@@ -58,7 +57,7 @@ function RepositoryRoute() {
 			</main>
 		)
 
-	if (repositoryQuery.isError || !repository || !owner)
+	if (repositoryQuery.isError)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
 				<div className="border border-border border-dashed p-6 text-muted-foreground text-sm">
@@ -67,9 +66,18 @@ function RepositoryRoute() {
 			</main>
 		)
 
+	if (!summary)
+		return (
+			<main className="mx-auto max-w-6xl px-6 py-8">
+				<div className="border border-border border-dashed p-6 text-muted-foreground text-sm">
+					Repository has no overview data yet.
+				</div>
+			</main>
+		)
+
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryShell owner={owner} repository={repository} />
+			<RepositoryOverview summary={summary} />
 		</main>
 	)
 }
