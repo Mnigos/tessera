@@ -1,11 +1,21 @@
 import { EnvService } from '@config/env'
-import { GitStorageClient } from '@config/git-storage'
+import {
+	GitStorageClient,
+	type GitStorageGetRepositoryBlobParams,
+	type GitStorageGetRepositoryTreeParams,
+	type GitStorageRepositoryBlob,
+	type GitStorageRepositoryTree,
+} from '@config/git-storage'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
+	GetRepositoryBlobInput,
 	GetRepositoryInput,
+	GetRepositoryTreeInput,
+	RepositoryBlob,
 	RepositoryBrowserSummary,
+	RepositoryTree,
 	RepositoryWithOwner,
 } from '@repo/contracts'
 import type {
@@ -34,6 +44,10 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
+import {
+	type RepositoryBrowserStorageErrorContext,
+	toRepositoryBrowserReadError,
+} from '../helpers/repository-browser-storage-error'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 
 const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
@@ -48,6 +62,11 @@ interface CreateRepositoryMetadataParams {
 	userId: UserId
 	username: string
 	visibility: CreateRepositoryInput['visibility']
+}
+
+interface ReadableRepositoryContext {
+	repository: RepositoryWithOwnerEntity
+	storagePath: string
 }
 
 export interface AuthorizeGitRepositoryReadInput {
@@ -146,28 +165,15 @@ export class RepositoriesService {
 		viewerUserId: UserId | undefined,
 		{ slug, username }: GetRepositoryInput
 	): Promise<RepositoryBrowserSummary> {
-		const repository = await this.repositoriesRepository.find({
-			username,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		if (
-			repository.visibility === 'private' &&
-			repository.ownerUserId !== viewerUserId
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
 		)
-			throw new RepositoryNotFoundError({ slug, username })
-
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
 
 		const browserSummary =
 			await this.gitStorageClient.getRepositoryBrowserSummary({
 				repositoryId: repository.id,
-				storagePath: repository.storagePath,
+				storagePath,
 				defaultBranch: repository.defaultBranch,
 			})
 		const repositoryOutput = toRepositoryOutput(repository)
@@ -175,6 +181,91 @@ export class RepositoriesService {
 		return {
 			...repositoryOutput,
 			...browserSummary,
+		}
+	}
+
+	async getTree(
+		viewerUserId: UserId | undefined,
+		{ path, ref, slug, username }: GetRepositoryTreeInput
+	): Promise<RepositoryTree> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
+		)
+		const tree = await this.getRepositoryTreeFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				ref,
+				path: path ?? '',
+			},
+			{
+				username,
+				slug,
+				ref,
+				path: path ?? '',
+			}
+		)
+		const repositoryOutput = toRepositoryOutput(repository)
+
+		return {
+			...repositoryOutput,
+			ref,
+			...tree,
+		}
+	}
+
+	async getBlob(
+		viewerUserId: UserId | undefined,
+		{ path, ref, slug, username }: GetRepositoryBlobInput
+	): Promise<RepositoryBlob> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
+		)
+		const parentPath = getParentPath(path)
+		const tree = await this.getRepositoryTreeFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				ref,
+				path: parentPath,
+			},
+			{
+				username,
+				slug,
+				ref,
+				path,
+			}
+		)
+		const entry = tree.entries.find(treeEntry => treeEntry.path === path)
+
+		if (!entry || entry.kind !== 'file')
+			throw new RepositoryNotFoundError({ slug, username })
+
+		const blob = await this.getRepositoryBlobFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				objectId: entry.objectId,
+			},
+			{
+				username,
+				slug,
+				ref,
+				path,
+			}
+		)
+		const repositoryOutput = toRepositoryOutput(repository)
+
+		return {
+			...repositoryOutput,
+			ref,
+			path,
+			name: entry.name,
+			objectId: blob.objectId,
+			sizeBytes: blob.sizeBytes,
+			preview: blob.preview,
 		}
 	}
 
@@ -293,4 +384,62 @@ export class RepositoriesService {
 		if (!expectedToken || authorization !== `Bearer ${expectedToken}`)
 			throw new InternalGitRepositoryAuthorizationError()
 	}
+
+	private async getRepositoryTreeFromStorage(
+		params: GitStorageGetRepositoryTreeParams,
+		context: RepositoryBrowserStorageErrorContext
+	): Promise<GitStorageRepositoryTree> {
+		try {
+			return await this.gitStorageClient.getRepositoryTree(params)
+		} catch (error) {
+			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private async getRepositoryBlobFromStorage(
+		params: GitStorageGetRepositoryBlobParams,
+		context: RepositoryBrowserStorageErrorContext
+	): Promise<GitStorageRepositoryBlob> {
+		try {
+			return await this.gitStorageClient.getRepositoryBlob(params)
+		} catch (error) {
+			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private async findReadableRepository(
+		viewerUserId: UserId | undefined,
+		{ slug, username }: GetRepositoryInput
+	): Promise<ReadableRepositoryContext> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (
+			repository.visibility === 'private' &&
+			repository.ownerUserId !== viewerUserId
+		)
+			throw new RepositoryNotFoundError({ slug, username })
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		return {
+			repository,
+			storagePath: repository.storagePath,
+		}
+	}
+}
+
+function getParentPath(path: string) {
+	const lastSeparatorIndex = path.lastIndexOf('/')
+
+	if (lastSeparatorIndex === -1) return ''
+
+	return path.slice(0, lastSeparatorIndex)
 }

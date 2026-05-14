@@ -59,6 +59,12 @@ export class RepositoryNotFoundError extends NotFoundError {
 	}
 }
 
+export class RepositoryBrowserInvalidRequestError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository browser request', context)
+	}
+}
+
 export class RepositoryCreateFailedError extends InternalError {
 	constructor() {
 		super('repository create')

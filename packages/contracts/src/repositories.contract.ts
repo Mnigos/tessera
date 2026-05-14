@@ -54,6 +54,22 @@ export const getRepositoryInputSchema = z.object({
 })
 export type GetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
 
+export const getRepositoryTreeInputSchema = getRepositoryInputSchema.extend({
+	ref: z.string().min(1),
+	path: z.string().optional(),
+})
+export type GetRepositoryTreeInput = z.infer<
+	typeof getRepositoryTreeInputSchema
+>
+
+export const getRepositoryBlobInputSchema = getRepositoryInputSchema.extend({
+	ref: z.string().min(1),
+	path: z.string().min(1),
+})
+export type GetRepositoryBlobInput = z.infer<
+	typeof getRepositoryBlobInputSchema
+>
+
 export const repositoryTreeEntrySchema = z.object({
 	name: z.string(),
 	objectId: z.string(),
@@ -84,6 +100,43 @@ export type RepositoryBrowserSummary = z.infer<
 	typeof repositoryBrowserSummarySchema
 >
 
+export const repositoryTreeSchema = z.object({
+	repository: repositorySchema,
+	owner: repositoryOwnerSchema,
+	ref: z.string(),
+	commitId: z.string(),
+	path: z.string(),
+	entries: z.array(repositoryTreeEntrySchema),
+})
+export type RepositoryTree = z.infer<typeof repositoryTreeSchema>
+
+export const repositoryBlobPreviewSchema = z.discriminatedUnion('type', [
+	z.object({
+		type: z.literal('text'),
+		content: z.string(),
+	}),
+	z.object({
+		type: z.literal('binary'),
+	}),
+	z.object({
+		type: z.literal('tooLarge'),
+		previewLimitBytes: z.number().int().nonnegative(),
+	}),
+])
+export type RepositoryBlobPreview = z.infer<typeof repositoryBlobPreviewSchema>
+
+export const repositoryBlobSchema = z.object({
+	repository: repositorySchema,
+	owner: repositoryOwnerSchema,
+	ref: z.string(),
+	path: z.string(),
+	name: z.string(),
+	objectId: z.string(),
+	sizeBytes: z.number().int().nonnegative(),
+	preview: repositoryBlobPreviewSchema,
+})
+export type RepositoryBlob = z.infer<typeof repositoryBlobSchema>
+
 export const repositoriesContract = {
 	create: oc
 		.route({ method: 'POST', path: '/repositories' })
@@ -104,4 +157,18 @@ export const repositoriesContract = {
 		})
 		.input(getRepositoryInputSchema)
 		.output(repositoryBrowserSummarySchema),
+	getTree: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/tree/{ref}',
+		})
+		.input(getRepositoryTreeInputSchema)
+		.output(repositoryTreeSchema),
+	getBlob: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/blob/{ref}',
+		})
+		.input(getRepositoryBlobInputSchema)
+		.output(repositoryBlobSchema),
 }
