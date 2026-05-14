@@ -353,13 +353,13 @@ describe(GitStorageClient.name, () => {
 			})
 		)
 
-		const rawBlob = await client.getRepositoryRawBlob({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			objectId: 'blob123',
-		})
-
-		expect(rawBlob).toEqual({
+		expect(
+			await client.getRepositoryRawBlob({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			})
+		).toEqual({
 			objectId: 'blob123',
 			content,
 			sizeBytes: 5,
