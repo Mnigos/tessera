@@ -1,4 +1,5 @@
 import { Card } from '@repo/ui/components/card'
+import { Link } from '@tanstack/react-router'
 import {
 	File,
 	FileQuestion,
@@ -191,15 +192,15 @@ function TreeEntries({ tree }: Readonly<TreeEntriesProps>) {
 					)
 
 				return (
-					<a
+					<Link
 						className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/40"
 						data-entry-name={entry.name}
 						data-testid="nested-file-tree-row"
-						href={href}
 						key={`${entry.path}:${entry.objectId}`}
+						to={href}
 					>
 						{rowContent}
-					</a>
+					</Link>
 				)
 			})}
 		</Card>

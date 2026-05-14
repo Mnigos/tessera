@@ -2,12 +2,28 @@
 
 import { repositorySchema } from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
+import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
 import type { RepositoryTreeResult } from '../hooks/use-repository-tree.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import { RepositoryBlobPreview } from './repository-blob-preview'
 import { RepositoryTreeBrowser } from './repository-tree-browser'
+
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({
+		children,
+		to,
+		...props
+	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+		children: ReactNode
+		to: string
+	}) => (
+		<a href={to} {...props}>
+			{children}
+		</a>
+	),
+}))
 
 vi.mock('../hooks/use-repository-tree.query', () => ({
 	useRepositoryTreeQuery: vi.fn(),

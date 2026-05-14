@@ -8,6 +8,10 @@ export function formatTreeEntrySize({
 	sizeBytes,
 }: RepositoryTreeEntry): string {
 	if (kind === 'directory') return '-'
+	return formatBytes(sizeBytes)
+}
+
+export function formatBytes(sizeBytes: number | null | undefined): string {
 	if (sizeBytes == null) return '-'
 	if (sizeBytes < 1024) return `${sizeBytes} B`
 

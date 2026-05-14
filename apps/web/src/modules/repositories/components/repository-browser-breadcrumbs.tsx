@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
 
 interface RepositoryBrowserBreadcrumbsProps {
@@ -25,31 +26,31 @@ export function RepositoryBrowserBreadcrumbs({
 			aria-label="Repository path"
 			className="flex min-w-0 flex-wrap items-center gap-1 text-sm"
 		>
-			<a
+			<Link
 				className="font-medium text-foreground hover:underline"
-				href={getRepositoryHref(username, slug)}
+				to={getRepositoryHref(username, slug)}
 			>
 				{username}/{slug}
-			</a>
+			</Link>
 			<CrumbSeparator />
-			<a
+			<Link
 				className="font-medium text-foreground hover:underline"
-				href={getTreeHref(username, slug, refName, '')}
+				to={getTreeHref(username, slug, refName, '')}
 			>
 				{refName}
-			</a>
+			</Link>
 			{parentSegments.map((segment, index) => {
 				const segmentPath = parentSegments.slice(0, index + 1).join('/')
 
 				return (
 					<span className="flex min-w-0 items-center gap-1" key={segmentPath}>
 						<CrumbSeparator />
-						<a
+						<Link
 							className="max-w-40 truncate font-medium text-foreground hover:underline sm:max-w-72"
-							href={getTreeHref(username, slug, refName, segmentPath)}
+							to={getTreeHref(username, slug, refName, segmentPath)}
 						>
 							{segment}
-						</a>
+						</Link>
 					</span>
 				)
 			})}
