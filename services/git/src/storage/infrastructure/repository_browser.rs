@@ -212,6 +212,8 @@ impl RepositoryStorage {
         })
         .await;
 
+        // The process may exit naturally before cleanup, or with a non-zero status
+        // when we intentionally stop reading after the README byte limit.
         let _ = child.kill().await;
         let status = child.wait().await.map_err(RepositoryError::GitProcessIo)?;
 

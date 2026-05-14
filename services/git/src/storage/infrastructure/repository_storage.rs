@@ -161,6 +161,7 @@ impl RepositoryStorage {
 
         Ok(())
     }
+
     async fn ensure_repositories_root(&self) -> Result<(), RepositoryError> {
         ensure_repositories_root(&self.storage_root).await
     }
