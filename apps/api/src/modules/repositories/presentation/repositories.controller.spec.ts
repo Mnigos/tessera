@@ -295,6 +295,7 @@ describe(RepositoriesController.name, () => {
 		expect(
 			repositoryBrowserSummarySchema.parse({
 				...repository,
+				storagePath: '/internal/repositories/notes.git',
 				isEmpty: false,
 				defaultBranch: 'main',
 				rootEntries: [
@@ -325,6 +326,7 @@ describe(RepositoriesController.name, () => {
 		expect(
 			repositoryTreeSchema.parse({
 				...repository,
+				storagePath: '/internal/repositories/notes.git',
 				ref: 'main',
 				commitId: 'commit123',
 				path: 'src',
@@ -350,6 +352,7 @@ describe(RepositoriesController.name, () => {
 		expect(
 			repositoryBlobSchema.parse({
 				...repository,
+				storagePath: '/internal/repositories/notes.git',
 				ref: 'main',
 				path: 'src/index.ts',
 				name: 'index.ts',
