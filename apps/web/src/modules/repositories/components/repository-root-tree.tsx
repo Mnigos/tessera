@@ -8,13 +8,21 @@ import {
 	type LucideIcon,
 	Package,
 } from 'lucide-react'
+import { formatTreeEntrySize } from '../helpers/format-tree-entry-size'
+import { getBlobHref, getTreeHref } from './repository-browser-breadcrumbs'
 
 interface RepositoryRootTreeProps {
 	entries: RepositoryTreeEntry[]
+	refName: string
+	slug: string
+	username: string
 }
 
 export function RepositoryRootTree({
 	entries,
+	refName,
+	slug,
+	username,
 }: Readonly<RepositoryRootTreeProps>) {
 	return (
 		<section className="flex flex-col gap-3">
@@ -28,6 +36,9 @@ export function RepositoryRootTree({
 						<TreeEntryRow
 							entry={entry}
 							key={`${entry.path}:${entry.objectId}`}
+							refName={refName}
+							slug={slug}
+							username={username}
 						/>
 					))}
 				</Card>
@@ -42,17 +53,21 @@ export function RepositoryRootTree({
 
 interface TreeEntryRowProps {
 	entry: RepositoryTreeEntry
+	refName: string
+	slug: string
+	username: string
 }
 
-function TreeEntryRow({ entry }: Readonly<TreeEntryRowProps>) {
+function TreeEntryRow({
+	entry,
+	refName,
+	slug,
+	username,
+}: Readonly<TreeEntryRowProps>) {
 	const Icon = treeEntryIcons[entry.kind]
-
-	return (
-		<div
-			className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm"
-			data-entry-name={entry.name}
-			data-testid="file-tree-row"
-		>
+	const href = getTreeEntryHref({ entry, refName, slug, username })
+	const rowContent = (
+		<>
 			<div className="flex min-w-0 items-center gap-3">
 				<Icon className="size-4 shrink-0 text-muted-foreground" />
 				<span className="truncate font-medium">{entry.name}</span>
@@ -61,8 +76,52 @@ function TreeEntryRow({ entry }: Readonly<TreeEntryRowProps>) {
 				<span className="hidden capitalize sm:inline">{entry.kind}</span>
 				<span>{formatTreeEntrySize(entry)}</span>
 			</div>
-		</div>
+		</>
 	)
+
+	if (!href)
+		return (
+			<div
+				className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm"
+				data-entry-name={entry.name}
+				data-testid="file-tree-row"
+			>
+				{rowContent}
+			</div>
+		)
+
+	return (
+		<a
+			className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-3 text-sm hover:bg-muted/40"
+			data-entry-name={entry.name}
+			data-testid="file-tree-row"
+			href={href}
+		>
+			{rowContent}
+		</a>
+	)
+}
+
+interface GetTreeEntryHrefInput {
+	entry: RepositoryTreeEntry
+	refName: string
+	slug: string
+	username: string
+}
+
+function getTreeEntryHref({
+	entry,
+	refName,
+	slug,
+	username,
+}: GetTreeEntryHrefInput) {
+	if (entry.kind === 'directory')
+		return getTreeHref(username, slug, refName, entry.path)
+
+	if (entry.kind === 'file')
+		return getBlobHref(username, slug, refName, entry.path)
+
+	return undefined
 }
 
 const treeEntryIcons = {
@@ -72,14 +131,3 @@ const treeEntryIcons = {
 	symlink: LinkIcon,
 	unknown: FileQuestion,
 } satisfies Record<RepositoryTreeEntry['kind'], LucideIcon>
-
-function formatTreeEntrySize(entry: RepositoryTreeEntry) {
-	if (entry.kind === 'directory') return entry.mode
-	if (entry.sizeBytes == null) return '-'
-	if (entry.sizeBytes < 1024) return `${entry.sizeBytes} B`
-
-	const kibibytes = entry.sizeBytes / 1024
-	if (kibibytes < 1024) return `${kibibytes.toFixed(1)} KB`
-
-	return `${(kibibytes / 1024).toFixed(1)} MB`
-}
