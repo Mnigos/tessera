@@ -185,12 +185,12 @@ describe(RepositoriesRepository.name, () => {
 			ownerUser: { username: 'marta' },
 		})
 
-		await expect(
-			repositoriesRepository.find({
+		expect(
+			await repositoriesRepository.find({
 				userId: mockUserId,
 				slug: 'notes' as RepositorySlug,
 			})
-		).resolves.toEqual({
+		).toEqual({
 			id: '00000000-0000-4000-8000-000000000002',
 			slug: 'notes',
 			name: 'Notes',
@@ -212,12 +212,12 @@ describe(RepositoriesRepository.name, () => {
 	test('returns undefined when owner username and slug lookup misses', async () => {
 		limitMock.mockResolvedValue([])
 
-		await expect(
-			repositoriesRepository.find({
+		expect(
+			await repositoriesRepository.find({
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
 			})
-		).resolves.toBeUndefined()
+		).toBeUndefined()
 	})
 
 	test('throws a domain error when insert returning is empty', async () => {
@@ -265,13 +265,13 @@ describe(RepositoriesRepository.name, () => {
 	test('returns undefined when storage path update finds no repository', async () => {
 		updateReturningMock.mockResolvedValue([])
 
-		await expect(
-			repositoriesRepository.updateStoragePath({
+		expect(
+			await repositoriesRepository.updateStoragePath({
 				repositoryId: '00000000-0000-4000-8000-000000000404' as RepositoryId,
 				storagePath: '/var/lib/tessera/repositories/missing.git',
 				username: 'marta',
 			})
-		).resolves.toBeUndefined()
+		).toBeUndefined()
 	})
 
 	test('deletes a repository by id for cleanup', async () => {

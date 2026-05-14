@@ -94,8 +94,8 @@ describe('Git authorization gRPC integration', () => {
 			}
 		)
 
-		await expect(
-			firstValueFrom(
+		expect(
+			await firstValueFrom(
 				service.authorizeRead(
 					{
 						ownerUsername: 'marta',
@@ -106,7 +106,7 @@ describe('Git authorization gRPC integration', () => {
 					createMetadata()
 				)
 			)
-		).resolves.toEqual({
+		).toEqual({
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			trustedUser: '',
@@ -129,8 +129,8 @@ describe('Git authorization gRPC integration', () => {
 			trustedUser: '00000000-0000-4000-8000-000000000001',
 		})
 
-		await expect(
-			firstValueFrom(
+		expect(
+			await firstValueFrom(
 				service.authorizeWrite(
 					{
 						ownerUsername: 'marta',
@@ -143,7 +143,7 @@ describe('Git authorization gRPC integration', () => {
 					createMetadata()
 				)
 			)
-		).resolves.toEqual({
+		).toEqual({
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			trustedUser: '00000000-0000-4000-8000-000000000001',

@@ -97,8 +97,8 @@ describe(resolveGitHubUsername.name, () => {
 
 describe(preserveExistingUsernameOnUpdate.name, () => {
 	test('removes provider username updates when the user already has one', async () => {
-		await expect(
-			preserveExistingUsernameOnUpdate(
+		expect(
+			await preserveExistingUsernameOnUpdate(
 				{
 					email: 'github-user@example.com',
 					name: 'Updated Name',
@@ -106,7 +106,7 @@ describe(preserveExistingUsernameOnUpdate.name, () => {
 				},
 				async () => true
 			)
-		).resolves.toEqual({
+		).toEqual({
 			email: 'github-user@example.com',
 			name: 'Updated Name',
 		})
@@ -119,21 +119,21 @@ describe(preserveExistingUsernameOnUpdate.name, () => {
 			username: 'github-user',
 		}
 
-		await expect(
-			preserveExistingUsernameOnUpdate(updateData, async () => false)
-		).resolves.toBe(updateData)
+		expect(
+			await preserveExistingUsernameOnUpdate(updateData, async () => false)
+		).toBe(updateData)
 	})
 
 	test('removes ambiguous provider username updates without an email lookup key', async () => {
-		await expect(
-			preserveExistingUsernameOnUpdate(
+		expect(
+			await preserveExistingUsernameOnUpdate(
 				{
 					name: 'Updated Name',
 					username: 'next-username',
 				},
 				async () => false
 			)
-		).resolves.toEqual({
+		).toEqual({
 			name: 'Updated Name',
 		})
 	})
@@ -141,8 +141,8 @@ describe(preserveExistingUsernameOnUpdate.name, () => {
 	test('returns update data unchanged when username is absent', async () => {
 		const updateData = { name: 'Updated Name' }
 
-		await expect(
-			preserveExistingUsernameOnUpdate(updateData, async () => true)
-		).resolves.toBe(updateData)
+		expect(
+			await preserveExistingUsernameOnUpdate(updateData, async () => true)
+		).toBe(updateData)
 	})
 })
