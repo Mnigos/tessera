@@ -1,0 +1,31 @@
+{
+  "name": "@repo/e2e-tests",
+  "private": true,
+  "scripts": {
+    "test": "bun --bun vitest run --config vitest.config.ts",
+    "test:git": "bun --bun vitest run git --config vitest.config.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@orpc/client": "1.14.1",
+    "@orpc/contract": "catalog:",
+    "@orpc/openapi-client": "1.14.1",
+    "@orpc/shared": "1.14.1",
+    "@repo/auth": "workspace:*",
+    "@repo/contracts": "workspace:*",
+    "@repo/db": "workspace:*",
+    "@repo/domain": "workspace:*",
+    "better-auth": "catalog:",
+    "drizzle-orm": "catalog:",
+    "postgres": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@swc/core": "^1.15.4",
+    "@repo/typescript-config": "*",
+    "@types/bun": "catalog:",
+    "typescript": "catalog:",
+    "unplugin-swc": "^1.5.9",
+    "vitest": "catalog:"
+  }
+}

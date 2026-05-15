@@ -24,7 +24,9 @@
     "check:fix": "ultracite fix --unsafe",
     "format:rust": "turbo format --filter @repo/git-service",
     "typecheck": "turbo typecheck",
-    "test": "turbo test",
+    "test": "turbo test --filter=!@repo/e2e-tests",
+    "test:e2e": "bun --cwd tests/e2e test",
+    "test:e2e:git": "bun --cwd tests/e2e test:git",
     "test:api": "bun --filter @repo/api test",
     "db:push": "bun --filter @repo/db db:push",
     "db:migrate": "bun --filter @repo/db db:migrate",
@@ -45,6 +47,7 @@
       "apps/*",
       "packages/*",
       "services/*",
+      "tests/e2e",
       "tooling/*"
     ],
     "catalog": {

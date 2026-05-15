@@ -8,6 +8,7 @@ import { EnvService } from './env.service'
 	imports: [
 		ConfigModule.forRoot({
 			isGlobal: true,
+			ignoreEnvFile: process.env.TESSERA_SKIP_ENV_FILE === 'true',
 			validate: parseEnv,
 		}),
 	],
