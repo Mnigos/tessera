@@ -12,8 +12,13 @@ describe(parseRecord.name, () => {
 	})
 
 	test('rejects invalid record values', () => {
+		expect(parseRecord(undefined)).toBeUndefined()
 		expect(parseRecord(JSON.stringify({ git: 'read' }))).toBeUndefined()
 		expect(parseRecord({ git: [1] })).toBeUndefined()
 		expect(parseRecord(['read'])).toBeUndefined()
+	})
+
+	test('rejects invalid JSON string records', () => {
+		expect(parseRecord('{git')).toBeUndefined()
 	})
 })

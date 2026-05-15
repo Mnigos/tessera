@@ -98,6 +98,20 @@ describe(RepositoryOwnerGuard.name, () => {
 			)
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
+
+	test('propagates unexpected user lookup errors', async () => {
+		const error = new Error('profile lookup failed')
+		vi.spyOn(userService, 'findUserId').mockRejectedValue(error)
+
+		await expect(
+			guard.canActivate(
+				createGuardContext({
+					params: { username: 'ren' },
+					session: createMockSession({ username: 'marta' }),
+				})
+			)
+		).rejects.toBe(error)
+	})
 })
 
 interface GuardRequest {

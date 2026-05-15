@@ -4,7 +4,11 @@ import type {
 	RepositorySlug,
 	UserId,
 } from '@repo/domain'
-import { type RepositoryWithOwner, toRepositoryOutput } from './repository'
+import {
+	type RepositoryWithOwner,
+	toRepositoryOutput,
+	toRepositoryWithOwner,
+} from './repository'
 
 describe('repository domain mapper', () => {
 	test('maps persistence nulls to optional API fields', () => {
@@ -38,5 +42,25 @@ describe('repository domain mapper', () => {
 				username: 'marta',
 			},
 		})
+	})
+
+	test('rejects rows without owner usernames', () => {
+		expect(toRepositoryWithOwner()).toBeUndefined()
+		expect(
+			toRepositoryWithOwner({
+				id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
+				ownerUserId: '00000000-0000-4000-8000-000000000002' as UserId,
+				ownerOrganizationId: null,
+				ownerUser: { username: null },
+				slug: 'notes' as RepositorySlug,
+				name: 'Notes' as RepositoryName,
+				description: null,
+				visibility: 'private',
+				defaultBranch: 'main',
+				storagePath: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			})
+		).toBeUndefined()
 	})
 })

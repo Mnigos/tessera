@@ -25,11 +25,7 @@ export default defineConfig({
 			INTERNAL_API_TOKEN: 'test-internal-token',
 		},
 		coverage: {
-			include: [
-				'src/modules/**/application/**/*.ts',
-				'src/modules/**/domain/**/*.ts',
-				'src/modules/**/infrastructure/**/*.ts',
-			],
+			include: ['src/modules/**/*.ts'],
 			exclude: ['src/**/*.spec.ts'],
 		},
 	},

@@ -33,4 +33,9 @@ describe('git access token permissions', () => {
 			false
 		)
 	})
+
+	test('rejects permissions outside the git namespace', () => {
+		expect(hasGitAccessTokenPermission({}, 'git:read')).toBe(false)
+		expect(hasGitAccessTokenPermission({ git: [] }, 'git:read')).toBe(false)
+	})
 })

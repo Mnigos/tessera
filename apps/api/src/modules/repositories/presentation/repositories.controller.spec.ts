@@ -97,6 +97,28 @@ describe(RepositoriesController.name, () => {
 		})
 	})
 
+	test('delegates create requests with undefined when the session has no username', async () => {
+		const createSpy = vi
+			.spyOn(repositoriesService, 'create')
+			.mockResolvedValue(repository)
+		const sessionWithoutUsername = createMockSession({ username: null })
+
+		await repositoriesController
+			.create(sessionWithoutUsername)
+			['~orpc'].handler({
+				input: { name: 'Notes' },
+				context: {},
+				path: ['repositories', 'create'],
+				procedure: repositoriesController.create(sessionWithoutUsername),
+				lastEventId: undefined,
+				errors: {},
+			})
+
+		expect(createSpy).toHaveBeenCalledWith(mockUserId, undefined, {
+			name: 'Notes',
+		})
+	})
+
 	test('delegates list requests to the repositories service', async () => {
 		const listSpy = vi
 			.spyOn(repositoriesService, 'list')
@@ -324,6 +346,29 @@ describe(RepositoriesController.name, () => {
 		expect(file.name).toBe('index.ts')
 		expect(file.type).toBe('application/octet-stream')
 		expect(new Uint8Array(await file.arrayBuffer())).toEqual(rawBlob)
+	})
+
+	test('falls back to a blob filename for raw blob paths without a basename', async () => {
+		const rawBlob = new TextEncoder().encode('console.log("hi")')
+		vi.spyOn(repositoriesService, 'getRawBlob').mockResolvedValue(rawBlob)
+
+		const file = await repositoryBrowserController
+			.getRawBlob(session)
+			['~orpc'].handler({
+				input: {
+					username: 'marta',
+					slug: repository.repository.slug,
+					ref: 'main',
+					path: 'src/',
+				},
+				context: {},
+				path: ['repositories', 'getRawBlob'],
+				procedure: repositoryBrowserController.getRawBlob(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+
+		expect(file.name).toBe('blob')
 	})
 
 	test('validates browser summary contract output without storage path', () => {

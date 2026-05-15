@@ -123,6 +123,31 @@ describe(GitAccessTokensService.name, () => {
 		])
 	})
 
+	test('lists absent token metadata as optional fields', async () => {
+		vi.spyOn(gitAccessTokensRepository, 'list').mockResolvedValue([
+			{
+				...apiKey,
+				name: null,
+				prefix: null,
+				start: null,
+				enabled: null,
+				expiresAt: null,
+				lastRequest: null,
+			},
+		])
+
+		expect(await gitAccessTokensService.list(mockUserId)).toEqual([
+			expect.objectContaining({
+				name: undefined,
+				prefix: undefined,
+				start: undefined,
+				enabled: false,
+				expiresAt: undefined,
+				lastRequest: undefined,
+			}),
+		])
+	})
+
 	test('creates read-only git access tokens', async () => {
 		const createApiKeySpy = vi
 			.spyOn(betterAuthService.api, 'createApiKey')
@@ -162,6 +187,36 @@ describe(GitAccessTokensService.name, () => {
 			expect.objectContaining({
 				accessToken: expect.objectContaining({
 					permissions: { git: ['read'] },
+				}),
+			})
+		)
+	})
+
+	test('maps absent created token metadata to optional output fields', async () => {
+		vi.spyOn(betterAuthService.api, 'createApiKey').mockResolvedValue({
+			...apiKey,
+			key: 'tes_git_raw-secret',
+			name: null,
+			prefix: null,
+			start: null,
+			expiresAt: null,
+			lastRequest: null,
+			permissions: { git: ['read'] },
+		})
+
+		expect(
+			await gitAccessTokensService.create(mockUserId, {
+				name: 'Read only',
+				permissions: ['git:read'],
+			})
+		).toEqual(
+			expect.objectContaining({
+				accessToken: expect.objectContaining({
+					name: undefined,
+					prefix: undefined,
+					start: undefined,
+					expiresAt: undefined,
+					lastRequest: undefined,
 				}),
 			})
 		)
@@ -255,6 +310,25 @@ describe(GitAccessTokensService.name, () => {
 		).rejects.toBeInstanceOf(InvalidGitAccessTokenError)
 	})
 
+	test('uses a generic invalid-token reason when Better Auth omits an error code', async () => {
+		vi.spyOn(betterAuthService.api, 'verifyApiKey').mockResolvedValue({
+			valid: false,
+			error: null,
+			key: null,
+		})
+
+		await expect(
+			gitAccessTokensService.verify({
+				rawToken: 'tes_git_invalid',
+				requiredPermission: 'git:read',
+			})
+		).rejects.toMatchObject({
+			context: {
+				reason: 'invalid_token',
+			},
+		})
+	})
+
 	test('rejects missing raw tokens before calling Better Auth', async () => {
 		const verifyApiKeySpy = vi.spyOn(betterAuthService.api, 'verifyApiKey')
 
@@ -311,6 +385,24 @@ describe(GitAccessTokensService.name, () => {
 			gitAccessTokensService.verify({
 				rawToken: 'tes_git_read-only',
 				requiredPermission: 'git:write',
+			})
+		).rejects.toBeInstanceOf(GitAccessTokenPermissionDeniedError)
+	})
+
+	test('rejects tokens when verified permissions cannot be parsed', async () => {
+		vi.spyOn(betterAuthService.api, 'verifyApiKey').mockResolvedValue({
+			valid: true,
+			error: null,
+			key: {
+				...apiKey,
+				permissions: { git: 'read' },
+			} as never,
+		})
+
+		await expect(
+			gitAccessTokensService.verify({
+				rawToken: 'tes_git_bad-permissions',
+				requiredPermission: 'git:read',
 			})
 		).rejects.toBeInstanceOf(GitAccessTokenPermissionDeniedError)
 	})
