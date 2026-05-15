@@ -194,6 +194,38 @@ describe(RepositoriesService.name, () => {
 		})
 	})
 
+	test('creates a user-owned repository with a custom slug', async () => {
+		const createSpy = vi
+			.spyOn(repositoriesRepository, 'create')
+			.mockResolvedValue({
+				...repository,
+				slug: 'custom-notes' as RepositorySlug,
+			})
+		vi.spyOn(repositoriesRepository, 'updateStoragePath').mockResolvedValue({
+			...repository,
+			slug: 'custom-notes' as RepositorySlug,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+				slug: ' Custom Notes!! ' as RepositorySlug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({
+					slug: 'custom-notes',
+				}),
+			})
+		)
+		expect(createSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				slug: 'custom-notes',
+			})
+		)
+	})
+
 	test('cleans up metadata when git storage creation fails', async () => {
 		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
 		vi.spyOn(
@@ -253,6 +285,88 @@ describe(RepositoriesService.name, () => {
 		).rejects.toBeInstanceOf(DuplicateRepositorySlugError)
 	})
 
+	test('logs and rethrows unexpected repository metadata create failures', async () => {
+		const error = new Error('database unavailable')
+		vi.spyOn(repositoriesRepository, 'create').mockRejectedValue(error)
+		const loggerErrorSpy = vi
+			.spyOn(repositoriesService['logger'], 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toBe(error)
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to create repository',
+			error.stack
+		)
+	})
+
+	test('logs unexpected non-error repository metadata create failures', async () => {
+		vi.spyOn(repositoriesRepository, 'create').mockRejectedValue('boom')
+		const loggerErrorSpy = vi
+			.spyOn(repositoriesService['logger'], 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toBe('boom')
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to create repository',
+			undefined
+		)
+	})
+
+	test('logs cleanup failures without masking the original storage error', async () => {
+		const storageError = new Error('git storage failed')
+		const cleanupError = new Error('cleanup failed')
+		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'createRepository'
+		).mockRejectedValue(storageError)
+		vi.spyOn(repositoriesRepository, 'delete').mockRejectedValue(cleanupError)
+		const loggerErrorSpy = vi
+			.spyOn(repositoriesService['logger'], 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toBe(storageError)
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to cleanup repository metadata after git storage failure',
+			cleanupError.stack
+		)
+	})
+
+	test('logs non-error cleanup failures without masking the original storage error', async () => {
+		const storageError = new Error('git storage failed')
+		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'createRepository'
+		).mockRejectedValue(storageError)
+		vi.spyOn(repositoriesRepository, 'delete').mockRejectedValue('cleanup')
+		const loggerErrorSpy = vi
+			.spyOn(repositoriesService['logger'], 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				name: 'Tessera Notes',
+			})
+		).rejects.toBe(storageError)
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to cleanup repository metadata after git storage failure',
+			undefined
+		)
+	})
+
 	test('rejects create requests when the session has no username', async () => {
 		await expect(
 			repositoriesService.create(mockUserId, undefined, {
@@ -300,6 +414,17 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.get(mockUserId, {
+				username: 'marta',
+				slug: 'missing' as RepositorySlug,
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('throws when a readable repository is unknown', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
+
+		await expect(
+			repositoriesService.getBrowserSummary(undefined, {
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
 			})
@@ -1048,6 +1173,31 @@ describe(RepositoriesService.name, () => {
 			})
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 		expect(getRepositoryRawBlobSpy).not.toHaveBeenCalled()
+	})
+
+	test('maps invalid raw blob storage arguments to bad request', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'getRepositoryRawBlob'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		await expect(
+			repositoriesService.getRawBlob(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: '../main',
+				path: 'src/index.ts',
+			})
+		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
 	})
 
 	test('authorizes git reads for public repositories with storage metadata', async () => {

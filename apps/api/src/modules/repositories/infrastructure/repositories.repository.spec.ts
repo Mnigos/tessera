@@ -114,6 +114,17 @@ describe(RepositoriesRepository.name, () => {
 		)
 	})
 
+	test('filters repository rows without owner usernames from list output', async () => {
+		findManyMock.mockResolvedValue([
+			{ slug: 'notes', ownerUser: { username: 'marta' } },
+			{ slug: 'missing-owner', ownerUser: null },
+		])
+
+		expect(await repositoriesRepository.list({ userId: mockUserId })).toEqual([
+			{ slug: 'notes', ownerUser: { username: 'marta' } },
+		])
+	})
+
 	test('creates a repository from the insert returning row', async () => {
 		expect(
 			await repositoriesRepository.create({
@@ -216,6 +227,22 @@ describe(RepositoriesRepository.name, () => {
 			await repositoriesRepository.find({
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
+			})
+		).toBeUndefined()
+	})
+
+	test('returns undefined when owner user id lookup has no owner username', async () => {
+		findFirstRepositoryMock.mockResolvedValue({
+			id: '00000000-0000-4000-8000-000000000002',
+			slug: 'notes',
+			name: 'Notes',
+			ownerUser: null,
+		})
+
+		expect(
+			await repositoriesRepository.find({
+				userId: mockUserId,
+				slug: 'notes' as RepositorySlug,
 			})
 		).toBeUndefined()
 	})

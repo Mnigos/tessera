@@ -22,6 +22,12 @@ describe('repository helpers', () => {
 		)
 	})
 
+	test('rejects repository names longer than the contract limit', () => {
+		expect(() => normalizeRepositoryName('a'.repeat(121))).toThrow(
+			InvalidRepositoryNameError
+		)
+	})
+
 	test('normalizes custom and generated slugs', () => {
 		expect(normalizeRepositorySlug(' Tessera Notes!! ')).toBe(
 			'tessera-notes' as RepositorySlug
@@ -49,6 +55,12 @@ describe('repository helpers', () => {
 	test('trims trailing dashes after generated slug truncation', () => {
 		expect(normalizeGeneratedRepositorySlug(`${'a'.repeat(63)} !!!`)).toBe(
 			'a'.repeat(63) as RepositorySlug
+		)
+	})
+
+	test('rejects generated slugs that cannot produce a valid value', () => {
+		expect(() => normalizeGeneratedRepositorySlug('---')).toThrow(
+			InvalidRepositorySlugError
 		)
 	})
 })

@@ -1,5 +1,6 @@
 import { EnvService } from '@config/env'
 import { status } from '@grpc/grpc-js'
+import { RpcException } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, RepositorySlug } from '@repo/domain'
 import {
@@ -174,6 +175,47 @@ describe(GitAuthorizationGrpcController.name, () => {
 			controller.authorizeWrite(createWriteRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.INTERNAL }),
+		})
+	})
+
+	test('passes through existing rpc exceptions', async () => {
+		const rpcException = new RpcException({
+			code: status.UNAVAILABLE,
+			message: 'git storage unavailable',
+		})
+		vi.spyOn(
+			repositoriesService,
+			'authorizeGitRepositoryRead'
+		).mockRejectedValue(rpcException)
+
+		await expect(
+			controller.authorizeRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-upload-pack',
+				action: 'read',
+			})
+		).rejects.toBe(rpcException)
+	})
+
+	test('uses a generic message for non-error exceptions', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'authorizeGitRepositoryRead'
+		).mockRejectedValue('boom')
+
+		await expect(
+			controller.authorizeRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-upload-pack',
+				action: 'read',
+			})
+		).rejects.toMatchObject({
+			error: expect.objectContaining({
+				code: status.INTERNAL,
+				message: 'Internal error',
+			}),
 		})
 	})
 })
