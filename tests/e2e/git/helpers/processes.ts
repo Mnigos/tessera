@@ -15,6 +15,7 @@ export interface GitE2EProcesses {
 
 interface StartGitE2EProcessesOptions {
 	ports: GitE2EPorts
+	releasePortReservations?: () => void
 	storageRoot: string
 }
 
@@ -32,6 +33,7 @@ const bunPath = process.env.BUN_INSTALL
 
 export async function startGitE2EProcesses({
 	ports,
+	releasePortReservations,
 	storageRoot,
 }: StartGitE2EProcessesOptions): Promise<GitE2EProcesses> {
 	const databaseUrl =
@@ -49,6 +51,7 @@ export async function startGitE2EProcesses({
 		REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6379',
 		TESSERA_SKIP_ENV_FILE: 'true',
 	}
+	releasePortReservations?.()
 	const api = spawn([bunBinary, 'src/main.ts'], {
 		cwd: apiDirectory,
 		env: {
@@ -118,15 +121,16 @@ function captureProcessOutput(
 	process: Subprocess<'ignore', 'pipe', 'pipe'>,
 	name: string
 ) {
+	const outputLimit = 10_000
 	let output = ''
 	void captureReadableStream(process.stdout, chunk => {
-		output += `[${name}:stdout] ${chunk}`
+		output = `${output}[${name}:stdout] ${chunk}`.slice(-outputLimit)
 	})
 	void captureReadableStream(process.stderr, chunk => {
-		output += `[${name}:stderr] ${chunk}`
+		output = `${output}[${name}:stderr] ${chunk}`.slice(-outputLimit)
 	})
 
-	return () => output.slice(-8000)
+	return () => output
 }
 
 async function rejectOnEarlyExit(

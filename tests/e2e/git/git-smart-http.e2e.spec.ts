@@ -15,7 +15,7 @@ import {
 	pushRepository,
 	smartHttpUrl,
 } from './helpers/git-cli'
-import { getGitE2EPorts } from './helpers/ports'
+import { getGitE2EPortReservations } from './helpers/ports'
 import { startGitE2EProcesses, stopGitE2EProcesses } from './helpers/processes'
 
 interface GitE2EPorts {
@@ -38,13 +38,18 @@ describe('Git smart HTTP e2e', () => {
 		await migrateGitE2EDatabase()
 		await resetGitE2EDatabase()
 
-		const [apiHttp, apiGrpc, gitGrpc, gitHttp] = getGitE2EPorts()
+		const portReservations = getGitE2EPortReservations()
+		const [apiHttp, apiGrpc, gitGrpc, gitHttp] = portReservations.ports
 		ports = { apiGrpc, apiHttp, gitGrpc, gitHttp }
 		runDirectory = `/tmp/tessera-git-e2e-${crypto.randomUUID()}`
 		await $`mkdir -p ${runDirectory}`.quiet()
 		storageRoot = `${runDirectory}/git-storage`
 		apiBaseUrl = `http://localhost:${apiHttp}`
-		processes = await startGitE2EProcesses({ ports, storageRoot })
+		processes = await startGitE2EProcesses({
+			ports,
+			releasePortReservations: portReservations.release,
+			storageRoot,
+		})
 	})
 
 	beforeEach(async () => {
