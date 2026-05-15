@@ -1,5 +1,3 @@
-/// <reference types="vitest/globals" />
-
 import { repositorySchema } from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'

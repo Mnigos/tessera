@@ -137,6 +137,11 @@ export function initAuth({
 						defaultPermissions:
 							GIT_ACCESS_TOKEN_PERMISSIONS[GIT_ACCESS_TOKEN_DEFAULT_PERMISSION],
 					},
+					rateLimit: {
+						enabled: true,
+						timeWindow: 1000 * 60,
+						maxRequests: 120,
+					},
 				},
 			]),
 		],
