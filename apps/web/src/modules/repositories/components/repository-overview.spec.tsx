@@ -3,6 +3,7 @@ import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
+import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
 import { RepositoryOverview } from './repository-overview'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -31,6 +32,12 @@ vi.mock('@repo/ui/components/sonner', async importOriginal => {
 		},
 	}
 })
+
+vi.mock('../helpers/get-repository-clone-url', () => ({
+	getRepositoryCloneUrl: vi.fn(),
+}))
+
+const getRepositoryCloneUrlMock = vi.mocked(getRepositoryCloneUrl)
 
 const baseSummary = {
 	repository: {
@@ -76,12 +83,7 @@ const baseSummary = {
 	],
 } satisfies RepositoryBrowserSummary
 
-const publicGitHttpBaseUrl = import.meta.env.VITE_PUBLIC_GIT_HTTP_BASE_URL
-
-if (!publicGitHttpBaseUrl)
-	throw new Error('VITE_PUBLIC_GIT_HTTP_BASE_URL is required')
-
-const expectedCloneUrl = `${publicGitHttpBaseUrl.replace(/\/+$/, '')}/mnigos/tessera-notes.git`
+const expectedCloneUrl = 'http://git.localhost/mnigos/tessera-notes.git'
 
 const readmeHeadingRegex = /readme/i
 const readmeTruncatedRegex = /README preview is truncated/i
@@ -218,6 +220,7 @@ describe('RepositoryOverview', () => {
 		const writeTextSpy = vi
 			.spyOn(navigator.clipboard, 'writeText')
 			.mockResolvedValue(undefined)
+		getRepositoryCloneUrlMock.mockReturnValue(expectedCloneUrl)
 		const user = userEvent.setup()
 
 		render(
@@ -261,6 +264,7 @@ describe('RepositoryOverview', () => {
 			.spyOn(console, 'error')
 			.mockImplementation(() => undefined)
 		vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(error)
+		getRepositoryCloneUrlMock.mockReturnValue(expectedCloneUrl)
 		const user = userEvent.setup()
 
 		render(
