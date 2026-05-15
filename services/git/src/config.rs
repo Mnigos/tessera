@@ -71,6 +71,10 @@ impl Config {
 }
 
 fn load_dotenv() {
+    if env::var("TESSERA_SKIP_ENV_FILE").is_ok_and(|value| value == "true") {
+        return;
+    }
+
     if dotenvy::dotenv().is_ok() {
         return;
     }

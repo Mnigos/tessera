@@ -231,6 +231,31 @@
       "name": "@repo/git-service",
       "version": "0.0.1",
     },
+    "tests/e2e": {
+      "name": "@repo/e2e-tests",
+      "dependencies": {
+        "@orpc/client": "1.14.1",
+        "@orpc/contract": "catalog:",
+        "@orpc/openapi-client": "1.14.1",
+        "@orpc/shared": "1.14.1",
+        "@repo/auth": "workspace:*",
+        "@repo/contracts": "workspace:*",
+        "@repo/db": "workspace:*",
+        "@repo/domain": "workspace:*",
+        "better-auth": "catalog:",
+        "drizzle-orm": "catalog:",
+        "postgres": "catalog:",
+        "zod": "catalog:",
+      },
+      "devDependencies": {
+        "@repo/typescript-config": "*",
+        "@swc/core": "^1.15.4",
+        "@types/bun": "catalog:",
+        "typescript": "catalog:",
+        "unplugin-swc": "^1.5.9",
+        "vitest": "catalog:",
+      },
+    },
     "tooling/tailwind-config": {
       "name": "@repo/tailwind-config",
       "dependencies": {
@@ -743,6 +768,8 @@
     "@repo/db": ["@repo/db@workspace:packages/db"],
 
     "@repo/domain": ["@repo/domain@workspace:packages/domain"],
+
+    "@repo/e2e-tests": ["@repo/e2e-tests@workspace:tests/e2e"],
 
     "@repo/git-service": ["@repo/git-service@workspace:services/git"],
 
