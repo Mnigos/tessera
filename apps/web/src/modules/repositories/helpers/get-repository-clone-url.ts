@@ -17,5 +17,5 @@ export function getRepositoryCloneUrl(
 	if (cloneFields.httpCloneUrl) return cloneFields.httpCloneUrl
 	if (cloneFields.cloneUrl) return cloneFields.cloneUrl
 
-	return `${env.VITE_APP_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
+	return `${env.VITE_PUBLIC_GIT_HTTP_BASE_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
 }

@@ -1,5 +1,3 @@
-/// <reference types="vitest/globals" />
-
 import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
@@ -78,7 +76,12 @@ const baseSummary = {
 	],
 } satisfies RepositoryBrowserSummary
 
-const expectedCloneUrl = 'http://localhost:3000/mnigos/tessera-notes.git'
+const publicGitHttpBaseUrl = import.meta.env.VITE_PUBLIC_GIT_HTTP_BASE_URL
+
+if (!publicGitHttpBaseUrl)
+	throw new Error('VITE_PUBLIC_GIT_HTTP_BASE_URL is required')
+
+const expectedCloneUrl = `${publicGitHttpBaseUrl.replace(/\/+$/, '')}/mnigos/tessera-notes.git`
 
 const readmeHeadingRegex = /readme/i
 const readmeTruncatedRegex = /README preview is truncated/i
