@@ -91,3 +91,43 @@ jobs:
         env:
           DATABASE_URL: postgresql://test:test@localhost:5432/tessera_test
         run: bun run --filter @repo/api test:integration
+
+  e2e-tests:
+    name: 'E2E Tests 🧪'
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: test
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: tessera_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U test -d tessera_test"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@master
+
+      - name: Setup 👨🏻‍💻
+        uses: ./.github/actions/setup
+
+      - name: Git E2E Tests 🧪
+        env:
+          DATABASE_URL: postgresql://test:test@localhost:5432/tessera_test
+          REDIS_URL: redis://localhost:6379
+        run: bun run test:e2e:git
