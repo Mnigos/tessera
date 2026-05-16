@@ -6,7 +6,8 @@ use tokio::time::{Duration, timeout};
 
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryError, RepositoryRawBlob,
-    RepositoryReadme, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
+    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositoryTree,
+    RepositoryTreeEntry, RepositoryTreeEntryKind,
 };
 use crate::storage::infrastructure::repository_browser_helpers::{
     normalize_repository_path, normalize_requested_ref, parse_ls_tree_entries, treeish_path,
@@ -32,19 +33,32 @@ impl RepositoryStorage {
         repository_id: &str,
         storage_path: &str,
         default_branch: &str,
+        ref_name: &str,
     ) -> Result<RepositoryBrowserSummary, RepositoryError> {
         let repository_path = self
             .existing_bare_repository_path(repository_id, storage_path)
             .await?;
         let default_branch = normalize_requested_ref(default_branch)?;
+        let selected_ref = normalize_requested_ref(ref_name)?;
         let symbolic_head = self.symbolic_head(&repository_path).await?;
         let requested_branch = default_branch.as_deref();
         let resolved_branch = requested_branch.or(symbolic_head.as_deref()).unwrap_or("");
 
-        let Some((branch_name, commit_id)) = self
-            .resolve_default_branch(&repository_path, requested_branch, symbolic_head.as_deref())
+        let resolved_ref = if let Some(ref_name) = selected_ref.as_deref() {
+            Some((
+                resolved_branch.to_string(),
+                self.resolve_browser_ref(&repository_path, ref_name).await?,
+            ))
+        } else {
+            self.resolve_default_branch(
+                &repository_path,
+                requested_branch,
+                symbolic_head.as_deref(),
+            )
             .await?
-        else {
+        };
+
+        let Some((branch_name, commit_id)) = resolved_ref else {
             return Ok(RepositoryBrowserSummary {
                 is_empty: true,
                 default_branch: resolved_branch.to_string(),
@@ -62,6 +76,38 @@ impl RepositoryStorage {
             root_entries,
             readme,
         })
+    }
+
+    pub async fn list_repository_refs(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+    ) -> Result<RepositoryRefList, RepositoryError> {
+        let repository_path = self
+            .existing_bare_repository_path(repository_id, storage_path)
+            .await?;
+        let default_branch = self.symbolic_head(&repository_path).await?;
+        let output = self
+            .git(
+                &repository_path,
+                [
+                    "for-each-ref",
+                    "--format=%(refname)%00%(refname:short)%00%(objectname)%1e",
+                    "refs/heads",
+                    "refs/tags",
+                ],
+            )
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::GitProcessFailed);
+        }
+
+        let refs = self
+            .parse_repository_refs(&repository_path, &output.stdout, default_branch.as_deref())
+            .await?;
+
+        Ok(RepositoryRefList { refs })
     }
 
     pub async fn get_repository_tree(
@@ -242,6 +288,93 @@ impl RepositoryStorage {
             String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
 
         Ok(Some(commit_id.trim().to_string()))
+    }
+
+    async fn resolve_browser_ref(
+        &self,
+        repository_path: &Path,
+        ref_name: &str,
+    ) -> Result<String, RepositoryError> {
+        validate_git_ref(ref_name)?;
+        let ref_name = format!("{ref_name}^{{commit}}");
+        let output = self
+            .git(
+                repository_path,
+                ["rev-parse", "--verify", "--end-of-options", &ref_name],
+            )
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::RepositoryObjectNotFound);
+        }
+
+        let commit_id =
+            String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
+
+        Ok(commit_id.trim().to_string())
+    }
+
+    async fn parse_repository_refs(
+        &self,
+        repository_path: &Path,
+        output: &[u8],
+        default_branch: Option<&str>,
+    ) -> Result<Vec<RepositoryRef>, RepositoryError> {
+        let mut refs = Vec::new();
+
+        for record in output
+            .split(|byte| *byte == 0x1e)
+            .filter(|record| !record.is_empty() && *record != b"\n")
+        {
+            let record = record.strip_prefix(b"\n").unwrap_or(record);
+            let fields: Vec<&[u8]> = record.split(|byte| *byte == 0).collect();
+            if fields.len() != 3 {
+                return Err(RepositoryError::InvalidGitOutput);
+            }
+
+            let qualified_name = utf8_ref_field(fields[0])?;
+            let display_name = utf8_ref_field(fields[1])?;
+            let object_id = utf8_ref_field(fields[2])?;
+
+            if qualified_name.starts_with("refs/heads/") {
+                let is_default_branch = default_branch == Some(display_name.as_str());
+                refs.push(RepositoryRef {
+                    kind: RepositoryRefKind::Branch,
+                    display_name,
+                    qualified_name,
+                    commit_id: object_id,
+                    is_default_branch,
+                });
+                continue;
+            }
+
+            if !qualified_name.starts_with("refs/tags/") {
+                return Err(RepositoryError::InvalidGitOutput);
+            }
+
+            let Ok(commit_id) = self
+                .resolve_browser_ref(repository_path, &qualified_name)
+                .await
+            else {
+                continue;
+            };
+
+            refs.push(RepositoryRef {
+                kind: RepositoryRefKind::Tag,
+                display_name,
+                qualified_name,
+                commit_id,
+                is_default_branch: false,
+            });
+        }
+
+        refs.sort_by(|left, right| {
+            ref_kind_order(&left.kind)
+                .cmp(&ref_kind_order(&right.kind))
+                .then_with(|| left.display_name.cmp(&right.display_name))
+        });
+
+        Ok(refs)
     }
 
     async fn root_tree_entries(
@@ -457,5 +590,16 @@ impl RepositoryStorage {
         .await
         .map_err(|_| RepositoryError::GitProcessFailed)?
         .map_err(RepositoryError::GitProcessIo)
+    }
+}
+
+fn utf8_ref_field(field: &[u8]) -> Result<String, RepositoryError> {
+    String::from_utf8(field.to_vec()).map_err(|_| RepositoryError::InvalidGitOutput)
+}
+
+fn ref_kind_order(kind: &RepositoryRefKind) -> u8 {
+    match kind {
+        RepositoryRefKind::Branch => 0,
+        RepositoryRefKind::Tag => 1,
     }
 }

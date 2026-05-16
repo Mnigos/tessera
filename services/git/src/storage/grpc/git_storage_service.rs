@@ -1,7 +1,7 @@
 use crate::config::Config;
 use crate::domain::{
     RepositoryBlobPreview, RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
-    RepositoryError, RepositoryTreeEntryKind,
+    RepositoryError, RepositoryRefKind, RepositoryTreeEntryKind,
 };
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
@@ -9,9 +9,10 @@ use crate::proto::{
     GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
     GetRepositoryBrowserSummaryResponse, GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse,
     GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
-    ListRepositoryCommitsRequest, ListRepositoryCommitsResponse,
-    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryCommit,
-    RepositoryCommitIdentity, RepositoryReadme, RepositoryTreeEntry,
+    ListRepositoryCommitsRequest, ListRepositoryCommitsResponse, ListRepositoryRefsRequest,
+    ListRepositoryRefsResponse, RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState,
+    RepositoryCommit, RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
+    RepositoryRefKind as ProtoRepositoryRefKind, RepositoryTreeEntry,
     RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
 };
 use crate::storage::application::GitStorageApplication;
@@ -70,6 +71,7 @@ impl GitStorageService for GitStorageGrpcService {
                 &request.repository_id,
                 &request.storage_path,
                 &request.default_branch,
+                &request.r#ref,
             )
             .await
             .map_err(repository_error_to_status)?;
@@ -95,6 +97,32 @@ impl GitStorageService for GitStorageGrpcService {
                 content: readme.content,
                 is_truncated: readme.is_truncated,
             }),
+        }))
+    }
+
+    async fn list_repository_refs(
+        &self,
+        request: Request<ListRepositoryRefsRequest>,
+    ) -> Result<Response<ListRepositoryRefsResponse>, Status> {
+        let request = request.into_inner();
+        let ref_list = self
+            .application
+            .list_repository_refs(&request.repository_id, &request.storage_path)
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(ListRepositoryRefsResponse {
+            refs: ref_list
+                .refs
+                .into_iter()
+                .map(|repository_ref| RepositoryRef {
+                    kind: proto_ref_kind(repository_ref.kind).into(),
+                    display_name: repository_ref.display_name,
+                    qualified_name: repository_ref.qualified_name,
+                    commit_id: repository_ref.commit_id,
+                    is_default_branch: repository_ref.is_default_branch,
+                })
+                .collect(),
         }))
     }
 
@@ -284,6 +312,13 @@ fn proto_tree_entry_kind(kind: RepositoryTreeEntryKind) -> ProtoRepositoryTreeEn
         RepositoryTreeEntryKind::Directory => ProtoRepositoryTreeEntryKind::Directory,
         RepositoryTreeEntryKind::Symlink => ProtoRepositoryTreeEntryKind::Symlink,
         RepositoryTreeEntryKind::Submodule => ProtoRepositoryTreeEntryKind::Submodule,
+    }
+}
+
+fn proto_ref_kind(kind: RepositoryRefKind) -> ProtoRepositoryRefKind {
+    match kind {
+        RepositoryRefKind::Branch => ProtoRepositoryRefKind::Branch,
+        RepositoryRefKind::Tag => ProtoRepositoryRefKind::Tag,
     }
 }
 

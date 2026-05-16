@@ -12,6 +12,13 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum RepositoryRefKind {
+  REPOSITORY_REF_KIND_UNSPECIFIED = 0,
+  REPOSITORY_REF_KIND_BRANCH = 1,
+  REPOSITORY_REF_KIND_TAG = 2,
+  UNRECOGNIZED = -1,
+}
+
 export enum RepositoryTreeEntryKind {
   REPOSITORY_TREE_ENTRY_KIND_UNSPECIFIED = 0,
   REPOSITORY_TREE_ENTRY_KIND_FILE = 1,
@@ -44,10 +51,20 @@ export interface CreateRepositoryResponse {
   storagePath: string;
 }
 
+export interface ListRepositoryRefsRequest {
+  repositoryId: string;
+  storagePath: string;
+}
+
+export interface ListRepositoryRefsResponse {
+  refs: RepositoryRef[];
+}
+
 export interface GetRepositoryBrowserSummaryRequest {
   repositoryId: string;
   storagePath: string;
   defaultBranch: string;
+  ref: string;
 }
 
 export interface GetRepositoryBrowserSummaryResponse {
@@ -119,6 +136,14 @@ export interface RepositoryCommitIdentity {
   name: string;
   email: string;
   date: string;
+}
+
+export interface RepositoryRef {
+  kind: RepositoryRefKind;
+  displayName: string;
+  qualifiedName: string;
+  commitId: string;
+  isDefaultBranch: boolean;
 }
 
 export interface RepositoryTreeEntry {
@@ -276,8 +301,93 @@ export const CreateRepositoryResponse: MessageFns<CreateRepositoryResponse> = {
   },
 };
 
+function createBaseListRepositoryRefsRequest(): ListRepositoryRefsRequest {
+  return { repositoryId: "", storagePath: "" };
+}
+
+export const ListRepositoryRefsRequest: MessageFns<ListRepositoryRefsRequest> = {
+  encode(message: ListRepositoryRefsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListRepositoryRefsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListRepositoryRefsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseListRepositoryRefsResponse(): ListRepositoryRefsResponse {
+  return { refs: [] };
+}
+
+export const ListRepositoryRefsResponse: MessageFns<ListRepositoryRefsResponse> = {
+  encode(message: ListRepositoryRefsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.refs) {
+      RepositoryRef.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListRepositoryRefsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListRepositoryRefsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.refs.push(RepositoryRef.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseGetRepositoryBrowserSummaryRequest(): GetRepositoryBrowserSummaryRequest {
-  return { repositoryId: "", storagePath: "", defaultBranch: "" };
+  return { repositoryId: "", storagePath: "", defaultBranch: "", ref: "" };
 }
 
 export const GetRepositoryBrowserSummaryRequest: MessageFns<GetRepositoryBrowserSummaryRequest> = {
@@ -290,6 +400,9 @@ export const GetRepositoryBrowserSummaryRequest: MessageFns<GetRepositoryBrowser
     }
     if (message.defaultBranch !== "") {
       writer.uint32(26).string(message.defaultBranch);
+    }
+    if (message.ref !== "") {
+      writer.uint32(34).string(message.ref);
     }
     return writer;
   },
@@ -323,6 +436,14 @@ export const GetRepositoryBrowserSummaryRequest: MessageFns<GetRepositoryBrowser
           }
 
           message.defaultBranch = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.ref = reader.string();
           continue;
         }
       }
@@ -1039,6 +1160,87 @@ export const RepositoryCommitIdentity: MessageFns<RepositoryCommitIdentity> = {
   },
 };
 
+function createBaseRepositoryRef(): RepositoryRef {
+  return { kind: 0, displayName: "", qualifiedName: "", commitId: "", isDefaultBranch: false };
+}
+
+export const RepositoryRef: MessageFns<RepositoryRef> = {
+  encode(message: RepositoryRef, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== 0) {
+      writer.uint32(8).int32(message.kind);
+    }
+    if (message.displayName !== "") {
+      writer.uint32(18).string(message.displayName);
+    }
+    if (message.qualifiedName !== "") {
+      writer.uint32(26).string(message.qualifiedName);
+    }
+    if (message.commitId !== "") {
+      writer.uint32(34).string(message.commitId);
+    }
+    if (message.isDefaultBranch !== false) {
+      writer.uint32(40).bool(message.isDefaultBranch);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryRef {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryRef();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.displayName = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.qualifiedName = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.commitId = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.isDefaultBranch = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseRepositoryTreeEntry(): RepositoryTreeEntry {
   return { name: "", objectId: "", kind: 0, sizeBytes: 0, path: "", mode: "" };
 }
@@ -1206,6 +1408,8 @@ export interface GitStorageServiceClient {
 
   createRepository(request: CreateRepositoryRequest, metadata?: Metadata): Observable<CreateRepositoryResponse>;
 
+  listRepositoryRefs(request: ListRepositoryRefsRequest, metadata?: Metadata): Observable<ListRepositoryRefsResponse>;
+
   getRepositoryBrowserSummary(
     request: GetRepositoryBrowserSummaryRequest,
     metadata?: Metadata,
@@ -1236,6 +1440,11 @@ export interface GitStorageServiceController {
     request: CreateRepositoryRequest,
     metadata?: Metadata,
   ): Promise<CreateRepositoryResponse> | Observable<CreateRepositoryResponse> | CreateRepositoryResponse;
+
+  listRepositoryRefs(
+    request: ListRepositoryRefsRequest,
+    metadata?: Metadata,
+  ): Promise<ListRepositoryRefsResponse> | Observable<ListRepositoryRefsResponse> | ListRepositoryRefsResponse;
 
   getRepositoryBrowserSummary(
     request: GetRepositoryBrowserSummaryRequest,
@@ -1271,6 +1480,7 @@ export function GitStorageServiceControllerMethods() {
     const grpcMethods: string[] = [
       "health",
       "createRepository",
+      "listRepositoryRefs",
       "getRepositoryBrowserSummary",
       "getRepositoryTree",
       "getRepositoryBlob",
@@ -1312,6 +1522,17 @@ export const GitStorageServiceService = {
     responseSerialize: (value: CreateRepositoryResponse): Buffer =>
       Buffer.from(CreateRepositoryResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): CreateRepositoryResponse => CreateRepositoryResponse.decode(value),
+  },
+  listRepositoryRefs: {
+    path: "/tessera.git.v1.GitStorageService/ListRepositoryRefs" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListRepositoryRefsRequest): Buffer =>
+      Buffer.from(ListRepositoryRefsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListRepositoryRefsRequest => ListRepositoryRefsRequest.decode(value),
+    responseSerialize: (value: ListRepositoryRefsResponse): Buffer =>
+      Buffer.from(ListRepositoryRefsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListRepositoryRefsResponse => ListRepositoryRefsResponse.decode(value),
   },
   getRepositoryBrowserSummary: {
     path: "/tessera.git.v1.GitStorageService/GetRepositoryBrowserSummary" as const,
@@ -1375,6 +1596,7 @@ export const GitStorageServiceService = {
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
   health: handleUnaryCall<HealthRequest, HealthResponse>;
   createRepository: handleUnaryCall<CreateRepositoryRequest, CreateRepositoryResponse>;
+  listRepositoryRefs: handleUnaryCall<ListRepositoryRefsRequest, ListRepositoryRefsResponse>;
   getRepositoryBrowserSummary: handleUnaryCall<GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse>;
   getRepositoryTree: handleUnaryCall<GetRepositoryTreeRequest, GetRepositoryTreeResponse>;
   getRepositoryBlob: handleUnaryCall<GetRepositoryBlobRequest, GetRepositoryBlobResponse>;
