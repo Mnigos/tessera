@@ -5,6 +5,7 @@ package tessera.git.v1;
 service GitStorageService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
+  rpc ListRepositoryRefs(ListRepositoryRefsRequest) returns (ListRepositoryRefsResponse);
   rpc GetRepositoryBrowserSummary(GetRepositoryBrowserSummaryRequest) returns (GetRepositoryBrowserSummaryResponse);
   rpc GetRepositoryTree(GetRepositoryTreeRequest) returns (GetRepositoryTreeResponse);
   rpc GetRepositoryBlob(GetRepositoryBlobRequest) returns (GetRepositoryBlobResponse);
@@ -26,10 +27,20 @@ message CreateRepositoryResponse {
   string storage_path = 1;
 }
 
+message ListRepositoryRefsRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+}
+
+message ListRepositoryRefsResponse {
+  repeated RepositoryRef refs = 1;
+}
+
 message GetRepositoryBrowserSummaryRequest {
   string repository_id = 1;
   string storage_path = 2;
   string default_branch = 3;
+  string ref = 4;
 }
 
 message GetRepositoryBrowserSummaryResponse {
@@ -101,6 +112,20 @@ message RepositoryCommitIdentity {
   string name = 1;
   string email = 2;
   string date = 3;
+}
+
+message RepositoryRef {
+  RepositoryRefKind kind = 1;
+  string display_name = 2;
+  string qualified_name = 3;
+  string commit_id = 4;
+  bool is_default_branch = 5;
+}
+
+enum RepositoryRefKind {
+  REPOSITORY_REF_KIND_UNSPECIFIED = 0;
+  REPOSITORY_REF_KIND_BRANCH = 1;
+  REPOSITORY_REF_KIND_TAG = 2;
 }
 
 message RepositoryTreeEntry {

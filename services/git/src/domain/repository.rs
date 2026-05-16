@@ -16,6 +16,26 @@ pub struct RepositoryBrowserSummary {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryRefList {
+    pub refs: Vec<RepositoryRef>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryRef {
+    pub kind: RepositoryRefKind,
+    pub display_name: String,
+    pub qualified_name: String,
+    pub commit_id: String,
+    pub is_default_branch: bool,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RepositoryRefKind {
+    Branch,
+    Tag,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct RepositoryTree {
     pub commit_id: String,
     pub path: String,

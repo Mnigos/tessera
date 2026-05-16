@@ -4,8 +4,9 @@ mod repository_id;
 
 pub use repository::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommit, RepositoryCommitIdentity,
-    RepositoryCommitList, RepositoryCreated, RepositoryRawBlob, RepositoryReadme, RepositoryTree,
-    RepositoryTreeEntry, RepositoryTreeEntryKind,
+    RepositoryCommitList, RepositoryCreated, RepositoryRawBlob, RepositoryReadme, RepositoryRef,
+    RepositoryRefKind, RepositoryRefList, RepositoryTree, RepositoryTreeEntry,
+    RepositoryTreeEntryKind,
 };
 pub use repository_error::RepositoryError;
 pub use repository_id::RepositoryId;

@@ -4,11 +4,13 @@ use std::process::Command;
 
 use tempfile::TempDir;
 use tessera_git::proto::git_storage_service_server::GitStorageService;
-use tessera_git::proto::{GetRepositoryRawBlobRequest, ListRepositoryCommitsRequest};
+use tessera_git::proto::{
+    GetRepositoryRawBlobRequest, ListRepositoryCommitsRequest, ListRepositoryRefsRequest,
+};
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
     Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryError, RepositoryId,
-    RepositoryRawBlob, RepositoryTreeEntryKind,
+    RepositoryRawBlob, RepositoryRefKind, RepositoryTreeEntryKind,
 };
 use tonic::{Code, Request};
 
@@ -222,7 +224,7 @@ async fn browser_summary_returns_empty_state_for_empty_repository() {
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "", "")
         .await
         .unwrap();
 
@@ -248,7 +250,7 @@ async fn browser_summary_returns_root_entries_without_readme() {
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "")
         .await
         .unwrap();
 
@@ -284,7 +286,7 @@ async fn browser_summary_returns_readme_by_priority_and_preserves_filename() {
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "")
         .await
         .unwrap();
     let readme = summary.readme.unwrap();
@@ -307,7 +309,7 @@ async fn browser_summary_matches_readme_case_insensitively() {
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "")
         .await
         .unwrap();
     let readme = summary.readme.unwrap();
@@ -339,7 +341,7 @@ async fn browser_summary_prefers_requested_default_branch_before_symbolic_head()
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "develop")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "develop", "")
         .await
         .unwrap();
 
@@ -360,12 +362,250 @@ async fn browser_summary_falls_back_to_symbolic_head_when_requested_branch_is_mi
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "missing")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "missing", "")
         .await
         .unwrap();
 
     assert_eq!(summary.default_branch, "main");
     assert_eq!(summary.readme.unwrap().content, b"main\n");
+}
+
+#[tokio::test]
+async fn repository_refs_lists_branches_with_default_marker() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "develop",
+        &[("README.md", "develop\n")],
+    );
+    git(
+        &repository.path,
+        ["symbolic-ref", "HEAD", "refs/heads/main"],
+    );
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .await
+        .unwrap()
+        .refs;
+
+    assert_eq!(refs.len(), 2);
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Branch
+            && repository_ref.display_name == "main"
+            && repository_ref.qualified_name == "refs/heads/main"
+            && repository_ref.is_default_branch
+            && repository_ref.commit_id.len() == 40
+    }));
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Branch
+            && repository_ref.display_name == "develop"
+            && repository_ref.qualified_name == "refs/heads/develop"
+            && !repository_ref.is_default_branch
+            && repository_ref.commit_id.len() == 40
+    }));
+}
+
+#[tokio::test]
+async fn repository_refs_lists_lightweight_tag() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    git(&repository.path, ["tag", "v1.0.0", "main"]);
+    let commit_id = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .await
+        .unwrap()
+        .refs;
+
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Tag
+            && repository_ref.display_name == "v1.0.0"
+            && repository_ref.qualified_name == "refs/tags/v1.0.0"
+            && repository_ref.commit_id == commit_id
+            && !repository_ref.is_default_branch
+    }));
+}
+
+#[tokio::test]
+async fn repository_refs_peels_annotated_tag_to_commit() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    create_annotated_tag(&repository.path, "release", "main");
+    let commit_id = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let tag_object_id = git_stdout(&repository.path, ["rev-parse", "release"])
+        .trim()
+        .to_string();
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .await
+        .unwrap()
+        .refs;
+    let tag = refs
+        .iter()
+        .find(|repository_ref| repository_ref.display_name == "release")
+        .unwrap();
+
+    assert_eq!(tag.kind, RepositoryRefKind::Tag);
+    assert_eq!(tag.commit_id, commit_id);
+    assert_ne!(tag.commit_id, tag_object_id);
+}
+
+#[tokio::test]
+async fn repository_refs_returns_empty_list_for_empty_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .await
+        .unwrap();
+
+    assert!(refs.refs.is_empty());
+}
+
+#[tokio::test]
+async fn browser_summary_uses_selected_branch() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "develop",
+        &[("README.md", "develop\n")],
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "develop")
+        .await
+        .unwrap();
+
+    assert_eq!(summary.default_branch, "main");
+    assert_eq!(summary.readme.unwrap().content, b"develop\n");
+}
+
+#[tokio::test]
+async fn browser_summary_uses_selected_tag() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "release\n")],
+        "release commit",
+    );
+    create_annotated_tag(&repository.path, "release", "HEAD");
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "newer\n")],
+        "newer commit",
+    );
+
+    let summary = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "release")
+        .await
+        .unwrap();
+
+    assert_eq!(summary.default_branch, "main");
+    assert_eq!(summary.readme.unwrap().content, b"release\n");
+}
+
+#[tokio::test]
+async fn browser_summary_returns_not_found_for_invalid_selected_ref() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+
+    let error = storage
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "missing")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::RepositoryObjectNotFound));
+}
+
+#[tokio::test]
+async fn repository_refs_grpc_maps_response() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    let service = grpc_service(temp_dir.path());
+
+    let response = service
+        .list_repository_refs(Request::new(ListRepositoryRefsRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+
+    assert_eq!(response.refs.len(), 1);
+    assert_eq!(
+        response.refs[0].kind,
+        tessera_git::proto::RepositoryRefKind::Branch as i32
+    );
+    assert_eq!(response.refs[0].display_name, "main");
+    assert!(response.refs[0].is_default_branch);
 }
 
 #[tokio::test]
@@ -382,7 +622,7 @@ async fn browser_summary_truncates_oversized_readme() {
     );
 
     let summary = storage
-        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main")
+        .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, "main", "")
         .await
         .unwrap();
     let readme = summary.readme.unwrap();
@@ -413,7 +653,12 @@ async fn browser_summary_rejects_unsafe_default_branch() {
         "feature/a[b",
     ] {
         let error = storage
-            .get_repository_browser_summary(REPOSITORY_ID, &repository.storage_path, branch_name)
+            .get_repository_browser_summary(
+                REPOSITORY_ID,
+                &repository.storage_path,
+                branch_name,
+                "",
+            )
             .await
             .unwrap_err();
 
@@ -1224,6 +1469,28 @@ fn object_id_for_path(bare_repository_path: &Path, branch_name: &str, path: &str
     );
 
     output.trim().to_string()
+}
+
+fn create_annotated_tag(bare_repository_path: &Path, tag_name: &str, target: &str) {
+    command_with_env(
+        Path::new("."),
+        [
+            "git",
+            "--git-dir",
+            bare_repository_path.to_str().unwrap(),
+            "tag",
+            "-a",
+            tag_name,
+            target,
+            "-m",
+            tag_name,
+        ],
+        &[
+            ("GIT_COMMITTER_NAME", "Tessera Test"),
+            ("GIT_COMMITTER_EMAIL", "test@example.com"),
+            ("GIT_COMMITTER_DATE", "2026-05-16T10:03:00+00:00"),
+        ],
+    );
 }
 
 fn git<const N: usize>(bare_repository_path: &Path, args: [&str; N]) {
