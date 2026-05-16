@@ -1,6 +1,6 @@
 use crate::domain::{
-    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCreated, RepositoryError,
-    RepositoryId, RepositoryRawBlob, RepositoryTree,
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryCreated,
+    RepositoryError, RepositoryId, RepositoryRawBlob, RepositoryTree,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -69,6 +69,18 @@ impl GitStorageApplication {
     ) -> Result<RepositoryRawBlob, RepositoryError> {
         self.storage
             .get_repository_raw_blob(repository_id, storage_path, object_id)
+            .await
+    }
+
+    pub async fn list_repository_commits(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        ref_name: &str,
+        limit: u32,
+    ) -> Result<RepositoryCommitList, RepositoryError> {
+        self.storage
+            .list_repository_commits(repository_id, storage_path, ref_name, limit)
             .await
     }
 }

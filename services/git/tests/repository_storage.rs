@@ -3,8 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use tempfile::TempDir;
-use tessera_git::proto::GetRepositoryRawBlobRequest;
 use tessera_git::proto::git_storage_service_server::GitStorageService;
+use tessera_git::proto::{GetRepositoryRawBlobRequest, ListRepositoryCommitsRequest};
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
     Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryError, RepositoryId,
@@ -895,6 +895,156 @@ async fn repository_raw_blob_grpc_maps_errors_cleanly() {
     assert_eq!(invalid.code(), Code::InvalidArgument);
 }
 
+#[tokio::test]
+async fn repository_commits_returns_recent_commits_newest_first() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "first\n")],
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "second\n")],
+        "second commit",
+    );
+
+    let commit_list = storage
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50)
+        .await
+        .unwrap();
+
+    assert_eq!(commit_list.commits.len(), 2);
+    assert_eq!(commit_list.commits[0].summary, "second commit");
+    assert_ne!(commit_list.commits[0].sha, commit_list.commits[1].sha);
+    assert_eq!(
+        commit_list.commits[0].sha,
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim()
+    );
+}
+
+#[tokio::test]
+async fn repository_commits_returns_empty_list_for_empty_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let commit_list = storage
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "", 50)
+        .await
+        .unwrap();
+
+    assert!(commit_list.commits.is_empty());
+}
+
+#[tokio::test]
+async fn repository_commits_rejects_unsafe_refs() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+
+    for ref_name in ["../main", "main.lock", "feature/a b", "feature/.hidden"] {
+        let error = storage
+            .list_repository_commits(REPOSITORY_ID, &repository.storage_path, ref_name, 50)
+            .await
+            .unwrap_err();
+
+        assert!(
+            matches!(error, RepositoryError::InvalidRepositoryRef),
+            "expected {ref_name:?} to be rejected"
+        );
+    }
+}
+
+#[tokio::test]
+async fn repository_commits_preserves_author_and_committer_metadata() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit_with_metadata(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", b"metadata\n")],
+        CommitMetadata {
+            message: "Preserve identities",
+            author_name: "Ada Author",
+            author_email: "ada@example.com",
+            author_date: "2026-05-16T10:00:00+00:00",
+            committer_name: "Grace Committer",
+            committer_email: "grace@example.com",
+            committer_date: "2026-05-16T10:01:00+00:00",
+        },
+    );
+
+    let commit_list = storage
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50)
+        .await
+        .unwrap();
+    let commit = &commit_list.commits[0];
+
+    assert_eq!(commit.sha.len(), 40);
+    assert_eq!(commit.short_sha, &commit.sha[..7]);
+    assert_eq!(commit.summary, "Preserve identities");
+    assert_eq!(commit.author.name, "Ada Author");
+    assert_eq!(commit.author.email, "ada@example.com");
+    assert_eq!(commit.author.date, "2026-05-16T10:00:00+00:00");
+    assert_eq!(commit.committer.name, "Grace Committer");
+    assert_eq!(commit.committer.email, "grace@example.com");
+    assert_eq!(commit.committer.date, "2026-05-16T10:01:00+00:00");
+}
+
+#[tokio::test]
+async fn repository_commits_grpc_maps_response_and_invalid_ref() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "hi\n")],
+    );
+    let service = grpc_service(temp_dir.path());
+
+    let response = service
+        .list_repository_commits(Request::new(ListRepositoryCommitsRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path.clone(),
+            r#ref: "main".to_string(),
+            limit: 50,
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let invalid = service
+        .list_repository_commits(Request::new(ListRepositoryCommitsRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path,
+            r#ref: "../main".to_string(),
+            limit: 50,
+        }))
+        .await
+        .unwrap_err();
+
+    assert_eq!(response.commits.len(), 1);
+    assert_eq!(response.commits[0].summary, "test commit");
+    assert!(response.commits[0].author.is_some());
+    assert!(response.commits[0].committer.is_some());
+    assert_eq!(invalid.code(), Code::InvalidArgument);
+}
+
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
 }
@@ -935,10 +1085,110 @@ fn push_commit_bytes(
     branch_name: &str,
     files: &[(&str, &[u8])],
 ) {
+    push_commit_with_metadata(
+        temp_root,
+        bare_repository_path,
+        branch_name,
+        files,
+        CommitMetadata {
+            message: "test commit",
+            author_name: "Tessera Test",
+            author_email: "test@example.com",
+            author_date: "2026-05-16T10:00:00+00:00",
+            committer_name: "Tessera Test",
+            committer_email: "test@example.com",
+            committer_date: "2026-05-16T10:00:00+00:00",
+        },
+    );
+}
+
+struct CommitMetadata<'a> {
+    message: &'a str,
+    author_name: &'a str,
+    author_email: &'a str,
+    author_date: &'a str,
+    committer_name: &'a str,
+    committer_email: &'a str,
+    committer_date: &'a str,
+}
+
+fn push_commit_with_metadata(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    files: &[(&str, &[u8])],
+    metadata: CommitMetadata,
+) {
     let worktree = TempDir::new_in(temp_root).unwrap();
     command(
         worktree.path(),
         ["git", "init", "--initial-branch", branch_name],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.name", metadata.committer_name],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.email", metadata.committer_email],
+    );
+
+    for (file_path, content) in files {
+        let path = worktree.path().join(file_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    command(worktree.path(), ["git", "add", "."]);
+    command_with_env(
+        worktree.path(),
+        ["git", "commit", "-m", metadata.message],
+        &[
+            ("GIT_AUTHOR_NAME", metadata.author_name),
+            ("GIT_AUTHOR_EMAIL", metadata.author_email),
+            ("GIT_AUTHOR_DATE", metadata.author_date),
+            ("GIT_COMMITTER_NAME", metadata.committer_name),
+            ("GIT_COMMITTER_EMAIL", metadata.committer_email),
+            ("GIT_COMMITTER_DATE", metadata.committer_date),
+        ],
+    );
+    command(
+        worktree.path(),
+        [
+            "git",
+            "push",
+            bare_repository_path.to_str().unwrap(),
+            &format!("HEAD:refs/heads/{branch_name}"),
+        ],
+    );
+    git(
+        bare_repository_path,
+        ["symbolic-ref", "HEAD", &format!("refs/heads/{branch_name}")],
+    );
+}
+
+fn append_commit(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    files: &[(&str, &str)],
+    message: &str,
+) {
+    let files: Vec<(&str, &[u8])> = files
+        .iter()
+        .map(|(file_path, content)| (*file_path, content.as_bytes()))
+        .collect();
+    let worktree = TempDir::new_in(temp_root).unwrap();
+    command(
+        worktree.path(),
+        [
+            "git",
+            "clone",
+            "--branch",
+            branch_name,
+            bare_repository_path.to_str().unwrap(),
+            ".",
+        ],
     );
     command(
         worktree.path(),
@@ -956,20 +1206,15 @@ fn push_commit_bytes(
     }
 
     command(worktree.path(), ["git", "add", "."]);
-    command(worktree.path(), ["git", "commit", "-m", "test commit"]);
-    command(
+    command_with_env(
         worktree.path(),
-        [
-            "git",
-            "push",
-            bare_repository_path.to_str().unwrap(),
-            &format!("HEAD:refs/heads/{branch_name}"),
+        ["git", "commit", "-m", message],
+        &[
+            ("GIT_AUTHOR_DATE", "2026-05-16T10:02:00+00:00"),
+            ("GIT_COMMITTER_DATE", "2026-05-16T10:02:00+00:00"),
         ],
     );
-    git(
-        bare_repository_path,
-        ["symbolic-ref", "HEAD", &format!("refs/heads/{branch_name}")],
-    );
+    command(worktree.path(), ["git", "push", "origin", branch_name]);
 }
 
 fn object_id_for_path(bare_repository_path: &Path, branch_name: &str, path: &str) -> String {
@@ -997,6 +1242,23 @@ fn git_stdout<const N: usize>(bare_repository_path: &Path, args: [&str; N]) -> S
 
 fn command<const N: usize>(current_dir: &Path, args: [&str; N]) {
     command_vec(current_dir, args);
+}
+
+fn command_with_env<const N: usize>(current_dir: &Path, args: [&str; N], envs: &[(&str, &str)]) {
+    let output = Command::new(args[0])
+        .current_dir(current_dir)
+        .args(&args[1..])
+        .envs(envs.iter().copied())
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "command failed: {:?}\nstdout:\n{}\nstderr:\n{}",
+        args,
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 fn command_vec<'a, T>(current_dir: &Path, args: T)

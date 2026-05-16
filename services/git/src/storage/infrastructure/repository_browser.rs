@@ -441,7 +441,7 @@ impl RepositoryStorage {
         Ok(commit_id.trim().to_string())
     }
 
-    async fn git<const N: usize>(
+    pub(super) async fn git<const N: usize>(
         &self,
         repository_path: &Path,
         args: [&str; N],
