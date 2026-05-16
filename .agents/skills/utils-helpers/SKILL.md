@@ -20,6 +20,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Helpers are module-specific and may contain domain logic.
 - File names are kebab-case.
 - All exported utils and helpers must have JSDoc.
+- Treat exported mapper/adapter functions as helpers for JSDoc purposes, including files under `apps/api/src/config`.
 - Prefer pure functions with descriptive names.
 - Use function declarations for exported helpers unless an expression-body arrow is clearly cleaner.
 - Avoid single-letter and cryptic callback names.

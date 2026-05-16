@@ -28,6 +28,8 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Use generated oRPC `.queryOptions()` and `.mutationOptions()` directly unless an adapter removes real duplication. Do not add casts, wrapper surfaces, or extra `queryOptions()` wrappers just to satisfy local call shape.
 - Use contract input/output types by their original exported names. Do not add local type aliases that only rename contract types; local interfaces are fine when adapting route params or other boundary shapes.
 - Name hooks that only wrap a query as `useThingQuery` in `use-thing.query.ts`; reserve broader names like `useThing` for hooks that coordinate more than a single query.
+- Feature hooks should accept contract-owned input shapes from `@repo/contracts` directly, or parse raw route strings through the matching contract schema before passing them to oRPC.
+- Keep query controls such as `enabled` separate from contract input objects, for example `useThingQuery(input, enabled)`.
 - Use `enabled` for query preconditions.
 - Use loaders to prefetch data for SSR when route-level data is known.
 - In child loaders, prefer root auth context (`context.user`, `context.session`) over refetching session.
