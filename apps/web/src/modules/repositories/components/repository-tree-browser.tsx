@@ -5,6 +5,7 @@ import {
 	getFallbackRefOptions,
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptionsFromRefs,
+	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
 import { useRepositoryRefsQuery } from '../hooks/use-repository-refs.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
@@ -109,6 +110,10 @@ function RepositoryBrowserShell({
 	const refOptions = refsQuery.data
 		? getRepositoryRefOptionsFromRefs(refsQuery.data)
 		: getFallbackRefOptions(refName)
+	const selectedRef = getSelectedRepositoryRefOption({
+		refName,
+		refs: refOptions,
+	})
 	const selectedRefName = getRepositoryRefDisplayName(refName)
 
 	function handleSelectedRefChange(nextRefName: string) {
@@ -129,7 +134,7 @@ function RepositoryBrowserShell({
 						disabled={refsQuery.isLoading || refsQuery.isError}
 						onSelectedRefChange={handleSelectedRefChange}
 						refs={refOptions}
-						selectedRef={refName}
+						selectedRef={selectedRef}
 					/>
 					<span className="min-w-0 truncate">{path || 'Repository root'}</span>
 					<span className="sr-only">Selected ref {selectedRefName}</span>

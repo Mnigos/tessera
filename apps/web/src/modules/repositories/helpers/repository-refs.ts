@@ -10,6 +10,11 @@ export interface RepositoryRefOption {
 	qualifiedName: string
 }
 
+interface GetSelectedRepositoryRefOptionInput {
+	refName: string
+	refs: RepositoryRefOption[]
+}
+
 interface GetSelectedRepositoryQualifiedRefInput {
 	defaultBranch: string
 	selectedRef?: string
@@ -43,6 +48,18 @@ export function getRepositoryRefOptionsFromRefs({
 		...branches.map(ref => getRepositoryRefOption(ref)),
 		...tags.map(ref => getRepositoryRefOption(ref)),
 	]
+}
+
+export function getSelectedRepositoryRefOption({
+	refName,
+	refs,
+}: GetSelectedRepositoryRefOptionInput) {
+	const selectedRef = refs.find(
+		ref => ref.qualifiedName === refName || ref.name === refName
+	)
+	const fallbackRef = getFallbackRefOptions(refName)[0]
+
+	return selectedRef?.qualifiedName ?? fallbackRef?.qualifiedName ?? refName
 }
 
 /**
