@@ -313,6 +313,16 @@ describe('RepositoryOverview', () => {
 		])
 	})
 
+	test('qualifies bare fallback branch refs', () => {
+		expect(getFallbackRefOptions('main')).toEqual([
+			{
+				kind: 'branch',
+				name: 'main',
+				qualifiedName: 'refs/heads/main',
+			},
+		])
+	})
+
 	test('shows a grouped branch and tag selector with default branch selected', async () => {
 		const user = userEvent.setup()
 
