@@ -1,17 +1,39 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
-import { Link } from '@tanstack/react-router'
-import { GitBranch, History } from 'lucide-react'
+import { Link, useNavigate } from '@tanstack/react-router'
+import { History } from 'lucide-react'
+import {
+	getRepositoryRefDisplayName,
+	getRepositoryRefOptions,
+	getSelectedRepositoryQualifiedRef,
+} from '../helpers/repository-refs'
 import { RepositoryEmptyState } from './repository-empty-state'
 import { RepositoryReadmePreview } from './repository-readme-preview'
+import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryRootTree } from './repository-root-tree'
 
 interface RepositoryOverviewProps {
 	summary: RepositoryBrowserSummary
+	selectedRef?: string
 }
 
 export function RepositoryOverview({
 	summary: { owner, repository, defaultBranch, rootEntries, isEmpty, readme },
+	summary,
+	selectedRef,
 }: Readonly<RepositoryOverviewProps>) {
+	const navigate = useNavigate({ from: '/$username/$slug' })
+	const refOptions = getRepositoryRefOptions(summary)
+	const selectedQualifiedRef = getSelectedRepositoryQualifiedRef({
+		defaultBranch,
+		selectedRef,
+		summary,
+	})
+	const selectedRefName = getRepositoryRefDisplayName(selectedQualifiedRef)
+
+	function handleSelectedRefChange(ref: string) {
+		navigate({ search: previousSearch => ({ ...previousSearch, ref }) })
+	}
+
 	return (
 		<section className="flex flex-col gap-6">
 			<header className="flex flex-col gap-3">
@@ -29,21 +51,23 @@ export function RepositoryOverview({
 					</span>
 				</div>
 				<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
-					<span className="inline-flex items-center gap-1.5">
-						<GitBranch className="size-4" />
-						{defaultBranch}
-					</span>
+					<RepositoryRefSelector
+						disabled={isEmpty}
+						onSelectedRefChange={handleSelectedRefChange}
+						refs={refOptions}
+						selectedRef={selectedQualifiedRef}
+					/>
 					<span>
 						{rootEntries.length} root{' '}
 						{rootEntries.length === 1 ? 'entry' : 'entries'}
 					</span>
 					<Link
-						aria-label={`View commits for ${defaultBranch}`}
+						aria-label={`View commits for ${selectedRefName}`}
 						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
 						params={{
 							username: owner.username,
 							slug: repository.slug,
-							ref: defaultBranch,
+							ref: selectedQualifiedRef,
 						}}
 						to="/$username/$slug/commits/$ref"
 					>
@@ -64,7 +88,7 @@ export function RepositoryOverview({
 					{readme && <RepositoryReadmePreview readme={readme} />}
 					<RepositoryRootTree
 						entries={rootEntries}
-						refName={defaultBranch}
+						refName={selectedQualifiedRef}
 						slug={repository.slug}
 						username={owner.username}
 					/>
