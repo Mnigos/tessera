@@ -96,6 +96,31 @@ export interface GetRepositoryRawBlobResponse {
   sizeBytes: number;
 }
 
+export interface ListRepositoryCommitsRequest {
+  repositoryId: string;
+  storagePath: string;
+  ref: string;
+  limit: number;
+}
+
+export interface ListRepositoryCommitsResponse {
+  commits: RepositoryCommit[];
+}
+
+export interface RepositoryCommit {
+  sha: string;
+  shortSha: string;
+  summary: string;
+  author: RepositoryCommitIdentity | undefined;
+  committer: RepositoryCommitIdentity | undefined;
+}
+
+export interface RepositoryCommitIdentity {
+  name: string;
+  email: string;
+  date: string;
+}
+
 export interface RepositoryTreeEntry {
   name: string;
   objectId: string;
@@ -767,6 +792,253 @@ export const GetRepositoryRawBlobResponse: MessageFns<GetRepositoryRawBlobRespon
   },
 };
 
+function createBaseListRepositoryCommitsRequest(): ListRepositoryCommitsRequest {
+  return { repositoryId: "", storagePath: "", ref: "", limit: 0 };
+}
+
+export const ListRepositoryCommitsRequest: MessageFns<ListRepositoryCommitsRequest> = {
+  encode(message: ListRepositoryCommitsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.ref !== "") {
+      writer.uint32(26).string(message.ref);
+    }
+    if (message.limit !== 0) {
+      writer.uint32(32).uint32(message.limit);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListRepositoryCommitsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListRepositoryCommitsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.ref = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.limit = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseListRepositoryCommitsResponse(): ListRepositoryCommitsResponse {
+  return { commits: [] };
+}
+
+export const ListRepositoryCommitsResponse: MessageFns<ListRepositoryCommitsResponse> = {
+  encode(message: ListRepositoryCommitsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    for (const v of message.commits) {
+      RepositoryCommit.encode(v!, writer.uint32(10).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ListRepositoryCommitsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseListRepositoryCommitsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.commits.push(RepositoryCommit.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryCommit(): RepositoryCommit {
+  return { sha: "", shortSha: "", summary: "", author: undefined, committer: undefined };
+}
+
+export const RepositoryCommit: MessageFns<RepositoryCommit> = {
+  encode(message: RepositoryCommit, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sha !== "") {
+      writer.uint32(10).string(message.sha);
+    }
+    if (message.shortSha !== "") {
+      writer.uint32(18).string(message.shortSha);
+    }
+    if (message.summary !== "") {
+      writer.uint32(26).string(message.summary);
+    }
+    if (message.author !== undefined) {
+      RepositoryCommitIdentity.encode(message.author, writer.uint32(34).fork()).join();
+    }
+    if (message.committer !== undefined) {
+      RepositoryCommitIdentity.encode(message.committer, writer.uint32(42).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryCommit {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryCommit();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sha = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.shortSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.summary = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.author = RepositoryCommitIdentity.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.committer = RepositoryCommitIdentity.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryCommitIdentity(): RepositoryCommitIdentity {
+  return { name: "", email: "", date: "" };
+}
+
+export const RepositoryCommitIdentity: MessageFns<RepositoryCommitIdentity> = {
+  encode(message: RepositoryCommitIdentity, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.name !== "") {
+      writer.uint32(10).string(message.name);
+    }
+    if (message.email !== "") {
+      writer.uint32(18).string(message.email);
+    }
+    if (message.date !== "") {
+      writer.uint32(26).string(message.date);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryCommitIdentity {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryCommitIdentity();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.name = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.email = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.date = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseRepositoryTreeEntry(): RepositoryTreeEntry {
   return { name: "", objectId: "", kind: 0, sizeBytes: 0, path: "", mode: "" };
 }
@@ -947,6 +1219,11 @@ export interface GitStorageServiceClient {
     request: GetRepositoryRawBlobRequest,
     metadata?: Metadata,
   ): Observable<GetRepositoryRawBlobResponse>;
+
+  listRepositoryCommits(
+    request: ListRepositoryCommitsRequest,
+    metadata?: Metadata,
+  ): Observable<ListRepositoryCommitsResponse>;
 }
 
 export interface GitStorageServiceController {
@@ -982,6 +1259,11 @@ export interface GitStorageServiceController {
     request: GetRepositoryRawBlobRequest,
     metadata?: Metadata,
   ): Promise<GetRepositoryRawBlobResponse> | Observable<GetRepositoryRawBlobResponse> | GetRepositoryRawBlobResponse;
+
+  listRepositoryCommits(
+    request: ListRepositoryCommitsRequest,
+    metadata?: Metadata,
+  ): Promise<ListRepositoryCommitsResponse> | Observable<ListRepositoryCommitsResponse> | ListRepositoryCommitsResponse;
 }
 
 export function GitStorageServiceControllerMethods() {
@@ -993,6 +1275,7 @@ export function GitStorageServiceControllerMethods() {
       "getRepositoryTree",
       "getRepositoryBlob",
       "getRepositoryRawBlob",
+      "listRepositoryCommits",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
@@ -1076,6 +1359,17 @@ export const GitStorageServiceService = {
       Buffer.from(GetRepositoryRawBlobResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): GetRepositoryRawBlobResponse => GetRepositoryRawBlobResponse.decode(value),
   },
+  listRepositoryCommits: {
+    path: "/tessera.git.v1.GitStorageService/ListRepositoryCommits" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ListRepositoryCommitsRequest): Buffer =>
+      Buffer.from(ListRepositoryCommitsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ListRepositoryCommitsRequest => ListRepositoryCommitsRequest.decode(value),
+    responseSerialize: (value: ListRepositoryCommitsResponse): Buffer =>
+      Buffer.from(ListRepositoryCommitsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ListRepositoryCommitsResponse => ListRepositoryCommitsResponse.decode(value),
+  },
 } as const;
 
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
@@ -1085,6 +1379,7 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   getRepositoryTree: handleUnaryCall<GetRepositoryTreeRequest, GetRepositoryTreeResponse>;
   getRepositoryBlob: handleUnaryCall<GetRepositoryBlobRequest, GetRepositoryBlobResponse>;
   getRepositoryRawBlob: handleUnaryCall<GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse>;
+  listRepositoryCommits: handleUnaryCall<ListRepositoryCommitsRequest, ListRepositoryCommitsResponse>;
 }
 
 function longToNumber(int64: { toString(): string }): number {

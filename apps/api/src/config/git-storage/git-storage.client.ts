@@ -22,10 +22,12 @@ import {
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
 	type HealthResponse,
+	type ListRepositoryCommitsResponse,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
+	toRepositoryCommitHistory,
 	toRepositoryRawBlob,
 	toRepositoryTree,
 } from './git-storage.mappers'
@@ -61,6 +63,13 @@ export interface GitStorageGetRepositoryBlobParams {
 
 export interface GitStorageGetRepositoryRawBlobParams {
 	objectId: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageListRepositoryCommitsParams {
+	limit: number | undefined
+	ref: string
 	repositoryId: RepositoryId
 	storagePath: string
 }
@@ -109,6 +118,24 @@ export interface GitStorageRepositoryRawBlob {
 	content: Uint8Array
 	objectId: string
 	sizeBytes: number
+}
+
+export interface GitStorageRepositoryCommitIdentity {
+	date: string
+	email: string
+	name: string
+}
+
+export interface GitStorageRepositoryCommit {
+	author: GitStorageRepositoryCommitIdentity | undefined
+	committer: GitStorageRepositoryCommitIdentity | undefined
+	sha: string
+	shortSha: string
+	summary: string
+}
+
+export interface GitStorageRepositoryCommitHistory {
+	commits: GitStorageRepositoryCommit[]
 }
 
 @Injectable()
@@ -222,6 +249,26 @@ export class GitStorageClient implements OnModuleInit {
 		)
 
 		return toRepositoryRawBlob(response)
+	}
+
+	async listRepositoryCommits({
+		limit,
+		ref,
+		repositoryId,
+		storagePath,
+	}: GitStorageListRepositoryCommitsParams): Promise<GitStorageRepositoryCommitHistory> {
+		const response = await firstValueFrom(
+			this.service
+				.listRepositoryCommits({
+					repositoryId,
+					storagePath,
+					ref,
+					limit: limit ?? 0,
+				})
+				.pipe(mapGitStorageErrors<ListRepositoryCommitsResponse>())
+		)
+
+		return toRepositoryCommitHistory(response)
 	}
 }
 

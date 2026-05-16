@@ -70,6 +70,15 @@ export type GetRepositoryBlobInput = z.infer<
 	typeof getRepositoryBlobInputSchema
 >
 
+export const getRepositoryCommitHistoryInputSchema =
+	getRepositoryInputSchema.extend({
+		ref: z.string().min(1),
+		limit: z.coerce.number().int().min(1).max(100).optional(),
+	})
+export type GetRepositoryCommitHistoryInput = z.infer<
+	typeof getRepositoryCommitHistoryInputSchema
+>
+
 export const repositoryTreeEntrySchema = z.object({
 	name: z.string(),
 	objectId: z.string(),
@@ -149,6 +158,34 @@ export const repositoryBlobSchema = z.object({
 })
 export type RepositoryBlob = z.infer<typeof repositoryBlobSchema>
 
+export const repositoryCommitIdentitySchema = z.object({
+	name: z.string(),
+	email: z.string(),
+	date: z.string(),
+})
+export type RepositoryCommitIdentity = z.infer<
+	typeof repositoryCommitIdentitySchema
+>
+
+export const repositoryCommitSchema = z.object({
+	sha: z.string(),
+	shortSha: z.string(),
+	summary: z.string(),
+	author: repositoryCommitIdentitySchema.optional(),
+	committer: repositoryCommitIdentitySchema.optional(),
+})
+export type RepositoryCommit = z.infer<typeof repositoryCommitSchema>
+
+export const repositoryCommitHistorySchema = z.object({
+	repository: repositorySchema,
+	owner: repositoryOwnerSchema,
+	ref: z.string(),
+	commits: z.array(repositoryCommitSchema),
+})
+export type RepositoryCommitHistory = z.infer<
+	typeof repositoryCommitHistorySchema
+>
+
 export const repositoriesContract = {
 	create: oc
 		.route({ method: 'POST', path: '/repositories' })
@@ -190,4 +227,11 @@ export const repositoriesContract = {
 		})
 		.input(getRepositoryBlobInputSchema)
 		.output(z.file()),
+	getCommitHistory: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/commits/{ref}',
+		})
+		.input(getRepositoryCommitHistoryInputSchema)
+		.output(repositoryCommitHistorySchema),
 }

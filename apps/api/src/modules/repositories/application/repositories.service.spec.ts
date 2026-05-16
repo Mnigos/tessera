@@ -119,6 +119,25 @@ describe(RepositoriesService.name, () => {
 							content: textEncoder.encode('console.log("hi")'),
 							sizeBytes: 17,
 						}),
+						listRepositoryCommits: vi.fn().mockResolvedValue({
+							commits: [
+								{
+									sha: 'abcdef1234567890',
+									shortSha: 'abcdef1',
+									summary: 'Add repository browser',
+									author: {
+										name: 'Marta',
+										email: 'marta@example.com',
+										date: '2026-05-15T12:00:00Z',
+									},
+									committer: {
+										name: 'Codex',
+										email: 'codex@example.com',
+										date: '2026-05-15T12:05:00Z',
+									},
+								},
+							],
+						}),
 					},
 				},
 				{
@@ -734,6 +753,155 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 				ref: '../main',
 				path: '',
+			})
+		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
+	})
+
+	test('gets public repository commit history for anonymous readers', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryCommitsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryCommits'
+		)
+
+		expect(
+			await repositoriesService.getCommitHistory(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				limit: 10,
+			})
+		).toEqual({
+			repository: expect.objectContaining({ slug: repository.slug }),
+			owner: { username: 'marta' },
+			ref: 'main',
+			commits: [
+				{
+					sha: 'abcdef1234567890',
+					shortSha: 'abcdef1',
+					summary: 'Add repository browser',
+					author: {
+						name: 'Marta',
+						email: 'marta@example.com',
+						date: '2026-05-15T12:00:00Z',
+					},
+					committer: {
+						name: 'Codex',
+						email: 'codex@example.com',
+						date: '2026-05-15T12:05:00Z',
+					},
+				},
+			],
+		})
+		expect(listRepositoryCommitsSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			limit: 10,
+		})
+	})
+
+	test('passes omitted commit history limit through to storage', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryCommitsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryCommits'
+		)
+
+		await repositoriesService.getCommitHistory(undefined, {
+			username: 'marta',
+			slug: repository.slug,
+			ref: 'main',
+			limit: undefined,
+		})
+
+		expect(listRepositoryCommitsSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			limit: undefined,
+		})
+	})
+
+	test('hides private commit history reads from non-owners before calling git storage', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryCommitsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryCommits'
+		)
+
+		await expect(
+			repositoriesService.getCommitHistory(
+				'00000000-0000-4000-8000-000000000099' as UserId,
+				{
+					username: 'marta',
+					slug: repository.slug,
+					ref: 'main',
+					limit: 10,
+				}
+			)
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(listRepositoryCommitsSpy).not.toHaveBeenCalled()
+	})
+
+	test('throws before calling git storage when commit history storage path is missing', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: null,
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryCommitsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryCommits'
+		)
+
+		await expect(
+			repositoriesService.getCommitHistory(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'main',
+				limit: 10,
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+		expect(listRepositoryCommitsSpy).not.toHaveBeenCalled()
+	})
+
+	test('maps invalid commit history storage arguments to bad request', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'listRepositoryCommits'
+		).mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		await expect(
+			repositoriesService.getCommitHistory(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: '../main',
+				limit: 10,
 			})
 		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
 	})

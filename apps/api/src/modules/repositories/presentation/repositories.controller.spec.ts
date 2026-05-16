@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import {
 	repositoryBlobSchema,
 	repositoryBrowserSummarySchema,
+	repositoryCommitHistorySchema,
 	repositoryTreeSchema,
 } from '@repo/contracts'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
@@ -50,6 +51,7 @@ describe(RepositoriesController.name, () => {
 						getTree: vi.fn(),
 						getBlob: vi.fn(),
 						getRawBlob: vi.fn(),
+						getCommitHistory: vi.fn(),
 					},
 				},
 				{
@@ -348,6 +350,57 @@ describe(RepositoriesController.name, () => {
 		expect(new Uint8Array(await file.arrayBuffer())).toEqual(rawBlob)
 	})
 
+	test('delegates commit history requests with an optional viewer', async () => {
+		const commitHistory = {
+			...repository,
+			ref: 'main',
+			commits: [
+				{
+					sha: 'abcdef1234567890',
+					shortSha: 'abcdef1',
+					summary: 'Add repository browser',
+					author: {
+						name: 'Marta',
+						email: 'marta@example.com',
+						date: '2026-05-15T12:00:00Z',
+					},
+					committer: {
+						name: 'Codex',
+						email: 'codex@example.com',
+						date: '2026-05-15T12:05:00Z',
+					},
+				},
+			],
+		}
+		const getCommitHistorySpy = vi
+			.spyOn(repositoriesService, 'getCommitHistory')
+			.mockResolvedValue(commitHistory)
+
+		expect(
+			await repositoryBrowserController
+				.getCommitHistory(session)
+				['~orpc'].handler({
+					input: {
+						username: 'marta',
+						slug: repository.repository.slug,
+						ref: 'main',
+						limit: 10,
+					},
+					context: {},
+					path: ['repositories', 'getCommitHistory'],
+					procedure: repositoryBrowserController.getCommitHistory(session),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(commitHistory)
+		expect(getCommitHistorySpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+			ref: 'main',
+			limit: 10,
+		})
+	})
+
 	test('falls back to a blob filename for raw blob paths without a basename', async () => {
 		const rawBlob = new TextEncoder().encode('console.log("hi")')
 		vi.spyOn(repositoriesService, 'getRawBlob').mockResolvedValue(rawBlob)
@@ -418,6 +471,37 @@ describe(RepositoriesController.name, () => {
 						sizeBytes: 17,
 						path: 'src/index.ts',
 						mode: '100644',
+					},
+				],
+			})
+		).toEqual(
+			expect.not.objectContaining({
+				storagePath: expect.any(String),
+			})
+		)
+	})
+
+	test('validates commit history contract output without storage path', () => {
+		expect(
+			repositoryCommitHistorySchema.parse({
+				...repository,
+				storagePath: '/internal/repositories/notes.git',
+				ref: 'main',
+				commits: [
+					{
+						sha: 'abcdef1234567890',
+						shortSha: 'abcdef1',
+						summary: 'Add repository browser',
+						author: {
+							name: 'Marta',
+							email: 'marta@example.com',
+							date: '2026-05-15T12:00:00Z',
+						},
+						committer: {
+							name: 'Codex',
+							email: 'codex@example.com',
+							date: '2026-05-15T12:05:00Z',
+						},
 					},
 				],
 			})

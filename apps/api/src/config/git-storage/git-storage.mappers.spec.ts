@@ -1,14 +1,11 @@
 import {
-	type GetRepositoryBlobResponse,
-	type GetRepositoryBrowserSummaryResponse,
-	type GetRepositoryRawBlobResponse,
-	type GetRepositoryTreeResponse,
 	RepositoryBlobPreviewState,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
+	toRepositoryCommitHistory,
 	toRepositoryRawBlob,
 	toRepositoryTree,
 } from './git-storage.mappers'
@@ -23,7 +20,7 @@ describe('git storage mappers', () => {
 					name: 'src',
 					objectId: 'tree123',
 					kind: RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_DIRECTORY,
-					sizeBytes: '0',
+					sizeBytes: 0,
 					path: 'src',
 					mode: '040000',
 				},
@@ -34,7 +31,7 @@ describe('git storage mappers', () => {
 				content: new TextEncoder().encode('# Tessera'),
 				isTruncated: true,
 			},
-		} as unknown as GetRepositoryBrowserSummaryResponse
+		}
 
 		expect(toRepositoryBrowserSummary(response)).toEqual({
 			defaultBranch: 'main',
@@ -76,7 +73,7 @@ describe('git storage mappers', () => {
 					name: 'index.ts',
 					objectId: 'blob123',
 					kind: RepositoryTreeEntryKind.REPOSITORY_TREE_ENTRY_KIND_FILE,
-					sizeBytes: '24',
+					sizeBytes: 24,
 					path: 'src/index.ts',
 					mode: '100644',
 				},
@@ -86,7 +83,7 @@ describe('git storage mappers', () => {
 					kind: undefined,
 				},
 			],
-		} as unknown as GetRepositoryTreeResponse
+		}
 
 		expect(toRepositoryTree(response)).toEqual({
 			commitId: 'commit123',
@@ -117,15 +114,15 @@ describe('git storage mappers', () => {
 			objectId: 'blob123',
 			state: RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TEXT,
 			text: 'hello',
-			sizeBytes: '5',
-			previewLimitBytes: '1048576',
-		} as unknown as GetRepositoryBlobResponse
+			sizeBytes: 5,
+			previewLimitBytes: 1_048_576,
+		}
 		const tooLargeResponse = {
 			objectId: 'blob123',
 			state: RepositoryBlobPreviewState.REPOSITORY_BLOB_PREVIEW_STATE_TOO_LARGE,
 			sizeBytes: 2_097_152,
-			previewLimitBytes: '1048576',
-		} as unknown as GetRepositoryBlobResponse
+			previewLimitBytes: 1_048_576,
+		}
 
 		expect(toRepositoryBlob(textResponse)).toEqual({
 			objectId: 'blob123',
@@ -157,13 +154,87 @@ describe('git storage mappers', () => {
 		const response = {
 			objectId: 'blob123',
 			content,
-			sizeBytes: '4',
-		} as unknown as GetRepositoryRawBlobResponse
+			sizeBytes: 4,
+		}
 
 		expect(toRepositoryRawBlob(response)).toEqual({
 			objectId: 'blob123',
 			content,
 			sizeBytes: 4,
+		})
+	})
+
+	test('maps commit history identity dates', () => {
+		const response = {
+			commits: [
+				{
+					sha: 'abcdef1234567890',
+					shortSha: 'abcdef1',
+					summary: 'Add commit history',
+					author: {
+						name: 'Marta',
+						email: 'marta',
+						date: '2026-05-15T12:00:00Z',
+					},
+					committer: {
+						name: 'Codex',
+						email: 'codex@example.com',
+						date: '2026-05-15T12:05:00Z',
+					},
+				},
+				{
+					sha: 'fedcba0987654321',
+					shortSha: 'fedcba0',
+					summary: 'Initial commit',
+					author: undefined,
+					committer: undefined,
+				},
+			],
+		}
+
+		expect(toRepositoryCommitHistory(response)).toEqual({
+			commits: [
+				{
+					sha: 'abcdef1234567890',
+					shortSha: 'abcdef1',
+					summary: 'Add commit history',
+					author: {
+						name: 'Marta',
+						email: 'marta',
+						date: '2026-05-15T12:00:00Z',
+					},
+					committer: {
+						name: 'Codex',
+						email: 'codex@example.com',
+						date: '2026-05-15T12:05:00Z',
+					},
+				},
+				{
+					sha: 'fedcba0987654321',
+					shortSha: 'fedcba0',
+					summary: 'Initial commit',
+					author: undefined,
+					committer: undefined,
+				},
+			],
+		})
+	})
+
+	test('maps missing commit history fields to safe defaults', () => {
+		expect(
+			toRepositoryCommitHistory({
+				commits: [{}],
+			})
+		).toEqual({
+			commits: [
+				{
+					sha: '',
+					shortSha: '',
+					summary: '',
+					author: undefined,
+					committer: undefined,
+				},
+			],
 		})
 	})
 })
