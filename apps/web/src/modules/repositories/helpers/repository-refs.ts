@@ -108,11 +108,13 @@ function getFallbackBranchRef(name: string): RepositoryRef {
 }
 
 export function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
+	const kind = getRepositoryRefKind(refName)
+
 	return [
 		{
-			kind: getRepositoryRefKind(refName),
+			kind,
 			name: getRepositoryRefDisplayName(refName),
-			qualifiedName: refName,
+			qualifiedName: qualifyRepositoryRef(kind, refName),
 		},
 	]
 }
