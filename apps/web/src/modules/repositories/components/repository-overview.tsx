@@ -1,5 +1,6 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
-import { GitBranch } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { GitBranch, History } from 'lucide-react'
 import { RepositoryEmptyState } from './repository-empty-state'
 import { RepositoryReadmePreview } from './repository-readme-preview'
 import { RepositoryRootTree } from './repository-root-tree'
@@ -36,6 +37,19 @@ export function RepositoryOverview({
 						{rootEntries.length} root{' '}
 						{rootEntries.length === 1 ? 'entry' : 'entries'}
 					</span>
+					<Link
+						aria-label={`View commits for ${defaultBranch}`}
+						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+						params={{
+							username: owner.username,
+							slug: repository.slug,
+							ref: defaultBranch,
+						}}
+						to="/$username/$slug/commits/$ref"
+					>
+						<History className="size-4" />
+						Commits
+					</Link>
 				</div>
 				{repository.description && (
 					<p className="max-w-3xl text-muted-foreground text-sm">

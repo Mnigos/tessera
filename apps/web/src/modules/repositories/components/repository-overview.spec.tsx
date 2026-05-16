@@ -9,16 +9,27 @@ import { RepositoryOverview } from './repository-overview'
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
 		children,
+		params,
 		to,
 		...props
 	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
 		children: ReactNode
+		params?: Record<string, string>
 		to: string
-	}) => (
-		<a href={to} {...props}>
-			{children}
-		</a>
-	),
+	}) => {
+		const href = params
+			? to
+					.replace('$username', params.username)
+					.replace('$slug', params.slug)
+					.replace('$ref', params.ref)
+			: to
+
+		return (
+			<a href={href} {...props}>
+				{children}
+			</a>
+		)
+	},
 }))
 
 vi.mock('@repo/ui/components/sonner', async importOriginal => {
@@ -214,6 +225,16 @@ describe('RepositoryOverview', () => {
 		expect(symlinkRow?.getAttribute('href')).toBeNull()
 		expect(within(symlinkRow as HTMLElement).getByText('symlink')).toBeTruthy()
 		expect(within(symlinkRow as HTMLElement).getByText('24 B')).toBeTruthy()
+	})
+
+	test('links to commit history for the default branch', () => {
+		render(<RepositoryOverview summary={getSummary()} />)
+
+		expect(
+			screen
+				.getByRole('link', { name: 'View commits for main' })
+				.getAttribute('href')
+		).toBe('/mnigos/tessera-notes/commits/main')
 	})
 
 	test('shows clone and push commands for an empty repository', async () => {
