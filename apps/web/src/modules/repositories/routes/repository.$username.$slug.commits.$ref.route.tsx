@@ -4,13 +4,13 @@ import { RepositoryCommitHistory } from '../components/repository-commit-history
 import { getRepositoryCommitsQueryOptions } from '../hooks/use-repository-commits.query'
 
 export const Route = createFileRoute('/$username/$slug/commits/$ref')({
-	loader: async ({ context, params }) => {
+	loader: async ({ context, params: { username, slug, ref } }) => {
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
 				getRepositoryCommitsQueryOptions({
-					username: params.username,
-					slug: params.slug,
-					ref: params.ref,
+					username,
+					slug,
+					ref,
 				})
 			)
 		)

@@ -1,8 +1,8 @@
+import type { RepositoryBlob } from '@repo/contracts'
 import { FileText } from 'lucide-react'
-import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 
 interface RepositoryRawBlobActionProps {
-	blob: RepositoryBlobResult
+	blob: RepositoryBlob
 }
 
 export function RepositoryRawBlobAction({
@@ -19,7 +19,7 @@ export function RepositoryRawBlobAction({
 	)
 }
 
-function getRawBlobHref(blob: RepositoryBlobResult) {
+function getRawBlobHref(blob: RepositoryBlob) {
 	const basePath = `/repositories/${encodeURIComponent(blob.owner.username)}/${encodeURIComponent(blob.repository.slug)}/raw/${encodeURIComponent(blob.ref)}`
 	const searchParams = new URLSearchParams({ path: blob.path })
 

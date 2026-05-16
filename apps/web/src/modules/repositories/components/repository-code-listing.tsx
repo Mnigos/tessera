@@ -1,11 +1,11 @@
+import type { RepositoryBlob } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
-import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 
 const plainTextLineSeparatorRegex = /\r?\n/
 
 interface RepositoryCodeListingProps {
-	blob: RepositoryBlobResult & {
-		preview: Extract<RepositoryBlobResult['preview'], { type: 'text' }>
+	blob: RepositoryBlob & {
+		preview: Extract<RepositoryBlob['preview'], { type: 'text' }>
 	}
 }
 
@@ -106,7 +106,7 @@ interface HighlightedBlobPreview {
 }
 
 function getCodeRows(
-	preview: Extract<RepositoryBlobResult['preview'], { type: 'text' }>
+	preview: Extract<RepositoryBlob['preview'], { type: 'text' }>
 ): CodeRow[] {
 	const highlightedRows = getHighlightedRows(preview)
 
@@ -123,7 +123,7 @@ function getCodeRows(
 }
 
 function getHighlightedRows(
-	preview: Extract<RepositoryBlobResult['preview'], { type: 'text' }>
+	preview: Extract<RepositoryBlob['preview'], { type: 'text' }>
 ) {
 	const highlightedPreview = preview as typeof preview & HighlightedBlobPreview
 

@@ -1,4 +1,4 @@
-import type { RepositoryCommit } from '../hooks/use-repository-commits.query'
+import type { RepositoryCommit } from '@repo/contracts'
 
 type RepositoryCommitIdentity = RepositoryCommit['author']
 

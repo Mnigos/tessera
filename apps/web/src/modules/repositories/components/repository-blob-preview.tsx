@@ -1,6 +1,6 @@
+import type { RepositoryBlob } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { formatBytes } from '../helpers/format-tree-entry-size'
-import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
 import { RepositoryBrowserBreadcrumbs } from './repository-browser-breadcrumbs'
 import { RepositoryBrowserMessage } from './repository-browser-message'
@@ -124,7 +124,7 @@ function RepositoryBlobShell({
 }
 
 interface BlobContentProps {
-	blob: RepositoryBlobResult
+	blob: RepositoryBlob
 }
 
 function BlobContent({ blob }: Readonly<BlobContentProps>) {
@@ -170,7 +170,7 @@ function BlobContent({ blob }: Readonly<BlobContentProps>) {
 }
 
 interface BlobMessageWithRawActionProps {
-	blob: RepositoryBlobResult
+	blob: RepositoryBlob
 	children: React.ReactNode
 	title: string
 }
@@ -197,7 +197,7 @@ interface HighlightedBlobPreview {
 }
 
 interface BlobLanguageProps {
-	preview: RepositoryBlobResult['preview']
+	preview: RepositoryBlob['preview']
 }
 
 function BlobLanguage({ preview }: Readonly<BlobLanguageProps>) {
