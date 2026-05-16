@@ -1,16 +1,21 @@
 import {
 	type RepositoryBlob,
+	type RepositoryBrowserSummary,
 	type RepositoryCommitHistory as RepositoryCommitHistoryResult,
 	type RepositoryTree,
 	repositorySchema,
 } from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
+import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 import { useRepositoryCommitsQuery } from '../hooks/use-repository-commits.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import { RepositoryBlobPreview } from './repository-blob-preview'
+import { getBlobHref, getTreeHref } from './repository-browser-breadcrumbs'
 import { RepositoryCommitHistory } from './repository-commit-history'
+import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryTreeBrowser } from './repository-tree-browser'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -36,12 +41,17 @@ vi.mock('../hooks/use-repository-blob.query', () => ({
 	useRepositoryBlobQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-repository-browser-summary.query', () => ({
+	useRepositoryBrowserSummaryQuery: vi.fn(),
+}))
+
 vi.mock('../hooks/use-repository-commits.query', () => ({
 	useRepositoryCommitsQuery: vi.fn(),
 }))
 
 const treeQueryMock = vi.mocked(useRepositoryTreeQuery)
 const blobQueryMock = vi.mocked(useRepositoryBlobQuery)
+const summaryQueryMock = vi.mocked(useRepositoryBrowserSummaryQuery)
 const commitsQueryMock = vi.mocked(useRepositoryCommitsQuery)
 
 const baseTree = {
@@ -162,9 +172,45 @@ const baseCommits = {
 	],
 } satisfies RepositoryCommitHistoryResult
 
+const baseSummary = {
+	repository: baseTree.repository,
+	owner: baseTree.owner,
+	defaultBranch: 'main',
+	branches: [
+		{
+			type: 'branch',
+			name: 'main',
+			qualifiedName: 'refs/heads/main',
+			target: 'commit-main',
+		},
+		{
+			type: 'branch',
+			name: 'feature/browser-ref-selector',
+			qualifiedName: 'refs/heads/feature/browser-ref-selector',
+			target: 'commit-feature',
+		},
+	],
+	tags: [
+		{
+			type: 'tag',
+			name: 'v1.0.0',
+			qualifiedName: 'refs/tags/v1.0.0',
+			target: 'commit-release',
+		},
+	],
+	isEmpty: false,
+	rootEntries: baseTree.entries,
+} satisfies RepositoryBrowserSummary
+
 describe('Repository browser components', () => {
 	afterEach(() => {
 		vi.resetAllMocks()
+	})
+
+	beforeEach(() => {
+		summaryQueryMock.mockReturnValue(
+			getQueryResult<RepositoryBrowserSummary>({ data: baseSummary })
+		)
 	})
 
 	test('renders breadcrumbs with repository root and parent directory links', () => {
@@ -231,6 +277,71 @@ describe('Repository browser components', () => {
 		).toBeTruthy()
 		expect(unknownRow?.getAttribute('href')).toBeNull()
 		expect(within(unknownRow as HTMLElement).getByText('unknown')).toBeTruthy()
+	})
+
+	test('preserves tree and blob paths when building links for qualified refs', () => {
+		expect(
+			getTreeHref(
+				'mnigos',
+				'tessera-notes',
+				'refs/heads/feature/browser-ref-selector',
+				'src/modules'
+			)
+		).toBe(
+			'/mnigos/tessera-notes/tree/refs%2Fheads%2Ffeature%2Fbrowser-ref-selector/src/modules'
+		)
+		expect(
+			getBlobHref(
+				'mnigos',
+				'tessera-notes',
+				'refs/tags/v1.0.0',
+				'src/modules/index.ts'
+			)
+		).toBe(
+			'/mnigos/tessera-notes/blob/refs%2Ftags%2Fv1.0.0/src/modules/index.ts'
+		)
+	})
+
+	test('switches branch and tag values from the repository ref selector', async () => {
+		const user = userEvent.setup()
+		const onSelectedRefChange = vi.fn()
+
+		render(
+			<RepositoryRefSelector
+				onSelectedRefChange={onSelectedRefChange}
+				refs={[
+					{
+						kind: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+					},
+					{
+						kind: 'branch',
+						name: 'feature/browser-ref-selector',
+						qualifiedName: 'refs/heads/feature/browser-ref-selector',
+					},
+					{
+						kind: 'tag',
+						name: 'v1.0.0',
+						qualifiedName: 'refs/tags/v1.0.0',
+					},
+				]}
+				selectedRef="refs/heads/main"
+			/>
+		)
+
+		await user.click(screen.getByRole('combobox', { name: 'Repository ref' }))
+		await user.click(
+			screen.getByRole('option', { name: 'feature/browser-ref-selector' })
+		)
+		await user.click(screen.getByRole('combobox', { name: 'Repository ref' }))
+		await user.click(screen.getByRole('option', { name: 'v1.0.0' }))
+
+		expect(onSelectedRefChange).toHaveBeenNthCalledWith(
+			1,
+			'refs/heads/feature/browser-ref-selector'
+		)
+		expect(onSelectedRefChange).toHaveBeenNthCalledWith(2, 'refs/tags/v1.0.0')
 	})
 
 	test('renders text blob previews', () => {
@@ -379,14 +490,14 @@ describe('Repository browser components', () => {
 		expect(screen.getByRole('link', { name: 'Raw' })).toBeTruthy()
 	})
 
-	test('renders not-found states when queries fail', () => {
+	test('renders not-found states when invalid refs fail to load', () => {
 		treeQueryMock.mockReturnValue(getQueryResult({ isError: true }))
 		blobQueryMock.mockReturnValue(getQueryResult({ isError: true }))
 
 		const { rerender } = render(
 			<RepositoryTreeBrowser
 				path="missing"
-				refName="main"
+				refName="refs/heads/missing"
 				slug="tessera-notes"
 				username="mnigos"
 			/>
@@ -399,7 +510,7 @@ describe('Repository browser components', () => {
 		rerender(
 			<RepositoryBlobPreview
 				path="missing.txt"
-				refName="main"
+				refName="refs/tags/missing"
 				slug="tessera-notes"
 				username="mnigos"
 			/>
@@ -514,5 +625,6 @@ function getQueryResult<TData>({
 		isError,
 	} as ReturnType<typeof useRepositoryTreeQuery> &
 		ReturnType<typeof useRepositoryBlobQuery> &
+		ReturnType<typeof useRepositoryBrowserSummaryQuery> &
 		ReturnType<typeof useRepositoryCommitsQuery>
 }

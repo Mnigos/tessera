@@ -21,7 +21,7 @@ vi.mock('@tanstack/react-router', () => ({
 			? to
 					.replace('$username', params.username)
 					.replace('$slug', params.slug)
-					.replace('$ref', params.ref)
+					.replace('$ref', encodeURIComponent(params.ref))
 			: to
 
 		return (
@@ -30,6 +30,7 @@ vi.mock('@tanstack/react-router', () => ({
 			</a>
 		)
 	},
+	useNavigate: () => vi.fn(),
 }))
 
 vi.mock('@repo/ui/components/sonner', async importOriginal => {
@@ -65,6 +66,28 @@ const baseSummary = {
 		username: 'mnigos',
 	},
 	defaultBranch: 'main',
+	branches: [
+		{
+			type: 'branch',
+			name: 'main',
+			qualifiedName: 'refs/heads/main',
+			target: 'commit-main',
+		},
+		{
+			type: 'branch',
+			name: 'feature/browser-ref-selector',
+			qualifiedName: 'refs/heads/feature/browser-ref-selector',
+			target: 'commit-feature',
+		},
+	],
+	tags: [
+		{
+			type: 'tag',
+			name: 'v1.0.0',
+			qualifiedName: 'refs/tags/v1.0.0',
+			target: 'commit-release',
+		},
+	],
 	isEmpty: false,
 	rootEntries: [
 		{
@@ -217,10 +240,10 @@ describe('RepositoryOverview', () => {
 
 		expect(symlinkRow).toBeTruthy()
 		expect(srcRow?.getAttribute('href')).toBe(
-			'/mnigos/tessera-notes/tree/main/src'
+			'/mnigos/tessera-notes/tree/refs%2Fheads%2Fmain/src'
 		)
 		expect(packageRow?.getAttribute('href')).toBe(
-			'/mnigos/tessera-notes/blob/main/package.json'
+			'/mnigos/tessera-notes/blob/refs%2Fheads%2Fmain/package.json'
 		)
 		expect(symlinkRow?.getAttribute('href')).toBeNull()
 		expect(within(symlinkRow as HTMLElement).getByText('symlink')).toBeTruthy()
@@ -234,7 +257,46 @@ describe('RepositoryOverview', () => {
 			screen
 				.getByRole('link', { name: 'View commits for main' })
 				.getAttribute('href')
-		).toBe('/mnigos/tessera-notes/commits/main')
+		).toBe('/mnigos/tessera-notes/commits/refs%2Fheads%2Fmain')
+	})
+
+	test('prefers API-normalized selected refs over raw search refs', () => {
+		render(
+			<RepositoryOverview
+				selectedRef="release"
+				summary={getSummary({
+					selectedRef: {
+						type: 'tag',
+						name: 'release',
+						qualifiedName: 'refs/tags/release',
+						target: 'commit-release',
+					},
+				})}
+			/>
+		)
+
+		expect(
+			screen
+				.getByRole('link', { name: 'View commits for release' })
+				.getAttribute('href')
+		).toBe('/mnigos/tessera-notes/commits/refs%2Ftags%2Frelease')
+	})
+
+	test('shows a grouped branch and tag selector with default branch selected', async () => {
+		const user = userEvent.setup()
+
+		render(<RepositoryOverview summary={getSummary()} />)
+
+		expect(
+			screen.getByRole('combobox', { name: 'Repository ref' }).textContent
+		).toContain('main')
+
+		await user.click(screen.getByRole('combobox', { name: 'Repository ref' }))
+
+		expect(screen.getByText('Branches')).toBeTruthy()
+		expect(screen.getByText('Tags')).toBeTruthy()
+		expect(screen.getByText('feature/browser-ref-selector')).toBeTruthy()
+		expect(screen.getByText('v1.0.0')).toBeTruthy()
 	})
 
 	test('shows clone and push commands for an empty repository', async () => {
@@ -267,6 +329,11 @@ describe('RepositoryOverview', () => {
 			screen.getByText(`git remote add origin ${expectedCloneUrl}`)
 		).toBeTruthy()
 		expect(screen.getByText('git push origin main')).toBeTruthy()
+		expect(
+			screen
+				.getByRole('combobox', { name: 'Repository ref' })
+				.hasAttribute('disabled')
+		).toBe(true)
 
 		await user.click(
 			screen.getByRole('button', { name: 'Copy repository clone URL' })

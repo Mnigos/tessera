@@ -1,14 +1,19 @@
 import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound } from '@tanstack/react-router'
+import { z } from 'zod'
 import { RepositoryOverview } from '../components/repository-overview'
 import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 
 export const Route = createFileRoute('/$username/$slug')({
-	loader: async ({ context, params }) => {
+	validateSearch: z.object({
+		ref: z.string().optional(),
+	}),
+	loaderDeps: ({ search: { ref } }) => ({ ref }),
+	loader: async ({ context, deps: { ref }, params: { username, slug } }) => {
 		const [error, repository] = await safe(
 			context.queryClient.ensureQueryData(
 				context.orpc.repositories.getBrowserSummary.queryOptions({
-					input: { username: params.username, slug: params.slug },
+					input: { username, slug, ref },
 				})
 			)
 		)
@@ -43,10 +48,14 @@ export const Route = createFileRoute('/$username/$slug')({
 
 function RepositoryRoute() {
 	const { username, slug } = Route.useParams()
-	const repositoryQuery = useRepositoryBrowserSummaryQuery(username, slug)
-	const summary = repositoryQuery.data
+	const { ref } = Route.useSearch()
+	const {
+		data: summary,
+		isLoading,
+		isError,
+	} = useRepositoryBrowserSummaryQuery({ ref, slug, username })
 
-	if (repositoryQuery.isLoading)
+	if (isLoading)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
 				<div className="flex flex-col gap-4">
@@ -57,7 +66,7 @@ function RepositoryRoute() {
 			</main>
 		)
 
-	if (repositoryQuery.isError)
+	if (isError)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
 				<div className="border border-border border-dashed p-6 text-muted-foreground text-sm">
@@ -77,7 +86,7 @@ function RepositoryRoute() {
 
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryOverview summary={summary} />
+			<RepositoryOverview selectedRef={ref} summary={summary} />
 		</main>
 	)
 }

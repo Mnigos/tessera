@@ -1,11 +1,21 @@
 import type { RepositoryBlob } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { formatBytes } from '../helpers/format-tree-entry-size'
+import {
+	getRepositoryRefDisplayName,
+	getRepositoryRefOptions,
+	type RepositoryRefOption,
+} from '../helpers/repository-refs'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
-import { RepositoryBrowserBreadcrumbs } from './repository-browser-breadcrumbs'
+import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
+import {
+	getBlobHref,
+	RepositoryBrowserBreadcrumbs,
+} from './repository-browser-breadcrumbs'
 import { RepositoryBrowserMessage } from './repository-browser-message'
 import { RepositoryCodeListing } from './repository-code-listing'
 import { RepositoryRawBlobAction } from './repository-raw-blob-action'
+import { RepositoryRefSelector } from './repository-ref-selector'
 
 interface RepositoryBlobPreviewProps {
 	username: string
@@ -101,6 +111,16 @@ function RepositoryBlobShell({
 	refName,
 	path,
 }: Readonly<RepositoryBlobShellProps>) {
+	const summaryQuery = useRepositoryBrowserSummaryQuery({ slug, username })
+	const refOptions = summaryQuery.data
+		? getRepositoryRefOptions(summaryQuery.data)
+		: getFallbackRefOptions(refName)
+	const selectedRefName = getRepositoryRefDisplayName(refName)
+
+	function handleSelectedRefChange(nextRefName: string) {
+		window.location.assign(getBlobHref(username, slug, nextRefName, path))
+	}
+
 	return (
 		<section className="flex flex-col gap-4">
 			<header className="flex flex-col gap-3">
@@ -112,10 +132,14 @@ function RepositoryBlobShell({
 					username={username}
 				/>
 				<div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
-					<span className="rounded-md border border-border px-2 py-1 font-mono">
-						{refName}
-					</span>
+					<RepositoryRefSelector
+						disabled={summaryQuery.isLoading || summaryQuery.isError}
+						onSelectedRefChange={handleSelectedRefChange}
+						refs={refOptions}
+						selectedRef={refName}
+					/>
 					<span className="min-w-0 truncate">{path}</span>
+					<span className="sr-only">Selected ref {selectedRefName}</span>
 				</div>
 			</header>
 			{children}
@@ -211,4 +235,14 @@ function BlobLanguage({ preview }: Readonly<BlobLanguageProps>) {
 			{highlightedPreview.language}
 		</span>
 	)
+}
+
+function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
+	return [
+		{
+			kind: 'branch',
+			name: getRepositoryRefDisplayName(refName),
+			qualifiedName: refName,
+		},
+	]
 }

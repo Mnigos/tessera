@@ -1,5 +1,11 @@
 import type { RepositoryTree } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import {
+	getRepositoryRefDisplayName,
+	getRepositoryRefOptions,
+	type RepositoryRefOption,
+} from '../helpers/repository-refs'
+import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import {
 	getBlobHref,
@@ -7,6 +13,7 @@ import {
 	RepositoryBrowserBreadcrumbs,
 } from './repository-browser-breadcrumbs'
 import { RepositoryBrowserMessage } from './repository-browser-message'
+import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryTreeEntryRow } from './repository-tree-entry-row'
 
 interface RepositoryTreeBrowserProps {
@@ -96,6 +103,16 @@ function RepositoryBrowserShell({
 	refName,
 	path,
 }: Readonly<RepositoryBrowserShellProps>) {
+	const summaryQuery = useRepositoryBrowserSummaryQuery({ slug, username })
+	const refOptions = summaryQuery.data
+		? getRepositoryRefOptions(summaryQuery.data)
+		: getFallbackRefOptions(refName)
+	const selectedRefName = getRepositoryRefDisplayName(refName)
+
+	function handleSelectedRefChange(nextRefName: string) {
+		window.location.assign(getTreeHref(username, slug, nextRefName, path))
+	}
+
 	return (
 		<section className="flex flex-col gap-4">
 			<header className="flex flex-col gap-3">
@@ -106,10 +123,14 @@ function RepositoryBrowserShell({
 					username={username}
 				/>
 				<div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
-					<span className="rounded-md border border-border px-2 py-1 font-mono">
-						{refName}
-					</span>
+					<RepositoryRefSelector
+						disabled={summaryQuery.isLoading || summaryQuery.isError}
+						onSelectedRefChange={handleSelectedRefChange}
+						refs={refOptions}
+						selectedRef={refName}
+					/>
 					<span className="min-w-0 truncate">{path || 'Repository root'}</span>
+					<span className="sr-only">Selected ref {selectedRefName}</span>
 				</div>
 			</header>
 			{children}
@@ -189,4 +210,14 @@ function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {
 		)
 
 	return undefined
+}
+
+function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
+	return [
+		{
+			kind: 'branch',
+			name: getRepositoryRefDisplayName(refName),
+			qualifiedName: refName,
+		},
+	]
 }
