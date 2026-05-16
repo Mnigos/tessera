@@ -3,7 +3,9 @@ import {
 	type GitStorageGetRepositoryBlobParams,
 	type GitStorageGetRepositoryRawBlobParams,
 	type GitStorageGetRepositoryTreeParams,
+	type GitStorageListRepositoryCommitsParams,
 	type GitStorageRepositoryBlob,
+	type GitStorageRepositoryCommitHistory,
 	type GitStorageRepositoryRawBlob,
 	type GitStorageRepositoryTree,
 } from '@config/git-storage'
@@ -12,11 +14,13 @@ import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	GetRepositoryBlobInput,
+	GetRepositoryCommitHistoryInput,
 	GetRepositoryInput,
 	GetRepositoryTreeInput,
 	RepositoryBlob,
 	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
+	RepositoryCommitHistory,
 	RepositoryTree,
 	RepositoryWithOwner,
 } from '@repo/contracts'
@@ -314,6 +318,37 @@ export class RepositoriesService {
 		return blob.content
 	}
 
+	async getCommitHistory(
+		viewerUserId: UserId | undefined,
+		{ limit, ref, slug, username }: GetRepositoryCommitHistoryInput
+	): Promise<RepositoryCommitHistory> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
+		)
+		const commitHistory = await this.getRepositoryCommitsFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+				ref,
+				limit,
+			},
+			{
+				username,
+				slug,
+				ref,
+				path: '',
+			}
+		)
+		const repositoryOutput = toRepositoryOutput(repository)
+
+		return {
+			...repositoryOutput,
+			ref,
+			commits: commitHistory.commits,
+		}
+	}
+
 	async authorizeGitRepositoryRead({
 		slug,
 		username,
@@ -445,6 +480,17 @@ export class RepositoriesService {
 	): Promise<GitStorageRepositoryRawBlob> {
 		try {
 			return await this.gitStorageClient.getRepositoryRawBlob(params)
+		} catch (error) {
+			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private async getRepositoryCommitsFromStorage(
+		params: GitStorageListRepositoryCommitsParams,
+		context: RepositoryBrowserStorageErrorContext
+	): Promise<GitStorageRepositoryCommitHistory> {
+		try {
+			return await this.gitStorageClient.listRepositoryCommits(params)
 		} catch (error) {
 			throw toRepositoryBrowserReadError(error, context)
 		}

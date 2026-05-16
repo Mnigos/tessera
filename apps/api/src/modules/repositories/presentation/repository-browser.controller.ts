@@ -45,6 +45,14 @@ export class RepositoryBrowserController {
 			}
 		)
 	}
+
+	@Implement(contract.repositories.getCommitHistory)
+	getCommitHistory(@Session() session?: UserSession) {
+		return implement(contract.repositories.getCommitHistory).handler(
+			({ input }) =>
+				this.repositoriesService.getCommitHistory(session?.user.id, input)
+		)
+	}
 }
 
 function getRawBlobFilename(path: string) {

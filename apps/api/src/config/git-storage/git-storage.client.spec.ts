@@ -26,6 +26,7 @@ describe(GitStorageClient.name, () => {
 		getRepositoryTree: ReturnType<typeof vi.fn>
 		getRepositoryBlob: ReturnType<typeof vi.fn>
 		getRepositoryRawBlob: ReturnType<typeof vi.fn>
+		listRepositoryCommits: ReturnType<typeof vi.fn>
 	}
 
 	beforeEach(async () => {
@@ -96,6 +97,27 @@ describe(GitStorageClient.name, () => {
 					objectId: 'blob123',
 					content: new TextEncoder().encode('console.log("hi")'),
 					sizeBytes: 17,
+				})
+			),
+			listRepositoryCommits: vi.fn(() =>
+				of({
+					commits: [
+						{
+							sha: 'abcdef1234567890',
+							shortSha: 'abcdef1',
+							summary: 'Add repository browser',
+							author: {
+								name: 'Marta',
+								email: 'marta@example.com',
+								date: '2026-05-15T12:00:00Z',
+							},
+							committer: {
+								name: 'Codex',
+								email: 'codex@example.com',
+								date: '2026-05-15T12:05:00Z',
+							},
+						},
+					],
 				})
 			),
 		}
@@ -368,6 +390,57 @@ describe(GitStorageClient.name, () => {
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			objectId: 'blob123',
+		})
+	})
+
+	test('lists repository commits with identity metadata', async () => {
+		expect(
+			await client.listRepositoryCommits({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ref: 'main',
+				limit: 20,
+			})
+		).toEqual({
+			commits: [
+				{
+					sha: 'abcdef1234567890',
+					shortSha: 'abcdef1',
+					summary: 'Add repository browser',
+					author: {
+						name: 'Marta',
+						email: 'marta@example.com',
+						date: '2026-05-15T12:00:00Z',
+					},
+					committer: {
+						name: 'Codex',
+						email: 'codex@example.com',
+						date: '2026-05-15T12:05:00Z',
+					},
+				},
+			],
+		})
+		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			limit: 20,
+		})
+	})
+
+	test('lets storage use its default commit limit when omitted', async () => {
+		await client.listRepositoryCommits({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			limit: undefined,
+		})
+
+		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			ref: 'main',
+			limit: 0,
 		})
 	})
 

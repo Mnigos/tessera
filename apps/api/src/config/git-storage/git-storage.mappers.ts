@@ -1,9 +1,12 @@
 import type {
+	RepositoryCommit as GeneratedRepositoryCommit,
+	RepositoryCommitIdentity as GeneratedRepositoryCommitIdentity,
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
 	GetRepositoryBlobResponse,
 	GetRepositoryBrowserSummaryResponse,
 	GetRepositoryRawBlobResponse,
 	GetRepositoryTreeResponse,
+	ListRepositoryCommitsResponse,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	RepositoryBlobPreviewState,
@@ -12,6 +15,9 @@ import {
 import type {
 	GitStorageRepositoryBlob,
 	GitStorageRepositoryBrowserSummary,
+	GitStorageRepositoryCommit,
+	GitStorageRepositoryCommitHistory,
+	GitStorageRepositoryCommitIdentity,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
@@ -19,14 +25,34 @@ import type {
 
 const textDecoder = new TextDecoder()
 
-type RuntimeRepositoryBrowserSummaryResponse =
-	Partial<GetRepositoryBrowserSummaryResponse> & {
-		readme?: Partial<NonNullable<GetRepositoryBrowserSummaryResponse['readme']>>
-	}
-type RuntimeRepositoryTreeResponse = Partial<GetRepositoryTreeResponse>
-type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
-type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
-type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
+interface RuntimeRepositoryBrowserSummaryResponse
+	extends Omit<Partial<GetRepositoryBrowserSummaryResponse>, 'rootEntries'> {
+	rootEntries?: RuntimeRepositoryTreeEntry[]
+}
+
+interface RuntimeRepositoryTreeResponse
+	extends Omit<Partial<GetRepositoryTreeResponse>, 'entries'> {
+	entries?: RuntimeRepositoryTreeEntry[]
+}
+
+interface RuntimeRepositoryBlobResponse
+	extends Partial<GetRepositoryBlobResponse> {}
+
+interface RuntimeRepositoryRawBlobResponse
+	extends Partial<GetRepositoryRawBlobResponse> {}
+
+interface RuntimeRepositoryCommitHistoryResponse
+	extends Omit<Partial<ListRepositoryCommitsResponse>, 'commits'> {
+	commits?: RuntimeRepositoryCommit[]
+}
+
+interface RuntimeRepositoryTreeEntry
+	extends Partial<GeneratedRepositoryTreeEntry> {}
+
+interface RuntimeRepositoryCommit extends Partial<GeneratedRepositoryCommit> {}
+
+interface RuntimeRepositoryCommitIdentity
+	extends Partial<GeneratedRepositoryCommitIdentity> {}
 
 /**
  * Maps the git storage browser summary response into the API-facing repository browser model.
@@ -103,6 +129,17 @@ export function toRepositoryRawBlob({
 	}
 }
 
+/**
+ * Maps the git storage commit list response into the API-facing repository commit history model.
+ */
+export function toRepositoryCommitHistory({
+	commits,
+}: RuntimeRepositoryCommitHistoryResponse): GitStorageRepositoryCommitHistory {
+	return {
+		commits: (commits ?? []).map(toRepositoryCommit),
+	}
+}
+
 function toRepositoryTreeEntry(
 	entry: RuntimeRepositoryTreeEntry
 ): GitStorageRepositoryTreeEntry {
@@ -113,6 +150,34 @@ function toRepositoryTreeEntry(
 		sizeBytes: toUint64Number(entry.sizeBytes),
 		path: entry.path ?? '',
 		mode: entry.mode ?? '',
+	}
+}
+
+function toRepositoryCommit({
+	author,
+	committer,
+	sha,
+	shortSha,
+	summary,
+}: RuntimeRepositoryCommit): GitStorageRepositoryCommit {
+	return {
+		sha: sha ?? '',
+		shortSha: shortSha ?? '',
+		summary: summary ?? '',
+		author: toRepositoryCommitIdentity(author),
+		committer: toRepositoryCommitIdentity(committer),
+	}
+}
+
+function toRepositoryCommitIdentity(
+	identity: RuntimeRepositoryCommitIdentity | undefined
+): GitStorageRepositoryCommitIdentity | undefined {
+	if (!identity) return undefined
+
+	return {
+		name: identity.name ?? '',
+		email: identity.email ?? '',
+		date: identity.date ?? '',
 	}
 }
 
@@ -159,6 +224,6 @@ function toRepositoryTreeEntryKind(
 	return 'unknown'
 }
 
-function toUint64Number(value: number | string | undefined) {
+function toUint64Number(value: number | undefined) {
 	return Number(value ?? 0)
 }
