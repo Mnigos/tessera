@@ -7,6 +7,7 @@ import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
 import {
 	getFallbackRefOptions,
 	getSelectedRepositoryQualifiedRef,
+	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
 import { RepositoryOverview } from './repository-overview'
 
@@ -321,6 +322,21 @@ describe('RepositoryOverview', () => {
 				qualifiedName: 'refs/heads/main',
 			},
 		])
+	})
+
+	test('selects qualified ref options for bare refs', () => {
+		expect(
+			getSelectedRepositoryRefOption({
+				refName: 'main',
+				refs: [
+					{
+						kind: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+					},
+				],
+			})
+		).toBe('refs/heads/main')
 	})
 
 	test('shows a grouped branch and tag selector with default branch selected', async () => {

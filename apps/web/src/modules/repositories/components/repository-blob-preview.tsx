@@ -6,6 +6,7 @@ import {
 	getFallbackRefOptions,
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptionsFromRefs,
+	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
 import { useRepositoryRefsQuery } from '../hooks/use-repository-refs.query'
@@ -117,6 +118,10 @@ function RepositoryBlobShell({
 	const refOptions = refsQuery.data
 		? getRepositoryRefOptionsFromRefs(refsQuery.data)
 		: getFallbackRefOptions(refName)
+	const selectedRef = getSelectedRepositoryRefOption({
+		refName,
+		refs: refOptions,
+	})
 	const selectedRefName = getRepositoryRefDisplayName(refName)
 
 	function handleSelectedRefChange(nextRefName: string) {
@@ -138,7 +143,7 @@ function RepositoryBlobShell({
 						disabled={refsQuery.isLoading || refsQuery.isError}
 						onSelectedRefChange={handleSelectedRefChange}
 						refs={refOptions}
-						selectedRef={refName}
+						selectedRef={selectedRef}
 					/>
 					<span className="min-w-0 truncate">{path}</span>
 					<span className="sr-only">Selected ref {selectedRefName}</span>
