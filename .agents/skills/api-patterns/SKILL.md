@@ -19,6 +19,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Controllers bind oRPC contracts to handlers, extract session/auth data, and delegate to services.
 - Prefer oRPC contracts and `@Implement(...)` handlers for API routes. Do not add native Nest HTTP routes such as `@Get`, `@Post`, `@Res`, or raw `Response` handling unless you first verify oRPC cannot support the response shape and briefly document the exception in the implementation notes.
 - Name transport-specific controllers with a dot qualifier before `.controller`, such as `git-authorization.grpc.controller.ts`; keep the class name descriptive, such as `GitAuthorizationGrpcController`.
+- When generated transport types disagree with runtime values, inspect and fix the generator or loader configuration before widening mapper types or adding type assertions.
 - Controllers do not contain business logic, repository access, or response reshaping beyond passing contract input onward.
 - Use auth decorators from `@modules/auth`; `@RequireAuth()` is a decorator, not a guard.
 - Use `@AllowAnonymous()` or `@OptionalAuth()` only when the endpoint truly supports anonymous access.
