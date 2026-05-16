@@ -1,13 +1,18 @@
 use crate::config::Config;
-use crate::domain::{RepositoryBlobPreview, RepositoryError, RepositoryTreeEntryKind};
+use crate::domain::{
+    RepositoryBlobPreview, RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
+    RepositoryError, RepositoryTreeEntryKind,
+};
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
     CreateRepositoryRequest, CreateRepositoryResponse, GetRepositoryBlobRequest,
     GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
     GetRepositoryBrowserSummaryResponse, GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse,
     GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
-    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryReadme,
-    RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
+    ListRepositoryCommitsRequest, ListRepositoryCommitsResponse,
+    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryCommit,
+    RepositoryCommitIdentity, RepositoryReadme, RepositoryTreeEntry,
+    RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
 };
 use crate::storage::application::GitStorageApplication;
 use crate::storage::infrastructure::RepositoryStorage;
@@ -166,6 +171,37 @@ impl GitStorageService for GitStorageGrpcService {
             size_bytes: blob.size_bytes,
         }))
     }
+
+    async fn list_repository_commits(
+        &self,
+        request: Request<ListRepositoryCommitsRequest>,
+    ) -> Result<Response<ListRepositoryCommitsResponse>, Status> {
+        let request = request.into_inner();
+        let commit_list = self
+            .application
+            .list_repository_commits(
+                &request.repository_id,
+                &request.storage_path,
+                &request.r#ref,
+                request.limit,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(ListRepositoryCommitsResponse {
+            commits: commit_list
+                .commits
+                .into_iter()
+                .map(|commit| RepositoryCommit {
+                    sha: commit.sha,
+                    short_sha: commit.short_sha,
+                    summary: commit.summary,
+                    author: Some(proto_commit_identity(commit.author)),
+                    committer: Some(proto_commit_identity(commit.committer)),
+                })
+                .collect(),
+        }))
+    }
 }
 
 fn repository_error_to_status(error: RepositoryError) -> Status {
@@ -248,5 +284,13 @@ fn proto_tree_entry_kind(kind: RepositoryTreeEntryKind) -> ProtoRepositoryTreeEn
         RepositoryTreeEntryKind::Directory => ProtoRepositoryTreeEntryKind::Directory,
         RepositoryTreeEntryKind::Symlink => ProtoRepositoryTreeEntryKind::Symlink,
         RepositoryTreeEntryKind::Submodule => ProtoRepositoryTreeEntryKind::Submodule,
+    }
+}
+
+fn proto_commit_identity(identity: DomainRepositoryCommitIdentity) -> RepositoryCommitIdentity {
+    RepositoryCommitIdentity {
+        name: identity.name,
+        email: identity.email,
+        date: identity.date,
     }
 }

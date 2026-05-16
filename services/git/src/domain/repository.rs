@@ -23,6 +23,27 @@ pub struct RepositoryTree {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryCommitList {
+    pub commits: Vec<RepositoryCommit>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryCommit {
+    pub sha: String,
+    pub short_sha: String,
+    pub summary: String,
+    pub author: RepositoryCommitIdentity,
+    pub committer: RepositoryCommitIdentity,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryCommitIdentity {
+    pub name: String,
+    pub email: String,
+    pub date: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct RepositoryTreeEntry {
     pub name: String,
     pub object_id: String,
