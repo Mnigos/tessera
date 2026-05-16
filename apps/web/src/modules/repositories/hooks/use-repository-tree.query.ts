@@ -1,14 +1,11 @@
-import type { RepositoryTree } from '@repo/contracts'
+import type { GetRepositoryTreeInput } from '@repo/contracts'
+import { getRepositoryTreeInputSchema } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export type RepositoryTreeResult = RepositoryTree
-
-export interface RepositoryTreePathInput {
-	username: string
+export interface RepositoryTreePathInput
+	extends Omit<GetRepositoryTreeInput, 'slug'> {
 	slug: string
-	ref: string
-	path?: string
 }
 
 export function useRepositoryTreeQuery(input: RepositoryTreePathInput) {
@@ -27,10 +24,10 @@ function getRepositoryTreeInput({
 	ref,
 	path,
 }: RepositoryTreePathInput) {
-	return {
+	return getRepositoryTreeInputSchema.parse({
 		username,
 		slug,
 		ref,
 		path: path || undefined,
-	}
+	})
 }

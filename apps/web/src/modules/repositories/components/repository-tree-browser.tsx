@@ -1,5 +1,5 @@
+import type { RepositoryTree } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
-import type { RepositoryTreeResult } from '../hooks/use-repository-tree.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import {
 	getBlobHref,
@@ -141,7 +141,7 @@ const repositoryTreeLoadingRows = [
 ]
 
 interface TreeEntriesProps {
-	tree: RepositoryTreeResult
+	tree: RepositoryTree
 }
 
 function TreeEntries({ tree }: Readonly<TreeEntriesProps>) {
@@ -167,8 +167,8 @@ function TreeEntries({ tree }: Readonly<TreeEntriesProps>) {
 }
 
 interface GetTreeEntryHrefInput {
-	entry: RepositoryTreeResult['entries'][number]
-	tree: RepositoryTreeResult
+	entry: RepositoryTree['entries'][number]
+	tree: RepositoryTree
 }
 
 function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {

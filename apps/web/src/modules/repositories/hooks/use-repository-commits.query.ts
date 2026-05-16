@@ -1,14 +1,11 @@
-import type { RepositoryCommitHistory } from '@repo/contracts'
+import type { GetRepositoryCommitHistoryInput } from '@repo/contracts'
+import { getRepositoryCommitHistoryInputSchema } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export type RepositoryCommitsResult = RepositoryCommitHistory
-export type RepositoryCommit = RepositoryCommitHistory['commits'][number]
-
-export interface RepositoryCommitsInput {
-	username: string
+export interface RepositoryCommitsInput
+	extends Omit<GetRepositoryCommitHistoryInput, 'slug'> {
 	slug: string
-	ref: string
 }
 
 export function useRepositoryCommitsQuery(input: RepositoryCommitsInput) {
@@ -19,6 +16,6 @@ export function getRepositoryCommitsQueryOptions(
 	input: RepositoryCommitsInput
 ) {
 	return orpcQuery.repositories.getCommitHistory.queryOptions({
-		input,
+		input: getRepositoryCommitHistoryInputSchema.parse(input),
 	})
 }

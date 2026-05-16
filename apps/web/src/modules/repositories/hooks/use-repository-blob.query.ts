@@ -1,14 +1,11 @@
-import type { RepositoryBlob } from '@repo/contracts'
+import type { GetRepositoryBlobInput } from '@repo/contracts'
+import { getRepositoryBlobInputSchema } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export type RepositoryBlobResult = RepositoryBlob
-
-export interface RepositoryBlobPathInput {
-	username: string
+export interface RepositoryBlobPathInput
+	extends Omit<GetRepositoryBlobInput, 'slug'> {
 	slug: string
-	ref: string
-	path: string
 }
 
 export function useRepositoryBlobQuery(input: RepositoryBlobPathInput) {
@@ -27,10 +24,10 @@ function getRepositoryBlobInput({
 	ref,
 	path,
 }: RepositoryBlobPathInput) {
-	return {
+	return getRepositoryBlobInputSchema.parse({
 		username,
 		slug,
 		ref,
 		path,
-	}
+	})
 }

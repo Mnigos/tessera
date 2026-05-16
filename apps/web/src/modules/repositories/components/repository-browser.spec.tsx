@@ -1,11 +1,13 @@
-import { repositorySchema } from '@repo/contracts'
+import {
+	type RepositoryBlob,
+	type RepositoryCommitHistory as RepositoryCommitHistoryResult,
+	type RepositoryTree,
+	repositorySchema,
+} from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
-import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
-import type { RepositoryCommitsResult } from '../hooks/use-repository-commits.query'
 import { useRepositoryCommitsQuery } from '../hooks/use-repository-commits.query'
-import type { RepositoryTreeResult } from '../hooks/use-repository-tree.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import { RepositoryBlobPreview } from './repository-blob-preview'
 import { RepositoryCommitHistory } from './repository-commit-history'
@@ -90,7 +92,7 @@ const baseTree = {
 			mode: '000000',
 		},
 	],
-} satisfies RepositoryTreeResult
+} satisfies RepositoryTree
 
 const baseBlob = {
 	owner: { username: 'mnigos' },
@@ -112,7 +114,7 @@ const baseBlob = {
 		type: 'text',
 		content: 'export const moduleName = "repositories"\n',
 	},
-} satisfies RepositoryBlobResult
+} satisfies RepositoryBlob
 
 const baseCommits = {
 	owner: { username: 'mnigos' },
@@ -158,7 +160,7 @@ const baseCommits = {
 			},
 		},
 	],
-} satisfies RepositoryCommitsResult
+} satisfies RepositoryCommitHistoryResult
 
 describe('Repository browser components', () => {
 	afterEach(() => {

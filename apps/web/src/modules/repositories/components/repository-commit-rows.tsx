@@ -1,3 +1,4 @@
+import type { RepositoryCommit } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import {
 	formatRepositoryCommitDate,
@@ -5,7 +6,6 @@ import {
 	formatRepositoryCommitIdentity,
 	hasDifferentRepositoryCommitter,
 } from '../helpers/repository-commit-formatting'
-import type { RepositoryCommit } from '../hooks/use-repository-commits.query'
 import { RepositoryBrowserMessage } from './repository-browser-message'
 
 interface RepositoryCommitRowsProps {
