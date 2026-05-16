@@ -16,6 +16,13 @@ export class RepositoryBrowserController {
 		)
 	}
 
+	@Implement(contract.repositories.getRefs)
+	getRefs(@Session() session?: UserSession) {
+		return implement(contract.repositories.getRefs).handler(({ input }) =>
+			this.repositoriesService.getRefs(session?.user.id, input)
+		)
+	}
+
 	@Implement(contract.repositories.getTree)
 	getTree(@Session() session?: UserSession) {
 		return implement(contract.repositories.getTree).handler(({ input }) =>

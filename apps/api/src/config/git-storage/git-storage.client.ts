@@ -23,12 +23,14 @@ import {
 	type GitStorageServiceClient,
 	type HealthResponse,
 	type ListRepositoryCommitsResponse,
+	type ListRepositoryRefsResponse,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
 	toRepositoryCommitHistory,
 	toRepositoryRawBlob,
+	toRepositoryRefs,
 	toRepositoryTree,
 } from './git-storage.mappers'
 
@@ -44,6 +46,12 @@ export interface GitStorageCreateRepositoryResult {
 
 export interface GitStorageGetRepositoryBrowserSummaryParams {
 	defaultBranch: string
+	ref?: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageListRepositoryRefsParams {
 	repositoryId: RepositoryId
 	storagePath: string
 }
@@ -95,6 +103,29 @@ export interface GitStorageRepositoryBrowserSummary {
 	isEmpty: boolean
 	readme?: GitStorageRepositoryReadme
 	rootEntries: GitStorageRepositoryTreeEntry[]
+}
+
+export interface GitStorageRepositoryBranchRef {
+	type: 'branch'
+	name: string
+	qualifiedName: string
+	target: string
+}
+
+export interface GitStorageRepositoryTagRef {
+	type: 'tag'
+	name: string
+	qualifiedName: string
+	target: string
+}
+
+export type GitStorageRepositoryRef =
+	| GitStorageRepositoryBranchRef
+	| GitStorageRepositoryTagRef
+
+export interface GitStorageRepositoryRefs {
+	branches: GitStorageRepositoryBranchRef[]
+	tags: GitStorageRepositoryTagRef[]
 }
 
 export interface GitStorageRepositoryTree {
@@ -179,6 +210,7 @@ export class GitStorageClient implements OnModuleInit {
 
 	async getRepositoryBrowserSummary({
 		defaultBranch,
+		ref,
 		repositoryId,
 		storagePath,
 	}: GitStorageGetRepositoryBrowserSummaryParams): Promise<GitStorageRepositoryBrowserSummary> {
@@ -188,11 +220,28 @@ export class GitStorageClient implements OnModuleInit {
 					repositoryId,
 					storagePath,
 					defaultBranch,
+					ref: ref ?? '',
 				})
 				.pipe(mapGitStorageErrors<GetRepositoryBrowserSummaryResponse>())
 		)
 
 		return toRepositoryBrowserSummary(response)
+	}
+
+	async listRepositoryRefs({
+		repositoryId,
+		storagePath,
+	}: GitStorageListRepositoryRefsParams): Promise<GitStorageRepositoryRefs> {
+		const response = await firstValueFrom(
+			this.service
+				.listRepositoryRefs({
+					repositoryId,
+					storagePath,
+				})
+				.pipe(mapGitStorageErrors<ListRepositoryRefsResponse>())
+		)
+
+		return toRepositoryRefs(response)
 	}
 
 	async getRepositoryTree({

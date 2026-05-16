@@ -4,9 +4,12 @@ import {
 	type GitStorageGetRepositoryRawBlobParams,
 	type GitStorageGetRepositoryTreeParams,
 	type GitStorageListRepositoryCommitsParams,
+	type GitStorageListRepositoryRefsParams,
 	type GitStorageRepositoryBlob,
 	type GitStorageRepositoryCommitHistory,
 	type GitStorageRepositoryRawBlob,
+	type GitStorageRepositoryRef,
+	type GitStorageRepositoryRefs,
 	type GitStorageRepositoryTree,
 } from '@config/git-storage'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
@@ -14,13 +17,16 @@ import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	GetRepositoryBlobInput,
+	GetRepositoryBrowserSummaryInput,
 	GetRepositoryCommitHistoryInput,
 	GetRepositoryInput,
+	GetRepositoryRefsInput,
 	GetRepositoryTreeInput,
 	RepositoryBlob,
 	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
 	RepositoryCommitHistory,
+	RepositoryRefs,
 	RepositoryTree,
 	RepositoryWithOwner,
 } from '@repo/contracts'
@@ -38,6 +44,7 @@ import {
 import {
 	DuplicateRepositorySlugError,
 	PrivateRepositoryGitReadForbiddenError,
+	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryGitWriteForbiddenError,
@@ -166,24 +173,76 @@ export class RepositoriesService {
 
 	async getBrowserSummary(
 		viewerUserId: UserId | undefined,
-		{ slug, username }: GetRepositoryInput
+		{ ref, slug, username }: GetRepositoryBrowserSummaryInput
 	): Promise<RepositoryBrowserSummary> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
 			{ slug, username }
 		)
+		const refs = await this.getRepositoryRefsFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+			},
+			{
+				username,
+				slug,
+				ref: ref ?? repository.defaultBranch,
+				path: '',
+			}
+		)
+		const selectedRef = this.resolveSelectedRef({
+			refs,
+			ref,
+			defaultBranch: repository.defaultBranch,
+			username,
+			slug,
+		})
 
 		const browserSummary =
 			await this.gitStorageClient.getRepositoryBrowserSummary({
 				repositoryId: repository.id,
 				storagePath,
 				defaultBranch: repository.defaultBranch,
+				ref: selectedRef?.qualifiedName ?? ref,
 			})
 		const repositoryOutput = toRepositoryOutput(repository)
 
 		return {
 			...repositoryOutput,
 			...browserSummary,
+			selectedRef,
+			branches: refs.branches,
+			tags: refs.tags,
+		}
+	}
+
+	async getRefs(
+		viewerUserId: UserId | undefined,
+		{ slug, username }: GetRepositoryRefsInput
+	): Promise<RepositoryRefs> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			{ slug, username }
+		)
+		const refs = await this.getRepositoryRefsFromStorage(
+			{
+				repositoryId: repository.id,
+				storagePath,
+			},
+			{
+				username,
+				slug,
+				ref: repository.defaultBranch,
+				path: '',
+			}
+		)
+		const repositoryOutput = toRepositoryOutput(repository)
+
+		return {
+			...repositoryOutput,
+			branches: refs.branches,
+			tags: refs.tags,
 		}
 	}
 
@@ -496,6 +555,49 @@ export class RepositoriesService {
 		}
 	}
 
+	private async getRepositoryRefsFromStorage(
+		params: GitStorageListRepositoryRefsParams,
+		context: RepositoryBrowserStorageErrorContext
+	): Promise<GitStorageRepositoryRefs> {
+		try {
+			return await this.gitStorageClient.listRepositoryRefs(params)
+		} catch (error) {
+			throw toRepositoryBrowserReadError(error, context)
+		}
+	}
+
+	private resolveSelectedRef({
+		defaultBranch,
+		ref,
+		refs,
+		slug,
+		username,
+	}: {
+		defaultBranch: string
+		ref: string | undefined
+		refs: GitStorageRepositoryRefs
+		slug: RepositorySlug
+		username: string
+	}): GitStorageRepositoryRef | undefined {
+		const selectedName = ref ?? defaultBranch
+		const searchableRefs = ref
+			? [...refs.branches, ...refs.tags]
+			: refs.branches
+		const selectedRef = searchableRefs.find(repositoryRef =>
+			isSelectedRepositoryRef(repositoryRef, selectedName)
+		)
+
+		if (selectedRef) return selectedRef
+		if (!ref) return undefined
+
+		throw new RepositoryBrowserInvalidRequestError({
+			username,
+			slug,
+			ref,
+			path: '',
+		})
+	}
+
 	private async enrichBlobPreview(
 		path: string,
 		preview: RepositoryBlobPreview
@@ -550,4 +652,12 @@ function getParentPath(path: string) {
 	if (lastSeparatorIndex === -1) return ''
 
 	return path.slice(0, lastSeparatorIndex)
+}
+
+function isSelectedRepositoryRef(
+	repositoryRef: GitStorageRepositoryRef,
+	selectedName: string
+) {
+	if (repositoryRef.name === selectedName) return true
+	return repositoryRef.qualifiedName === selectedName
 }

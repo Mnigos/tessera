@@ -1,15 +1,18 @@
 import type {
 	RepositoryCommit as GeneratedRepositoryCommit,
 	RepositoryCommitIdentity as GeneratedRepositoryCommitIdentity,
+	RepositoryRef as GeneratedRepositoryRef,
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
 	GetRepositoryBlobResponse,
 	GetRepositoryBrowserSummaryResponse,
 	GetRepositoryRawBlobResponse,
 	GetRepositoryTreeResponse,
 	ListRepositoryCommitsResponse,
+	ListRepositoryRefsResponse,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryRefKind,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import type {
@@ -19,6 +22,7 @@ import type {
 	GitStorageRepositoryCommitHistory,
 	GitStorageRepositoryCommitIdentity,
 	GitStorageRepositoryRawBlob,
+	GitStorageRepositoryRefs,
 	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
 } from './git-storage.client'
@@ -44,6 +48,11 @@ interface RuntimeRepositoryCommitHistoryResponse
 	commits?: RuntimeRepositoryCommit[]
 }
 
+interface RuntimeRepositoryRefsResponse
+	extends Omit<Partial<ListRepositoryRefsResponse>, 'refs'> {
+	refs?: RuntimeRepositoryRef[]
+}
+
 type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
 type RuntimeRepositoryCommit = Partial<GeneratedRepositoryCommit>
@@ -51,8 +60,10 @@ type RuntimeRepositoryCommit = Partial<GeneratedRepositoryCommit>
 type RuntimeRepositoryCommitIdentity =
 	Partial<GeneratedRepositoryCommitIdentity>
 
+type RuntimeRepositoryRef = Partial<GeneratedRepositoryRef>
+
 /**
- * Maps the git storage browser summary response into the API-facing repository browser model.
+ * Converts a browser summary gRPC payload into the repository browser model exposed by the API.
  */
 export function toRepositoryBrowserSummary({
 	defaultBranch,
@@ -76,7 +87,7 @@ export function toRepositoryBrowserSummary({
 }
 
 /**
- * Maps the git storage tree response into the API-facing repository tree model.
+ * Converts a tree gRPC payload into the API tree model while normalizing missing entry fields.
  */
 export function toRepositoryTree({
 	commitId,
@@ -91,7 +102,7 @@ export function toRepositoryTree({
 }
 
 /**
- * Maps the git storage blob preview response into the API-facing repository blob model.
+ * Converts a blob preview gRPC payload into the API blob model and preview union.
  */
 export function toRepositoryBlob({
 	objectId,
@@ -112,7 +123,7 @@ export function toRepositoryBlob({
 }
 
 /**
- * Maps the git storage raw blob response into the API-facing raw blob byte model.
+ * Converts a raw blob gRPC payload into the API raw blob byte model.
  */
 export function toRepositoryRawBlob({
 	content,
@@ -127,7 +138,7 @@ export function toRepositoryRawBlob({
 }
 
 /**
- * Maps the git storage commit list response into the API-facing repository commit history model.
+ * Converts a commit list gRPC payload into the API commit history model.
  */
 export function toRepositoryCommitHistory({
 	commits,
@@ -137,6 +148,27 @@ export function toRepositoryCommitHistory({
 	}
 }
 
+/**
+ * Groups branch and tag gRPC refs into API ref lists with display names, qualified names, and targets.
+ */
+export function toRepositoryRefs({
+	refs,
+}: RuntimeRepositoryRefsResponse): GitStorageRepositoryRefs {
+	const repositoryRefs = refs ?? []
+
+	return {
+		branches: repositoryRefs
+			.filter(ref => ref.kind === RepositoryRefKind.REPOSITORY_REF_KIND_BRANCH)
+			.map(ref => toRepositoryRef('branch', ref)),
+		tags: repositoryRefs
+			.filter(ref => ref.kind === RepositoryRefKind.REPOSITORY_REF_KIND_TAG)
+			.map(ref => toRepositoryRef('tag', ref)),
+	}
+}
+
+/**
+ * Normalizes a single tree entry from the generated gRPC shape into the API tree entry shape.
+ */
 function toRepositoryTreeEntry(
 	entry: RuntimeRepositoryTreeEntry
 ): GitStorageRepositoryTreeEntry {
@@ -150,6 +182,40 @@ function toRepositoryTreeEntry(
 	}
 }
 
+/**
+ * Normalizes a branch ref from the generated gRPC shape into the API branch ref shape.
+ */
+function toRepositoryRef(
+	type: 'branch',
+	{ commitId, displayName, qualifiedName }: RuntimeRepositoryRef
+): GitStorageRepositoryRefs['branches'][number]
+/**
+ * Normalizes a tag ref from the generated gRPC shape into the API tag ref shape.
+ */
+function toRepositoryRef(
+	type: 'tag',
+	{ commitId, displayName, qualifiedName }: RuntimeRepositoryRef
+): GitStorageRepositoryRefs['tags'][number]
+/**
+ * Normalizes a repository ref from the generated gRPC shape into the matching API ref shape.
+ */
+function toRepositoryRef(
+	type: 'branch' | 'tag',
+	{ commitId, displayName, qualifiedName }: RuntimeRepositoryRef
+):
+	| GitStorageRepositoryRefs['branches'][number]
+	| GitStorageRepositoryRefs['tags'][number] {
+	return {
+		type,
+		name: displayName ?? '',
+		qualifiedName: qualifiedName ?? '',
+		target: commitId ?? '',
+	}
+}
+
+/**
+ * Normalizes a single commit from the generated gRPC shape into the API commit shape.
+ */
 function toRepositoryCommit({
 	author,
 	committer,
@@ -166,6 +232,9 @@ function toRepositoryCommit({
 	}
 }
 
+/**
+ * Normalizes optional commit identity metadata, preserving absence when Git omits it.
+ */
 function toRepositoryCommitIdentity(
 	identity: RuntimeRepositoryCommitIdentity | undefined
 ): GitStorageRepositoryCommitIdentity | undefined {
@@ -178,6 +247,9 @@ function toRepositoryCommitIdentity(
 	}
 }
 
+/**
+ * Converts the generated blob preview enum fields into the API preview union.
+ */
 function toRepositoryBlobPreview({
 	previewLimitBytes,
 	state,
@@ -206,6 +278,9 @@ function toRepositoryBlobPreview({
 	return { type: 'binary' as const }
 }
 
+/**
+ * Converts generated tree entry kind enums into the API tree entry kind union.
+ */
 function toRepositoryTreeEntryKind(
 	kind: RepositoryTreeEntryKind | undefined
 ): GitStorageRepositoryTreeEntry['kind'] {
@@ -221,6 +296,9 @@ function toRepositoryTreeEntryKind(
 	return 'unknown'
 }
 
+/**
+ * Converts optional generated uint64 numeric fields to API numbers with a zero fallback.
+ */
 function toUint64Number(value: number | undefined) {
 	return Number(value ?? 0)
 }
