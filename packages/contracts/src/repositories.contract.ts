@@ -54,6 +54,19 @@ export const getRepositoryInputSchema = z.object({
 })
 export type GetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
 
+export const getRepositoryBrowserSummaryInputSchema =
+	getRepositoryInputSchema.extend({
+		ref: z.string().min(1).optional(),
+	})
+export type GetRepositoryBrowserSummaryInput = z.infer<
+	typeof getRepositoryBrowserSummaryInputSchema
+>
+
+export const getRepositoryRefsInputSchema = getRepositoryInputSchema
+export type GetRepositoryRefsInput = z.infer<
+	typeof getRepositoryRefsInputSchema
+>
+
 export const getRepositoryTreeInputSchema = getRepositoryInputSchema.extend({
 	ref: z.string().min(1),
 	path: z.string().optional(),
@@ -97,11 +110,44 @@ export const repositoryReadmeSchema = z.object({
 })
 export type RepositoryReadme = z.infer<typeof repositoryReadmeSchema>
 
+export const repositoryBranchRefSchema = z.object({
+	type: z.literal('branch'),
+	name: z.string(),
+	qualifiedName: z.string(),
+	target: z.string(),
+})
+export type RepositoryBranchRef = z.infer<typeof repositoryBranchRefSchema>
+
+export const repositoryTagRefSchema = z.object({
+	type: z.literal('tag'),
+	name: z.string(),
+	qualifiedName: z.string(),
+	target: z.string(),
+})
+export type RepositoryTagRef = z.infer<typeof repositoryTagRefSchema>
+
+export const repositoryRefSchema = z.discriminatedUnion('type', [
+	repositoryBranchRefSchema,
+	repositoryTagRefSchema,
+])
+export type RepositoryRef = z.infer<typeof repositoryRefSchema>
+
+export const repositoryRefsSchema = z.object({
+	repository: repositorySchema,
+	owner: repositoryOwnerSchema,
+	branches: z.array(repositoryBranchRefSchema),
+	tags: z.array(repositoryTagRefSchema),
+})
+export type RepositoryRefs = z.infer<typeof repositoryRefsSchema>
+
 export const repositoryBrowserSummarySchema = z.object({
 	repository: repositorySchema,
 	owner: repositoryOwnerSchema,
 	isEmpty: z.boolean(),
 	defaultBranch: z.string(),
+	selectedRef: repositoryRefSchema.optional(),
+	branches: z.array(repositoryBranchRefSchema),
+	tags: z.array(repositoryTagRefSchema),
 	rootEntries: z.array(repositoryTreeEntrySchema),
 	readme: repositoryReadmeSchema.optional(),
 })
@@ -204,8 +250,15 @@ export const repositoriesContract = {
 			method: 'GET',
 			path: '/repositories/{username}/{slug}/browser',
 		})
-		.input(getRepositoryInputSchema)
+		.input(getRepositoryBrowserSummaryInputSchema)
 		.output(repositoryBrowserSummarySchema),
+	getRefs: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/refs',
+		})
+		.input(getRepositoryRefsInputSchema)
+		.output(repositoryRefsSchema),
 	getTree: oc
 		.route({
 			method: 'GET',

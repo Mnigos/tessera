@@ -1,6 +1,7 @@
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryRefKind,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import {
@@ -8,6 +9,7 @@ import {
 	toRepositoryBrowserSummary,
 	toRepositoryCommitHistory,
 	toRepositoryRawBlob,
+	toRepositoryRefs,
 	toRepositoryTree,
 } from './git-storage.mappers'
 
@@ -222,6 +224,53 @@ describe('git storage mappers', () => {
 					committer: undefined,
 				},
 			],
+		})
+	})
+
+	test('maps repository refs into branch and tag groups', () => {
+		expect(
+			toRepositoryRefs({
+				refs: [
+					{
+						kind: RepositoryRefKind.REPOSITORY_REF_KIND_BRANCH,
+						displayName: 'main',
+						qualifiedName: 'refs/heads/main',
+						commitId: 'abc123',
+						isDefaultBranch: true,
+					},
+					{
+						kind: RepositoryRefKind.REPOSITORY_REF_KIND_TAG,
+						displayName: 'v1.0.0',
+						qualifiedName: 'refs/tags/v1.0.0',
+						commitId: 'def456',
+						isDefaultBranch: false,
+					},
+				],
+			})
+		).toEqual({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'abc123',
+				},
+			],
+			tags: [
+				{
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'def456',
+				},
+			],
+		})
+	})
+
+	test('maps missing repository refs to empty lists', () => {
+		expect(toRepositoryRefs({})).toEqual({
+			branches: [],
+			tags: [],
 		})
 	})
 })

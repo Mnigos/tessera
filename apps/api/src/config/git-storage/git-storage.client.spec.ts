@@ -10,6 +10,7 @@ import {
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryRefKind,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
@@ -27,6 +28,7 @@ describe(GitStorageClient.name, () => {
 		getRepositoryTree: ReturnType<typeof vi.fn>
 		getRepositoryBlob: ReturnType<typeof vi.fn>
 		getRepositoryRawBlob: ReturnType<typeof vi.fn>
+		listRepositoryRefs: ReturnType<typeof vi.fn>
 		listRepositoryCommits: ReturnType<typeof vi.fn>
 	}
 
@@ -98,6 +100,26 @@ describe(GitStorageClient.name, () => {
 					objectId: 'blob123',
 					content: new TextEncoder().encode('console.log("hi")'),
 					sizeBytes: 17,
+				})
+			),
+			listRepositoryRefs: vi.fn(() =>
+				of({
+					refs: [
+						{
+							kind: RepositoryRefKind.REPOSITORY_REF_KIND_BRANCH,
+							displayName: 'main',
+							qualifiedName: 'refs/heads/main',
+							commitId: 'abc123',
+							isDefaultBranch: true,
+						},
+						{
+							kind: RepositoryRefKind.REPOSITORY_REF_KIND_TAG,
+							displayName: 'v1.0.0',
+							qualifiedName: 'refs/tags/v1.0.0',
+							commitId: 'def456',
+							isDefaultBranch: false,
+						},
+					],
 				})
 			),
 			listRepositoryCommits: vi.fn(() =>
@@ -185,6 +207,7 @@ describe(GitStorageClient.name, () => {
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'main',
+			ref: '',
 		})
 	})
 
@@ -222,6 +245,52 @@ describe(GitStorageClient.name, () => {
 				],
 			})
 		)
+	})
+
+	test('passes an optional browser summary ref to git storage', async () => {
+		await client.getRepositoryBrowserSummary({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'main',
+			ref: 'feature/ref-browser',
+		})
+
+		expect(gitStorageService.getRepositoryBrowserSummary).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'main',
+			ref: 'feature/ref-browser',
+		})
+	})
+
+	test('lists repository refs without exposing storage fields', async () => {
+		expect(
+			await client.listRepositoryRefs({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+			})
+		).toEqual({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'abc123',
+				},
+			],
+			tags: [
+				{
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'def456',
+				},
+			],
+		})
+		expect(gitStorageService.listRepositoryRefs).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
 	})
 
 	test('maps repository tree entries and normalizes uint64 values', async () => {

@@ -4,6 +4,7 @@ import {
 	repositoryBlobSchema,
 	repositoryBrowserSummarySchema,
 	repositoryCommitHistorySchema,
+	repositoryRefsSchema,
 	repositoryTreeSchema,
 } from '@repo/contracts'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
@@ -49,6 +50,7 @@ describe(RepositoriesController.name, () => {
 						list: vi.fn(),
 						get: vi.fn(),
 						getBrowserSummary: vi.fn(),
+						getRefs: vi.fn(),
 						getTree: vi.fn(),
 						getBlob: vi.fn(),
 						getRawBlob: vi.fn(),
@@ -166,6 +168,28 @@ describe(RepositoriesController.name, () => {
 			...repository,
 			isEmpty: false,
 			defaultBranch: 'main',
+			selectedRef: {
+				type: 'branch' as const,
+				name: 'main',
+				qualifiedName: 'refs/heads/main',
+				target: 'abc123',
+			},
+			branches: [
+				{
+					type: 'branch' as const,
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'abc123',
+				},
+			],
+			tags: [
+				{
+					type: 'tag' as const,
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'def456',
+				},
+			],
 			rootEntries: [
 				{
 					name: 'README.md',
@@ -191,7 +215,11 @@ describe(RepositoriesController.name, () => {
 			await repositoryBrowserController
 				.getBrowserSummary(session)
 				['~orpc'].handler({
-					input: { username: 'marta', slug: repository.repository.slug },
+					input: {
+						username: 'marta',
+						slug: repository.repository.slug,
+						ref: 'main',
+					},
 					context: {},
 					path: ['repositories', 'getBrowserSummary'],
 					procedure: repositoryBrowserController.getBrowserSummary(session),
@@ -202,6 +230,7 @@ describe(RepositoriesController.name, () => {
 		expect(getBrowserSummarySpy).toHaveBeenCalledWith(mockUserId, {
 			username: 'marta',
 			slug: repository.repository.slug,
+			ref: 'main',
 		})
 	})
 
@@ -210,6 +239,9 @@ describe(RepositoriesController.name, () => {
 			...repository,
 			isEmpty: true,
 			defaultBranch: 'main',
+			selectedRef: undefined,
+			branches: [],
+			tags: [],
 			rootEntries: [],
 			readme: undefined,
 		}
@@ -228,6 +260,46 @@ describe(RepositoriesController.name, () => {
 			})
 		).toEqual(browserSummary)
 		expect(getBrowserSummarySpy).toHaveBeenCalledWith(undefined, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
+	})
+
+	test('delegates refs requests with an optional viewer', async () => {
+		const refs = {
+			...repository,
+			branches: [
+				{
+					type: 'branch' as const,
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'abc123',
+				},
+			],
+			tags: [
+				{
+					type: 'tag' as const,
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'def456',
+				},
+			],
+		}
+		const getRefsSpy = vi
+			.spyOn(repositoriesService, 'getRefs')
+			.mockResolvedValue(refs)
+
+		expect(
+			await repositoryBrowserController.getRefs(session)['~orpc'].handler({
+				input: { username: 'marta', slug: repository.repository.slug },
+				context: {},
+				path: ['repositories', 'getRefs'],
+				procedure: repositoryBrowserController.getRefs(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(refs)
+		expect(getRefsSpy).toHaveBeenCalledWith(mockUserId, {
 			username: 'marta',
 			slug: repository.repository.slug,
 		})
@@ -416,6 +488,28 @@ describe(RepositoriesController.name, () => {
 				storagePath: '/internal/repositories/notes.git',
 				isEmpty: false,
 				defaultBranch: 'main',
+				selectedRef: {
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'abc123',
+				},
+				branches: [
+					{
+						type: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+						target: 'abc123',
+					},
+				],
+				tags: [
+					{
+						type: 'tag',
+						name: 'v1.0.0',
+						qualifiedName: 'refs/tags/v1.0.0',
+						target: 'def456',
+					},
+				],
 				rootEntries: [
 					{
 						name: 'README.md',
@@ -432,6 +526,35 @@ describe(RepositoriesController.name, () => {
 					content: '# Tessera',
 					isTruncated: false,
 				},
+			})
+		).toEqual(
+			expect.not.objectContaining({
+				storagePath: expect.any(String),
+			})
+		)
+	})
+
+	test('validates refs contract output without storage path', () => {
+		expect(
+			repositoryRefsSchema.parse({
+				...repository,
+				storagePath: '/internal/repositories/notes.git',
+				branches: [
+					{
+						type: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+						target: 'abc123',
+					},
+				],
+				tags: [
+					{
+						type: 'tag',
+						name: 'v1.0.0',
+						qualifiedName: 'refs/tags/v1.0.0',
+						target: 'def456',
+					},
+				],
 			})
 		).toEqual(
 			expect.not.objectContaining({

@@ -120,6 +120,30 @@ describe(RepositoriesService.name, () => {
 							content: textEncoder.encode('console.log("hi")'),
 							sizeBytes: 17,
 						}),
+						listRepositoryRefs: vi.fn().mockResolvedValue({
+							branches: [
+								{
+									type: 'branch',
+									name: 'main',
+									qualifiedName: 'refs/heads/main',
+									target: 'branch123',
+								},
+								{
+									type: 'branch',
+									name: 'feature/docs',
+									qualifiedName: 'refs/heads/feature/docs',
+									target: 'branch456',
+								},
+							],
+							tags: [
+								{
+									type: 'tag',
+									name: 'v1.0.0',
+									qualifiedName: 'refs/tags/v1.0.0',
+									target: 'tag123',
+								},
+							],
+						}),
 						listRepositoryCommits: vi.fn().mockResolvedValue({
 							commits: [mockRepositoryCommit],
 						}),
@@ -457,6 +481,34 @@ describe(RepositoriesService.name, () => {
 			owner: { username: 'marta' },
 			isEmpty: false,
 			defaultBranch: 'main',
+			selectedRef: {
+				type: 'branch',
+				name: 'main',
+				qualifiedName: 'refs/heads/main',
+				target: 'branch123',
+			},
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'branch123',
+				},
+				{
+					type: 'branch',
+					name: 'feature/docs',
+					qualifiedName: 'refs/heads/feature/docs',
+					target: 'branch456',
+				},
+			],
+			tags: [
+				{
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'tag123',
+				},
+			],
 			rootEntries: [
 				{
 					name: 'README.md',
@@ -482,6 +534,7 @@ describe(RepositoriesService.name, () => {
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'main',
+			ref: 'refs/heads/main',
 		})
 	})
 
@@ -517,6 +570,220 @@ describe(RepositoriesService.name, () => {
 			})
 		)
 		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalled()
+	})
+
+	test('gets a repository browser summary for a selected branch', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		expect(
+			await repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'feature/docs',
+			})
+		).toEqual(
+			expect.objectContaining({
+				selectedRef: {
+					type: 'branch',
+					name: 'feature/docs',
+					qualifiedName: 'refs/heads/feature/docs',
+					target: 'branch456',
+				},
+				branches: [
+					{
+						type: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+						target: 'branch123',
+					},
+					{
+						type: 'branch',
+						name: 'feature/docs',
+						qualifiedName: 'refs/heads/feature/docs',
+						target: 'branch456',
+					},
+				],
+				tags: [
+					{
+						type: 'tag',
+						name: 'v1.0.0',
+						qualifiedName: 'refs/tags/v1.0.0',
+						target: 'tag123',
+					},
+				],
+			})
+		)
+		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'main',
+			ref: 'refs/heads/feature/docs',
+		})
+	})
+
+	test('gets a repository browser summary for a selected tag', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'v1.0.0',
+			})
+		).toEqual(
+			expect.objectContaining({
+				selectedRef: {
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'tag123',
+				},
+			})
+		)
+	})
+
+	test('does not implicitly select tags that collide with a stale default branch', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			defaultBranch: 'v1.0.0',
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		expect(
+			await repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				defaultBranch: 'main',
+				selectedRef: undefined,
+			})
+		)
+		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'v1.0.0',
+			ref: undefined,
+		})
+	})
+
+	test('rejects browser summaries for unknown selected refs', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const getRepositoryBrowserSummarySpy = vi.spyOn(
+			gitStorageClient,
+			'getRepositoryBrowserSummary'
+		)
+
+		await expect(
+			repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+				ref: 'missing',
+			})
+		).rejects.toBeInstanceOf(RepositoryBrowserInvalidRequestError)
+		expect(getRepositoryBrowserSummarySpy).not.toHaveBeenCalled()
+	})
+
+	test('gets repository refs for readable repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryRefsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryRefs'
+		)
+
+		expect(
+			await repositoriesService.getRefs(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repository: expect.objectContaining({ slug: repository.slug }),
+			owner: { username: 'marta' },
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'branch123',
+				},
+				{
+					type: 'branch',
+					name: 'feature/docs',
+					qualifiedName: 'refs/heads/feature/docs',
+					target: 'branch456',
+				},
+			],
+			tags: [
+				{
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'tag123',
+				},
+			],
+		})
+		expect(listRepositoryRefsSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+	})
+
+	test('returns empty ref lists for empty repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'listRepositoryRefs'
+		).mockResolvedValue({
+			branches: [],
+			tags: [],
+		})
+
+		expect(
+			await repositoriesService.getBrowserSummary(undefined, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				selectedRef: undefined,
+				branches: [],
+				tags: [],
+			})
+		)
 	})
 
 	test('hides private browser reads from non-owners before calling git storage', async () => {
