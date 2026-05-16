@@ -34,7 +34,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Keep feature UI composed from small, named components. Split large route panels, dialogs, lists, and repeated state blocks into local `components/`, move reusable feature logic into `hooks/`, and move pure transformations/parsers into `helpers/`.
 - Use `flex flex-col gap-*` for vertical stack spacing in app UI. Do not use Tailwind `space-y-*`.
 - Use shared layout primitives like `Card` for standard bordered/padded panels instead of hand-rolled `border border-border p-*` wrappers.
-- When a component mixes data orchestration with several visual states, keep the orchestration component thin and extract loading, error, empty, and success/list rendering into focused child components.
+- Keeping several related components in one file is fine while the file stays under roughly 200 lines. Once a file exceeds 200 lines and mixes data orchestration, layout shell, several visual states, row/item rendering, or formatting helpers, split those pieces into focused files.
 - Do not create frontend barrel files in `apps/web`; import concrete files directly.
 - Use direct imports from `@repo/ui`, local `@/` paths, and existing module boundaries.
 - Avoid manual memoization; React Compiler handles ordinary component optimization. Do not add `useCallback` or `useMemo` unless a library API explicitly requires referential stability, and prefer a smaller component or plain function first.
