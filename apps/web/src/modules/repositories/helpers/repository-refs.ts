@@ -10,6 +10,12 @@ export interface RepositoryRefOption {
 	qualifiedName: string
 }
 
+interface GetSelectedRepositoryQualifiedRefInput {
+	defaultBranch: string
+	selectedRef?: string
+	summary: RepositoryBrowserSummary
+}
+
 /**
  * Builds selector options from discovered refs, falling back to the repository default branch.
  */
@@ -49,7 +55,7 @@ export function getDefaultQualifiedRef(defaultBranch: string) {
 /**
  * Builds a branch selector option, preserving already-qualified ref names.
  */
-export function getRepositoryBranchOption(name: string): RepositoryRefOption {
+function getRepositoryBranchOption(name: string): RepositoryRefOption {
 	return {
 		kind: 'branch',
 		name,
@@ -64,14 +70,16 @@ export function getSelectedRepositoryQualifiedRef({
 	defaultBranch,
 	selectedRef,
 	summary,
-}: {
-	defaultBranch: string
-	selectedRef?: string
-	summary: RepositoryBrowserSummary
-}) {
+}: GetSelectedRepositoryQualifiedRefInput) {
+	const matchedRef = [...summary.branches, ...summary.tags].find(
+		ref => ref.qualifiedName === selectedRef || ref.name === selectedRef
+	)
+
 	return (
 		summary.selectedRef?.qualifiedName ??
-		selectedRef ??
+		matchedRef?.qualifiedName ??
+		(selectedRef?.startsWith('refs/') ? selectedRef : undefined) ??
+		(selectedRef ? getDefaultQualifiedRef(selectedRef) : undefined) ??
 		getDefaultQualifiedRef(defaultBranch)
 	)
 }
@@ -102,7 +110,7 @@ function getFallbackBranchRef(name: string): RepositoryRef {
 export function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
 	return [
 		{
-			kind: 'branch',
+			kind: getRepositoryRefKind(refName),
 			name: getRepositoryRefDisplayName(refName),
 			qualifiedName: refName,
 		},
@@ -130,4 +138,10 @@ function qualifyRepositoryRef(kind: RepositoryRefOption['kind'], name: string) {
 	if (kind === 'branch') return `refs/heads/${name}`
 
 	return `refs/tags/${name}`
+}
+
+function getRepositoryRefKind(refName: string): RepositoryRefOption['kind'] {
+	if (refName.startsWith('refs/tags/')) return 'tag'
+
+	return 'branch'
 }

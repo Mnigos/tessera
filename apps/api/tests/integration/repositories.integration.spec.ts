@@ -1365,7 +1365,7 @@ describe('Repositories integration', () => {
 		const query = searchParams.size ? `?${searchParams.toString()}` : ''
 
 		return adapter.hono.request(
-			`http://localhost/repositories/${username}/${slug}/commits/${ref}${query}`,
+			`http://localhost/repositories/${username}/${slug}/commits/${encodeURIComponent(ref)}${query}`,
 			{ headers: options.headers }
 		)
 	}
