@@ -26,6 +26,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Do not use `useSuspenseQuery`; use `useQuery` with explicit loading, error, empty, and success states.
 - Pass all TanStack Query options inside `queryOptions()` or `mutationOptions()`. Do not spread generated options into another object.
 - Use generated oRPC `.queryOptions()` and `.mutationOptions()` directly unless an adapter removes real duplication. Do not add casts, wrapper surfaces, or extra `queryOptions()` wrappers just to satisfy local call shape.
+- Use contract input/output types by their original exported names. Do not add local type aliases that only rename contract types; local interfaces are fine when adapting route params or other boundary shapes.
 - Name hooks that only wrap a query as `useThingQuery` in `use-thing.query.ts`; reserve broader names like `useThing` for hooks that coordinate more than a single query.
 - Use `enabled` for query preconditions.
 - Use loaders to prefetch data for SSR when route-level data is known.
