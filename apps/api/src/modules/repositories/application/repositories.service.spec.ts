@@ -9,6 +9,7 @@ import type {
 	UserId,
 } from '@repo/domain'
 import { ExternalServiceError } from '~/shared/errors'
+import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
@@ -120,23 +121,7 @@ describe(RepositoriesService.name, () => {
 							sizeBytes: 17,
 						}),
 						listRepositoryCommits: vi.fn().mockResolvedValue({
-							commits: [
-								{
-									sha: 'abcdef1234567890',
-									shortSha: 'abcdef1',
-									summary: 'Add repository browser',
-									author: {
-										name: 'Marta',
-										email: 'marta@example.com',
-										date: '2026-05-15T12:00:00Z',
-									},
-									committer: {
-										name: 'Codex',
-										email: 'codex@example.com',
-										date: '2026-05-15T12:05:00Z',
-									},
-								},
-							],
+							commits: [mockRepositoryCommit],
 						}),
 					},
 				},
@@ -780,23 +765,7 @@ describe(RepositoriesService.name, () => {
 			repository: expect.objectContaining({ slug: repository.slug }),
 			owner: { username: 'marta' },
 			ref: 'main',
-			commits: [
-				{
-					sha: 'abcdef1234567890',
-					shortSha: 'abcdef1',
-					summary: 'Add repository browser',
-					author: {
-						name: 'Marta',
-						email: 'marta@example.com',
-						date: '2026-05-15T12:00:00Z',
-					},
-					committer: {
-						name: 'Codex',
-						email: 'codex@example.com',
-						date: '2026-05-15T12:05:00Z',
-					},
-				},
-			],
+			commits: [mockRepositoryCommit],
 		})
 		expect(listRepositoryCommitsSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
