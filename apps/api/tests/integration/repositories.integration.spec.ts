@@ -3,6 +3,7 @@ import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
 import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
+import { status } from '@grpc/grpc-js'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import { RepositoriesModule } from '@modules/repositories'
@@ -14,6 +15,7 @@ import { repositories, session, user } from '@repo/db/schema'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { ExternalServiceError } from '~/shared/errors'
+import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 
 const MIGRATIONS_FOLDER = fileURLToPath(
 	new URL('../../../../packages/db/migrations', import.meta.url)
@@ -128,6 +130,16 @@ interface RepositoryBlobResponseBody extends RepositoryResponseBody {
 	preview: RepositoryBlobPreviewResponseBody
 }
 
+interface RepositoryCommitHistoryResponseBody extends RepositoryResponseBody {
+	ref: string
+	commits: (typeof mockRepositoryCommit)[]
+}
+
+interface RepositoryRefsResponseBody extends RepositoryResponseBody {
+	branches: RepositoryBranchRefResponseBody[]
+	tags: RepositoryTagRefResponseBody[]
+}
+
 interface ErrorResponseBody {
 	defined: true
 	code: string
@@ -150,6 +162,7 @@ describe('Repositories integration', () => {
 	let gitStorageGetRepositoryTree: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
+	let gitStorageListRepositoryCommits: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -222,6 +235,9 @@ describe('Repositories integration', () => {
 			content: new Uint8Array([0, 1, 2, 255]),
 			sizeBytes: 4,
 		})
+		gitStorageListRepositoryCommits = vi.fn().mockResolvedValue({
+			commits: [mockRepositoryCommit],
+		})
 
 		moduleRef = await Test.createTestingModule({
 			imports: [RepositoriesIntegrationTestModule],
@@ -234,6 +250,7 @@ describe('Repositories integration', () => {
 				getRepositoryTree: gitStorageGetRepositoryTree,
 				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				getRepositoryRawBlob: gitStorageGetRepositoryRawBlob,
+				listRepositoryCommits: gitStorageListRepositoryCommits,
 			})
 			.compile()
 
@@ -251,6 +268,7 @@ describe('Repositories integration', () => {
 		gitStorageGetRepositoryTree.mockReset()
 		gitStorageGetRepositoryBlob.mockReset()
 		gitStorageGetRepositoryRawBlob.mockReset()
+		gitStorageListRepositoryCommits.mockReset()
 		gitStorageCreateRepository.mockImplementation(({ repositoryId }) =>
 			Promise.resolve({
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
@@ -313,6 +331,9 @@ describe('Repositories integration', () => {
 			objectId: 'blob123',
 			content: new Uint8Array([0, 1, 2, 255]),
 			sizeBytes: 4,
+		})
+		gitStorageListRepositoryCommits.mockResolvedValue({
+			commits: [mockRepositoryCommit],
 		})
 	})
 
@@ -676,6 +697,211 @@ describe('Repositories integration', () => {
 		})
 	})
 
+	test('returns repository refs for public repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getRefs('marta', 'notes')
+		const body = (await response.json()) as RepositoryRefsResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+				visibility: 'public',
+			},
+			owner: {
+				username: 'marta',
+			},
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+			],
+			tags: [],
+		})
+		expect(gitStorageListRepositoryRefs).toHaveBeenCalledWith({
+			repositoryId: body.repository.id,
+			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
+		})
+	})
+
+	test('hides private repository refs from anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		gitStorageListRepositoryRefs.mockClear()
+
+		const response = await getRefs('marta', 'notes')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+		expect(gitStorageListRepositoryRefs).not.toHaveBeenCalled()
+	})
+
+	test('returns selected branch browser summaries', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageListRepositoryRefs.mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+				{
+					type: 'branch',
+					name: 'develop',
+					qualifiedName: 'refs/heads/develop',
+					target: 'develop123',
+				},
+			],
+			tags: [],
+		})
+
+		const response = await getBrowserSummary('marta', 'notes', undefined, {
+			ref: 'develop',
+		})
+		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.selectedRef).toEqual({
+			type: 'branch',
+			name: 'develop',
+			qualifiedName: 'refs/heads/develop',
+			target: 'develop123',
+		})
+		expect(gitStorageGetRepositoryBrowserSummary).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'refs/heads/develop',
+			})
+		)
+	})
+
+	test('returns selected tag browser summaries', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageListRepositoryRefs.mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+			],
+			tags: [
+				{
+					type: 'tag',
+					name: 'v1.0.0',
+					qualifiedName: 'refs/tags/v1.0.0',
+					target: 'tag123',
+				},
+			],
+		})
+
+		const response = await getBrowserSummary('marta', 'notes', undefined, {
+			ref: 'v1.0.0',
+		})
+		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.selectedRef).toEqual({
+			type: 'tag',
+			name: 'v1.0.0',
+			qualifiedName: 'refs/tags/v1.0.0',
+			target: 'tag123',
+		})
+		expect(gitStorageGetRepositoryBrowserSummary).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ref: 'refs/tags/v1.0.0',
+			})
+		)
+	})
+
+	test('returns bad request for unknown selected browser refs', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageGetRepositoryBrowserSummary.mockClear()
+
+		const response = await getBrowserSummary('marta', 'notes', undefined, {
+			ref: 'missing',
+		})
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
+		expect(gitStorageGetRepositoryBrowserSummary).not.toHaveBeenCalled()
+	})
+
+	test('returns empty ref lists in empty browser summaries', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageListRepositoryRefs.mockResolvedValue({
+			branches: [],
+			tags: [],
+		})
+		gitStorageGetRepositoryBrowserSummary.mockResolvedValue({
+			isEmpty: true,
+			defaultBranch: 'main',
+			rootEntries: [],
+			readme: undefined,
+		})
+
+		const response = await getBrowserSummary('marta', 'notes')
+		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			isEmpty: true,
+			branches: [],
+			tags: [],
+			rootEntries: [],
+		})
+		expect(body).not.toHaveProperty('selectedRef')
+		expect(body).not.toHaveProperty('readme')
+	})
+
 	test('hides private repository browser summary from anonymous readers', async () => {
 		const headers = await createIntegrationSessionHeaders({
 			username: 'marta',
@@ -851,6 +1077,126 @@ describe('Repositories integration', () => {
 		)
 	})
 
+	test('returns public repository commit history for anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+
+		const response = await getCommitHistory('marta', 'notes', 'main', {
+			limit: 10,
+		})
+		const body = (await response.json()) as RepositoryCommitHistoryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+				visibility: 'public',
+			},
+			owner: {
+				username: 'marta',
+			},
+			ref: 'main',
+			commits: [mockRepositoryCommit],
+		})
+		expect(gitStorageListRepositoryCommits).toHaveBeenCalledWith({
+			repositoryId: body.repository.id,
+			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
+			ref: 'main',
+			limit: 10,
+		})
+	})
+
+	test('returns private repository commit history for the owner', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+
+		const response = await getCommitHistory('marta', 'notes', 'main', {
+			headers,
+		})
+		const body = (await response.json()) as RepositoryCommitHistoryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			repository: {
+				slug: 'notes',
+				visibility: 'private',
+			},
+			ref: 'main',
+			commits: [mockRepositoryCommit],
+		})
+	})
+
+	test('hides private repository commit history from anonymous readers', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		gitStorageListRepositoryCommits.mockClear()
+
+		const response = await getCommitHistory('marta', 'notes', 'main')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+		expect(gitStorageListRepositoryCommits).not.toHaveBeenCalled()
+	})
+
+	test('returns empty repository commit history', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageListRepositoryCommits.mockResolvedValue({ commits: [] })
+
+		const response = await getCommitHistory('marta', 'notes', 'main')
+		const body = (await response.json()) as RepositoryCommitHistoryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body).toMatchObject({
+			ref: 'main',
+			commits: [],
+		})
+	})
+
+	test('returns bad request for invalid commit history refs', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository(
+			{ name: 'Notes', slug: 'notes', visibility: 'public' },
+			headers
+		)
+		gitStorageListRepositoryCommits.mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		const response = await getCommitHistory('marta', 'notes', '..%2Fmain')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
+	})
+
 	test('hides private raw blob bytes from anonymous readers', async () => {
 		const headers = await createIntegrationSessionHeaders({
 			username: 'marta',
@@ -937,13 +1283,25 @@ describe('Repositories integration', () => {
 		)
 	}
 
+	function getRefs(username: string, slug: string, headers?: Headers) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/refs`,
+			{ headers }
+		)
+	}
+
 	function getBrowserSummary(
 		username: string,
 		slug: string,
-		headers?: Headers
+		headers?: Headers,
+		options: { ref?: string } = {}
 	) {
+		const searchParams = new URLSearchParams()
+		if (options.ref) searchParams.set('ref', options.ref)
+		const query = searchParams.size ? `?${searchParams.toString()}` : ''
+
 		return adapter.hono.request(
-			`http://localhost/repositories/${username}/${slug}/browser`,
+			`http://localhost/repositories/${username}/${slug}/browser${query}`,
 			{ headers }
 		)
 	}
@@ -992,6 +1350,23 @@ describe('Repositories integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}/raw/${ref}?${searchParams.toString()}`,
 			{ headers }
+		)
+	}
+
+	function getCommitHistory(
+		username: string,
+		slug: string,
+		ref: string,
+		options: { headers?: Headers; limit?: number } = {}
+	) {
+		const searchParams = new URLSearchParams()
+		if (options.limit !== undefined)
+			searchParams.set('limit', String(options.limit))
+		const query = searchParams.size ? `?${searchParams.toString()}` : ''
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/commits/${ref}${query}`,
+			{ headers: options.headers }
 		)
 	}
 })
