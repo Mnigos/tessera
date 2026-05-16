@@ -25,34 +25,37 @@ import type {
 
 const textDecoder = new TextDecoder()
 
-interface RuntimeRepositoryBrowserSummaryResponse
-	extends Omit<Partial<GetRepositoryBrowserSummaryResponse>, 'rootEntries'> {
+type RuntimeRepositoryBrowserSummaryResponse = Omit<
+	Partial<GetRepositoryBrowserSummaryResponse>,
+	'rootEntries'
+> & {
 	rootEntries?: RuntimeRepositoryTreeEntry[]
 }
 
-interface RuntimeRepositoryTreeResponse
-	extends Omit<Partial<GetRepositoryTreeResponse>, 'entries'> {
+type RuntimeRepositoryTreeResponse = Omit<
+	Partial<GetRepositoryTreeResponse>,
+	'entries'
+> & {
 	entries?: RuntimeRepositoryTreeEntry[]
 }
 
-interface RuntimeRepositoryBlobResponse
-	extends Partial<GetRepositoryBlobResponse> {}
+type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 
-interface RuntimeRepositoryRawBlobResponse
-	extends Partial<GetRepositoryRawBlobResponse> {}
+type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
 
-interface RuntimeRepositoryCommitHistoryResponse
-	extends Omit<Partial<ListRepositoryCommitsResponse>, 'commits'> {
+type RuntimeRepositoryCommitHistoryResponse = Omit<
+	Partial<ListRepositoryCommitsResponse>,
+	'commits'
+> & {
 	commits?: RuntimeRepositoryCommit[]
 }
 
-interface RuntimeRepositoryTreeEntry
-	extends Partial<GeneratedRepositoryTreeEntry> {}
+type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
-interface RuntimeRepositoryCommit extends Partial<GeneratedRepositoryCommit> {}
+type RuntimeRepositoryCommit = Partial<GeneratedRepositoryCommit>
 
-interface RuntimeRepositoryCommitIdentity
-	extends Partial<GeneratedRepositoryCommitIdentity> {}
+type RuntimeRepositoryCommitIdentity =
+	Partial<GeneratedRepositoryCommitIdentity>
 
 /**
  * Maps the git storage browser summary response into the API-facing repository browser model.
