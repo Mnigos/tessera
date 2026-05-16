@@ -25,17 +25,13 @@ import type {
 
 const textDecoder = new TextDecoder()
 
-type RuntimeRepositoryBrowserSummaryResponse = Omit<
-	Partial<GetRepositoryBrowserSummaryResponse>,
-	'rootEntries'
-> & {
+interface RuntimeRepositoryBrowserSummaryResponse
+	extends Omit<Partial<GetRepositoryBrowserSummaryResponse>, 'rootEntries'> {
 	rootEntries?: RuntimeRepositoryTreeEntry[]
 }
 
-type RuntimeRepositoryTreeResponse = Omit<
-	Partial<GetRepositoryTreeResponse>,
-	'entries'
-> & {
+interface RuntimeRepositoryTreeResponse
+	extends Omit<Partial<GetRepositoryTreeResponse>, 'entries'> {
 	entries?: RuntimeRepositoryTreeEntry[]
 }
 
@@ -43,10 +39,8 @@ type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 
 type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
 
-type RuntimeRepositoryCommitHistoryResponse = Omit<
-	Partial<ListRepositoryCommitsResponse>,
-	'commits'
-> & {
+interface RuntimeRepositoryCommitHistoryResponse
+	extends Omit<Partial<ListRepositoryCommitsResponse>, 'commits'> {
 	commits?: RuntimeRepositoryCommit[]
 }
 

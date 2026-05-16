@@ -44,6 +44,7 @@
 - Use kebab-case file names.
 - Use descriptive names; avoid cryptic single-letter callback variables.
 - Use interfaces for object shapes.
+- Prefer `interface extends ...` over type intersections for object shapes when possible.
 - Use type aliases for unions, primitives, and computed types.
 - Do not create aliases that exactly rename or re-export an existing import; use the original export directly. Local names are fine when the type or value is changed.
 - Avoid type assertions; first fix the source type, generic, parser, fixture, or config mismatch. Use assertions only when an external boundary cannot express the type safely.
