@@ -4,6 +4,10 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
+import {
+	getFallbackRefOptions,
+	getSelectedRepositoryQualifiedRef,
+} from '../helpers/repository-refs'
 import { RepositoryOverview } from './repository-overview'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -280,6 +284,33 @@ describe('RepositoryOverview', () => {
 				.getByRole('link', { name: 'View commits for release' })
 				.getAttribute('href')
 		).toBe('/mnigos/tessera-notes/commits/refs%2Ftags%2Frelease')
+	})
+
+	test('qualifies bare selected refs from discovered refs', () => {
+		expect(
+			getSelectedRepositoryQualifiedRef({
+				defaultBranch: 'main',
+				selectedRef: 'v1.0.0',
+				summary: getSummary(),
+			})
+		).toBe('refs/tags/v1.0.0')
+		expect(
+			getSelectedRepositoryQualifiedRef({
+				defaultBranch: 'main',
+				selectedRef: 'feature/browser-ref-selector',
+				summary: getSummary(),
+			})
+		).toBe('refs/heads/feature/browser-ref-selector')
+	})
+
+	test('uses tag kind for qualified fallback tag refs', () => {
+		expect(getFallbackRefOptions('refs/tags/v1.0.0')).toEqual([
+			{
+				kind: 'tag',
+				name: 'v1.0.0',
+				qualifiedName: 'refs/tags/v1.0.0',
+			},
+		])
 	})
 
 	test('shows a grouped branch and tag selector with default branch selected', async () => {
