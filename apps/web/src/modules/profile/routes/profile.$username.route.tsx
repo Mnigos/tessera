@@ -62,7 +62,10 @@ function ProfileUsernameRoute() {
 	const profileQuery = useProfileQuery(username)
 	const profile = profileQuery.data?.user
 	const isViewerProfile = user?.username === username
-	const repositoriesQuery = useRepositoriesListQuery(username, isViewerProfile)
+	const repositoriesQuery = useRepositoriesListQuery(
+		{ username },
+		isViewerProfile
+	)
 
 	if (profileQuery.isLoading)
 		return (

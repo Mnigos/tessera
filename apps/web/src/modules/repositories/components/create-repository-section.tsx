@@ -13,7 +13,7 @@ interface CreateRepositorySectionProps {
 export function CreateRepositorySection({
 	username,
 }: Readonly<CreateRepositorySectionProps>) {
-	const createRepository = useCreateRepositoryMutation(username)
+	const createRepository = useCreateRepositoryMutation({ username })
 
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()

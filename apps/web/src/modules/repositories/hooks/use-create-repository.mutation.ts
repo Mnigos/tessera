@@ -1,7 +1,10 @@
+import type { ListRepositoriesInput } from '@repo/contracts'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export function useCreateRepositoryMutation(username: string) {
+export function useCreateRepositoryMutation({
+	username,
+}: ListRepositoriesInput) {
 	const queryClient = useQueryClient()
 
 	return useMutation(
