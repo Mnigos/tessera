@@ -999,10 +999,10 @@ async fn repository_commits_preserves_author_and_committer_metadata() {
     assert_eq!(commit.summary, "Preserve identities");
     assert_eq!(commit.author.name, "Ada Author");
     assert_eq!(commit.author.email, "ada@example.com");
-    assert_eq!(commit.author.date, "2026-05-16T10:00:00+00:00");
+    assert_utc_git_date_eq(&commit.author.date, "2026-05-16T10:00:00");
     assert_eq!(commit.committer.name, "Grace Committer");
     assert_eq!(commit.committer.email, "grace@example.com");
-    assert_eq!(commit.committer.date, "2026-05-16T10:01:00+00:00");
+    assert_utc_git_date_eq(&commit.committer.date, "2026-05-16T10:01:00");
 }
 
 #[tokio::test]
@@ -1238,6 +1238,13 @@ fn git_stdout<const N: usize>(bare_repository_path: &Path, args: [&str; N]) -> S
     let output = command_output(Path::new("."), command_args);
 
     String::from_utf8(output.stdout).unwrap()
+}
+
+fn assert_utc_git_date_eq(actual: &str, expected_time: &str) {
+    assert!(
+        actual == format!("{expected_time}Z") || actual == format!("{expected_time}+00:00"),
+        "expected {actual:?} to represent {expected_time} UTC"
+    );
 }
 
 fn command<const N: usize>(current_dir: &Path, args: [&str; N]) {
