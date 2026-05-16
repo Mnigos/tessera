@@ -14,6 +14,7 @@ import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/ho
 import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
+import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.commits.$ref.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.tree.$ref.$.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.blob.$ref.$.route'
 
@@ -49,6 +50,14 @@ const modulesAuthRoutesApiDotauthDotDotrouteRoute =
     path: '/api/auth/$',
     getParentRoute: () => rootRouteImport,
   } as any)
+const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute =
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/commits/$ref',
+      path: '/$username/$slug/commits/$ref',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute =
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport.update(
     {
@@ -72,6 +81,7 @@ export interface FileRoutesByFullPath {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -81,6 +91,7 @@ export interface FileRoutesByTo {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -91,6 +102,7 @@ export interface FileRoutesById {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -102,6 +114,7 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/commits/$ref'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesByTo: FileRoutesByTo
@@ -111,6 +124,7 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/commits/$ref'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   id:
@@ -120,6 +134,7 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/profile/$username'
     | '/api/auth/$'
+    | '/$username/$slug/commits/$ref'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesById: FileRoutesById
@@ -129,6 +144,7 @@ export interface RootRouteChildren {
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -168,6 +184,13 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/commits/$ref': {
+      id: '/$username/$slug/commits/$ref'
+      path: '/$username/$slug/commits/$ref'
+      fullPath: '/$username/$slug/commits/$ref'
+      preLoaderRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$username/$slug/tree/$ref/$': {
@@ -210,6 +233,8 @@ const rootRouteChildren: RootRouteChildren = {
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute,
   modulesAuthRoutesApiDotauthDotDotrouteRoute:
     modulesAuthRoutesApiDotauthDotDotrouteRoute,
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute:
+    modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute:

@@ -18,4 +18,8 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug/blob/$ref/$',
 		'modules/repositories/routes/repository.$username.$slug.blob.$ref.$.route.tsx'
 	),
+	route(
+		'/$username/$slug/commits/$ref',
+		'modules/repositories/routes/repository.$username.$slug.commits.$ref.route.tsx'
+	),
 ])

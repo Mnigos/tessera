@@ -3,9 +3,12 @@ import { render, screen, within } from '@testing-library/react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import type { RepositoryBlobResult } from '../hooks/use-repository-blob.query'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
+import type { RepositoryCommitsResult } from '../hooks/use-repository-commits.query'
+import { useRepositoryCommitsQuery } from '../hooks/use-repository-commits.query'
 import type { RepositoryTreeResult } from '../hooks/use-repository-tree.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import { RepositoryBlobPreview } from './repository-blob-preview'
+import { RepositoryCommitHistory } from './repository-commit-history'
 import { RepositoryTreeBrowser } from './repository-tree-browser'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -31,8 +34,13 @@ vi.mock('../hooks/use-repository-blob.query', () => ({
 	useRepositoryBlobQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-repository-commits.query', () => ({
+	useRepositoryCommitsQuery: vi.fn(),
+}))
+
 const treeQueryMock = vi.mocked(useRepositoryTreeQuery)
 const blobQueryMock = vi.mocked(useRepositoryBlobQuery)
+const commitsQueryMock = vi.mocked(useRepositoryCommitsQuery)
 
 const baseTree = {
 	owner: { username: 'mnigos' },
@@ -105,6 +113,52 @@ const baseBlob = {
 		content: 'export const moduleName = "repositories"\n',
 	},
 } satisfies RepositoryBlobResult
+
+const baseCommits = {
+	owner: { username: 'mnigos' },
+	repository: repositorySchema.parse({
+		id: '8d6ced61-1733-4aca-abba-ccbb9991cd08',
+		slug: 'tessera-notes',
+		name: 'Tessera Notes',
+		visibility: 'public',
+		defaultBranch: 'main',
+		createdAt: new Date('2026-01-01T00:00:00.000Z'),
+		updatedAt: new Date('2026-01-02T00:00:00.000Z'),
+	}),
+	ref: 'main',
+	commits: [
+		{
+			sha: 'b17a8d52a7d9477c8fb0ebdf7f4aafadf404da13',
+			shortSha: 'b17a8d5',
+			summary: 'Add repository browser',
+			author: {
+				name: 'Marek Nigos',
+				email: 'marek@example.com',
+				date: '2026-01-02T10:30:00.000Z',
+			},
+			committer: {
+				name: 'Marek Nigos',
+				email: 'marek@example.com',
+				date: '2026-01-02T10:30:00.000Z',
+			},
+		},
+		{
+			sha: 'c28fb983d8b441f2b8731999f9f690fc14787dd4',
+			shortSha: 'c28fb98',
+			summary: 'Merge remote changes',
+			author: {
+				name: 'Ada Lovelace',
+				email: 'ada@example.com',
+				date: '2026-01-03T11:45:00.000Z',
+			},
+			committer: {
+				name: 'Grace Hopper',
+				email: 'grace@example.com',
+				date: '2026-01-03T12:00:00.000Z',
+			},
+		},
+	],
+} satisfies RepositoryCommitsResult
 
 describe('Repository browser components', () => {
 	afterEach(() => {
@@ -351,6 +405,94 @@ describe('Repository browser components', () => {
 
 		expect(screen.getByRole('heading', { name: 'File not found' })).toBeTruthy()
 	})
+
+	test('renders commit history loading, error, and empty states', () => {
+		commitsQueryMock.mockReturnValue(getQueryResult({ isLoading: true }))
+
+		const { rerender } = render(
+			<RepositoryCommitHistory
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		expect(screen.getByRole('heading', { name: 'Commit history' })).toBeTruthy()
+		expect(screen.getByText('main')).toBeTruthy()
+
+		commitsQueryMock.mockReturnValue(getQueryResult({ isError: true }))
+
+		rerender(
+			<RepositoryCommitHistory
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		expect(
+			screen.getByRole('heading', { name: 'Commits not found' })
+		).toBeTruthy()
+		expect(
+			screen.getByText('The commit history for this ref could not be loaded.')
+		).toBeTruthy()
+
+		commitsQueryMock.mockReturnValue(
+			getQueryResult({ data: { ...baseCommits, commits: [] } })
+		)
+
+		rerender(
+			<RepositoryCommitHistory
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		expect(screen.getByRole('heading', { name: 'No commits' })).toBeTruthy()
+		expect(
+			screen.getByText('This ref does not have any commits yet.')
+		).toBeTruthy()
+	})
+
+	test('renders commit history rows with author and useful committer metadata', () => {
+		commitsQueryMock.mockReturnValue(getQueryResult({ data: baseCommits }))
+
+		render(
+			<RepositoryCommitHistory
+				refName="main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		const rows = screen.getAllByTestId('repository-commit-row')
+
+		expect(rows).toHaveLength(2)
+		expect(within(rows[0] as HTMLElement).getByText('b17a8d5')).toBeTruthy()
+		expect(
+			within(rows[0] as HTMLElement).getByText('Add repository browser')
+		).toBeTruthy()
+		expect(
+			within(rows[0] as HTMLElement).getByText(
+				'Marek Nigos <marek@example.com>'
+			)
+		).toBeTruthy()
+		expect(within(rows[0] as HTMLElement).queryByText('Committed')).toBeNull()
+		expect(within(rows[1] as HTMLElement).getByText('c28fb98')).toBeTruthy()
+		expect(
+			within(rows[1] as HTMLElement).getByText('Merge remote changes')
+		).toBeTruthy()
+		expect(
+			within(rows[1] as HTMLElement).getByText('Ada Lovelace <ada@example.com>')
+		).toBeTruthy()
+		expect(
+			within(rows[1] as HTMLElement).getByText(
+				'Grace Hopper <grace@example.com>'
+			)
+		).toBeTruthy()
+		expect(within(rows[1] as HTMLElement).getByText('Committed')).toBeTruthy()
+	})
 })
 
 interface QueryResultOptions<TData> {
@@ -369,5 +511,6 @@ function getQueryResult<TData>({
 		isLoading,
 		isError,
 	} as ReturnType<typeof useRepositoryTreeQuery> &
-		ReturnType<typeof useRepositoryBlobQuery>
+		ReturnType<typeof useRepositoryBlobQuery> &
+		ReturnType<typeof useRepositoryCommitsQuery>
 }
