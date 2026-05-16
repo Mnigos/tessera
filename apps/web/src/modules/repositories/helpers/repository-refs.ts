@@ -1,4 +1,8 @@
-import type { RepositoryBrowserSummary, RepositoryRef } from '@repo/contracts'
+import type {
+	RepositoryBrowserSummary,
+	RepositoryRef,
+	RepositoryRefs,
+} from '@repo/contracts'
 
 export interface RepositoryRefOption {
 	kind: 'branch' | 'tag'
@@ -25,6 +29,16 @@ export function getRepositoryRefOptions(
 	]
 }
 
+export function getRepositoryRefOptionsFromRefs({
+	branches,
+	tags,
+}: RepositoryRefs): RepositoryRefOption[] {
+	return [
+		...branches.map(ref => getRepositoryRefOption(ref)),
+		...tags.map(ref => getRepositoryRefOption(ref)),
+	]
+}
+
 /**
  * Returns the qualified branch ref used when a repository only has default-branch metadata.
  */
@@ -40,17 +54,6 @@ export function getRepositoryBranchOption(name: string): RepositoryRefOption {
 		kind: 'branch',
 		name,
 		qualifiedName: qualifyRepositoryRef('branch', name),
-	}
-}
-
-/**
- * Builds a tag selector option, preserving already-qualified ref names.
- */
-export function getRepositoryTagOption(name: string): RepositoryRefOption {
-	return {
-		kind: 'tag',
-		name,
-		qualifiedName: qualifyRepositoryRef('tag', name),
 	}
 }
 
@@ -94,6 +97,16 @@ function getFallbackBranchRef(name: string): RepositoryRef {
 		qualifiedName: getDefaultQualifiedRef(name),
 		target: '',
 	}
+}
+
+export function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
+	return [
+		{
+			kind: 'branch',
+			name: getRepositoryRefDisplayName(refName),
+			qualifiedName: refName,
+		},
+	]
 }
 
 /**

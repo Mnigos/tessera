@@ -92,7 +92,7 @@ impl RepositoryStorage {
                 &repository_path,
                 [
                     "for-each-ref",
-                    "--format=%(refname)%00%(refname:short)%00%(objectname)%1e",
+                    "--format=%(refname)%00%(refname:short)%00%(objectname)%00%(objecttype)%00%(*objectname)%00%(*objecttype)%1e",
                     "refs/heads",
                     "refs/tags",
                 ],
@@ -103,9 +103,7 @@ impl RepositoryStorage {
             return Err(RepositoryError::GitProcessFailed);
         }
 
-        let refs = self
-            .parse_repository_refs(&repository_path, &output.stdout, default_branch.as_deref())
-            .await?;
+        let refs = parse_repository_refs(&output.stdout, default_branch.as_deref())?;
 
         Ok(RepositoryRefList { refs })
     }
@@ -312,69 +310,6 @@ impl RepositoryStorage {
             String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
 
         Ok(commit_id.trim().to_string())
-    }
-
-    async fn parse_repository_refs(
-        &self,
-        repository_path: &Path,
-        output: &[u8],
-        default_branch: Option<&str>,
-    ) -> Result<Vec<RepositoryRef>, RepositoryError> {
-        let mut refs = Vec::new();
-
-        for record in output
-            .split(|byte| *byte == 0x1e)
-            .filter(|record| !record.is_empty() && *record != b"\n")
-        {
-            let record = record.strip_prefix(b"\n").unwrap_or(record);
-            let fields: Vec<&[u8]> = record.split(|byte| *byte == 0).collect();
-            if fields.len() != 3 {
-                return Err(RepositoryError::InvalidGitOutput);
-            }
-
-            let qualified_name = utf8_ref_field(fields[0])?;
-            let display_name = utf8_ref_field(fields[1])?;
-            let object_id = utf8_ref_field(fields[2])?;
-
-            if qualified_name.starts_with("refs/heads/") {
-                let is_default_branch = default_branch == Some(display_name.as_str());
-                refs.push(RepositoryRef {
-                    kind: RepositoryRefKind::Branch,
-                    display_name,
-                    qualified_name,
-                    commit_id: object_id,
-                    is_default_branch,
-                });
-                continue;
-            }
-
-            if !qualified_name.starts_with("refs/tags/") {
-                return Err(RepositoryError::InvalidGitOutput);
-            }
-
-            let Ok(commit_id) = self
-                .resolve_browser_ref(repository_path, &qualified_name)
-                .await
-            else {
-                continue;
-            };
-
-            refs.push(RepositoryRef {
-                kind: RepositoryRefKind::Tag,
-                display_name,
-                qualified_name,
-                commit_id,
-                is_default_branch: false,
-            });
-        }
-
-        refs.sort_by(|left, right| {
-            ref_kind_order(&left.kind)
-                .cmp(&ref_kind_order(&right.kind))
-                .then_with(|| left.display_name.cmp(&right.display_name))
-        });
-
-        Ok(refs)
     }
 
     async fn root_tree_entries(
@@ -591,6 +526,75 @@ impl RepositoryStorage {
         .map_err(|_| RepositoryError::GitProcessFailed)?
         .map_err(RepositoryError::GitProcessIo)
     }
+}
+
+fn parse_repository_refs(
+    output: &[u8],
+    default_branch: Option<&str>,
+) -> Result<Vec<RepositoryRef>, RepositoryError> {
+    let mut refs = Vec::new();
+
+    for record in output
+        .split(|byte| *byte == 0x1e)
+        .filter(|record| !record.is_empty() && *record != b"\n")
+    {
+        let record = record.strip_prefix(b"\n").unwrap_or(record);
+        let fields: Vec<&[u8]> = record.split(|byte| *byte == 0).collect();
+        if fields.len() != 6 {
+            return Err(RepositoryError::InvalidGitOutput);
+        }
+
+        let qualified_name = utf8_ref_field(fields[0])?;
+        let display_name = utf8_ref_field(fields[1])?;
+        let object_id = utf8_ref_field(fields[2])?;
+        let object_type = utf8_ref_field(fields[3])?;
+        let peeled_object_id = utf8_ref_field(fields[4])?;
+        let peeled_object_type = utf8_ref_field(fields[5])?;
+
+        if qualified_name.starts_with("refs/heads/") {
+            if object_type != "commit" {
+                return Err(RepositoryError::InvalidGitOutput);
+            }
+
+            let is_default_branch = default_branch == Some(display_name.as_str());
+            refs.push(RepositoryRef {
+                kind: RepositoryRefKind::Branch,
+                display_name,
+                qualified_name,
+                commit_id: object_id,
+                is_default_branch,
+            });
+            continue;
+        }
+
+        if !qualified_name.starts_with("refs/tags/") {
+            return Err(RepositoryError::InvalidGitOutput);
+        }
+
+        let commit_id = if object_type == "commit" {
+            object_id
+        } else if peeled_object_type == "commit" {
+            peeled_object_id
+        } else {
+            continue;
+        };
+
+        refs.push(RepositoryRef {
+            kind: RepositoryRefKind::Tag,
+            display_name,
+            qualified_name,
+            commit_id,
+            is_default_branch: false,
+        });
+    }
+
+    refs.sort_by(|left, right| {
+        ref_kind_order(&left.kind)
+            .cmp(&ref_kind_order(&right.kind))
+            .then_with(|| left.display_name.cmp(&right.display_name))
+    });
+
+    Ok(refs)
 }
 
 fn utf8_ref_field(field: &[u8]) -> Result<String, RepositoryError> {

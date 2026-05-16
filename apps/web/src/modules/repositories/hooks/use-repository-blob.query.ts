@@ -1,33 +1,13 @@
 import type { GetRepositoryBlobInput } from '@repo/contracts'
-import { getRepositoryBlobInputSchema } from '@repo/contracts'
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export interface RepositoryBlobPathInput
-	extends Omit<GetRepositoryBlobInput, 'slug'> {
-	slug: string
-}
-
-export function useRepositoryBlobQuery(input: RepositoryBlobPathInput) {
+export function useRepositoryBlobQuery(input: GetRepositoryBlobInput) {
 	return useQuery(getRepositoryBlobQueryOptions(input))
 }
 
-export function getRepositoryBlobQueryOptions(input: RepositoryBlobPathInput) {
+export function getRepositoryBlobQueryOptions(input: GetRepositoryBlobInput) {
 	return orpcQuery.repositories.getBlob.queryOptions({
-		input: getRepositoryBlobInput(input),
-	})
-}
-
-function getRepositoryBlobInput({
-	username,
-	slug,
-	ref,
-	path,
-}: RepositoryBlobPathInput) {
-	return getRepositoryBlobInputSchema.parse({
-		username,
-		slug,
-		ref,
-		path,
+		input,
 	})
 }

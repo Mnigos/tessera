@@ -481,6 +481,32 @@ async fn repository_refs_peels_annotated_tag_to_commit() {
 }
 
 #[tokio::test]
+async fn repository_refs_skips_non_commit_tags() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    let readme_object_id = object_id_for_path(&repository.path, "main", "README.md");
+    git(&repository.path, ["tag", "blob-tag", &readme_object_id]);
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .await
+        .unwrap()
+        .refs;
+
+    assert!(
+        refs.iter()
+            .all(|repository_ref| repository_ref.display_name != "blob-tag")
+    );
+}
+
+#[tokio::test]
 async fn repository_refs_returns_empty_list_for_empty_repository() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");

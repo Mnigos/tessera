@@ -2,6 +2,7 @@ import {
 	type RepositoryBlob,
 	type RepositoryBrowserSummary,
 	type RepositoryCommitHistory as RepositoryCommitHistoryResult,
+	type RepositoryRefs,
 	type RepositoryTree,
 	repositorySchema,
 } from '@repo/contracts'
@@ -9,8 +10,8 @@ import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
-import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 import { useRepositoryCommitsQuery } from '../hooks/use-repository-commits.query'
+import { useRepositoryRefsQuery } from '../hooks/use-repository-refs.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import { RepositoryBlobPreview } from './repository-blob-preview'
 import { getBlobHref, getTreeHref } from './repository-browser-breadcrumbs'
@@ -31,6 +32,7 @@ vi.mock('@tanstack/react-router', () => ({
 			{children}
 		</a>
 	),
+	useNavigate: () => vi.fn(),
 }))
 
 vi.mock('../hooks/use-repository-tree.query', () => ({
@@ -41,18 +43,18 @@ vi.mock('../hooks/use-repository-blob.query', () => ({
 	useRepositoryBlobQuery: vi.fn(),
 }))
 
-vi.mock('../hooks/use-repository-browser-summary.query', () => ({
-	useRepositoryBrowserSummaryQuery: vi.fn(),
-}))
-
 vi.mock('../hooks/use-repository-commits.query', () => ({
 	useRepositoryCommitsQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-repository-refs.query', () => ({
+	useRepositoryRefsQuery: vi.fn(),
+}))
+
 const treeQueryMock = vi.mocked(useRepositoryTreeQuery)
 const blobQueryMock = vi.mocked(useRepositoryBlobQuery)
-const summaryQueryMock = vi.mocked(useRepositoryBrowserSummaryQuery)
 const commitsQueryMock = vi.mocked(useRepositoryCommitsQuery)
+const refsQueryMock = vi.mocked(useRepositoryRefsQuery)
 
 const baseTree = {
 	owner: { username: 'mnigos' },
@@ -202,14 +204,21 @@ const baseSummary = {
 	rootEntries: baseTree.entries,
 } satisfies RepositoryBrowserSummary
 
+const baseRefs = {
+	repository: baseTree.repository,
+	owner: baseTree.owner,
+	branches: baseSummary.branches,
+	tags: baseSummary.tags,
+} satisfies RepositoryRefs
+
 describe('Repository browser components', () => {
 	afterEach(() => {
 		vi.resetAllMocks()
 	})
 
 	beforeEach(() => {
-		summaryQueryMock.mockReturnValue(
-			getQueryResult<RepositoryBrowserSummary>({ data: baseSummary })
+		refsQueryMock.mockReturnValue(
+			getQueryResult<RepositoryRefs>({ data: baseRefs })
 		)
 	})
 
@@ -239,6 +248,31 @@ describe('Repository browser components', () => {
 		expect(
 			screen.getByRole('link', { name: 'modules' }).getAttribute('href')
 		).toBe('/mnigos/tessera-notes/tree/main/src/modules')
+	})
+
+	test('renders compact breadcrumb text for qualified refs', () => {
+		treeQueryMock.mockReturnValue(
+			getQueryResult({
+				data: {
+					...baseTree,
+					ref: 'refs/heads/main',
+				},
+			})
+		)
+
+		render(
+			<RepositoryTreeBrowser
+				path="src/modules"
+				refName="refs/heads/main"
+				slug="tessera-notes"
+				username="mnigos"
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'refs/heads/main' })).toBeNull()
+		expect(
+			screen.getAllByRole('link', { name: 'main' })[0]?.getAttribute('href')
+		).toBe('/mnigos/tessera-notes/tree/refs%2Fheads%2Fmain/')
 	})
 
 	test('renders nested tree entries with directory and blob links', () => {
@@ -625,6 +659,6 @@ function getQueryResult<TData>({
 		isError,
 	} as ReturnType<typeof useRepositoryTreeQuery> &
 		ReturnType<typeof useRepositoryBlobQuery> &
-		ReturnType<typeof useRepositoryBrowserSummaryQuery> &
+		ReturnType<typeof useRepositoryRefsQuery> &
 		ReturnType<typeof useRepositoryCommitsQuery>
 }

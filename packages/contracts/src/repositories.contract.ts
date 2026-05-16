@@ -41,29 +41,36 @@ export const createRepositoryInputSchema = z.object({
 	description: z.string().trim().min(1).max(500).optional(),
 	visibility: z.enum(['public', 'private']).optional(),
 })
-export type CreateRepositoryInput = z.infer<typeof createRepositoryInputSchema>
+export type CreateRepositoryInput = z.input<typeof createRepositoryInputSchema>
 
 export const listRepositoriesInputSchema = z.object({
 	username: z.string().min(1),
 })
-export type ListRepositoriesInput = z.infer<typeof listRepositoriesInputSchema>
+export type ListRepositoriesInput = z.input<typeof listRepositoriesInputSchema>
 
 export const getRepositoryInputSchema = z.object({
 	username: z.string().min(1),
 	slug: repositorySlugSchema,
 })
-export type GetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
+export type GetRepositoryInput = z.input<typeof getRepositoryInputSchema>
+export type ParsedGetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
 
 export const getRepositoryBrowserSummaryInputSchema =
 	getRepositoryInputSchema.extend({
 		ref: z.string().min(1).optional(),
 	})
-export type GetRepositoryBrowserSummaryInput = z.infer<
+export type GetRepositoryBrowserSummaryInput = z.input<
+	typeof getRepositoryBrowserSummaryInputSchema
+>
+export type ParsedGetRepositoryBrowserSummaryInput = z.infer<
 	typeof getRepositoryBrowserSummaryInputSchema
 >
 
 export const getRepositoryRefsInputSchema = getRepositoryInputSchema
-export type GetRepositoryRefsInput = z.infer<
+export type GetRepositoryRefsInput = z.input<
+	typeof getRepositoryRefsInputSchema
+>
+export type ParsedGetRepositoryRefsInput = z.infer<
 	typeof getRepositoryRefsInputSchema
 >
 
@@ -71,7 +78,10 @@ export const getRepositoryTreeInputSchema = getRepositoryInputSchema.extend({
 	ref: z.string().min(1),
 	path: z.string().optional(),
 })
-export type GetRepositoryTreeInput = z.infer<
+export type GetRepositoryTreeInput = z.input<
+	typeof getRepositoryTreeInputSchema
+>
+export type ParsedGetRepositoryTreeInput = z.infer<
 	typeof getRepositoryTreeInputSchema
 >
 
@@ -79,7 +89,10 @@ export const getRepositoryBlobInputSchema = getRepositoryInputSchema.extend({
 	ref: z.string().min(1),
 	path: z.string().min(1),
 })
-export type GetRepositoryBlobInput = z.infer<
+export type GetRepositoryBlobInput = z.input<
+	typeof getRepositoryBlobInputSchema
+>
+export type ParsedGetRepositoryBlobInput = z.infer<
 	typeof getRepositoryBlobInputSchema
 >
 
@@ -88,7 +101,10 @@ export const getRepositoryCommitHistoryInputSchema =
 		ref: z.string().min(1),
 		limit: z.coerce.number().int().min(1).max(100).optional(),
 	})
-export type GetRepositoryCommitHistoryInput = z.infer<
+export type GetRepositoryCommitHistoryInput = z.input<
+	typeof getRepositoryCommitHistoryInputSchema
+>
+export type ParsedGetRepositoryCommitHistoryInput = z.infer<
 	typeof getRepositoryCommitHistoryInputSchema
 >
 

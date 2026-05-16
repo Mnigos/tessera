@@ -4,15 +4,14 @@ import { RepositoryTreeBrowser } from '../components/repository-tree-browser'
 import { getRepositoryTreeQueryOptions } from '../hooks/use-repository-tree.query'
 
 export const Route = createFileRoute('/$username/$slug/tree/$ref/$')({
-	loader: async ({ context, params }) => {
-		const path = params._splat ?? ''
+	loader: async ({ context, params: { username, slug, ref, _splat = '' } }) => {
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
 				getRepositoryTreeQueryOptions({
-					username: params.username,
-					slug: params.slug,
-					ref: params.ref,
-					path,
+					username,
+					slug,
+					ref,
+					path: _splat,
 				})
 			)
 		)
@@ -21,10 +20,10 @@ export const Route = createFileRoute('/$username/$slug/tree/$ref/$')({
 
 		if (error) throw error
 	},
-	head: ({ params }) => ({
+	head: ({ params: { username, slug, ref, _splat = '' } }) => ({
 		meta: [
 			{
-				title: `${params.username}/${params.slug} at ${params.ref}${params._splat ? `/${params._splat}` : ''} · Tessera`,
+				title: `${username}/${slug} at ${ref}${_splat ? `/${_splat}` : ''} · Tessera`,
 			},
 		],
 	}),
