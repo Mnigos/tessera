@@ -1,13 +1,14 @@
 import type { RepositoryBlob } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { useNavigate } from '@tanstack/react-router'
 import { formatBytes } from '../helpers/format-tree-entry-size'
 import {
+	getFallbackRefOptions,
 	getRepositoryRefDisplayName,
-	getRepositoryRefOptions,
-	type RepositoryRefOption,
+	getRepositoryRefOptionsFromRefs,
 } from '../helpers/repository-refs'
 import { useRepositoryBlobQuery } from '../hooks/use-repository-blob.query'
-import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
+import { useRepositoryRefsQuery } from '../hooks/use-repository-refs.query'
 import {
 	getBlobHref,
 	RepositoryBrowserBreadcrumbs,
@@ -111,14 +112,15 @@ function RepositoryBlobShell({
 	refName,
 	path,
 }: Readonly<RepositoryBlobShellProps>) {
-	const summaryQuery = useRepositoryBrowserSummaryQuery({ slug, username })
-	const refOptions = summaryQuery.data
-		? getRepositoryRefOptions(summaryQuery.data)
+	const navigate = useNavigate()
+	const refsQuery = useRepositoryRefsQuery({ slug, username })
+	const refOptions = refsQuery.data
+		? getRepositoryRefOptionsFromRefs(refsQuery.data)
 		: getFallbackRefOptions(refName)
 	const selectedRefName = getRepositoryRefDisplayName(refName)
 
 	function handleSelectedRefChange(nextRefName: string) {
-		window.location.assign(getBlobHref(username, slug, nextRefName, path))
+		navigate({ to: getBlobHref(username, slug, nextRefName, path) })
 	}
 
 	return (
@@ -133,7 +135,7 @@ function RepositoryBlobShell({
 				/>
 				<div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
 					<RepositoryRefSelector
-						disabled={summaryQuery.isLoading || summaryQuery.isError}
+						disabled={refsQuery.isLoading || refsQuery.isError}
 						onSelectedRefChange={handleSelectedRefChange}
 						refs={refOptions}
 						selectedRef={refName}
@@ -235,14 +237,4 @@ function BlobLanguage({ preview }: Readonly<BlobLanguageProps>) {
 			{highlightedPreview.language}
 		</span>
 	)
-}
-
-function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
-	return [
-		{
-			kind: 'branch',
-			name: getRepositoryRefDisplayName(refName),
-			qualifiedName: refName,
-		},
-	]
 }

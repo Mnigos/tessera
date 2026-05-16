@@ -16,12 +16,12 @@ import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
-	GetRepositoryBlobInput,
-	GetRepositoryBrowserSummaryInput,
-	GetRepositoryCommitHistoryInput,
-	GetRepositoryInput,
-	GetRepositoryRefsInput,
-	GetRepositoryTreeInput,
+	ParsedGetRepositoryBlobInput,
+	ParsedGetRepositoryBrowserSummaryInput,
+	ParsedGetRepositoryCommitHistoryInput,
+	ParsedGetRepositoryInput,
+	ParsedGetRepositoryRefsInput,
+	ParsedGetRepositoryTreeInput,
 	RepositoryBlob,
 	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
@@ -159,7 +159,7 @@ export class RepositoriesService {
 
 	async get(
 		userId: UserId,
-		{ slug, username }: GetRepositoryInput
+		{ slug, username }: ParsedGetRepositoryInput
 	): Promise<RepositoryWithOwner> {
 		const repository = await this.repositoriesRepository.find({
 			userId,
@@ -173,7 +173,7 @@ export class RepositoriesService {
 
 	async getBrowserSummary(
 		viewerUserId: UserId | undefined,
-		{ ref, slug, username }: GetRepositoryBrowserSummaryInput
+		{ ref, slug, username }: ParsedGetRepositoryBrowserSummaryInput
 	): Promise<RepositoryBrowserSummary> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -219,7 +219,7 @@ export class RepositoriesService {
 
 	async getRefs(
 		viewerUserId: UserId | undefined,
-		{ slug, username }: GetRepositoryRefsInput
+		{ slug, username }: ParsedGetRepositoryRefsInput
 	): Promise<RepositoryRefs> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -248,7 +248,7 @@ export class RepositoriesService {
 
 	async getTree(
 		viewerUserId: UserId | undefined,
-		{ path, ref, slug, username }: GetRepositoryTreeInput
+		{ path, ref, slug, username }: ParsedGetRepositoryTreeInput
 	): Promise<RepositoryTree> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -279,7 +279,7 @@ export class RepositoriesService {
 
 	async getBlob(
 		viewerUserId: UserId | undefined,
-		{ path, ref, slug, username }: GetRepositoryBlobInput
+		{ path, ref, slug, username }: ParsedGetRepositoryBlobInput
 	): Promise<RepositoryBlob> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -334,7 +334,7 @@ export class RepositoriesService {
 
 	async getRawBlob(
 		viewerUserId: UserId | undefined,
-		{ path, ref, slug, username }: GetRepositoryBlobInput
+		{ path, ref, slug, username }: ParsedGetRepositoryBlobInput
 	): Promise<Uint8Array<ArrayBufferLike>> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -379,7 +379,7 @@ export class RepositoriesService {
 
 	async getCommitHistory(
 		viewerUserId: UserId | undefined,
-		{ limit, ref, slug, username }: GetRepositoryCommitHistoryInput
+		{ limit, ref, slug, username }: ParsedGetRepositoryCommitHistoryInput
 	): Promise<RepositoryCommitHistory> {
 		const { repository, storagePath } = await this.findReadableRepository(
 			viewerUserId,
@@ -619,7 +619,7 @@ export class RepositoriesService {
 
 	private async findReadableRepository(
 		viewerUserId: UserId | undefined,
-		{ slug, username }: GetRepositoryInput
+		{ slug, username }: ParsedGetRepositoryInput
 	): Promise<ReadableRepositoryContext> {
 		const repository = await this.repositoriesRepository.find({
 			username,

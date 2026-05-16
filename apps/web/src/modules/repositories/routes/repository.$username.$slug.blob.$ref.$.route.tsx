@@ -4,15 +4,14 @@ import { RepositoryBlobPreview } from '../components/repository-blob-preview'
 import { getRepositoryBlobQueryOptions } from '../hooks/use-repository-blob.query'
 
 export const Route = createFileRoute('/$username/$slug/blob/$ref/$')({
-	loader: async ({ context, params }) => {
-		const path = params._splat ?? ''
+	loader: async ({ context, params: { username, slug, ref, _splat = '' } }) => {
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
 				getRepositoryBlobQueryOptions({
-					username: params.username,
-					slug: params.slug,
-					ref: params.ref,
-					path,
+					username,
+					slug,
+					ref,
+					path: _splat,
 				})
 			)
 		)
@@ -21,10 +20,10 @@ export const Route = createFileRoute('/$username/$slug/blob/$ref/$')({
 
 		if (error) throw error
 	},
-	head: ({ params }) => ({
+	head: ({ params: { username, slug, ref, _splat = '' } }) => ({
 		meta: [
 			{
-				title: `${params.username}/${params.slug} at ${params.ref}${params._splat ? `/${params._splat}` : ''} · Tessera`,
+				title: `${username}/${slug} at ${ref}${_splat ? `/${_splat}` : ''} · Tessera`,
 			},
 		],
 	}),

@@ -1,5 +1,6 @@
 import { Link } from '@tanstack/react-router'
 import { ChevronRight } from 'lucide-react'
+import { getRepositoryRefDisplayName } from '../helpers/repository-refs'
 
 interface RepositoryBrowserBreadcrumbsProps {
 	username: string
@@ -20,6 +21,7 @@ export function RepositoryBrowserBreadcrumbs({
 	const parentSegments =
 		terminalKind === 'blob' ? segments.slice(0, -1) : segments
 	const terminalName = terminalKind === 'blob' ? segments.at(-1) : undefined
+	const displayRefName = getRepositoryRefDisplayName(refName)
 
 	return (
 		<nav
@@ -37,7 +39,7 @@ export function RepositoryBrowserBreadcrumbs({
 				className="font-medium text-foreground hover:underline"
 				to={getTreeHref(username, slug, refName, '')}
 			>
-				{refName}
+				{displayRefName}
 			</Link>
 			{parentSegments.map((segment, index) => {
 				const segmentPath = parentSegments.slice(0, index + 1).join('/')

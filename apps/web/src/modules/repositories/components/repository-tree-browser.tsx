@@ -1,11 +1,12 @@
 import type { RepositoryTree } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { useNavigate } from '@tanstack/react-router'
 import {
+	getFallbackRefOptions,
 	getRepositoryRefDisplayName,
-	getRepositoryRefOptions,
-	type RepositoryRefOption,
+	getRepositoryRefOptionsFromRefs,
 } from '../helpers/repository-refs'
-import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
+import { useRepositoryRefsQuery } from '../hooks/use-repository-refs.query'
 import { useRepositoryTreeQuery } from '../hooks/use-repository-tree.query'
 import {
 	getBlobHref,
@@ -103,14 +104,15 @@ function RepositoryBrowserShell({
 	refName,
 	path,
 }: Readonly<RepositoryBrowserShellProps>) {
-	const summaryQuery = useRepositoryBrowserSummaryQuery({ slug, username })
-	const refOptions = summaryQuery.data
-		? getRepositoryRefOptions(summaryQuery.data)
+	const navigate = useNavigate()
+	const refsQuery = useRepositoryRefsQuery({ slug, username })
+	const refOptions = refsQuery.data
+		? getRepositoryRefOptionsFromRefs(refsQuery.data)
 		: getFallbackRefOptions(refName)
 	const selectedRefName = getRepositoryRefDisplayName(refName)
 
 	function handleSelectedRefChange(nextRefName: string) {
-		window.location.assign(getTreeHref(username, slug, nextRefName, path))
+		navigate({ to: getTreeHref(username, slug, nextRefName, path) })
 	}
 
 	return (
@@ -124,7 +126,7 @@ function RepositoryBrowserShell({
 				/>
 				<div className="flex flex-wrap items-center gap-2 text-muted-foreground text-sm">
 					<RepositoryRefSelector
-						disabled={summaryQuery.isLoading || summaryQuery.isError}
+						disabled={refsQuery.isLoading || refsQuery.isError}
 						onSelectedRefChange={handleSelectedRefChange}
 						refs={refOptions}
 						selectedRef={refName}
@@ -210,14 +212,4 @@ function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {
 		)
 
 	return undefined
-}
-
-function getFallbackRefOptions(refName: string): RepositoryRefOption[] {
-	return [
-		{
-			kind: 'branch',
-			name: getRepositoryRefDisplayName(refName),
-			qualifiedName: refName,
-		},
-	]
 }
