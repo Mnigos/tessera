@@ -7,6 +7,7 @@ import {
 	GatewayTimeoutError,
 	ServiceUnavailableError,
 } from '~/shared/errors'
+import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
 	RepositoryTreeEntryKind,
@@ -101,23 +102,7 @@ describe(GitStorageClient.name, () => {
 			),
 			listRepositoryCommits: vi.fn(() =>
 				of({
-					commits: [
-						{
-							sha: 'abcdef1234567890',
-							shortSha: 'abcdef1',
-							summary: 'Add repository browser',
-							author: {
-								name: 'Marta',
-								email: 'marta@example.com',
-								date: '2026-05-15T12:00:00Z',
-							},
-							committer: {
-								name: 'Codex',
-								email: 'codex@example.com',
-								date: '2026-05-15T12:05:00Z',
-							},
-						},
-					],
+					commits: [mockRepositoryCommit],
 				})
 			),
 		}
@@ -402,23 +387,7 @@ describe(GitStorageClient.name, () => {
 				limit: 20,
 			})
 		).toEqual({
-			commits: [
-				{
-					sha: 'abcdef1234567890',
-					shortSha: 'abcdef1',
-					summary: 'Add repository browser',
-					author: {
-						name: 'Marta',
-						email: 'marta@example.com',
-						date: '2026-05-15T12:00:00Z',
-					},
-					committer: {
-						name: 'Codex',
-						email: 'codex@example.com',
-						date: '2026-05-15T12:05:00Z',
-					},
-				},
-			],
+			commits: [mockRepositoryCommit],
 		})
 		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
 			repositoryId,

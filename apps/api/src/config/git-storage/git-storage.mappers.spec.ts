@@ -1,3 +1,4 @@
+import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
 	RepositoryTreeEntryKind,
@@ -168,18 +169,11 @@ describe('git storage mappers', () => {
 		const response = {
 			commits: [
 				{
-					sha: 'abcdef1234567890',
-					shortSha: 'abcdef1',
+					...mockRepositoryCommit,
 					summary: 'Add commit history',
 					author: {
-						name: 'Marta',
+						...mockRepositoryCommit.author,
 						email: 'marta',
-						date: '2026-05-15T12:00:00Z',
-					},
-					committer: {
-						name: 'Codex',
-						email: 'codex@example.com',
-						date: '2026-05-15T12:05:00Z',
 					},
 				},
 				{
@@ -195,18 +189,11 @@ describe('git storage mappers', () => {
 		expect(toRepositoryCommitHistory(response)).toEqual({
 			commits: [
 				{
-					sha: 'abcdef1234567890',
-					shortSha: 'abcdef1',
+					...mockRepositoryCommit,
 					summary: 'Add commit history',
 					author: {
-						name: 'Marta',
+						...mockRepositoryCommit.author,
 						email: 'marta',
-						date: '2026-05-15T12:00:00Z',
-					},
-					committer: {
-						name: 'Codex',
-						email: 'codex@example.com',
-						date: '2026-05-15T12:05:00Z',
 					},
 				},
 				{
