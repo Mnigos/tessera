@@ -45,6 +45,7 @@
 - Use descriptive names; avoid cryptic single-letter callback variables.
 - Use interfaces for object shapes.
 - Use type aliases for unions, primitives, and computed types.
+- Do not create aliases that exactly rename or re-export an existing import; use the original export directly. Local names are fine when the type or value is changed.
 - Avoid type assertions; first fix the source type, generic, parser, fixture, or config mismatch. Use assertions only when an external boundary cannot express the type safely.
 - Prefer `T[]` array syntax instead of `Array<T>`; for arrays of object shapes, create a small named interface or type and use `Type[]`.
 - Avoid redundant return types; keep explicit types for public/API contract surfaces.
