@@ -7,7 +7,7 @@ import { resolveGitStorageProtoPath } from './git-storage-proto-paths'
 
 export const GIT_GRPC_LOADER_OPTIONS = {
 	keepCase: false,
-	longs: String,
+	longs: Number,
 }
 export const GIT_STORAGE_RAW_BLOB_MAX_BYTES = 10 * 1024 * 1024
 export const GIT_STORAGE_MAX_RECEIVE_MESSAGE_BYTES =
