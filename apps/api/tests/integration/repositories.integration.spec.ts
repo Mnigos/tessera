@@ -69,6 +69,9 @@ interface RepositoryTreeEntryResponseBody {
 interface RepositoryBrowserSummaryResponseBody extends RepositoryResponseBody {
 	isEmpty: boolean
 	defaultBranch: string
+	selectedRef?: RepositoryRefResponseBody
+	branches: RepositoryBranchRefResponseBody[]
+	tags: RepositoryTagRefResponseBody[]
 	rootEntries: RepositoryTreeEntryResponseBody[]
 	readme?: {
 		filename: string
@@ -77,6 +80,24 @@ interface RepositoryBrowserSummaryResponseBody extends RepositoryResponseBody {
 		isTruncated: boolean
 	}
 }
+
+interface RepositoryBranchRefResponseBody {
+	type: 'branch'
+	name: string
+	qualifiedName: string
+	target: string
+}
+
+interface RepositoryTagRefResponseBody {
+	type: 'tag'
+	name: string
+	qualifiedName: string
+	target: string
+}
+
+type RepositoryRefResponseBody =
+	| RepositoryBranchRefResponseBody
+	| RepositoryTagRefResponseBody
 
 interface RepositoryTreeResponseBody extends RepositoryResponseBody {
 	ref: string
@@ -125,6 +146,7 @@ describe('Repositories integration', () => {
 	let adapter: HonoAdapter
 	let gitStorageCreateRepository: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryBrowserSummary: ReturnType<typeof vi.fn>
+	let gitStorageListRepositoryRefs: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryTree: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
@@ -162,6 +184,17 @@ describe('Repositories integration', () => {
 				isTruncated: false,
 			},
 		})
+		gitStorageListRepositoryRefs = vi.fn().mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+			],
+			tags: [],
+		})
 		gitStorageGetRepositoryTree = vi.fn().mockResolvedValue({
 			commitId: 'commit123',
 			path: 'src',
@@ -197,6 +230,7 @@ describe('Repositories integration', () => {
 			.useValue({
 				createRepository: gitStorageCreateRepository,
 				getRepositoryBrowserSummary: gitStorageGetRepositoryBrowserSummary,
+				listRepositoryRefs: gitStorageListRepositoryRefs,
 				getRepositoryTree: gitStorageGetRepositoryTree,
 				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				getRepositoryRawBlob: gitStorageGetRepositoryRawBlob,
@@ -213,6 +247,7 @@ describe('Repositories integration', () => {
 		await resetIntegrationDatabase()
 		gitStorageCreateRepository.mockReset()
 		gitStorageGetRepositoryBrowserSummary.mockReset()
+		gitStorageListRepositoryRefs.mockReset()
 		gitStorageGetRepositoryTree.mockReset()
 		gitStorageGetRepositoryBlob.mockReset()
 		gitStorageGetRepositoryRawBlob.mockReset()
@@ -240,6 +275,17 @@ describe('Repositories integration', () => {
 				content: '# Notes',
 				isTruncated: false,
 			},
+		})
+		gitStorageListRepositoryRefs.mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+			],
+			tags: [],
 		})
 		gitStorageGetRepositoryTree.mockResolvedValue({
 			commitId: 'commit123',
@@ -564,6 +610,21 @@ describe('Repositories integration', () => {
 			},
 			isEmpty: false,
 			defaultBranch: 'main',
+			selectedRef: {
+				type: 'branch',
+				name: 'main',
+				qualifiedName: 'refs/heads/main',
+				target: 'commit123',
+			},
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: 'commit123',
+				},
+			],
+			tags: [],
 			rootEntries: [
 				{
 					name: 'src',
@@ -587,6 +648,10 @@ describe('Repositories integration', () => {
 				defaultBranch: 'main',
 			})
 		)
+		expect(gitStorageListRepositoryRefs).toHaveBeenCalledWith({
+			repositoryId: body.repository.id,
+			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
+		})
 	})
 
 	test('returns private repository browser summary for the owner', async () => {
