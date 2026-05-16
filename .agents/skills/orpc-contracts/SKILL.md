@@ -21,7 +21,10 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Add new API endpoints through oRPC contracts by default, including file/download endpoints when oRPC supports the response type. Avoid bypassing contracts with native Nest HTTP routes unless oRPC has been checked and cannot represent the endpoint.
 - Always declare `.output()`.
 - Prefer `.route()` then `.errors()` then `.input()` then `.output()` unless nearby contracts use a different local order.
-- Export Zod-inferred types that API services or frontend code consume.
+- Export contract input types with `z.input<typeof inputSchema>` because callers pass raw values, such as route strings or URL query params.
+- Export response/output types with `z.infer<typeof outputSchema>`.
+- When API services need parsed values from an input schema, also export a separate parsed alias with `z.infer<typeof inputSchema>`, named like `ParsedGetThingInput`.
+- Use parsed input aliases inside API services when schemas brand fields or coerce values, such as branded slugs or `z.coerce.number()` query params.
 - Services must import matching contract types instead of redefining identical inline shapes.
 - For shared branded IDs, use `.brand<'brand_key'>()` with the same key as the `@repo/domain` type. If this forces `as unknown as` casts in API mappers, fix the domain brand helper or contract schema instead of keeping the cast.
 - Use `z.coerce.number()` and `z.coerce.date()` for GET query/search params that arrive from URLs.
