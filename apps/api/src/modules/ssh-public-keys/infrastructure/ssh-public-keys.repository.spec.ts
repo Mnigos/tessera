@@ -12,7 +12,6 @@ describe(SshPublicKeysRepository.name, () => {
 	let sshPublicKeysRepository: SshPublicKeysRepository
 
 	const findManyMock = vi.fn()
-	const findFirstMock = vi.fn()
 	const insertMock = vi.fn()
 	const valuesMock = vi.fn()
 	const returningMock = vi.fn()
@@ -37,7 +36,6 @@ describe(SshPublicKeysRepository.name, () => {
 						query: {
 							sshPublicKeys: {
 								findMany: findManyMock,
-								findFirst: findFirstMock,
 							},
 						},
 						insert: insertMock,
@@ -93,25 +91,6 @@ describe(SshPublicKeysRepository.name, () => {
 		expect(findManyMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				where: eq(sshPublicKeys.ownerUserId, mockUserId),
-			})
-		)
-	})
-
-	test('finds a key by id and owner', async () => {
-		findFirstMock.mockResolvedValue({ title: 'Laptop' })
-
-		expect(
-			await sshPublicKeysRepository.findOwned({
-				userId: mockUserId,
-				sshPublicKeyId,
-			})
-		).toEqual({ title: 'Laptop' })
-		expect(findFirstMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				where: and(
-					eq(sshPublicKeys.id, sshPublicKeyId),
-					eq(sshPublicKeys.ownerUserId, mockUserId)
-				),
 			})
 		)
 	})
