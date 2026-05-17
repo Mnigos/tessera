@@ -12,6 +12,7 @@ describe(SshPublicKeysRepository.name, () => {
 	let sshPublicKeysRepository: SshPublicKeysRepository
 
 	const findManyMock = vi.fn()
+	const findFirstMock = vi.fn()
 	const insertMock = vi.fn()
 	const valuesMock = vi.fn()
 	const returningMock = vi.fn()
@@ -35,6 +36,7 @@ describe(SshPublicKeysRepository.name, () => {
 					useValue: {
 						query: {
 							sshPublicKeys: {
+								findFirst: findFirstMock,
 								findMany: findManyMock,
 							},
 						},
@@ -93,6 +95,19 @@ describe(SshPublicKeysRepository.name, () => {
 				where: eq(sshPublicKeys.ownerUserId, mockUserId),
 			})
 		)
+	})
+
+	test('finds a key by fingerprint', async () => {
+		findFirstMock.mockResolvedValue({ title: 'Laptop' })
+
+		expect(
+			await sshPublicKeysRepository.findByFingerprint({
+				fingerprintSha256: 'SHA256:abc',
+			})
+		).toEqual({ title: 'Laptop' })
+		expect(findFirstMock).toHaveBeenCalledWith({
+			where: eq(sshPublicKeys.fingerprintSha256, 'SHA256:abc'),
+		})
 	})
 
 	test('deletes a key by id and owner', async () => {

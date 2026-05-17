@@ -5,6 +5,7 @@ import { mockUserId } from '~/shared/test-utils'
 import {
 	DuplicateSshPublicKeyError,
 	InvalidSshPublicKeyError,
+	SshPublicKeyAuthenticationError,
 	SshPublicKeyNotFoundError,
 } from '../domain/ssh-public-key.errors'
 import { SshPublicKeysRepository } from '../infrastructure/ssh-public-keys.repository'
@@ -42,6 +43,7 @@ describe(SshPublicKeysService.name, () => {
 					useValue: {
 						create: vi.fn(),
 						list: vi.fn(),
+						findByFingerprint: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -99,6 +101,31 @@ describe(SshPublicKeysService.name, () => {
 			}),
 		])
 		expect(listSpy).toHaveBeenCalledWith({ userId: mockUserId })
+	})
+
+	test('finds a key owner by fingerprint', async () => {
+		const findByFingerprintSpy = vi
+			.spyOn(sshPublicKeysRepository, 'findByFingerprint')
+			.mockResolvedValue(sshPublicKey)
+
+		expect(
+			await sshPublicKeysService.findOwnerByFingerprint(
+				sshPublicKey.fingerprintSha256
+			)
+		).toBe(mockUserId)
+		expect(findByFingerprintSpy).toHaveBeenCalledWith({
+			fingerprintSha256: sshPublicKey.fingerprintSha256,
+		})
+	})
+
+	test('rejects unknown fingerprints for authentication', async () => {
+		vi.spyOn(sshPublicKeysRepository, 'findByFingerprint').mockResolvedValue(
+			undefined
+		)
+
+		await expect(
+			sshPublicKeysService.findOwnerByFingerprint('SHA256:missing')
+		).rejects.toBeInstanceOf(SshPublicKeyAuthenticationError)
 	})
 
 	test('rejects invalid SSH public keys', async () => {
