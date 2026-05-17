@@ -9,6 +9,7 @@ import { DocsModule } from '@modules/docs'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { HealthModule } from '@modules/health'
 import { RepositoriesModule } from '@modules/repositories'
+import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
@@ -24,6 +25,7 @@ import { APP_FILTER } from '@nestjs/core'
 		AuthModule,
 		UserModule,
 		GitAccessTokensModule,
+		SshPublicKeysModule,
 		RepositoriesModule,
 		DocsModule,
 		HealthModule,
