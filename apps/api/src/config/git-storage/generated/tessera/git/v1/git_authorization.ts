@@ -40,6 +40,43 @@ export interface AuthorizeWriteResponse {
   trustedUser: string;
 }
 
+export interface AuthenticateSshKeyRequest {
+  username: string;
+  fingerprintSha256: string;
+}
+
+export interface AuthenticateSshKeyResponse {
+  trustedUser: string;
+}
+
+export interface AuthorizeSshReadRequest {
+  ownerUsername: string;
+  repositorySlug: string;
+  service: string;
+  action: string;
+  fingerprintSha256: string;
+}
+
+export interface AuthorizeSshReadResponse {
+  repositoryId: string;
+  storagePath: string;
+  trustedUser: string;
+}
+
+export interface AuthorizeSshWriteRequest {
+  ownerUsername: string;
+  repositorySlug: string;
+  service: string;
+  action: string;
+  fingerprintSha256: string;
+}
+
+export interface AuthorizeSshWriteResponse {
+  repositoryId: string;
+  storagePath: string;
+  trustedUser: string;
+}
+
 export const TESSERA_GIT_V1_PACKAGE_NAME = "tessera.git.v1";
 
 function createBaseAuthorizeReadRequest(): AuthorizeReadRequest {
@@ -322,10 +359,381 @@ export const AuthorizeWriteResponse: MessageFns<AuthorizeWriteResponse> = {
   },
 };
 
+function createBaseAuthenticateSshKeyRequest(): AuthenticateSshKeyRequest {
+  return { username: "", fingerprintSha256: "" };
+}
+
+export const AuthenticateSshKeyRequest: MessageFns<AuthenticateSshKeyRequest> = {
+  encode(message: AuthenticateSshKeyRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.username !== "") {
+      writer.uint32(10).string(message.username);
+    }
+    if (message.fingerprintSha256 !== "") {
+      writer.uint32(18).string(message.fingerprintSha256);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthenticateSshKeyRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthenticateSshKeyRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.username = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.fingerprintSha256 = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseAuthenticateSshKeyResponse(): AuthenticateSshKeyResponse {
+  return { trustedUser: "" };
+}
+
+export const AuthenticateSshKeyResponse: MessageFns<AuthenticateSshKeyResponse> = {
+  encode(message: AuthenticateSshKeyResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.trustedUser !== "") {
+      writer.uint32(10).string(message.trustedUser);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthenticateSshKeyResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthenticateSshKeyResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.trustedUser = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseAuthorizeSshReadRequest(): AuthorizeSshReadRequest {
+  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprintSha256: "" };
+}
+
+export const AuthorizeSshReadRequest: MessageFns<AuthorizeSshReadRequest> = {
+  encode(message: AuthorizeSshReadRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ownerUsername !== "") {
+      writer.uint32(10).string(message.ownerUsername);
+    }
+    if (message.repositorySlug !== "") {
+      writer.uint32(18).string(message.repositorySlug);
+    }
+    if (message.service !== "") {
+      writer.uint32(26).string(message.service);
+    }
+    if (message.action !== "") {
+      writer.uint32(34).string(message.action);
+    }
+    if (message.fingerprintSha256 !== "") {
+      writer.uint32(42).string(message.fingerprintSha256);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthorizeSshReadRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthorizeSshReadRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.ownerUsername = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.repositorySlug = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.service = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.action = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.fingerprintSha256 = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseAuthorizeSshReadResponse(): AuthorizeSshReadResponse {
+  return { repositoryId: "", storagePath: "", trustedUser: "" };
+}
+
+export const AuthorizeSshReadResponse: MessageFns<AuthorizeSshReadResponse> = {
+  encode(message: AuthorizeSshReadResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.trustedUser !== "") {
+      writer.uint32(26).string(message.trustedUser);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthorizeSshReadResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthorizeSshReadResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.trustedUser = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseAuthorizeSshWriteRequest(): AuthorizeSshWriteRequest {
+  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprintSha256: "" };
+}
+
+export const AuthorizeSshWriteRequest: MessageFns<AuthorizeSshWriteRequest> = {
+  encode(message: AuthorizeSshWriteRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.ownerUsername !== "") {
+      writer.uint32(10).string(message.ownerUsername);
+    }
+    if (message.repositorySlug !== "") {
+      writer.uint32(18).string(message.repositorySlug);
+    }
+    if (message.service !== "") {
+      writer.uint32(26).string(message.service);
+    }
+    if (message.action !== "") {
+      writer.uint32(34).string(message.action);
+    }
+    if (message.fingerprintSha256 !== "") {
+      writer.uint32(42).string(message.fingerprintSha256);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthorizeSshWriteRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthorizeSshWriteRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.ownerUsername = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.repositorySlug = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.service = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.action = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.fingerprintSha256 = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseAuthorizeSshWriteResponse(): AuthorizeSshWriteResponse {
+  return { repositoryId: "", storagePath: "", trustedUser: "" };
+}
+
+export const AuthorizeSshWriteResponse: MessageFns<AuthorizeSshWriteResponse> = {
+  encode(message: AuthorizeSshWriteResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.trustedUser !== "") {
+      writer.uint32(26).string(message.trustedUser);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): AuthorizeSshWriteResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseAuthorizeSshWriteResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.trustedUser = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 export interface GitAuthorizationServiceClient {
   authorizeRead(request: AuthorizeReadRequest, metadata?: Metadata): Observable<AuthorizeReadResponse>;
 
   authorizeWrite(request: AuthorizeWriteRequest, metadata?: Metadata): Observable<AuthorizeWriteResponse>;
+
+  authenticateSshKey(request: AuthenticateSshKeyRequest, metadata?: Metadata): Observable<AuthenticateSshKeyResponse>;
+
+  authorizeSshRead(request: AuthorizeSshReadRequest, metadata?: Metadata): Observable<AuthorizeSshReadResponse>;
+
+  authorizeSshWrite(request: AuthorizeSshWriteRequest, metadata?: Metadata): Observable<AuthorizeSshWriteResponse>;
 }
 
 export interface GitAuthorizationServiceController {
@@ -338,11 +746,32 @@ export interface GitAuthorizationServiceController {
     request: AuthorizeWriteRequest,
     metadata?: Metadata,
   ): Promise<AuthorizeWriteResponse> | Observable<AuthorizeWriteResponse> | AuthorizeWriteResponse;
+
+  authenticateSshKey(
+    request: AuthenticateSshKeyRequest,
+    metadata?: Metadata,
+  ): Promise<AuthenticateSshKeyResponse> | Observable<AuthenticateSshKeyResponse> | AuthenticateSshKeyResponse;
+
+  authorizeSshRead(
+    request: AuthorizeSshReadRequest,
+    metadata?: Metadata,
+  ): Promise<AuthorizeSshReadResponse> | Observable<AuthorizeSshReadResponse> | AuthorizeSshReadResponse;
+
+  authorizeSshWrite(
+    request: AuthorizeSshWriteRequest,
+    metadata?: Metadata,
+  ): Promise<AuthorizeSshWriteResponse> | Observable<AuthorizeSshWriteResponse> | AuthorizeSshWriteResponse;
 }
 
 export function GitAuthorizationServiceControllerMethods() {
   return function (constructor: Function) {
-    const grpcMethods: string[] = ["authorizeRead", "authorizeWrite"];
+    const grpcMethods: string[] = [
+      "authorizeRead",
+      "authorizeWrite",
+      "authenticateSshKey",
+      "authorizeSshRead",
+      "authorizeSshWrite",
+    ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
       GrpcMethod("GitAuthorizationService", method)(constructor.prototype[method], method, descriptor);
@@ -380,11 +809,47 @@ export const GitAuthorizationServiceService = {
       Buffer.from(AuthorizeWriteResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): AuthorizeWriteResponse => AuthorizeWriteResponse.decode(value),
   },
+  authenticateSshKey: {
+    path: "/tessera.git.v1.GitAuthorizationService/AuthenticateSshKey" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: AuthenticateSshKeyRequest): Buffer =>
+      Buffer.from(AuthenticateSshKeyRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): AuthenticateSshKeyRequest => AuthenticateSshKeyRequest.decode(value),
+    responseSerialize: (value: AuthenticateSshKeyResponse): Buffer =>
+      Buffer.from(AuthenticateSshKeyResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): AuthenticateSshKeyResponse => AuthenticateSshKeyResponse.decode(value),
+  },
+  authorizeSshRead: {
+    path: "/tessera.git.v1.GitAuthorizationService/AuthorizeSshRead" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: AuthorizeSshReadRequest): Buffer =>
+      Buffer.from(AuthorizeSshReadRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): AuthorizeSshReadRequest => AuthorizeSshReadRequest.decode(value),
+    responseSerialize: (value: AuthorizeSshReadResponse): Buffer =>
+      Buffer.from(AuthorizeSshReadResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): AuthorizeSshReadResponse => AuthorizeSshReadResponse.decode(value),
+  },
+  authorizeSshWrite: {
+    path: "/tessera.git.v1.GitAuthorizationService/AuthorizeSshWrite" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: AuthorizeSshWriteRequest): Buffer =>
+      Buffer.from(AuthorizeSshWriteRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): AuthorizeSshWriteRequest => AuthorizeSshWriteRequest.decode(value),
+    responseSerialize: (value: AuthorizeSshWriteResponse): Buffer =>
+      Buffer.from(AuthorizeSshWriteResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): AuthorizeSshWriteResponse => AuthorizeSshWriteResponse.decode(value),
+  },
 } as const;
 
 export interface GitAuthorizationServiceServer extends UntypedServiceImplementation {
   authorizeRead: handleUnaryCall<AuthorizeReadRequest, AuthorizeReadResponse>;
   authorizeWrite: handleUnaryCall<AuthorizeWriteRequest, AuthorizeWriteResponse>;
+  authenticateSshKey: handleUnaryCall<AuthenticateSshKeyRequest, AuthenticateSshKeyResponse>;
+  authorizeSshRead: handleUnaryCall<AuthorizeSshReadRequest, AuthorizeSshReadResponse>;
+  authorizeSshWrite: handleUnaryCall<AuthorizeSshWriteRequest, AuthorizeSshWriteResponse>;
 }
 
 export interface MessageFns<T> {

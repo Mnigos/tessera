@@ -5,6 +5,7 @@ import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import { toSshPublicKeyOutput } from '../domain/ssh-public-key'
 import {
 	DuplicateSshPublicKeyError,
+	SshPublicKeyAuthenticationError,
 	SshPublicKeyNotFoundError,
 } from '../domain/ssh-public-key.errors'
 import { normalizeSshPublicKey } from '../domain/ssh-public-key.helpers'
@@ -49,6 +50,17 @@ export class SshPublicKeysService {
 		const sshPublicKeys = await this.sshPublicKeysRepository.list({ userId })
 
 		return sshPublicKeys.map(toSshPublicKeyOutput)
+	}
+
+	async findOwnerByFingerprint(fingerprintSha256: string): Promise<UserId> {
+		const sshPublicKey = await this.sshPublicKeysRepository.findByFingerprint({
+			fingerprintSha256,
+		})
+
+		if (!sshPublicKey)
+			throw new SshPublicKeyAuthenticationError({ fingerprintSha256 })
+
+		return sshPublicKey.ownerUserId
 	}
 
 	async revoke(userId: UserId, sshPublicKeyId: SshPublicKeyId): Promise<void> {

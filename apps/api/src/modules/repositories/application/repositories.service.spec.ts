@@ -1,6 +1,7 @@
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
 	RepositoryId,
@@ -52,6 +53,7 @@ describe(RepositoriesService.name, () => {
 	let repositoriesService: RepositoriesService
 	let repositoriesRepository: RepositoriesRepository
 	let gitAccessTokensService: GitAccessTokensService
+	let sshPublicKeysService: SshPublicKeysService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -158,12 +160,19 @@ describe(RepositoriesService.name, () => {
 						}),
 					},
 				},
+				{
+					provide: SshPublicKeysService,
+					useValue: {
+						findOwnerByFingerprint: vi.fn().mockResolvedValue(mockUserId),
+					},
+				},
 			],
 		}).compile()
 
 		repositoriesService = moduleRef.get(RepositoriesService)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
+		sshPublicKeysService = moduleRef.get(SshPublicKeysService)
 		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
 	})
 
@@ -1736,5 +1745,127 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 			})
 		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+	})
+
+	test('authorizes ssh git reads for public repositories with known keys', async () => {
+		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		const findOwnerByFingerprintSpy = vi.spyOn(
+			sshPublicKeysService,
+			'findOwnerByFingerprint'
+		)
+
+		expect(
+			await repositoriesService.authorizeSshGitRepositoryRead({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: mockUserId,
+		})
+		expect(findOwnerByFingerprintSpy).toHaveBeenCalledWith('SHA256:abc')
+		expect(findSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: repository.slug,
+		})
+	})
+
+	test('authenticates known ssh keys before command authorization', async () => {
+		const findOwnerByFingerprintSpy = vi.spyOn(
+			sshPublicKeysService,
+			'findOwnerByFingerprint'
+		)
+
+		expect(
+			await repositoriesService.authenticateSshKey({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'git',
+			})
+		).toEqual({
+			trustedUser: mockUserId,
+		})
+		expect(findOwnerByFingerprintSpy).toHaveBeenCalledWith('SHA256:abc')
+	})
+
+	test('authorizes ssh git reads for private repositories owned by the key owner', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'private',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.authorizeSshGitRepositoryRead({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: mockUserId,
+		})
+	})
+
+	test('forbids ssh git reads for private repositories not owned by the key owner', async () => {
+		vi.spyOn(sshPublicKeysService, 'findOwnerByFingerprint').mockResolvedValue(
+			'00000000-0000-4000-8000-000000000099' as UserId
+		)
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			visibility: 'private',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		await expect(
+			repositoriesService.authorizeSshGitRepositoryRead({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(PrivateRepositoryGitReadForbiddenError)
+	})
+
+	test('authorizes ssh git writes for repository owners', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.authorizeSshGitRepositoryWrite({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: mockUserId,
+		})
+	})
+
+	test('forbids ssh git writes for non-owners', async () => {
+		vi.spyOn(sshPublicKeysService, 'findOwnerByFingerprint').mockResolvedValue(
+			'00000000-0000-4000-8000-000000000099' as UserId
+		)
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		await expect(
+			repositoriesService.authorizeSshGitRepositoryWrite({
+				fingerprintSha256: 'SHA256:abc',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
 	})
 })

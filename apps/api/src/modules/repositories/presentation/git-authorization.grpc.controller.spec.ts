@@ -2,7 +2,7 @@ import { EnvService } from '@config/env'
 import { status } from '@grpc/grpc-js'
 import { RpcException } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { RepositoryId, RepositorySlug } from '@repo/domain'
+import type { RepositoryId, RepositorySlug, UserId } from '@repo/domain'
 import {
 	ForbiddenError,
 	InternalError,
@@ -25,8 +25,11 @@ describe(GitAuthorizationGrpcController.name, () => {
 				{
 					provide: RepositoriesService,
 					useValue: {
+						authenticateSshKey: vi.fn(),
 						authorizeGitRepositoryRead: vi.fn(),
 						authorizeGitRepositoryWrite: vi.fn(),
+						authorizeSshGitRepositoryRead: vi.fn(),
+						authorizeSshGitRepositoryWrite: vi.fn(),
 					},
 				},
 				{
@@ -45,6 +48,27 @@ describe(GitAuthorizationGrpcController.name, () => {
 	afterEach(async () => {
 		await moduleRef.close()
 		vi.clearAllMocks()
+	})
+
+	test('delegates ssh key authentication requests to the repositories service', async () => {
+		const authenticateSshKeySpy = vi
+			.spyOn(repositoriesService, 'authenticateSshKey')
+			.mockResolvedValue({
+				trustedUser: '00000000-0000-4000-8000-000000000001' as UserId,
+			})
+
+		expect(
+			await controller.authenticateSshKey({
+				username: 'git',
+				fingerprintSha256: 'SHA256:abc',
+			})
+		).toEqual({
+			trustedUser: '00000000-0000-4000-8000-000000000001',
+		})
+		expect(authenticateSshKeySpy).toHaveBeenCalledWith({
+			username: 'git',
+			fingerprintSha256: 'SHA256:abc',
+		})
 	})
 
 	test('delegates authorize read requests to the repositories service', async () => {
@@ -96,6 +120,59 @@ describe(GitAuthorizationGrpcController.name, () => {
 			username: 'marta',
 			slug: 'notes' as RepositorySlug,
 			rawToken: 'tes_git_raw-secret',
+		})
+	})
+
+	test('delegates authorize ssh read requests to the repositories service', async () => {
+		const authorizeSshGitRepositoryReadSpy = vi
+			.spyOn(repositoriesService, 'authorizeSshGitRepositoryRead')
+			.mockResolvedValue({
+				repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				trustedUser: '00000000-0000-4000-8000-000000000001',
+			})
+
+		expect(
+			await controller.authorizeSshRead({
+				ownerUsername: 'marta',
+				repositorySlug: 'notes',
+				service: 'git-upload-pack',
+				action: 'upload_pack',
+				fingerprintSha256: 'SHA256:abc',
+			})
+		).toEqual({
+			repositoryId: '00000000-0000-4000-8000-000000000002',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: '00000000-0000-4000-8000-000000000001',
+		})
+		expect(authorizeSshGitRepositoryReadSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: 'notes' as RepositorySlug,
+			fingerprintSha256: 'SHA256:abc',
+		})
+	})
+
+	test('delegates authorize ssh write requests to the repositories service', async () => {
+		const authorizeSshGitRepositoryWriteSpy = vi
+			.spyOn(repositoriesService, 'authorizeSshGitRepositoryWrite')
+			.mockResolvedValue({
+				repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				trustedUser: '00000000-0000-4000-8000-000000000001',
+			})
+
+		await controller.authorizeSshWrite({
+			ownerUsername: 'marta',
+			repositorySlug: 'notes',
+			service: 'git-receive-pack',
+			action: 'receive_pack',
+			fingerprintSha256: 'SHA256:abc',
+		})
+
+		expect(authorizeSshGitRepositoryWriteSpy).toHaveBeenCalledWith({
+			username: 'marta',
+			slug: 'notes' as RepositorySlug,
+			fingerprintSha256: 'SHA256:abc',
 		})
 	})
 
