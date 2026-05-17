@@ -11,7 +11,7 @@ import { normalizeSshPublicKey } from '../domain/ssh-public-key.helpers'
 import { SshPublicKeysRepository } from '../infrastructure/ssh-public-keys.repository'
 
 const SSH_PUBLIC_KEY_UNIQUE_CONSTRAINTS = new Set([
-	'ssh_public_keys_owner_fingerprint_unique',
+	'ssh_public_keys_fingerprint_unique',
 ])
 
 @Injectable()
@@ -32,12 +32,6 @@ export class SshPublicKeysService {
 				title,
 				...normalizedKey,
 			})
-
-			if (!sshPublicKey)
-				throw new SshPublicKeyNotFoundError({
-					userId,
-					fingerprintSha256: normalizedKey.fingerprintSha256,
-				})
 
 			return toSshPublicKeyOutput(sshPublicKey)
 		} catch (error) {
@@ -62,14 +56,12 @@ export class SshPublicKeysService {
 	}
 
 	async delete(userId: UserId, sshPublicKeyId: SshPublicKeyId): Promise<void> {
-		const sshPublicKey = await this.sshPublicKeysRepository.findOwned({
+		const deletedId = await this.sshPublicKeysRepository.delete({
 			userId,
 			sshPublicKeyId,
 		})
 
-		if (!sshPublicKey)
+		if (!deletedId)
 			throw new SshPublicKeyNotFoundError({ userId, sshPublicKeyId })
-
-		await this.sshPublicKeysRepository.delete({ userId, sshPublicKeyId })
 	}
 }

@@ -28,7 +28,7 @@ const ecdsaPointLengthsByCurve = {
 } as const
 const ed25519KeyLength = 32
 const minimumRsaExponent = 3n
-const minimumRsaModulusBits = 1024
+const minimumRsaModulusBits = 2048
 
 export interface NormalizedSshPublicKey {
 	keyType: string

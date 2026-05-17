@@ -42,7 +42,6 @@ describe(SshPublicKeysService.name, () => {
 					useValue: {
 						create: vi.fn(),
 						list: vi.fn(),
-						findOwned: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -114,7 +113,7 @@ describe(SshPublicKeysService.name, () => {
 	test('maps duplicate fingerprints to a domain conflict', async () => {
 		vi.spyOn(sshPublicKeysRepository, 'create').mockRejectedValue({
 			code: '23505',
-			constraint: 'ssh_public_keys_owner_fingerprint_unique',
+			constraint: 'ssh_public_keys_fingerprint_unique',
 		})
 
 		await expect(
@@ -125,20 +124,13 @@ describe(SshPublicKeysService.name, () => {
 		).rejects.toThrow(DuplicateSshPublicKeyError)
 	})
 
-	test('deletes keys only after finding ownership', async () => {
-		const findOwnedSpy = vi
-			.spyOn(sshPublicKeysRepository, 'findOwned')
-			.mockResolvedValue(sshPublicKey)
+	test('deletes keys scoped by owner', async () => {
 		const deleteSpy = vi
 			.spyOn(sshPublicKeysRepository, 'delete')
-			.mockResolvedValue(undefined)
+			.mockResolvedValue(sshPublicKeyId)
 
 		await sshPublicKeysService.delete(mockUserId, sshPublicKeyId)
 
-		expect(findOwnedSpy).toHaveBeenCalledWith({
-			userId: mockUserId,
-			sshPublicKeyId,
-		})
 		expect(deleteSpy).toHaveBeenCalledWith({
 			userId: mockUserId,
 			sshPublicKeyId,
@@ -146,11 +138,14 @@ describe(SshPublicKeysService.name, () => {
 	})
 
 	test('rejects deleting another users key', async () => {
-		vi.spyOn(sshPublicKeysRepository, 'findOwned').mockResolvedValue(undefined)
+		vi.spyOn(sshPublicKeysRepository, 'delete').mockResolvedValue(undefined)
 
 		await expect(
 			sshPublicKeysService.delete(otherUserId, sshPublicKeyId)
 		).rejects.toThrow(SshPublicKeyNotFoundError)
-		expect(sshPublicKeysRepository.delete).not.toHaveBeenCalled()
+		expect(sshPublicKeysRepository.delete).toHaveBeenCalledWith({
+			userId: otherUserId,
+			sshPublicKeyId,
+		})
 	})
 })

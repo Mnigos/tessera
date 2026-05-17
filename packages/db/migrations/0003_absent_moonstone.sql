@@ -8,7 +8,7 @@ CREATE TABLE "ssh_public_keys" (
 	"comment" text,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
-	CONSTRAINT "ssh_public_keys_owner_fingerprint_unique" UNIQUE("owner_user_id","fingerprint_sha256")
+	CONSTRAINT "ssh_public_keys_fingerprint_unique" UNIQUE("fingerprint_sha256")
 );
 --> statement-breakpoint
 ALTER TABLE "ssh_public_keys" ADD CONSTRAINT "ssh_public_keys_owner_user_id_user_id_fk" FOREIGN KEY ("owner_user_id") REFERENCES "public"."user"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint

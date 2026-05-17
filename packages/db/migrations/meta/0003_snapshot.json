@@ -1146,10 +1146,10 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "ssh_public_keys_owner_fingerprint_unique": {
-          "name": "ssh_public_keys_owner_fingerprint_unique",
+        "ssh_public_keys_fingerprint_unique": {
+          "name": "ssh_public_keys_fingerprint_unique",
           "nullsNotDistinct": false,
-          "columns": ["owner_user_id", "fingerprint_sha256"]
+          "columns": ["fingerprint_sha256"]
         }
       },
       "policies": {},
