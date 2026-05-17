@@ -225,8 +225,16 @@ describe('Git smart HTTP e2e', () => {
 			sshUrl(ports.gitSsh, 'ssh-denied', repository.slug),
 			key.privateKeyPath
 		)
+		const browserSummary = await getBrowserSummary(
+			apiBaseUrl,
+			'ssh-denied',
+			repository.slug,
+			headers
+		)
 
 		expect(pushResult.exitCode).not.toBe(0)
+		expect(browserSummary.isEmpty).toBe(true)
+		expect(browserSummary.rootEntries).toEqual([])
 	})
 
 	test('rejects anonymous clones of private repositories', async () => {

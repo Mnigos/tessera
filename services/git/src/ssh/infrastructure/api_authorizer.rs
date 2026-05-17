@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use async_trait::async_trait;
 use tonic::Code;
 use tonic::metadata::MetadataValue;
@@ -112,6 +114,11 @@ fn build_channel(endpoint_url: String) -> Option<Channel> {
     }
 
     Endpoint::from_shared(endpoint_url)
+        .map(|endpoint| {
+            endpoint
+                .connect_timeout(Duration::from_secs(5))
+                .timeout(Duration::from_secs(5))
+        })
         .inspect_err(
             |error| tracing::error!(error = %error, "authorization gRPC endpoint was invalid"),
         )

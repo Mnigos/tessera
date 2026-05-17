@@ -10,6 +10,6 @@ pub use domain::{
     SshGitCommand, SshGitError, SshGitOperation, SshRepositoryMetadata, parse_ssh_git_command,
 };
 pub use infrastructure::{
-    ApiSshGitAuthorizer, GitSshBackend, GitSshBackendRequest, SshGitServer,
-    load_or_generate_host_key, run_ssh_server, spawn_git_ssh_process,
+    ApiSshGitAuthorizer, GitSshBackendRequest, SshGitServer, load_or_generate_host_key,
+    run_ssh_server, spawn_git_ssh_process,
 };

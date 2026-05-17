@@ -1,3 +1,4 @@
+import { resolve } from 'node:path'
 import { $, env, spawn, write } from 'bun'
 
 interface CommandResult {
@@ -106,15 +107,17 @@ async function runGit(
 	options: { expectSuccess?: boolean; privateKeyPath?: string } = {}
 ): Promise<CommandResult> {
 	const timeoutMs = 20_000
+	const gitEnv: Record<string, string | undefined> = {
+		...env,
+		GIT_TERMINAL_PROMPT: '0',
+	}
+	if (options.privateKeyPath)
+		gitEnv.GIT_SSH_COMMAND = sshCommand(options.privateKeyPath)
+	else gitEnv.GIT_SSH_COMMAND = undefined
+
 	const process = spawn(['git', ...args], {
 		cwd,
-		env: {
-			...env,
-			...(options.privateKeyPath
-				? { GIT_SSH_COMMAND: sshCommand(options.privateKeyPath) }
-				: {}),
-			GIT_TERMINAL_PROMPT: '0',
-		},
+		env: gitEnv,
 		stderr: 'pipe',
 		stdout: 'pipe',
 	})
@@ -141,7 +144,7 @@ function sshCommand(privateKeyPath: string) {
 	return [
 		'ssh',
 		'-i',
-		privateKeyPath,
+		JSON.stringify(resolve(privateKeyPath)),
 		'-o',
 		'BatchMode=yes',
 		'-o',
