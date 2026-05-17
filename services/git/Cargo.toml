@@ -13,6 +13,8 @@ dotenvy = "0.15"
 http = "1"
 http-body-util = "0.1"
 prost = "0.14"
+rand = "0.10.1"
+russh = "0.60.3"
 tokio = { version = "1", features = ["fs", "io-util", "macros", "net", "process", "rt-multi-thread"] }
 tonic = "0.14"
 tonic-prost = "0.14"
