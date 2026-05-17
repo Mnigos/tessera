@@ -1,6 +1,7 @@
 pub mod config;
 pub mod domain;
 pub mod smart_http;
+pub mod ssh;
 pub mod storage;
 
 pub mod proto {
