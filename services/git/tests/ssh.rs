@@ -3,7 +3,6 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use tempfile::TempDir;
 use tessera_git::RepositoryId;
-use tessera_git::ssh::infrastructure::GitSshBackend;
 use tessera_git::ssh::{
     SshAuthenticatedKey, SshGitApplication, SshGitAuthenticationRequest,
     SshGitAuthorizationRequest, SshGitAuthorizer, SshGitError, SshGitOperation,
@@ -68,7 +67,6 @@ async fn ssh_application_resolves_authorized_repository_through_storage_guard() 
             storage_path: repository.storage_path,
         },
         storage,
-        GitSshBackend::new(PathBuf::from("git")),
     );
 
     let authorized = application
@@ -111,7 +109,6 @@ async fn ssh_application_rejects_authorized_storage_path_mismatch() {
                 .to_string(),
         },
         storage,
-        GitSshBackend::new(PathBuf::from("git")),
     );
 
     let error = application

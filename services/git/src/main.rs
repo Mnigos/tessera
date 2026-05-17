@@ -2,7 +2,7 @@ use tessera_git::proto::git_storage_service_server::GitStorageServiceServer;
 use tessera_git::smart_http::http::router;
 use tessera_git::ssh::SshGitApplication;
 use tessera_git::ssh::infrastructure::{
-    ApiSshGitAuthorizer, GitSshBackend, SshGitServer, load_or_generate_host_key, run_ssh_server,
+    ApiSshGitAuthorizer, SshGitServer, load_or_generate_host_key, run_ssh_server,
 };
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{Config, GitStorageGrpcService};
@@ -31,7 +31,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             config.api_grpc_authorization_token.clone(),
         ),
         RepositoryStorage::new(config.storage_root.clone(), config.git_binary.clone()),
-        GitSshBackend::new(config.git_binary.clone()),
     );
     let ssh_server = SshGitServer::new(ssh_application, config.git_binary.clone());
     let ssh_config = std::sync::Arc::new(russh::server::Config {

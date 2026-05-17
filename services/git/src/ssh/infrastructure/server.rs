@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::server::{Auth, Handler, Msg, Server as RusshServer, Session};
@@ -21,7 +22,7 @@ use crate::ssh::infrastructure::{GitSshBackendRequest, spawn_git_ssh_process};
 pub struct SshGitServer<A> {
     application: SshGitApplication<A>,
     git_binary: PathBuf,
-    next_client_id: usize,
+    next_client_id: Arc<AtomicUsize>,
 }
 
 impl<A> SshGitServer<A>
@@ -32,7 +33,7 @@ where
         Self {
             application,
             git_binary,
-            next_client_id: 0,
+            next_client_id: Arc::new(AtomicUsize::new(0)),
         }
     }
 }
@@ -44,8 +45,7 @@ where
     type Handler = SshGitHandler<A>;
 
     fn new_client(&mut self, _peer_addr: Option<std::net::SocketAddr>) -> Self::Handler {
-        let client_id = self.next_client_id;
-        self.next_client_id += 1;
+        let client_id = self.next_client_id.fetch_add(1, Ordering::SeqCst);
 
         SshGitHandler {
             application: self.application.clone(),
@@ -222,10 +222,12 @@ where
         data: &[u8],
         _session: &mut Session,
     ) -> Result<(), Self::Error> {
-        if let Some(stdin) = self.channels.get(&channel)
-            && let Some(stdin) = stdin.lock().await.as_mut()
-        {
-            stdin.write_all(data).await.map_err(russh::Error::IO)?;
+        if let Some(stdin) = self.channels.get(&channel) {
+            let mut stdin = stdin.lock().await;
+            if let Some(stdin) = stdin.as_mut() {
+                stdin.write_all(data).await.map_err(russh::Error::IO)?;
+                stdin.flush().await.map_err(russh::Error::IO)?;
+            }
         }
 
         Ok(())

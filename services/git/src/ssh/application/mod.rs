@@ -3,7 +3,6 @@ use std::path::PathBuf;
 
 use crate::domain::RepositoryError;
 use crate::ssh::domain::{SshGitCommand, SshGitError, SshGitOperation, SshRepositoryMetadata};
-use crate::ssh::infrastructure::{GitSshBackend, GitSshBackendRequest};
 use crate::storage::infrastructure::RepositoryStorage;
 
 #[async_trait]
@@ -43,18 +42,16 @@ pub struct SshGitAuthorizationRequest {
 pub struct SshGitApplication<A> {
     authorizer: A,
     storage: RepositoryStorage,
-    backend: GitSshBackend,
 }
 
 impl<A> SshGitApplication<A>
 where
     A: SshGitAuthorizer,
 {
-    pub fn new(authorizer: A, storage: RepositoryStorage, backend: GitSshBackend) -> Self {
+    pub fn new(authorizer: A, storage: RepositoryStorage) -> Self {
         Self {
             authorizer,
             storage,
-            backend,
         }
     }
 
@@ -81,15 +78,6 @@ where
         request: SshGitAuthenticationRequest,
     ) -> Result<SshAuthenticatedKey, SshGitError> {
         self.authorizer.authenticate_public_key(request).await
-    }
-
-    pub async fn execute(&self, command: AuthorizedSshGitCommand) -> Result<(), SshGitError> {
-        self.backend
-            .execute(GitSshBackendRequest {
-                operation: command.operation,
-                repository_path: command.repository_path,
-            })
-            .await
     }
 }
 

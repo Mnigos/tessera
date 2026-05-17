@@ -148,7 +148,7 @@ impl fmt::Display for ConfigError {
             Self::InvalidSocketAddress => {
                 write!(
                     formatter,
-                    "GIT_SERVICE_HOST and GIT_SERVICE_PORT must form a socket address"
+                    "configured host and port must form a socket address"
                 )
             }
             Self::MissingApiGrpcUrl => {

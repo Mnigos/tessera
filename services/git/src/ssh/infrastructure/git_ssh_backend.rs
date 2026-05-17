@@ -5,33 +5,6 @@ use tokio::process::{Child, Command};
 
 use crate::ssh::domain::{SshGitError, SshGitOperation};
 
-#[derive(Clone, Debug)]
-pub struct GitSshBackend {
-    git_binary: PathBuf,
-}
-
-impl GitSshBackend {
-    pub fn new(git_binary: PathBuf) -> Self {
-        Self { git_binary }
-    }
-
-    pub async fn execute(&self, request: GitSshBackendRequest) -> Result<(), SshGitError> {
-        let output = Command::new(&self.git_binary)
-            .arg(request.operation.git_subcommand())
-            .arg(request.repository_path)
-            .env_clear()
-            .output()
-            .await
-            .map_err(|_| SshGitError::BackendFailed)?;
-
-        if !output.status.success() {
-            return Err(SshGitError::BackendFailed);
-        }
-
-        Ok(())
-    }
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitSshBackendRequest {
     pub operation: SshGitOperation,
