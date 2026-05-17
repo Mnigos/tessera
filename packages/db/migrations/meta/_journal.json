@@ -22,6 +22,13 @@
       "when": 1778697415733,
       "tag": "0002_worried_starhawk",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1779000458652,
+      "tag": "0003_absent_moonstone",
+      "breakpoints": true
     }
   ]
 }
