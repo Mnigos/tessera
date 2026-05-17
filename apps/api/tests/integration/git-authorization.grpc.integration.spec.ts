@@ -18,6 +18,8 @@ import { RepositoriesService } from '@modules/repositories/application/repositor
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
 import { InternalGitAuthorizationGuard } from '@modules/repositories/presentation/internal-git-authorization.guard'
+import { SshPublicKeysService } from '@modules/ssh-public-keys/application/ssh-public-keys.service'
+import { SshPublicKeysRepository } from '@modules/ssh-public-keys/infrastructure/ssh-public-keys.repository'
 import { type INestMicroservice } from '@nestjs/common'
 import {
 	type ClientGrpc,
@@ -26,12 +28,13 @@ import {
 } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { db } from '@repo/db/client'
-import { repositories, user } from '@repo/db/schema'
+import { repositories, sshPublicKeys, user } from '@repo/db/schema'
 import type {
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
 	RepositoryVisibility,
+	SshPublicKeyId,
 	UserId,
 } from '@repo/domain'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
@@ -46,6 +49,12 @@ const publicRepositoryId =
 	'00000000-0000-4000-8000-000000000101' as RepositoryId
 const privateRepositoryId =
 	'00000000-0000-4000-8000-000000000102' as RepositoryId
+const ownerSshPublicKeyId =
+	'00000000-0000-4000-8000-000000000201' as SshPublicKeyId
+const otherSshPublicKeyId =
+	'00000000-0000-4000-8000-000000000202' as SshPublicKeyId
+const ownerFingerprintSha256 = 'SHA256:owner-key'
+const otherFingerprintSha256 = 'SHA256:other-key'
 
 interface ClosableGrpcClient extends ClientGrpc {
 	close(): Promise<void>
@@ -86,6 +95,8 @@ describe('Git authorization gRPC integration', () => {
 			providers: [
 				RepositoriesService,
 				RepositoriesRepository,
+				SshPublicKeysService,
+				SshPublicKeysRepository,
 				InternalGitAuthorizationGuard,
 				{
 					provide: GitStorageClient,
@@ -308,6 +319,214 @@ describe('Git authorization gRPC integration', () => {
 		).rejects.toMatchObject({ code: status.UNAUTHENTICATED })
 		expect(gitAccessTokensService.verify).not.toHaveBeenCalled()
 	})
+
+	test('authorizes ssh read requests for public repositories with a known key', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: otherUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: otherSshPublicKeyId,
+			ownerUserId: otherUserId,
+			fingerprintSha256: otherFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: publicRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'public',
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshRead(
+					createSshReadRequest(otherFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).toEqual({
+			repositoryId: publicRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${publicRepositoryId}.git`,
+			trustedUser: otherUserId,
+		})
+	})
+
+	test('authorizes ssh read requests for private repositories owned by the key owner', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprintSha256: ownerFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshRead(createSshReadRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
+		})
+	})
+
+	test('rejects ssh read requests for private repositories not owned by the key owner', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: otherUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: otherSshPublicKeyId,
+			ownerUserId: otherUserId,
+			fingerprintSha256: otherFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshRead(
+					createSshReadRequest(otherFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+	})
+
+	test('authorizes ssh write requests for repository owners', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprintSha256: ownerFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshWrite(createSshWriteRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
+		})
+	})
+
+	test('rejects ssh write requests for non-owners', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: otherUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: otherSshPublicKeyId,
+			ownerUserId: otherUserId,
+			fingerprintSha256: otherFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshWrite(
+					createSshWriteRequest(otherFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+	})
+
+	test('rejects ssh requests with unknown fingerprints', async () => {
+		await expect(
+			firstValueFrom(
+				service.authorizeSshRead(createSshReadRequest(), createMetadata())
+			)
+		).rejects.toMatchObject({ code: status.UNAUTHENTICATED })
+	})
+
+	test('rejects ssh requests after key revocation deletes the key', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprintSha256: ownerFingerprintSha256,
+		})
+		await db.delete(sshPublicKeys)
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshRead(createSshReadRequest(), createMetadata())
+			)
+		).rejects.toMatchObject({ code: status.UNAUTHENTICATED })
+	})
+
+	test('rejects ssh requests for missing repositories after key authentication', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprintSha256: ownerFingerprintSha256,
+		})
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshRead(createSshReadRequest(), createMetadata())
+			)
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
+	})
 })
 
 function createReadRequest() {
@@ -327,6 +546,26 @@ function createWriteRequest() {
 		action: 'receive_pack',
 		basicUsername: 'marta',
 		token: 'tes_git_raw-secret',
+	}
+}
+
+function createSshReadRequest(fingerprintSha256 = ownerFingerprintSha256) {
+	return {
+		ownerUsername: 'marta',
+		repositorySlug: 'notes',
+		service: 'git-upload-pack',
+		action: 'upload_pack',
+		fingerprintSha256,
+	}
+}
+
+function createSshWriteRequest(fingerprintSha256 = ownerFingerprintSha256) {
+	return {
+		ownerUsername: 'marta',
+		repositorySlug: 'notes',
+		service: 'git-receive-pack',
+		action: 'receive_pack',
+		fingerprintSha256,
 	}
 }
 
@@ -368,7 +607,29 @@ async function createIntegrationRepository({
 	})
 }
 
+interface CreateIntegrationSshPublicKeyOptions {
+	id: SshPublicKeyId
+	ownerUserId: UserId
+	fingerprintSha256: string
+}
+
+async function createIntegrationSshPublicKey({
+	fingerprintSha256,
+	id,
+	ownerUserId,
+}: CreateIntegrationSshPublicKeyOptions) {
+	await db.insert(sshPublicKeys).values({
+		id,
+		ownerUserId,
+		title: 'Laptop',
+		keyType: 'ssh-ed25519',
+		publicKey: `ssh-ed25519 AAAA ${id}`,
+		fingerprintSha256,
+	})
+}
+
 async function resetIntegrationDatabase() {
+	await db.delete(sshPublicKeys)
 	await db.delete(repositories)
 	await db.delete(user)
 }

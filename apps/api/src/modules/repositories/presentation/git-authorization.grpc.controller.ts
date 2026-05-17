@@ -1,6 +1,12 @@
 import {
+	type AuthenticateSshKeyRequest,
+	type AuthenticateSshKeyResponse,
 	type AuthorizeReadRequest,
 	type AuthorizeReadResponse,
+	type AuthorizeSshReadRequest,
+	type AuthorizeSshReadResponse,
+	type AuthorizeSshWriteRequest,
+	type AuthorizeSshWriteResponse,
 	type AuthorizeWriteRequest,
 	type AuthorizeWriteResponse,
 	GIT_AUTHORIZATION_SERVICE_NAME,
@@ -45,6 +51,50 @@ export class GitAuthorizationGrpcController
 				username: request.ownerUsername,
 				slug: request.repositorySlug as RepositorySlug,
 				rawToken: request.token,
+			})
+		} catch (error) {
+			throw toGrpcException(error)
+		}
+	}
+
+	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authenticateSshKey')
+	async authenticateSshKey(
+		request: AuthenticateSshKeyRequest
+	): Promise<AuthenticateSshKeyResponse> {
+		try {
+			return await this.repositoriesService.authenticateSshKey({
+				username: request.username,
+				fingerprintSha256: request.fingerprintSha256,
+			})
+		} catch (error) {
+			throw toGrpcException(error)
+		}
+	}
+
+	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeSshRead')
+	async authorizeSshRead(
+		request: AuthorizeSshReadRequest
+	): Promise<AuthorizeSshReadResponse> {
+		try {
+			return await this.repositoriesService.authorizeSshGitRepositoryRead({
+				username: request.ownerUsername,
+				slug: request.repositorySlug as RepositorySlug,
+				fingerprintSha256: request.fingerprintSha256,
+			})
+		} catch (error) {
+			throw toGrpcException(error)
+		}
+	}
+
+	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeSshWrite')
+	async authorizeSshWrite(
+		request: AuthorizeSshWriteRequest
+	): Promise<AuthorizeSshWriteResponse> {
+		try {
+			return await this.repositoriesService.authorizeSshGitRepositoryWrite({
+				username: request.ownerUsername,
+				slug: request.repositorySlug as RepositorySlug,
+				fingerprintSha256: request.fingerprintSha256,
 			})
 		} catch (error) {
 			throw toGrpcException(error)

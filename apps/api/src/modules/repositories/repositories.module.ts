@@ -1,4 +1,5 @@
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
+import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
@@ -10,7 +11,7 @@ import { RepositoryBrowserController } from './presentation/repository-browser.c
 import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 
 @Module({
-	imports: [GitAccessTokensModule, UserModule],
+	imports: [GitAccessTokensModule, SshPublicKeysModule, UserModule],
 	controllers: [
 		RepositoriesController,
 		RepositoryBrowserController,

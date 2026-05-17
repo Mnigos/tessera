@@ -13,6 +13,7 @@ import {
 	type GitStorageRepositoryTree,
 } from '@config/git-storage'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
@@ -93,6 +94,17 @@ export interface AuthorizeGitRepositoryWriteInput {
 	username: string
 }
 
+export interface AuthorizeSshGitRepositoryInput {
+	fingerprintSha256: string
+	slug: RepositorySlug
+	username: string
+}
+
+export interface AuthenticateSshKeyInput {
+	fingerprintSha256: string
+	username: string
+}
+
 export interface GitRepositoryAuthorization {
 	repositoryId: RepositoryId
 	storagePath: string
@@ -106,7 +118,8 @@ export class RepositoriesService {
 	constructor(
 		private readonly repositoriesRepository: RepositoriesRepository,
 		private readonly gitStorageClient: GitStorageClient,
-		private readonly gitAccessTokensService: GitAccessTokensService
+		private readonly gitAccessTokensService: GitAccessTokensService,
+		private readonly sshPublicKeysService: SshPublicKeysService
 	) {}
 
 	async create(
@@ -467,6 +480,82 @@ export class RepositoriesService {
 			repositoryId: repository.id,
 			storagePath: repository.storagePath,
 			trustedUser: userId,
+		}
+	}
+
+	async authorizeSshGitRepositoryRead({
+		fingerprintSha256,
+		slug,
+		username,
+	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
+		const keyOwnerUserId =
+			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (
+			repository.visibility === 'private' &&
+			repository.ownerUserId !== keyOwnerUserId
+		)
+			throw new PrivateRepositoryGitReadForbiddenError({
+				repositoryId: repository.id,
+				userId: keyOwnerUserId,
+			})
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			trustedUser: keyOwnerUserId,
+		}
+	}
+
+	async authenticateSshKey({
+		fingerprintSha256,
+	}: AuthenticateSshKeyInput): Promise<{ trustedUser: UserId }> {
+		const keyOwnerUserId =
+			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+
+		return { trustedUser: keyOwnerUserId }
+	}
+
+	async authorizeSshGitRepositoryWrite({
+		fingerprintSha256,
+		slug,
+		username,
+	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
+		const keyOwnerUserId =
+			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		if (repository.ownerUserId !== keyOwnerUserId)
+			throw new RepositoryGitWriteForbiddenError({
+				repositoryId: repository.id,
+				userId: keyOwnerUserId,
+			})
+
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			trustedUser: keyOwnerUserId,
 		}
 	}
 
