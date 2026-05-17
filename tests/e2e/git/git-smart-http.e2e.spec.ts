@@ -1,7 +1,8 @@
-import { $ } from 'bun'
+import { $, file } from 'bun'
 import {
 	createGitAccessToken,
 	createRepository,
+	createSshPublicKey,
 	createTestSessionHeaders,
 	getBlobPreview,
 	getBrowserSummary,
@@ -9,11 +10,15 @@ import {
 import { migrateGitE2EDatabase, resetGitE2EDatabase } from './helpers/database'
 import {
 	cloneRepository,
+	cloneRepositoryOverSsh,
 	createCommittedRepository,
 	fetchRepository,
+	fetchRepositoryOverSsh,
 	lsRemote,
 	pushRepository,
+	pushRepositoryOverSsh,
 	smartHttpUrl,
+	sshUrl,
 } from './helpers/git-cli'
 import { getGitE2EPortReservations } from './helpers/ports'
 import { startGitE2EProcesses, stopGitE2EProcesses } from './helpers/processes'
@@ -23,6 +28,7 @@ interface GitE2EPorts {
 	apiHttp: number
 	gitGrpc: number
 	gitHttp: number
+	gitSsh: number
 }
 
 type GitE2EProcesses = Awaited<ReturnType<typeof startGitE2EProcesses>>
@@ -39,8 +45,8 @@ describe('Git smart HTTP e2e', () => {
 		await resetGitE2EDatabase()
 
 		const portReservations = getGitE2EPortReservations()
-		const [apiHttp, apiGrpc, gitGrpc, gitHttp] = portReservations.ports
-		ports = { apiGrpc, apiHttp, gitGrpc, gitHttp }
+		const [apiHttp, apiGrpc, gitGrpc, gitHttp, gitSsh] = portReservations.ports
+		ports = { apiGrpc, apiHttp, gitGrpc, gitHttp, gitSsh }
 		runDirectory = `/tmp/tessera-git-e2e-${crypto.randomUUID()}`
 		await $`mkdir -p ${runDirectory}`.quiet()
 		storageRoot = `${runDirectory}/git-storage`
@@ -140,7 +146,87 @@ describe('Git smart HTTP e2e', () => {
 		const fetchResult = await fetchRepository(cloneDirectory)
 
 		expect(cloneResult.exitCode).toBe(0)
-		expect(fetchResult.exitCode).toBe(0)
+		expect(fetchResult.exitCode, fetchResult.stderr).toBe(0)
+	})
+
+	test('lets the owner push, clone, and fetch repositories over SSH', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'ssh-owner@example.com',
+			username: 'ssh-owner',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'SSH Notes',
+			slug: 'ssh-notes',
+		})
+		const key = await createSshKeyPair('ssh-owner')
+		await createSshPublicKey({
+			apiBaseUrl,
+			headers,
+			publicKey: key.publicKey,
+			title: 'E2E SSH key',
+		})
+		const localRepository = `${runDirectory}/ssh-owner-push`
+		const cloneDirectory = `${runDirectory}/ssh-owner-clone`
+		const remoteUrl = sshUrl(ports.gitSsh, 'ssh-owner', repository.slug)
+
+		await createCommittedRepository(localRepository, 'README.md', '# SSH E2E\n')
+		const pushResult = await pushRepositoryOverSsh(
+			localRepository,
+			remoteUrl,
+			key.privateKeyPath
+		)
+		const cloneResult = await cloneRepositoryOverSsh(
+			remoteUrl,
+			cloneDirectory,
+			key.privateKeyPath
+		)
+		expect(cloneResult.exitCode, cloneResult.stderr).toBe(0)
+		const fetchResult = await fetchRepositoryOverSsh(
+			cloneDirectory,
+			key.privateKeyPath
+		)
+		const preview = await getBlobPreview(
+			apiBaseUrl,
+			'ssh-owner',
+			repository.slug,
+			'README.md',
+			headers
+		)
+
+		expect(pushResult.exitCode, pushResult.stderr).toBe(0)
+		expect(fetchResult.exitCode, fetchResult.stderr).toBe(0)
+		expect(preview).toMatchObject({
+			type: 'text',
+			content: '# SSH E2E\n',
+		})
+	})
+
+	test('rejects unregistered SSH keys before repository access', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'ssh-denied@example.com',
+			username: 'ssh-denied',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'SSH Denied',
+			slug: 'ssh-denied',
+		})
+		const key = await createSshKeyPair('ssh-denied')
+		const localRepository = `${runDirectory}/ssh-denied-push`
+
+		await createCommittedRepository(localRepository, 'README.md', '# Denied\n')
+		const pushResult = await pushRepositoryOverSsh(
+			localRepository,
+			sshUrl(ports.gitSsh, 'ssh-denied', repository.slug),
+			key.privateKeyPath
+		)
+
+		expect(pushResult.exitCode).not.toBe(0)
 	})
 
 	test('rejects anonymous clones of private repositories', async () => {
@@ -222,5 +308,13 @@ describe('Git smart HTTP e2e', () => {
 		await createCommittedRepository(localRepository, 'README.md', `# ${name}\n`)
 
 		return await pushRepository(localRepository, remoteUrl)
+	}
+
+	async function createSshKeyPair(name: string) {
+		const privateKeyPath = `${runDirectory}/${name}_ed25519`
+		await $`ssh-keygen -t ed25519 -N '' -C ${`${name}@e2e`} -f ${privateKeyPath}`.quiet()
+		const publicKey = await file(`${privateKeyPath}.pub`).text()
+
+		return { privateKeyPath, publicKey }
 	}
 })
