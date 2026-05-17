@@ -19,6 +19,10 @@ interface KeyParams extends UserParams {
 	sshPublicKeyId: SshPublicKeyId
 }
 
+interface FingerprintParams {
+	fingerprintSha256: string
+}
+
 @Injectable()
 export class SshPublicKeysRepository {
 	constructor(private readonly db: Database) {}
@@ -62,6 +66,14 @@ export class SshPublicKeysRepository {
 		return await this.db.query.sshPublicKeys.findMany({
 			where: eq(sshPublicKeys.ownerUserId, userId),
 			orderBy: [asc(sshPublicKeys.createdAt)],
+		})
+	}
+
+	async findByFingerprint({
+		fingerprintSha256,
+	}: FingerprintParams): Promise<SshPublicKey | undefined> {
+		return await this.db.query.sshPublicKeys.findFirst({
+			where: eq(sshPublicKeys.fingerprintSha256, fingerprintSha256),
 		})
 	}
 
