@@ -25,6 +25,7 @@ const rootDirectory = new URL('../../../../', import.meta.url).pathname.replace(
 	''
 )
 const apiDirectory = `${rootDirectory}/apps/api`
+const gitServiceBinary = `${process.env.CARGO_TARGET_DIR ?? `${rootDirectory}/target`}/debug/tessera-git`
 const bunBinary = process.env.BUN_INSTALL
 	? `${process.env.BUN_INSTALL}/bin/bun`
 	: 'bun'
@@ -67,7 +68,7 @@ export async function startGitE2EProcesses({
 		stdin: 'ignore',
 		stdout: 'pipe',
 	})
-	const git = spawn(['cargo', 'run', '-p', 'tessera-git'], {
+	const git = spawn([gitServiceBinary], {
 		cwd: rootDirectory,
 		env: {
 			...sharedEnv,
