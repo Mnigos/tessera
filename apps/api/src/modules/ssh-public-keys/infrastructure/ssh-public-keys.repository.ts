@@ -65,15 +65,6 @@ export class SshPublicKeysRepository {
 		})
 	}
 
-	async findOwned({ sshPublicKeyId, userId }: KeyParams) {
-		return await this.db.query.sshPublicKeys.findFirst({
-			where: and(
-				eq(sshPublicKeys.id, sshPublicKeyId),
-				eq(sshPublicKeys.ownerUserId, userId)
-			),
-		})
-	}
-
 	async delete({
 		sshPublicKeyId,
 		userId,
