@@ -6,7 +6,7 @@ import { SshPublicKeyListItem } from './ssh-public-key-list-item'
 import { SshPublicKeysHeader } from './ssh-public-keys-header'
 
 interface SshPublicKeysListProps {
-	deletingId?: string
+	deletingId?: SshPublicKeyId
 	enabled: boolean
 	onDelete: (id: SshPublicKeyId) => void
 }

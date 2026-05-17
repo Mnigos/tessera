@@ -18,11 +18,14 @@ describe(SshPublicKeysRepository.name, () => {
 	const returningMock = vi.fn()
 	const deleteMock = vi.fn()
 	const deleteWhereMock = vi.fn()
+	const deleteReturningMock = vi.fn()
 
 	beforeEach(async () => {
 		returningMock.mockResolvedValue([{ title: 'Laptop' }])
 		valuesMock.mockReturnValue({ returning: returningMock })
 		insertMock.mockReturnValue({ values: valuesMock })
+		deleteReturningMock.mockResolvedValue([{ id: sshPublicKeyId }])
+		deleteWhereMock.mockReturnValue({ returning: deleteReturningMock })
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
 
 		moduleRef = await Test.createTestingModule({
@@ -114,10 +117,12 @@ describe(SshPublicKeysRepository.name, () => {
 	})
 
 	test('deletes a key by id and owner', async () => {
-		await sshPublicKeysRepository.delete({
-			userId: mockUserId,
-			sshPublicKeyId,
-		})
+		expect(
+			await sshPublicKeysRepository.delete({
+				userId: mockUserId,
+				sshPublicKeyId,
+			})
+		).toBe(sshPublicKeyId)
 
 		expect(deleteMock).toHaveBeenCalledWith(sshPublicKeys)
 		expect(deleteWhereMock).toHaveBeenCalledWith(
@@ -126,5 +131,26 @@ describe(SshPublicKeysRepository.name, () => {
 				eq(sshPublicKeys.ownerUserId, mockUserId)
 			)
 		)
+		expect(deleteReturningMock).toHaveBeenCalledWith({ id: sshPublicKeys.id })
+	})
+
+	test('returns undefined when no owned key is deleted', async () => {
+		deleteReturningMock.mockResolvedValue([])
+
+		expect(
+			await sshPublicKeysRepository.delete({
+				userId: mockUserId,
+				sshPublicKeyId,
+			})
+		).toBeUndefined()
+
+		expect(deleteMock).toHaveBeenCalledWith(sshPublicKeys)
+		expect(deleteWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(sshPublicKeys.id, sshPublicKeyId),
+				eq(sshPublicKeys.ownerUserId, mockUserId)
+			)
+		)
+		expect(deleteReturningMock).toHaveBeenCalledWith({ id: sshPublicKeys.id })
 	})
 })

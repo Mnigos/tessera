@@ -40,6 +40,12 @@ function makeRsaPublicKey(exponent: Buffer, modulus: Buffer) {
 	)
 }
 
+function makePositiveRsaModulus(bitLength: number) {
+	const byteLength = bitLength / 8
+
+	return Buffer.concat([Buffer.from([0, 0x80]), randomBytes(byteLength - 1)])
+}
+
 describe(normalizeSshPublicKey.name, () => {
 	test('normalizes OpenSSH public keys and computes SHA256 fingerprints', () => {
 		const { blob, publicKey } = makePublicKey()
@@ -171,6 +177,31 @@ describe(normalizeSshPublicKey.name, () => {
 
 		expect(() => normalizeSshPublicKey(publicKey)).toThrow(
 			InvalidSshPublicKeyError
+		)
+	})
+
+	test('rejects RSA moduli smaller than 2048 bits', () => {
+		const publicKey = makeRsaPublicKey(
+			Buffer.from([1, 0, 1]),
+			makePositiveRsaModulus(1024)
+		)
+
+		expect(() => normalizeSshPublicKey(publicKey)).toThrow(
+			InvalidSshPublicKeyError
+		)
+	})
+
+	test('accepts RSA moduli with at least 2048 bits', () => {
+		const publicKey = makeRsaPublicKey(
+			Buffer.from([1, 0, 1]),
+			makePositiveRsaModulus(2048)
+		)
+
+		expect(normalizeSshPublicKey(publicKey)).toEqual(
+			expect.objectContaining({
+				keyType: 'ssh-rsa',
+				publicKey,
+			})
 		)
 	})
 

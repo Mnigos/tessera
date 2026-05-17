@@ -1,6 +1,6 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
-import { and, asc, eq, sshPublicKeys } from '@repo/db'
+import { and, asc, eq, type SshPublicKey, sshPublicKeys } from '@repo/db'
 import type { SshPublicKeyId, UserId } from '@repo/domain'
 
 interface UserParams {
@@ -30,7 +30,7 @@ export class SshPublicKeysRepository {
 		publicKey,
 		title,
 		userId,
-	}: CreateParams) {
+	}: CreateParams): Promise<SshPublicKey> {
 		const [sshPublicKey] = await this.db
 			.insert(sshPublicKeys)
 			.values({
@@ -53,6 +53,8 @@ export class SshPublicKeysRepository {
 				updatedAt: sshPublicKeys.updatedAt,
 			})
 
+		if (!sshPublicKey) throw new Error('SSH public key insert returned no rows')
+
 		return sshPublicKey
 	}
 
@@ -72,8 +74,11 @@ export class SshPublicKeysRepository {
 		})
 	}
 
-	async delete({ sshPublicKeyId, userId }: KeyParams): Promise<void> {
-		await this.db
+	async delete({
+		sshPublicKeyId,
+		userId,
+	}: KeyParams): Promise<SshPublicKeyId | undefined> {
+		const [deleted] = await this.db
 			.delete(sshPublicKeys)
 			.where(
 				and(
@@ -81,5 +86,8 @@ export class SshPublicKeysRepository {
 					eq(sshPublicKeys.ownerUserId, userId)
 				)
 			)
+			.returning({ id: sshPublicKeys.id })
+
+		return deleted?.id
 	}
 }

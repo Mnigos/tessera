@@ -4,7 +4,7 @@ import { Button } from '@repo/ui/components/button'
 import { Trash2 } from 'lucide-react'
 
 interface SshPublicKeyListItemProps {
-	deletingId?: string
+	deletingId?: SshPublicKeyId
 	onDelete: (id: SshPublicKeyId) => void
 	sshPublicKey: SshPublicKey
 }
