@@ -7,6 +7,8 @@ const DEFAULT_HOST: &str = "::";
 const DEFAULT_PORT: u16 = 50051;
 const DEFAULT_HTTP_HOST: &str = "::";
 const DEFAULT_HTTP_PORT: u16 = 50052;
+const DEFAULT_SSH_HOST: &str = "::";
+const DEFAULT_SSH_PORT: u16 = 2222;
 const DEFAULT_GIT_BINARY: &str = "git";
 
 #[derive(Clone, Debug)]
@@ -15,6 +17,9 @@ pub struct Config {
     pub port: u16,
     pub http_host: String,
     pub http_port: u16,
+    pub ssh_host: String,
+    pub ssh_port: u16,
+    pub ssh_host_key_path: PathBuf,
     pub storage_root: PathBuf,
     pub git_binary: PathBuf,
     pub api_grpc_url: String,
@@ -37,9 +42,18 @@ impl Config {
             .map(|value| value.parse::<u16>())
             .transpose()
             .map_err(|_| ConfigError::InvalidHttpPort)?;
+        let ssh_host = env::var("GIT_SSH_HOST").unwrap_or_else(|_| DEFAULT_SSH_HOST.to_string());
+        let ssh_port = env::var("GIT_SSH_PORT")
+            .ok()
+            .map(|value| value.parse::<u16>())
+            .transpose()
+            .map_err(|_| ConfigError::InvalidSshPort)?;
         let storage_root = env::var("GIT_STORAGE_ROOT")
             .map(PathBuf::from)
             .unwrap_or_else(|_| default_storage_root());
+        let ssh_host_key_path = env::var("GIT_SSH_HOST_KEY_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| storage_root.join("ssh_host_ed25519_key"));
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
@@ -54,6 +68,9 @@ impl Config {
             port: port.unwrap_or(DEFAULT_PORT),
             http_host,
             http_port: http_port.unwrap_or(DEFAULT_HTTP_PORT),
+            ssh_host,
+            ssh_port: ssh_port.unwrap_or(DEFAULT_SSH_PORT),
+            ssh_host_key_path,
             storage_root,
             git_binary,
             api_grpc_url,
@@ -67,6 +84,10 @@ impl Config {
 
     pub fn http_socket_addr(&self) -> Result<SocketAddr, ConfigError> {
         socket_addr(&self.http_host, self.http_port)
+    }
+
+    pub fn ssh_socket_addr(&self) -> Result<SocketAddr, ConfigError> {
+        socket_addr(&self.ssh_host, self.ssh_port)
     }
 }
 
@@ -112,6 +133,7 @@ fn socket_addr(host: &str, port: u16) -> Result<SocketAddr, ConfigError> {
 pub enum ConfigError {
     InvalidPort,
     InvalidHttpPort,
+    InvalidSshPort,
     InvalidSocketAddress,
     MissingApiGrpcUrl,
     MissingApiGrpcAuthorizationToken,
@@ -122,6 +144,7 @@ impl fmt::Display for ConfigError {
         match self {
             Self::InvalidPort => write!(formatter, "GIT_SERVICE_PORT must be a valid TCP port"),
             Self::InvalidHttpPort => write!(formatter, "GIT_HTTP_PORT must be a valid TCP port"),
+            Self::InvalidSshPort => write!(formatter, "GIT_SSH_PORT must be a valid TCP port"),
             Self::InvalidSocketAddress => {
                 write!(
                     formatter,
