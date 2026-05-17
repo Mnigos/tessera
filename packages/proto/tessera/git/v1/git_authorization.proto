@@ -5,6 +5,9 @@ package tessera.git.v1;
 service GitAuthorizationService {
   rpc AuthorizeRead(AuthorizeReadRequest) returns (AuthorizeReadResponse);
   rpc AuthorizeWrite(AuthorizeWriteRequest) returns (AuthorizeWriteResponse);
+  rpc AuthenticateSshKey(AuthenticateSshKeyRequest) returns (AuthenticateSshKeyResponse);
+  rpc AuthorizeSshRead(AuthorizeSshReadRequest) returns (AuthorizeSshReadResponse);
+  rpc AuthorizeSshWrite(AuthorizeSshWriteRequest) returns (AuthorizeSshWriteResponse);
 }
 
 message AuthorizeReadRequest {
@@ -30,6 +33,43 @@ message AuthorizeWriteRequest {
 }
 
 message AuthorizeWriteResponse {
+  string repository_id = 1;
+  string storage_path = 2;
+  string trusted_user = 3;
+}
+
+message AuthenticateSshKeyRequest {
+  string username = 1;
+  string fingerprint_sha256 = 2;
+}
+
+message AuthenticateSshKeyResponse {
+  string trusted_user = 1;
+}
+
+message AuthorizeSshReadRequest {
+  string owner_username = 1;
+  string repository_slug = 2;
+  string service = 3;
+  string action = 4;
+  string fingerprint_sha256 = 5;
+}
+
+message AuthorizeSshReadResponse {
+  string repository_id = 1;
+  string storage_path = 2;
+  string trusted_user = 3;
+}
+
+message AuthorizeSshWriteRequest {
+  string owner_username = 1;
+  string repository_slug = 2;
+  string service = 3;
+  string action = 4;
+  string fingerprint_sha256 = 5;
+}
+
+message AuthorizeSshWriteResponse {
   string repository_id = 1;
   string storage_path = 2;
   string trusted_user = 3;
