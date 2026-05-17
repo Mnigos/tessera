@@ -53,6 +53,12 @@ const config = defineConfig({
 				'/repositories/**': {
 					proxy: `${apiUrl}/repositories/**`,
 				},
+				'/ssh-public-keys': {
+					proxy: `${apiUrl}/ssh-public-keys`,
+				},
+				'/ssh-public-keys/**': {
+					proxy: `${apiUrl}/ssh-public-keys/**`,
+				},
 				'/user': {
 					proxy: `${apiUrl}/user`,
 				},

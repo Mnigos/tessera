@@ -4,6 +4,7 @@ import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { GitAccessTokensSection } from '@/modules/git-access-tokens/components/git-access-tokens-section'
 import { CreateRepositorySection } from '@/modules/repositories/components/create-repository-section'
 import { useRepositoriesListQuery } from '@/modules/repositories/hooks/use-repositories-list.query'
+import { SshPublicKeysSection } from '@/modules/ssh-public-keys/components/ssh-public-keys-section'
 import {
 	ProfileHeader,
 	ProfileHeaderSkeleton,
@@ -34,6 +35,9 @@ export const Route = createFileRoute('/profile/$username')({
 				),
 				context.queryClient.ensureQueryData(
 					context.orpc.gitAccessTokens.list.queryOptions()
+				),
+				context.queryClient.ensureQueryData(
+					context.orpc.sshPublicKeys.list.queryOptions()
 				),
 			])
 
@@ -99,6 +103,7 @@ function ProfileUsernameRoute() {
 						<CreateRepositorySection username={username} />
 					</section>
 					<GitAccessTokensSection enabled={isViewerProfile} />
+					<SshPublicKeysSection enabled={isViewerProfile} />
 				</>
 			)}
 		</main>
