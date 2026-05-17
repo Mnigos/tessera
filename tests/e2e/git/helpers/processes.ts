@@ -6,6 +6,7 @@ export interface GitE2EPorts {
 	apiHttp: number
 	gitGrpc: number
 	gitHttp: number
+	gitSsh: number
 }
 
 export interface GitE2EProcesses {
@@ -76,6 +77,9 @@ export async function startGitE2EProcesses({
 			GIT_HTTP_PORT: String(ports.gitHttp),
 			GIT_SERVICE_HOST: '127.0.0.1',
 			GIT_SERVICE_PORT: String(ports.gitGrpc),
+			GIT_SSH_HOST: '127.0.0.1',
+			GIT_SSH_HOST_KEY_PATH: `${storageRoot}/ssh_host_ed25519_key`,
+			GIT_SSH_PORT: String(ports.gitSsh),
 			GIT_STORAGE_ROOT: storageRoot,
 		},
 		stderr: 'pipe',
@@ -92,6 +96,7 @@ export async function startGitE2EProcesses({
 				waitForHttpOk(`http://localhost:${ports.apiHttp}/health/ping`),
 				waitForTcpPort(ports.gitGrpc),
 				waitForTcpPort(ports.gitHttp),
+				waitForTcpPort(ports.gitSsh),
 			]),
 			rejectOnEarlyExit(api, 'api', apiOutput),
 			rejectOnEarlyExit(git, 'git', gitOutput),

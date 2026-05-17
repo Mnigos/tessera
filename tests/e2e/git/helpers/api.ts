@@ -25,6 +25,13 @@ interface CreateGitAccessTokenOptions {
 	permissions: GitAccessTokenPermission[]
 }
 
+interface CreateSshPublicKeyOptions {
+	apiBaseUrl: string
+	headers: Headers
+	publicKey: string
+	title: string
+}
+
 export async function createTestSessionHeaders({
 	apiBaseUrl,
 	email,
@@ -88,6 +95,17 @@ export async function createGitAccessToken({
 	})
 
 	return body.token
+}
+
+export async function createSshPublicKey({
+	apiBaseUrl,
+	headers,
+	publicKey,
+	title,
+}: CreateSshPublicKeyOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.sshPublicKeys.create({ publicKey, title })
 }
 
 export async function getBlobPreview(

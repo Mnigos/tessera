@@ -6,7 +6,7 @@ interface PortReservation {
 }
 
 export interface GitE2EPortReservations {
-	ports: [number, number, number, number]
+	ports: [number, number, number, number, number]
 	release(): void
 }
 
@@ -16,10 +16,12 @@ export function getGitE2EPortReservations(): GitE2EPortReservations {
 		reserveAvailablePort(),
 		reserveAvailablePort(),
 		reserveAvailablePort(),
+		reserveAvailablePort(),
 	]
 
 	return {
 		ports: reservations.map(({ port }) => port) as [
+			number,
 			number,
 			number,
 			number,
