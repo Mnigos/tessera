@@ -1,6 +1,6 @@
+use std::mem;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use tokio::fs;
 use tokio::process::Command;
@@ -22,7 +22,16 @@ impl IsolatedGpgHome {
 
 impl Drop for IsolatedGpgHome {
     fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.path);
+        let path = mem::take(&mut self.path);
+
+        if let Ok(handle) = tokio::runtime::Handle::try_current() {
+            let _cleanup = handle.spawn_blocking(move || {
+                let _ = std::fs::remove_dir_all(path);
+            });
+            return;
+        }
+
+        let _ = std::fs::remove_dir_all(path);
     }
 }
 
@@ -92,12 +101,8 @@ pub(super) fn trusted_public_keys(trusted_gpg_keys: &[TrustedGpgKey]) -> Vec<&st
 fn create_gpg_home_path() -> Result<PathBuf, RepositoryError> {
     let mut base = std::env::temp_dir();
     let process_id = std::process::id();
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_err(|_| RepositoryError::GitProcessFailed)?
-        .as_nanos();
-
-    base.push(format!("tessera-git-gpg-{process_id}-{timestamp}"));
+    let random_suffix = rand::random::<u64>();
+    base.push(format!("tessera-git-gpg-{process_id}-{random_suffix:x}"));
 
     Ok(base)
 }

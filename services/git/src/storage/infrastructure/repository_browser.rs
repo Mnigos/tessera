@@ -118,14 +118,27 @@ impl RepositoryStorage {
     async fn repository_refs_with_signatures(
         &self,
         repository_path: &Path,
-        refs: Vec<RepositoryRef>,
+        refs: Vec<ParsedRepositoryRef>,
         trusted_gpg_keys: &[TrustedGpgKey],
     ) -> Result<Vec<RepositoryRef>, RepositoryError> {
         let mut refs_with_signatures = Vec::with_capacity(refs.len());
-        let gpg_home = self.trusted_gpg_home(trusted_gpg_keys).await?;
+        let has_annotated_tags = refs
+            .iter()
+            .any(|repository_ref| repository_ref.is_annotated_tag);
+        let gpg_home = if has_annotated_tags {
+            Some(self.trusted_gpg_home(trusted_gpg_keys).await?)
+        } else {
+            None
+        };
 
-        for mut repository_ref in refs {
-            if repository_ref.kind == RepositoryRefKind::Tag {
+        for ParsedRepositoryRef {
+            mut repository_ref,
+            is_annotated_tag,
+        } in refs
+        {
+            if is_annotated_tag {
+                let gpg_home = gpg_home.as_ref().ok_or(RepositoryError::GitProcessFailed)?;
+
                 repository_ref.signature = self
                     .tag_signature(
                         repository_path,
@@ -150,11 +163,6 @@ impl RepositoryStorage {
         gpg_home: &super::repository_gpg::IsolatedGpgHome,
     ) -> Result<RepositorySignature, RepositoryError> {
         validate_git_ref(qualified_name)?;
-        let object_type = self.object_type(repository_path, qualified_name).await?;
-
-        if object_type != "tag" {
-            return Ok(unsigned_signature());
-        }
 
         let output = self
             .git_with_gpg_home(
@@ -590,7 +598,7 @@ impl RepositoryStorage {
 fn parse_repository_refs(
     output: &[u8],
     default_branch: Option<&str>,
-) -> Result<Vec<RepositoryRef>, RepositoryError> {
+) -> Result<Vec<ParsedRepositoryRef>, RepositoryError> {
     let mut refs = Vec::new();
 
     for record in output
@@ -616,13 +624,16 @@ fn parse_repository_refs(
             }
 
             let is_default_branch = default_branch == Some(display_name.as_str());
-            refs.push(RepositoryRef {
-                kind: RepositoryRefKind::Branch,
-                display_name,
-                qualified_name,
-                commit_id: object_id,
-                is_default_branch,
-                signature: unsigned_signature(),
+            refs.push(ParsedRepositoryRef {
+                repository_ref: RepositoryRef {
+                    kind: RepositoryRefKind::Branch,
+                    display_name,
+                    qualified_name,
+                    commit_id: object_id,
+                    is_default_branch,
+                    signature: unsigned_signature(),
+                },
+                is_annotated_tag: false,
             });
             continue;
         }
@@ -639,23 +650,35 @@ fn parse_repository_refs(
             continue;
         };
 
-        refs.push(RepositoryRef {
-            kind: RepositoryRefKind::Tag,
-            display_name,
-            qualified_name,
-            commit_id,
-            is_default_branch: false,
-            signature: unsigned_signature(),
+        refs.push(ParsedRepositoryRef {
+            repository_ref: RepositoryRef {
+                kind: RepositoryRefKind::Tag,
+                display_name,
+                qualified_name,
+                commit_id,
+                is_default_branch: false,
+                signature: unsigned_signature(),
+            },
+            is_annotated_tag: object_type == "tag",
         });
     }
 
     refs.sort_by(|left, right| {
-        ref_kind_order(&left.kind)
-            .cmp(&ref_kind_order(&right.kind))
-            .then_with(|| left.display_name.cmp(&right.display_name))
+        ref_kind_order(&left.repository_ref.kind)
+            .cmp(&ref_kind_order(&right.repository_ref.kind))
+            .then_with(|| {
+                left.repository_ref
+                    .display_name
+                    .cmp(&right.repository_ref.display_name)
+            })
     });
 
     Ok(refs)
+}
+
+struct ParsedRepositoryRef {
+    repository_ref: RepositoryRef,
+    is_annotated_tag: bool,
 }
 
 fn utf8_ref_field(field: &[u8]) -> Result<String, RepositoryError> {
