@@ -12,9 +12,9 @@ const supportedKeyTypes = new Set([
 	'rsa-sha2-512',
 	'ssh-rsa',
 ])
-const whitespaceRegex = /\s+/
-const base64Regex = /^[A-Za-z0-9+/]+={0,2}$/
-const base64PaddingRegex = /=+$/
+const WHITESPACE_REGEX = /\s+/
+const BASE64_REGEX = /^[A-Za-z0-9+/]+={0,2}$/
+const BASE64_PADDING_REGEX = /=+$/
 const ecdsaCurvesByKeyType = {
 	'ecdsa-sha2-nistp256': 'nistp256',
 	'ecdsa-sha2-nistp384': 'nistp384',
@@ -40,7 +40,7 @@ export interface NormalizedSshPublicKey {
 export function normalizeSshPublicKey(input: string): NormalizedSshPublicKey {
 	const trimmedInput = input.trim()
 	const [keyType, keyBlobBase64, ...commentParts] =
-		trimmedInput.split(whitespaceRegex)
+		trimmedInput.split(WHITESPACE_REGEX)
 
 	if (!(keyType && keyBlobBase64))
 		throw new InvalidSshPublicKeyError({ reason: 'missing_key_parts' })
@@ -69,7 +69,7 @@ export function normalizeSshPublicKey(input: string): NormalizedSshPublicKey {
 	const fingerprint = `SHA256:${createHash('sha256')
 		.update(keyBlob)
 		.digest('base64')
-		.replace(base64PaddingRegex, '')}`
+		.replace(BASE64_PADDING_REGEX, '')}`
 
 	return {
 		keyType,
@@ -289,7 +289,7 @@ function assertFullyConsumed(buffer: Buffer, offset: number, keyType: string) {
 }
 
 function decodeBase64KeyBlob(keyBlobBase64: string): Buffer {
-	if (!base64Regex.test(keyBlobBase64))
+	if (!BASE64_REGEX.test(keyBlobBase64))
 		throw new InvalidSshPublicKeyError({ reason: 'invalid_base64' })
 
 	const keyBlob = Buffer.from(keyBlobBase64, 'base64')

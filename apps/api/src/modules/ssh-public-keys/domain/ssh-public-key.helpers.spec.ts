@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { InvalidSshPublicKeyError } from './ssh-public-key.errors'
 import { normalizeSshPublicKey } from './ssh-public-key.helpers'
 
-const base64PaddingRegex = /=+$/
+const BASE64_PADDING_REGEX = /=+$/
 
 function sshString(value: string | Buffer) {
 	const buffer = Buffer.isBuffer(value) ? value : Buffer.from(value)
@@ -57,7 +57,7 @@ describe(normalizeSshPublicKey.name, () => {
 			fingerprint: `SHA256:${createHash('sha256')
 				.update(blob)
 				.digest('base64')
-				.replace(base64PaddingRegex, '')}`,
+				.replace(BASE64_PADDING_REGEX, '')}`,
 		})
 	})
 
