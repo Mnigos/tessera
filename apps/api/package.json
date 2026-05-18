@@ -47,6 +47,7 @@
     "express": "^5.2.1",
     "hono": "catalog:",
     "ioredis": "^5.9.2",
+    "openpgp": "^6.3.0",
     "postgres": "catalog:",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.2",
