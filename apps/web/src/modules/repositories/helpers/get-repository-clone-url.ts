@@ -9,13 +9,6 @@ interface RepositoryCloneFields {
 
 const trailingSlashesRegex = /\/+$/
 
-export function getRepositoryCloneUrl(
-	repository: Repository,
-	owner: RepositoryOwner
-) {
-	return getRepositoryHttpCloneUrl(repository, owner)
-}
-
 export function getRepositoryHttpCloneUrl(
 	repository: Repository,
 	owner: RepositoryOwner

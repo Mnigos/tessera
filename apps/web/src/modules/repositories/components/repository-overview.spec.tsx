@@ -54,7 +54,6 @@ vi.mock('@repo/ui/components/sonner', async importOriginal => {
 })
 
 vi.mock('../helpers/get-repository-clone-url', () => ({
-	getRepositoryCloneUrl: vi.fn(),
 	getRepositoryHttpCloneUrl: vi.fn(),
 	getRepositorySshCloneUrl: vi.fn(),
 }))
