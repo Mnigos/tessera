@@ -151,7 +151,7 @@ describe('SSH public keys integration', () => {
 				...createBody.sshPublicKey,
 				lastUsedAt: null,
 			}).success
-		).toBe(false)
+		).toBeFalsy()
 	})
 
 	test('rejects invalid SSH public keys clearly', async () => {
