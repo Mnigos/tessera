@@ -6,7 +6,7 @@ use tessera_git::RepositoryId;
 use tessera_git::ssh::{
     SshAuthenticatedKey, SshGitApplication, SshGitAuthenticationRequest,
     SshGitAuthorizationRequest, SshGitAuthorizer, SshGitError, SshGitOperation,
-    SshRepositoryMetadata, authorization_request, parse_ssh_git_command,
+    SshRepositoryMetadata, authorization_request, parse_ssh_git_command, ssh_exec_failure_message,
 };
 use tessera_git::storage::infrastructure::RepositoryStorage;
 
@@ -33,6 +33,48 @@ fn ssh_command_parser_rejects_unsafe_or_unsupported_commands() {
         "git-upload-pack 'mona/repo.git' extra",
     ] {
         assert!(parse_ssh_git_command(input).is_err(), "{input}");
+    }
+}
+
+#[test]
+fn ssh_exec_failure_messages_include_actionable_guidance() {
+    let cases = [
+        (
+            SshGitError::InvalidCommand,
+            "Invalid SSH Git command. Use git-upload-pack owner/repository.git or git-receive-pack owner/repository.git.",
+        ),
+        (
+            SshGitError::UnsupportedService,
+            "Unsupported SSH Git service. Only git-upload-pack and git-receive-pack are supported.",
+        ),
+        (
+            SshGitError::InvalidRepositoryPath,
+            "Invalid repository path. Use owner/repository.git without extra path segments.",
+        ),
+        (
+            SshGitError::AuthorizationUnavailable,
+            "Authorization service is unavailable. Try again later.",
+        ),
+        (
+            SshGitError::Unauthorized,
+            "Repository access denied. Confirm the repository exists and your SSH key has access.",
+        ),
+        (
+            SshGitError::InvalidRepositoryMetadata,
+            "Repository metadata is invalid. Contact support if this repository should be available.",
+        ),
+        (
+            SshGitError::RepositoryUnavailable,
+            "Repository storage is unavailable. Try again later.",
+        ),
+        (
+            SshGitError::BackendFailed,
+            "Git backend is unavailable. Try again later.",
+        ),
+    ];
+
+    for (error, expected) in cases {
+        assert_eq!(ssh_exec_failure_message(&error), expected);
     }
 }
 

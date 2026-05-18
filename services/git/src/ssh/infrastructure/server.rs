@@ -15,7 +15,7 @@ use tokio::task::JoinHandle;
 use crate::ssh::application::{
     SshGitApplication, SshGitAuthenticationRequest, SshGitAuthorizer, authorization_request,
 };
-use crate::ssh::domain::{SshGitError, parse_ssh_git_command};
+use crate::ssh::domain::{SshGitError, parse_ssh_git_command, ssh_exec_failure_message};
 use crate::ssh::infrastructure::{GitSshBackendRequest, spawn_git_ssh_process};
 
 #[derive(Clone, Debug)]
@@ -258,7 +258,11 @@ fn reject_exec(
     error: SshGitError,
 ) -> Result<(), russh::Error> {
     tracing::warn!(error = %error, "rejecting SSH Git exec request");
-    session.extended_data(channel, 1, format!("{error}\n").into_bytes())?;
+    session.extended_data(
+        channel,
+        1,
+        format!("{}\n", ssh_exec_failure_message(&error)).into_bytes(),
+    )?;
     session.channel_failure(channel)?;
     session.exit_status_request(channel, 1)?;
     session.close(channel)?;
