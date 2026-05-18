@@ -1,7 +1,7 @@
 import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { env } from '@/env'
 
-interface RepositoryCloneFields {
+interface RepositoryWithCloneFields extends Repository {
 	cloneUrl?: string
 	httpCloneUrl?: string
 	sshCloneUrl?: string
@@ -10,24 +10,20 @@ interface RepositoryCloneFields {
 const trailingSlashesRegex = /\/+$/
 
 export function getRepositoryHttpCloneUrl(
-	repository: Repository,
+	repository: RepositoryWithCloneFields,
 	owner: RepositoryOwner
 ) {
-	const cloneFields = repository as Repository & RepositoryCloneFields
-
-	if (cloneFields.httpCloneUrl) return cloneFields.httpCloneUrl
-	if (cloneFields.cloneUrl) return cloneFields.cloneUrl
+	if (repository.httpCloneUrl) return repository.httpCloneUrl
+	if (repository.cloneUrl) return repository.cloneUrl
 
 	return `${env.VITE_PUBLIC_GIT_HTTP_BASE_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
 }
 
 export function getRepositorySshCloneUrl(
-	repository: Repository,
+	repository: RepositoryWithCloneFields,
 	owner: RepositoryOwner
 ) {
-	const cloneFields = repository as Repository & RepositoryCloneFields
-
-	if (cloneFields.sshCloneUrl) return cloneFields.sshCloneUrl
+	if (repository.sshCloneUrl) return repository.sshCloneUrl
 
 	return `${env.VITE_PUBLIC_GIT_SSH_BASE_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
 }
