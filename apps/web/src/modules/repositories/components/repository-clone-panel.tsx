@@ -1,10 +1,10 @@
 import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { CopyButton } from '@/shared/components/copy-button'
 import {
 	getRepositoryHttpCloneUrl,
 	getRepositorySshCloneUrl,
 } from '../helpers/get-repository-clone-url'
-import { RepositoryCopyButton } from './repository-copy-button'
 
 interface RepositoryClonePanelProps {
 	owner: RepositoryOwner
@@ -58,7 +58,7 @@ function CloneUrlRow({ copiedLabel, label, text }: Readonly<CloneUrlRowProps>) {
 			<code className="min-w-0 overflow-x-auto rounded-md border border-input bg-muted px-3 py-2 text-sm">
 				{text}
 			</code>
-			<RepositoryCopyButton
+			<CopyButton
 				copiedLabel={copiedLabel}
 				errorMessage="Could not copy clone URL"
 				label={`Copy ${label} clone URL`}

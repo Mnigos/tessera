@@ -2,11 +2,11 @@
 
 import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { CopyButton } from '@/shared/components/copy-button'
 import {
 	getRepositoryHttpCloneUrl,
 	getRepositorySshCloneUrl,
 } from '../helpers/get-repository-clone-url'
-import { RepositoryCopyButton } from './repository-copy-button'
 
 interface RepositoryEmptyStateProps {
 	owner: RepositoryOwner
@@ -19,6 +19,7 @@ export function RepositoryEmptyState({
 }: Readonly<RepositoryEmptyStateProps>) {
 	const sshCloneUrl = getRepositorySshCloneUrl(repository, owner)
 	const httpCloneUrl = getRepositoryHttpCloneUrl(repository, owner)
+	const httpCloneProtocolLabel = getHttpCloneProtocolLabel(httpCloneUrl)
 	const cloneCommand = `git clone ${sshCloneUrl}`
 	const existingProjectCommands = [
 		`git remote add origin ${sshCloneUrl}`,
@@ -42,7 +43,7 @@ export function RepositoryEmptyState({
 					<code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-input bg-muted px-3 py-2 text-sm">
 						{sshCloneUrl}
 					</code>
-					<RepositoryCopyButton
+					<CopyButton
 						copiedLabel="SSH clone URL copied"
 						errorMessage="Could not copy clone URL"
 						label="Copy SSH clone URL"
@@ -52,17 +53,20 @@ export function RepositoryEmptyState({
 				<CommandBlock
 					command={cloneCommand}
 					copiedLabel="Clone command copied"
+					errorMessage="Could not copy clone command"
 					label="Copy clone command"
 					title="Clone the repository"
 				/>
 				<CommandBlock
 					command={existingProjectCommands}
 					copiedLabel="Setup commands copied"
+					errorMessage="Could not copy setup commands"
 					label="Copy setup commands"
 					title="Push an existing project"
 				/>
 				<p className="text-muted-foreground text-sm">
-					HTTPS is also available: <code>{httpCloneUrl}</code>
+					{httpCloneProtocolLabel} is also available:{' '}
+					<code>{httpCloneUrl}</code>
 				</p>
 			</div>
 		</Card>
@@ -72,6 +76,7 @@ export function RepositoryEmptyState({
 interface CommandBlockProps {
 	command: string
 	copiedLabel: string
+	errorMessage: string
 	label: string
 	title: string
 }
@@ -79,6 +84,7 @@ interface CommandBlockProps {
 function CommandBlock({
 	command,
 	copiedLabel,
+	errorMessage,
 	label,
 	title,
 }: Readonly<CommandBlockProps>) {
@@ -86,9 +92,9 @@ function CommandBlock({
 		<div className="flex flex-col gap-2">
 			<div className="flex items-center justify-between gap-3">
 				<h3 className="font-medium text-sm">{title}</h3>
-				<RepositoryCopyButton
+				<CopyButton
 					copiedLabel={copiedLabel}
-					errorMessage="Could not copy setup commands"
+					errorMessage={errorMessage}
 					label={label}
 					text={command}
 				/>
@@ -98,4 +104,17 @@ function CommandBlock({
 			</pre>
 		</div>
 	)
+}
+
+function getHttpCloneProtocolLabel(httpCloneUrl: string) {
+	try {
+		const { protocol } = new URL(httpCloneUrl)
+
+		if (protocol === 'https:') return 'HTTPS'
+		if (protocol === 'http:') return 'HTTP'
+	} catch {
+		return 'HTTP/HTTPS'
+	}
+
+	return 'HTTP/HTTPS'
 }

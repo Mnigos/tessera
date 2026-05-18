@@ -8,19 +8,19 @@ import { useMountEffect } from '@/shared/hooks/use-mount-effect'
 
 const COPY_FEEDBACK_DURATION_MS = 2000
 
-interface RepositoryCopyButtonProps {
+interface CopyButtonProps {
 	copiedLabel: string
 	errorMessage: string
 	label: string
 	text: string
 }
 
-export function RepositoryCopyButton({
+export function CopyButton({
 	copiedLabel,
 	errorMessage,
 	label,
 	text,
-}: Readonly<RepositoryCopyButtonProps>) {
+}: Readonly<CopyButtonProps>) {
 	const [isCopied, setIsCopied] = useState(false)
 	const copyFeedbackTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
 		undefined
