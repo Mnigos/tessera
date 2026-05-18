@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useCreateSshPublicKeyMutation } from '../hooks/use-create-ssh-public-key.mutation'
 import { useDeleteSshPublicKeyMutation } from '../hooks/use-delete-ssh-public-key.mutation'
 import { CreateSshPublicKeyForm } from './create-ssh-public-key-form'
+import { SshPublicKeySetupGuide } from './ssh-public-key-setup-guide'
 import { SshPublicKeysList } from './ssh-public-keys-list'
 
 interface SshPublicKeysSectionProps {
@@ -40,11 +41,14 @@ export function SshPublicKeysSection({
 				enabled={enabled}
 				onDelete={handleDelete}
 			/>
-			<CreateSshPublicKeyForm
-				isError={createSshPublicKey.isError}
-				isPending={createSshPublicKey.isPending}
-				onSubmit={handleSubmit}
-			/>
+			<div className="flex flex-col gap-4">
+				<SshPublicKeySetupGuide />
+				<CreateSshPublicKeyForm
+					isError={createSshPublicKey.isError}
+					isPending={createSshPublicKey.isPending}
+					onSubmit={handleSubmit}
+				/>
+			</div>
 		</section>
 	)
 }

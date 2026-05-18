@@ -22,11 +22,16 @@ export function SshPublicKeyListItem({
 						{sshPublicKey.title}
 					</h3>
 					<p className="truncate text-muted-foreground text-sm">
-						{sshPublicKey.keyType} · {sshPublicKey.fingerprintSha256}
+						{sshPublicKey.keyType} · {sshPublicKey.fingerprint}
 					</p>
 				</div>
 				<div className="flex flex-wrap gap-x-3 gap-y-1 text-muted-foreground text-xs">
 					<span>Created {formatSshPublicKeyDate(sshPublicKey.createdAt)}</span>
+					<span>
+						{sshPublicKey.lastUsedAt
+							? `Last used ${formatSshPublicKeyDate(sshPublicKey.lastUsedAt)}`
+							: 'Never used'}
+					</span>
 					{sshPublicKey.comment && <span>{sshPublicKey.comment}</span>}
 				</div>
 			</div>
