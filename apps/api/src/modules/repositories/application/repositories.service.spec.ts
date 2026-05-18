@@ -1,6 +1,7 @@
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
@@ -32,6 +33,11 @@ vi.mock('../helpers/repository-blob-highlighting', () => ({
 }))
 
 const textEncoder = new TextEncoder()
+const trustedGpgKey = {
+	keyId: '0123456789ABCDEF',
+	fingerprint: '0123456789ABCDEF0123456789ABCDEF01234567',
+	publicKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+}
 
 const repository: RepositoryWithOwner = {
 	id: '00000000-0000-4000-8000-000000000003' as RepositoryId,
@@ -53,6 +59,7 @@ describe(RepositoriesService.name, () => {
 	let repositoriesService: RepositoriesService
 	let repositoriesRepository: RepositoriesRepository
 	let gitAccessTokensService: GitAccessTokensService
+	let gpgPublicKeysService: GpgPublicKeysService
 	let sshPublicKeysService: SshPublicKeysService
 
 	beforeEach(async () => {
@@ -161,6 +168,27 @@ describe(RepositoriesService.name, () => {
 					},
 				},
 				{
+					provide: GpgPublicKeysService,
+					useValue: {
+						list: vi.fn().mockResolvedValue([
+							{
+								...trustedGpgKey,
+								id: '00000000-0000-4000-8000-000000000091',
+								title: 'Marta',
+								publicKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+								identities: [],
+								emails: [],
+								keyCreatedAt: new Date('2026-05-01T00:00:00Z'),
+								keyExpiresAt: undefined,
+								isRevoked: false,
+								lastUsedAt: undefined,
+								createdAt: new Date('2026-05-01T00:00:00Z'),
+								updatedAt: new Date('2026-05-01T00:00:00Z'),
+							},
+						]),
+					},
+				},
+				{
 					provide: SshPublicKeysService,
 					useValue: {
 						findOwnerByFingerprint: vi.fn().mockResolvedValue(mockUserId),
@@ -173,6 +201,7 @@ describe(RepositoriesService.name, () => {
 		repositoriesService = moduleRef.get(RepositoriesService)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
+		gpgPublicKeysService = moduleRef.get(GpgPublicKeysService)
 		sshPublicKeysService = moduleRef.get(SshPublicKeysService)
 		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
 	})
@@ -765,7 +794,11 @@ describe(RepositoriesService.name, () => {
 		expect(listRepositoryRefsSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedGpgKeys: [trustedGpgKey],
 		})
+		expect(gpgPublicKeysService.list).toHaveBeenCalledWith(
+			repository.ownerUserId
+		)
 	})
 
 	test('returns empty ref lists for empty repositories', async () => {
@@ -1049,7 +1082,11 @@ describe(RepositoriesService.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			ref: 'main',
 			limit: 10,
+			trustedGpgKeys: [trustedGpgKey],
 		})
+		expect(gpgPublicKeysService.list).toHaveBeenCalledWith(
+			repository.ownerUserId
+		)
 	})
 
 	test('passes omitted commit history limit through to storage', async () => {
@@ -1076,6 +1113,7 @@ describe(RepositoriesService.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			ref: 'main',
 			limit: undefined,
+			trustedGpgKeys: [trustedGpgKey],
 		})
 	})
 
@@ -1102,6 +1140,7 @@ describe(RepositoriesService.name, () => {
 			)
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 		expect(listRepositoryCommitsSpy).not.toHaveBeenCalled()
+		expect(gpgPublicKeysService.list).not.toHaveBeenCalled()
 	})
 
 	test('throws before calling git storage when commit history storage path is missing', async () => {

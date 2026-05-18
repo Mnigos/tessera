@@ -2,6 +2,7 @@ import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
 	RepositoryRefKind,
+	RepositorySignatureState,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import {
@@ -173,6 +174,13 @@ describe('git storage mappers', () => {
 				{
 					...mockRepositoryCommit,
 					summary: 'Add commit history',
+					signature: {
+						state: RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_TRUSTED,
+						keyId: '0123456789ABCDEF',
+						fingerprint: '0123456789ABCDEF0123456789ABCDEF01234567',
+						primaryKeyFingerprint: 'FEDCBA9876543210FEDCBA9876543210FEDCBA98',
+						signer: 'Marta <marta@example.com>',
+					},
 					author: {
 						...mockRepositoryCommit.author,
 						email: 'marta',
@@ -193,6 +201,13 @@ describe('git storage mappers', () => {
 				{
 					...mockRepositoryCommit,
 					summary: 'Add commit history',
+					signature: {
+						state: 'trusted',
+						keyId: '0123456789ABCDEF',
+						fingerprint: '0123456789ABCDEF0123456789ABCDEF01234567',
+						primaryKeyFingerprint: 'FEDCBA9876543210FEDCBA9876543210FEDCBA98',
+						signer: 'Marta <marta@example.com>',
+					},
 					author: {
 						...mockRepositoryCommit.author,
 						email: 'marta',
@@ -204,6 +219,9 @@ describe('git storage mappers', () => {
 					summary: 'Initial commit',
 					author: undefined,
 					committer: undefined,
+					signature: {
+						state: 'unsigned',
+					},
 				},
 			],
 		})
@@ -222,9 +240,55 @@ describe('git storage mappers', () => {
 					summary: '',
 					author: undefined,
 					committer: undefined,
+					signature: {
+						state: 'unsigned',
+					},
 				},
 			],
 		})
+	})
+
+	test('maps signature enum states', () => {
+		expect(
+			toRepositoryCommitHistory({
+				commits: [
+					{
+						signature: {
+							state: RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_VALID,
+						},
+					},
+					{
+						signature: {
+							state:
+								RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_UNTRUSTED,
+						},
+					},
+					{
+						signature: {
+							state: RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_BAD,
+						},
+					},
+					{
+						signature: {
+							state:
+								RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_UNKNOWN,
+						},
+					},
+					{
+						signature: {
+							state:
+								RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_EXPIRED,
+						},
+					},
+					{
+						signature: {
+							state:
+								RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_REVOKED,
+						},
+					},
+				],
+			}).commits.map(commit => commit.signature.state)
+		).toEqual(['valid', 'untrusted', 'bad', 'unknown', 'expired', 'revoked'])
 	})
 
 	test('maps repository refs into branch and tag groups', () => {
@@ -244,6 +308,10 @@ describe('git storage mappers', () => {
 						qualifiedName: 'refs/tags/v1.0.0',
 						commitId: 'def456',
 						isDefaultBranch: false,
+						signature: {
+							state: RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_VALID,
+							keyId: '0123456789ABCDEF',
+						},
 					},
 				],
 			})
@@ -262,6 +330,10 @@ describe('git storage mappers', () => {
 					name: 'v1.0.0',
 					qualifiedName: 'refs/tags/v1.0.0',
 					target: 'def456',
+					signature: {
+						state: 'valid',
+						keyId: '0123456789ABCDEF',
+					},
 				},
 			],
 		})

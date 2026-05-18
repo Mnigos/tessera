@@ -427,7 +427,14 @@ describe(RepositoriesController.name, () => {
 		const commitHistory = {
 			...repository,
 			ref: 'main',
-			commits: [mockRepositoryCommit],
+			commits: [
+				{
+					...mockRepositoryCommit,
+					signature: {
+						state: 'unsigned' as const,
+					},
+				},
+			],
 		}
 		const getCommitHistorySpy = vi
 			.spyOn(repositoriesService, 'getCommitHistory')
@@ -595,7 +602,14 @@ describe(RepositoriesController.name, () => {
 				...repository,
 				storagePath: '/internal/repositories/notes.git',
 				ref: 'main',
-				commits: [mockRepositoryCommit],
+				commits: [
+					{
+						...mockRepositoryCommit,
+						signature: {
+							state: 'unsigned',
+						},
+					},
+				],
 			})
 		).toEqual(
 			expect.not.objectContaining({

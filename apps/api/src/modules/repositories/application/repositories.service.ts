@@ -11,8 +11,10 @@ import {
 	type GitStorageRepositoryRef,
 	type GitStorageRepositoryRefs,
 	type GitStorageRepositoryTree,
+	type GitStorageTrustedGpgKey,
 } from '@config/git-storage'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
@@ -119,6 +121,7 @@ export class RepositoriesService {
 		private readonly repositoriesRepository: RepositoriesRepository,
 		private readonly gitStorageClient: GitStorageClient,
 		private readonly gitAccessTokensService: GitAccessTokensService,
+		private readonly gpgPublicKeysService: GpgPublicKeysService,
 		private readonly sshPublicKeysService: SshPublicKeysService
 	) {}
 
@@ -192,10 +195,14 @@ export class RepositoriesService {
 			viewerUserId,
 			{ slug, username }
 		)
+		const trustedGpgKeys = await this.listRepositoryOwnerTrustedGpgKeys(
+			repository.ownerUserId
+		)
 		const refs = await this.getRepositoryRefsFromStorage(
 			{
 				repositoryId: repository.id,
 				storagePath,
+				trustedGpgKeys,
 			},
 			{
 				username,
@@ -238,10 +245,14 @@ export class RepositoriesService {
 			viewerUserId,
 			{ slug, username }
 		)
+		const trustedGpgKeys = await this.listRepositoryOwnerTrustedGpgKeys(
+			repository.ownerUserId
+		)
 		const refs = await this.getRepositoryRefsFromStorage(
 			{
 				repositoryId: repository.id,
 				storagePath,
+				trustedGpgKeys,
 			},
 			{
 				username,
@@ -398,12 +409,16 @@ export class RepositoriesService {
 			viewerUserId,
 			{ slug, username }
 		)
+		const trustedGpgKeys = await this.listRepositoryOwnerTrustedGpgKeys(
+			repository.ownerUserId
+		)
 		const commitHistory = await this.getRepositoryCommitsFromStorage(
 			{
 				repositoryId: repository.id,
 				storagePath,
 				ref,
 				limit,
+				trustedGpgKeys,
 			},
 			{
 				username,
@@ -732,6 +747,20 @@ export class RepositoriesService {
 			repository,
 			storagePath: repository.storagePath,
 		}
+	}
+
+	private async listRepositoryOwnerTrustedGpgKeys(
+		ownerUserId: UserId | null
+	): Promise<GitStorageTrustedGpgKey[]> {
+		if (!ownerUserId) return []
+
+		const gpgPublicKeys = await this.gpgPublicKeysService.list(ownerUserId)
+
+		return gpgPublicKeys.map(({ fingerprint, keyId, publicKey }) => ({
+			keyId,
+			fingerprint,
+			publicKey,
+		}))
 	}
 }
 
