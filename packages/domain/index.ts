@@ -1,4 +1,5 @@
 export * from './src/git-access-tokens/git-access-token-permission'
+export * from './src/gpg-public-keys/gpg-public-key-id'
 export * from './src/organizations/organization-id'
 export * from './src/repositories/repository-id'
 export * from './src/repositories/repository-name'

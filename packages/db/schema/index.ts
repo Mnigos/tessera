@@ -1,4 +1,5 @@
 export * from './auth.schema'
+export * from './gpg-public-keys.schema'
 export * from './organizations.schema'
 export * from './repositories.schema'
 export * from './ssh-public-keys.schema'
