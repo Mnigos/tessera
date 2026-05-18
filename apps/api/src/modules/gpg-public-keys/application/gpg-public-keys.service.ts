@@ -11,7 +11,6 @@ import { normalizeGpgPublicKey } from '../domain/gpg-public-key.helpers'
 import { GpgPublicKeysRepository } from '../infrastructure/gpg-public-keys.repository'
 
 const GPG_PUBLIC_KEY_UNIQUE_CONSTRAINTS = new Set([
-	'gpg_public_keys_fingerprint_unique',
 	'gpg_public_keys_owner_fingerprint_unique',
 ])
 
