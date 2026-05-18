@@ -10,7 +10,8 @@ use tessera_git::proto::{
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
     Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryError, RepositoryId,
-    RepositoryRawBlob, RepositoryRefKind, RepositoryTreeEntryKind,
+    RepositoryRawBlob, RepositoryRefKind, RepositorySignatureState, RepositoryTreeEntryKind,
+    TrustedGpgKey,
 };
 use tonic::{Code, Request};
 
@@ -393,7 +394,7 @@ async fn repository_refs_lists_branches_with_default_marker() {
     );
 
     let refs = storage
-        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
         .await
         .unwrap()
         .refs;
@@ -432,7 +433,7 @@ async fn repository_refs_lists_lightweight_tag() {
         .to_string();
 
     let refs = storage
-        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
         .await
         .unwrap()
         .refs;
@@ -443,6 +444,7 @@ async fn repository_refs_lists_lightweight_tag() {
             && repository_ref.qualified_name == "refs/tags/v1.0.0"
             && repository_ref.commit_id == commit_id
             && !repository_ref.is_default_branch
+            && repository_ref.signature.state == RepositorySignatureState::Unsigned
     }));
 }
 
@@ -466,7 +468,7 @@ async fn repository_refs_peels_annotated_tag_to_commit() {
         .to_string();
 
     let refs = storage
-        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
         .await
         .unwrap()
         .refs;
@@ -478,6 +480,71 @@ async fn repository_refs_peels_annotated_tag_to_commit() {
     assert_eq!(tag.kind, RepositoryRefKind::Tag);
     assert_eq!(tag.commit_id, commit_id);
     assert_ne!(tag.commit_id, tag_object_id);
+    assert_eq!(tag.signature.state, RepositorySignatureState::Unsigned);
+}
+
+#[tokio::test]
+async fn repository_refs_trusts_signed_tag_when_public_key_is_imported() {
+    let Some(gpg_key) = generate_gpg_key() else {
+        return;
+    };
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_signed_commit_and_tag(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        "signed-v1.0.0",
+        &gpg_key,
+    );
+
+    let refs = storage
+        .list_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            &[gpg_key.trusted_key()],
+        )
+        .await
+        .unwrap()
+        .refs;
+    let tag = refs
+        .iter()
+        .find(|repository_ref| repository_ref.display_name == "signed-v1.0.0")
+        .unwrap();
+
+    assert_eq!(tag.signature.state, RepositorySignatureState::Trusted);
+    assert_eq!(tag.signature.fingerprint, gpg_key.fingerprint);
+}
+
+#[tokio::test]
+async fn repository_refs_uses_empty_isolated_keyring_without_trusted_keys() {
+    let Some(gpg_key) = generate_gpg_key() else {
+        return;
+    };
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_signed_commit_and_tag(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        "signed-v1.0.0",
+        &gpg_key,
+    );
+
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
+        .await
+        .unwrap()
+        .refs;
+    let tag = refs
+        .iter()
+        .find(|repository_ref| repository_ref.display_name == "signed-v1.0.0")
+        .unwrap();
+
+    assert_ne!(tag.signature.state, RepositorySignatureState::Trusted);
+    assert_ne!(tag.signature.state, RepositorySignatureState::Valid);
 }
 
 #[tokio::test]
@@ -495,7 +562,7 @@ async fn repository_refs_skips_non_commit_tags() {
     git(&repository.path, ["tag", "blob-tag", &readme_object_id]);
 
     let refs = storage
-        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
         .await
         .unwrap()
         .refs;
@@ -513,7 +580,7 @@ async fn repository_refs_returns_empty_list_for_empty_repository() {
     let repository = storage.create_repository(&repository_id()).await.unwrap();
 
     let refs = storage
-        .list_repository_refs(REPOSITORY_ID, &repository.storage_path)
+        .list_repository_refs(REPOSITORY_ID, &repository.storage_path, &[])
         .await
         .unwrap();
 
@@ -620,6 +687,7 @@ async fn repository_refs_grpc_maps_response() {
         .list_repository_refs(Request::new(ListRepositoryRefsRequest {
             repository_id: REPOSITORY_ID.to_string(),
             storage_path: repository.storage_path,
+            trusted_gpg_keys: Vec::new(),
         }))
         .await
         .unwrap()
@@ -1186,7 +1254,7 @@ async fn repository_commits_returns_recent_commits_newest_first() {
     );
 
     let commit_list = storage
-        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50)
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50, &[])
         .await
         .unwrap();
 
@@ -1206,7 +1274,7 @@ async fn repository_commits_returns_empty_list_for_empty_repository() {
     let repository = storage.create_repository(&repository_id()).await.unwrap();
 
     let commit_list = storage
-        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "", 50)
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "", 50, &[])
         .await
         .unwrap();
 
@@ -1227,7 +1295,7 @@ async fn repository_commits_rejects_unsafe_refs() {
 
     for ref_name in ["../main", "main.lock", "feature/a b", "feature/.hidden"] {
         let error = storage
-            .list_repository_commits(REPOSITORY_ID, &repository.storage_path, ref_name, 50)
+            .list_repository_commits(REPOSITORY_ID, &repository.storage_path, ref_name, 50, &[])
             .await
             .unwrap_err();
 
@@ -1260,7 +1328,7 @@ async fn repository_commits_preserves_author_and_committer_metadata() {
     );
 
     let commit_list = storage
-        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50)
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50, &[])
         .await
         .unwrap();
     let commit = &commit_list.commits[0];
@@ -1274,6 +1342,74 @@ async fn repository_commits_preserves_author_and_committer_metadata() {
     assert_eq!(commit.committer.name, "Grace Committer");
     assert_eq!(commit.committer.email, "grace@example.com");
     assert_utc_git_date_eq(&commit.committer.date, "2026-05-16T10:01:00");
+}
+
+#[tokio::test]
+async fn repository_commits_trusts_signed_commit_when_public_key_is_imported() {
+    let Some(gpg_key) = generate_gpg_key() else {
+        return;
+    };
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_signed_commit_and_tag(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        "signed-v1.0.0",
+        &gpg_key,
+    );
+
+    let commit_list = storage
+        .list_repository_commits(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            50,
+            &[gpg_key.trusted_key()],
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        commit_list.commits[0].signature.state,
+        RepositorySignatureState::Trusted
+    );
+    assert_eq!(
+        commit_list.commits[0].signature.fingerprint,
+        gpg_key.fingerprint
+    );
+}
+
+#[tokio::test]
+async fn repository_commits_uses_empty_isolated_keyring_without_trusted_keys() {
+    let Some(gpg_key) = generate_gpg_key() else {
+        return;
+    };
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_signed_commit_and_tag(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        "signed-v1.0.0",
+        &gpg_key,
+    );
+
+    let commit_list = storage
+        .list_repository_commits(REPOSITORY_ID, &repository.storage_path, "main", 50, &[])
+        .await
+        .unwrap();
+
+    assert_ne!(
+        commit_list.commits[0].signature.state,
+        RepositorySignatureState::Trusted
+    );
+    assert_ne!(
+        commit_list.commits[0].signature.state,
+        RepositorySignatureState::Valid
+    );
 }
 
 #[tokio::test]
@@ -1295,6 +1431,7 @@ async fn repository_commits_grpc_maps_response_and_invalid_ref() {
             storage_path: repository.storage_path.clone(),
             r#ref: "main".to_string(),
             limit: 50,
+            trusted_gpg_keys: Vec::new(),
         }))
         .await
         .unwrap()
@@ -1305,6 +1442,7 @@ async fn repository_commits_grpc_maps_response_and_invalid_ref() {
             storage_path: repository.storage_path,
             r#ref: "../main".to_string(),
             limit: 50,
+            trusted_gpg_keys: Vec::new(),
         }))
         .await
         .unwrap_err();
@@ -1313,6 +1451,10 @@ async fn repository_commits_grpc_maps_response_and_invalid_ref() {
     assert_eq!(response.commits[0].summary, "test commit");
     assert!(response.commits[0].author.is_some());
     assert!(response.commits[0].committer.is_some());
+    assert_eq!(
+        response.commits[0].signature.as_ref().unwrap().state,
+        tessera_git::proto::RepositorySignatureState::Unsigned as i32
+    );
     assert_eq!(invalid.code(), Code::InvalidArgument);
 }
 
@@ -1406,6 +1548,11 @@ fn push_commit_with_metadata(
         worktree.path(),
         ["git", "config", "user.email", metadata.committer_email],
     );
+    command(
+        worktree.path(),
+        ["git", "config", "commit.gpgsign", "false"],
+    );
+    command(worktree.path(), ["git", "config", "tag.gpgsign", "false"]);
 
     for (file_path, content) in files {
         let path = worktree.path().join(file_path);
@@ -1472,6 +1619,11 @@ fn append_commit(
         worktree.path(),
         ["git", "config", "user.email", "test@example.com"],
     );
+    command(
+        worktree.path(),
+        ["git", "config", "commit.gpgsign", "false"],
+    );
+    command(worktree.path(), ["git", "config", "tag.gpgsign", "false"]);
 
     for (file_path, content) in files {
         let path = worktree.path().join(file_path);
@@ -1509,6 +1661,7 @@ fn create_annotated_tag(bare_repository_path: &Path, tag_name: &str, target: &st
             bare_repository_path.to_str().unwrap(),
             "tag",
             "-a",
+            "--no-sign",
             tag_name,
             target,
             "-m",
@@ -1520,6 +1673,152 @@ fn create_annotated_tag(bare_repository_path: &Path, tag_name: &str, target: &st
             ("GIT_COMMITTER_DATE", "2026-05-16T10:03:00+00:00"),
         ],
     );
+}
+
+struct GeneratedGpgKey {
+    home: TempDir,
+    fingerprint: String,
+    public_key: String,
+}
+
+impl GeneratedGpgKey {
+    fn trusted_key(&self) -> TrustedGpgKey {
+        TrustedGpgKey {
+            key_id: self.fingerprint[self.fingerprint.len() - 16..].to_string(),
+            fingerprint: self.fingerprint.clone(),
+            public_key: self.public_key.clone(),
+        }
+    }
+}
+
+fn generate_gpg_key() -> Option<GeneratedGpgKey> {
+    if Command::new("gpg").arg("--version").output().is_err() {
+        return None;
+    }
+
+    let home = TempDir::new().unwrap();
+    let home_path = home.path().to_str().unwrap();
+    let output = Command::new("gpg")
+        .args([
+            "--homedir",
+            home_path,
+            "--batch",
+            "--no-tty",
+            "--pinentry-mode",
+            "loopback",
+            "--passphrase",
+            "",
+            "--quick-generate-key",
+            "Tessera Signer <signer@example.com>",
+            "ed25519",
+            "sign",
+            "1d",
+        ])
+        .output()
+        .unwrap();
+
+    if !output.status.success() {
+        panic!(
+            "failed to generate GPG key\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let public_key = gpg_stdout(home.path(), ["--armor", "--export", "signer@example.com"]);
+    let secret_keys = gpg_stdout(home.path(), ["--with-colons", "--list-secret-keys"]);
+    let fingerprint = secret_keys
+        .lines()
+        .find_map(|line| line.strip_prefix("fpr:::::::::"))
+        .and_then(|line| line.split(':').next())
+        .unwrap()
+        .to_string();
+
+    Some(GeneratedGpgKey {
+        home,
+        fingerprint,
+        public_key,
+    })
+}
+
+fn push_signed_commit_and_tag(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    tag_name: &str,
+    gpg_key: &GeneratedGpgKey,
+) {
+    let worktree = TempDir::new_in(temp_root).unwrap();
+    command(
+        worktree.path(),
+        ["git", "init", "--initial-branch", branch_name],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.name", "GPG Signer"],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.email", "signer@example.com"],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.signingkey", &gpg_key.fingerprint],
+    );
+    command(worktree.path(), ["git", "config", "gpg.program", "gpg"]);
+    fs::write(worktree.path().join("README.md"), "signed\n").unwrap();
+    command(worktree.path(), ["git", "add", "."]);
+    command_with_env(
+        worktree.path(),
+        ["git", "commit", "-S", "-m", "signed commit"],
+        &[
+            ("GNUPGHOME", gpg_key.home.path().to_str().unwrap()),
+            ("GIT_AUTHOR_DATE", "2026-05-16T10:04:00+00:00"),
+            ("GIT_COMMITTER_DATE", "2026-05-16T10:04:00+00:00"),
+        ],
+    );
+    command_with_env(
+        worktree.path(),
+        ["git", "tag", "-s", tag_name, "-m", tag_name],
+        &[
+            ("GNUPGHOME", gpg_key.home.path().to_str().unwrap()),
+            ("GIT_COMMITTER_DATE", "2026-05-16T10:05:00+00:00"),
+        ],
+    );
+    command(
+        worktree.path(),
+        [
+            "git",
+            "push",
+            bare_repository_path.to_str().unwrap(),
+            &format!("HEAD:refs/heads/{branch_name}"),
+            &format!("refs/tags/{tag_name}"),
+        ],
+    );
+    git(
+        bare_repository_path,
+        ["symbolic-ref", "HEAD", &format!("refs/heads/{branch_name}")],
+    );
+}
+
+fn gpg_stdout<const N: usize>(home: &Path, args: [&str; N]) -> String {
+    let output = Command::new("gpg")
+        .arg("--homedir")
+        .arg(home)
+        .args(args)
+        .output()
+        .unwrap();
+
+    if !output.status.success() {
+        panic!(
+            "gpg command failed: {:?}\nstdout:\n{}\nstderr:\n{}",
+            args,
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    String::from_utf8(output.stdout).unwrap()
 }
 
 fn git<const N: usize>(bare_repository_path: &Path, args: [&str; N]) {
