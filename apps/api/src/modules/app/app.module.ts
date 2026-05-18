@@ -7,6 +7,7 @@ import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
+import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { HealthModule } from '@modules/health'
 import { RepositoriesModule } from '@modules/repositories'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
@@ -25,6 +26,7 @@ import { APP_FILTER } from '@nestjs/core'
 		AuthModule,
 		UserModule,
 		GitAccessTokensModule,
+		GpgPublicKeysModule,
 		SshPublicKeysModule,
 		RepositoriesModule,
 		DocsModule,
