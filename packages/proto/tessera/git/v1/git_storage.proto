@@ -30,6 +30,7 @@ message CreateRepositoryResponse {
 message ListRepositoryRefsRequest {
   string repository_id = 1;
   string storage_path = 2;
+  repeated TrustedGpgKey trusted_gpg_keys = 3;
 }
 
 message ListRepositoryRefsResponse {
@@ -94,6 +95,7 @@ message ListRepositoryCommitsRequest {
   string storage_path = 2;
   string ref = 3;
   uint32 limit = 4;
+  repeated TrustedGpgKey trusted_gpg_keys = 5;
 }
 
 message ListRepositoryCommitsResponse {
@@ -106,6 +108,7 @@ message RepositoryCommit {
   string summary = 3;
   RepositoryCommitIdentity author = 4;
   RepositoryCommitIdentity committer = 5;
+  RepositorySignature signature = 6;
 }
 
 message RepositoryCommitIdentity {
@@ -120,6 +123,33 @@ message RepositoryRef {
   string qualified_name = 3;
   string commit_id = 4;
   bool is_default_branch = 5;
+  RepositorySignature signature = 6;
+}
+
+message TrustedGpgKey {
+  string key_id = 1;
+  string fingerprint = 2;
+  string public_key = 3;
+}
+
+message RepositorySignature {
+  RepositorySignatureState state = 1;
+  string key_id = 2;
+  string fingerprint = 3;
+  string primary_key_fingerprint = 4;
+  string signer = 5;
+}
+
+enum RepositorySignatureState {
+  REPOSITORY_SIGNATURE_STATE_UNSPECIFIED = 0;
+  REPOSITORY_SIGNATURE_STATE_UNSIGNED = 1;
+  REPOSITORY_SIGNATURE_STATE_VALID = 2;
+  REPOSITORY_SIGNATURE_STATE_TRUSTED = 3;
+  REPOSITORY_SIGNATURE_STATE_UNTRUSTED = 4;
+  REPOSITORY_SIGNATURE_STATE_BAD = 5;
+  REPOSITORY_SIGNATURE_STATE_UNKNOWN = 6;
+  REPOSITORY_SIGNATURE_STATE_EXPIRED = 7;
+  REPOSITORY_SIGNATURE_STATE_REVOKED = 8;
 }
 
 enum RepositoryRefKind {

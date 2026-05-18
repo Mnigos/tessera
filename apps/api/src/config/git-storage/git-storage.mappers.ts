@@ -2,6 +2,7 @@ import type {
 	RepositoryCommit as GeneratedRepositoryCommit,
 	RepositoryCommitIdentity as GeneratedRepositoryCommitIdentity,
 	RepositoryRef as GeneratedRepositoryRef,
+	RepositorySignature as GeneratedRepositorySignature,
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
 	GetRepositoryBlobResponse,
 	GetRepositoryBrowserSummaryResponse,
@@ -13,6 +14,7 @@ import type {
 import {
 	RepositoryBlobPreviewState,
 	RepositoryRefKind,
+	RepositorySignatureState,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
 import type {
@@ -23,6 +25,7 @@ import type {
 	GitStorageRepositoryCommitIdentity,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryRefs,
+	GitStorageRepositorySignature,
 	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
 } from './git-storage.client'
@@ -55,12 +58,21 @@ interface RuntimeRepositoryRefsResponse
 
 type RuntimeRepositoryTreeEntry = Partial<GeneratedRepositoryTreeEntry>
 
-type RuntimeRepositoryCommit = Partial<GeneratedRepositoryCommit>
-
 type RuntimeRepositoryCommitIdentity =
 	Partial<GeneratedRepositoryCommitIdentity>
 
-type RuntimeRepositoryRef = Partial<GeneratedRepositoryRef>
+interface RuntimeRepositoryCommitSignature
+	extends Partial<GeneratedRepositorySignature> {}
+
+interface RuntimeRepositoryCommit
+	extends Omit<Partial<GeneratedRepositoryCommit>, 'signature'> {
+	signature?: RuntimeRepositoryCommitSignature
+}
+
+interface RuntimeRepositoryRef
+	extends Omit<Partial<GeneratedRepositoryRef>, 'signature'> {
+	signature?: RuntimeRepositoryCommitSignature
+}
 
 /**
  * Converts a browser summary gRPC payload into the repository browser model exposed by the API.
@@ -194,22 +206,29 @@ function toRepositoryRef(
  */
 function toRepositoryRef(
 	type: 'tag',
-	{ commitId, displayName, qualifiedName }: RuntimeRepositoryRef
+	{ commitId, displayName, qualifiedName, signature }: RuntimeRepositoryRef
 ): GitStorageRepositoryRefs['tags'][number]
 /**
  * Normalizes a repository ref from the generated gRPC shape into the matching API ref shape.
  */
 function toRepositoryRef(
 	type: 'branch' | 'tag',
-	{ commitId, displayName, qualifiedName }: RuntimeRepositoryRef
+	{ commitId, displayName, qualifiedName, signature }: RuntimeRepositoryRef
 ):
 	| GitStorageRepositoryRefs['branches'][number]
 	| GitStorageRepositoryRefs['tags'][number] {
-	return {
+	const repositoryRef = {
 		type,
 		name: displayName ?? '',
 		qualifiedName: qualifiedName ?? '',
 		target: commitId ?? '',
+	}
+
+	if (type === 'branch') return repositoryRef
+
+	return {
+		...repositoryRef,
+		signature: signature ? toRepositorySignature(signature) : undefined,
 	}
 }
 
@@ -221,6 +240,7 @@ function toRepositoryCommit({
 	committer,
 	sha,
 	shortSha,
+	signature,
 	summary,
 }: RuntimeRepositoryCommit): GitStorageRepositoryCommit {
 	return {
@@ -229,7 +249,46 @@ function toRepositoryCommit({
 		summary: summary ?? '',
 		author: toRepositoryCommitIdentity(author),
 		committer: toRepositoryCommitIdentity(committer),
+		signature: toRepositorySignature(signature),
 	}
+}
+
+function toRepositorySignature(
+	signature: RuntimeRepositoryCommitSignature | undefined
+): GitStorageRepositorySignature {
+	if (!signature)
+		return {
+			state: 'unsigned',
+		}
+
+	return {
+		state: toRepositorySignatureState(signature.state),
+		keyId: signature.keyId || undefined,
+		fingerprint: signature.fingerprint || undefined,
+		primaryKeyFingerprint: signature.primaryKeyFingerprint || undefined,
+		signer: signature.signer || undefined,
+	}
+}
+
+function toRepositorySignatureState(
+	state: RepositorySignatureState | undefined
+): GitStorageRepositorySignature['state'] {
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_VALID)
+		return 'valid'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_TRUSTED)
+		return 'trusted'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_UNTRUSTED)
+		return 'untrusted'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_BAD)
+		return 'bad'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_UNKNOWN)
+		return 'unknown'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_EXPIRED)
+		return 'expired'
+	if (state === RepositorySignatureState.REPOSITORY_SIGNATURE_STATE_REVOKED)
+		return 'revoked'
+
+	return 'unsigned'
 }
 
 /**

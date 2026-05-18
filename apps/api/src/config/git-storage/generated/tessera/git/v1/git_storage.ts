@@ -12,6 +12,19 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum RepositorySignatureState {
+  REPOSITORY_SIGNATURE_STATE_UNSPECIFIED = 0,
+  REPOSITORY_SIGNATURE_STATE_UNSIGNED = 1,
+  REPOSITORY_SIGNATURE_STATE_VALID = 2,
+  REPOSITORY_SIGNATURE_STATE_TRUSTED = 3,
+  REPOSITORY_SIGNATURE_STATE_UNTRUSTED = 4,
+  REPOSITORY_SIGNATURE_STATE_BAD = 5,
+  REPOSITORY_SIGNATURE_STATE_UNKNOWN = 6,
+  REPOSITORY_SIGNATURE_STATE_EXPIRED = 7,
+  REPOSITORY_SIGNATURE_STATE_REVOKED = 8,
+  UNRECOGNIZED = -1,
+}
+
 export enum RepositoryRefKind {
   REPOSITORY_REF_KIND_UNSPECIFIED = 0,
   REPOSITORY_REF_KIND_BRANCH = 1,
@@ -54,6 +67,7 @@ export interface CreateRepositoryResponse {
 export interface ListRepositoryRefsRequest {
   repositoryId: string;
   storagePath: string;
+  trustedGpgKeys: TrustedGpgKey[];
 }
 
 export interface ListRepositoryRefsResponse {
@@ -118,6 +132,7 @@ export interface ListRepositoryCommitsRequest {
   storagePath: string;
   ref: string;
   limit: number;
+  trustedGpgKeys: TrustedGpgKey[];
 }
 
 export interface ListRepositoryCommitsResponse {
@@ -130,6 +145,7 @@ export interface RepositoryCommit {
   summary: string;
   author: RepositoryCommitIdentity | undefined;
   committer: RepositoryCommitIdentity | undefined;
+  signature: RepositorySignature | undefined;
 }
 
 export interface RepositoryCommitIdentity {
@@ -144,6 +160,21 @@ export interface RepositoryRef {
   qualifiedName: string;
   commitId: string;
   isDefaultBranch: boolean;
+  signature: RepositorySignature | undefined;
+}
+
+export interface TrustedGpgKey {
+  keyId: string;
+  fingerprint: string;
+  publicKey: string;
+}
+
+export interface RepositorySignature {
+  state: RepositorySignatureState;
+  keyId: string;
+  fingerprint: string;
+  primaryKeyFingerprint: string;
+  signer: string;
 }
 
 export interface RepositoryTreeEntry {
@@ -302,7 +333,7 @@ export const CreateRepositoryResponse: MessageFns<CreateRepositoryResponse> = {
 };
 
 function createBaseListRepositoryRefsRequest(): ListRepositoryRefsRequest {
-  return { repositoryId: "", storagePath: "" };
+  return { repositoryId: "", storagePath: "", trustedGpgKeys: [] };
 }
 
 export const ListRepositoryRefsRequest: MessageFns<ListRepositoryRefsRequest> = {
@@ -312,6 +343,9 @@ export const ListRepositoryRefsRequest: MessageFns<ListRepositoryRefsRequest> = 
     }
     if (message.storagePath !== "") {
       writer.uint32(18).string(message.storagePath);
+    }
+    for (const v of message.trustedGpgKeys) {
+      TrustedGpgKey.encode(v!, writer.uint32(26).fork()).join();
     }
     return writer;
   },
@@ -337,6 +371,14 @@ export const ListRepositoryRefsRequest: MessageFns<ListRepositoryRefsRequest> = 
           }
 
           message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.trustedGpgKeys.push(TrustedGpgKey.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -914,7 +956,7 @@ export const GetRepositoryRawBlobResponse: MessageFns<GetRepositoryRawBlobRespon
 };
 
 function createBaseListRepositoryCommitsRequest(): ListRepositoryCommitsRequest {
-  return { repositoryId: "", storagePath: "", ref: "", limit: 0 };
+  return { repositoryId: "", storagePath: "", ref: "", limit: 0, trustedGpgKeys: [] };
 }
 
 export const ListRepositoryCommitsRequest: MessageFns<ListRepositoryCommitsRequest> = {
@@ -930,6 +972,9 @@ export const ListRepositoryCommitsRequest: MessageFns<ListRepositoryCommitsReque
     }
     if (message.limit !== 0) {
       writer.uint32(32).uint32(message.limit);
+    }
+    for (const v of message.trustedGpgKeys) {
+      TrustedGpgKey.encode(v!, writer.uint32(42).fork()).join();
     }
     return writer;
   },
@@ -971,6 +1016,14 @@ export const ListRepositoryCommitsRequest: MessageFns<ListRepositoryCommitsReque
           }
 
           message.limit = reader.uint32();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.trustedGpgKeys.push(TrustedGpgKey.decode(reader, reader.uint32()));
           continue;
         }
       }
@@ -1021,7 +1074,7 @@ export const ListRepositoryCommitsResponse: MessageFns<ListRepositoryCommitsResp
 };
 
 function createBaseRepositoryCommit(): RepositoryCommit {
-  return { sha: "", shortSha: "", summary: "", author: undefined, committer: undefined };
+  return { sha: "", shortSha: "", summary: "", author: undefined, committer: undefined, signature: undefined };
 }
 
 export const RepositoryCommit: MessageFns<RepositoryCommit> = {
@@ -1040,6 +1093,9 @@ export const RepositoryCommit: MessageFns<RepositoryCommit> = {
     }
     if (message.committer !== undefined) {
       RepositoryCommitIdentity.encode(message.committer, writer.uint32(42).fork()).join();
+    }
+    if (message.signature !== undefined) {
+      RepositorySignature.encode(message.signature, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -1089,6 +1145,14 @@ export const RepositoryCommit: MessageFns<RepositoryCommit> = {
           }
 
           message.committer = RepositoryCommitIdentity.decode(reader, reader.uint32());
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.signature = RepositorySignature.decode(reader, reader.uint32());
           continue;
         }
       }
@@ -1161,7 +1225,7 @@ export const RepositoryCommitIdentity: MessageFns<RepositoryCommitIdentity> = {
 };
 
 function createBaseRepositoryRef(): RepositoryRef {
-  return { kind: 0, displayName: "", qualifiedName: "", commitId: "", isDefaultBranch: false };
+  return { kind: 0, displayName: "", qualifiedName: "", commitId: "", isDefaultBranch: false, signature: undefined };
 }
 
 export const RepositoryRef: MessageFns<RepositoryRef> = {
@@ -1180,6 +1244,9 @@ export const RepositoryRef: MessageFns<RepositoryRef> = {
     }
     if (message.isDefaultBranch !== false) {
       writer.uint32(40).bool(message.isDefaultBranch);
+    }
+    if (message.signature !== undefined) {
+      RepositorySignature.encode(message.signature, writer.uint32(50).fork()).join();
     }
     return writer;
   },
@@ -1229,6 +1296,154 @@ export const RepositoryRef: MessageFns<RepositoryRef> = {
           }
 
           message.isDefaultBranch = reader.bool();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.signature = RepositorySignature.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseTrustedGpgKey(): TrustedGpgKey {
+  return { keyId: "", fingerprint: "", publicKey: "" };
+}
+
+export const TrustedGpgKey: MessageFns<TrustedGpgKey> = {
+  encode(message: TrustedGpgKey, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.keyId !== "") {
+      writer.uint32(10).string(message.keyId);
+    }
+    if (message.fingerprint !== "") {
+      writer.uint32(18).string(message.fingerprint);
+    }
+    if (message.publicKey !== "") {
+      writer.uint32(26).string(message.publicKey);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): TrustedGpgKey {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseTrustedGpgKey();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.fingerprint = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.publicKey = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositorySignature(): RepositorySignature {
+  return { state: 0, keyId: "", fingerprint: "", primaryKeyFingerprint: "", signer: "" };
+}
+
+export const RepositorySignature: MessageFns<RepositorySignature> = {
+  encode(message: RepositorySignature, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.state !== 0) {
+      writer.uint32(8).int32(message.state);
+    }
+    if (message.keyId !== "") {
+      writer.uint32(18).string(message.keyId);
+    }
+    if (message.fingerprint !== "") {
+      writer.uint32(26).string(message.fingerprint);
+    }
+    if (message.primaryKeyFingerprint !== "") {
+      writer.uint32(34).string(message.primaryKeyFingerprint);
+    }
+    if (message.signer !== "") {
+      writer.uint32(42).string(message.signer);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositorySignature {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositorySignature();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.state = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.keyId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.fingerprint = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.primaryKeyFingerprint = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.signer = reader.string();
           continue;
         }
       }

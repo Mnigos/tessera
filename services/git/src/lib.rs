@@ -12,7 +12,8 @@ pub use config::Config;
 pub use domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommit, RepositoryCommitIdentity,
     RepositoryCommitList, RepositoryCreated, RepositoryError, RepositoryId, RepositoryRawBlob,
-    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositoryTree,
-    RepositoryTreeEntry, RepositoryTreeEntryKind,
+    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositorySignature,
+    RepositorySignatureState, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
+    TrustedGpgKey,
 };
 pub use storage::{GitStorageApplication, GitStorageGrpcService, RepositoryStorage};

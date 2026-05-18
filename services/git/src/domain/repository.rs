@@ -27,6 +27,7 @@ pub struct RepositoryRef {
     pub qualified_name: String,
     pub commit_id: String,
     pub is_default_branch: bool,
+    pub signature: RepositorySignature,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -54,6 +55,7 @@ pub struct RepositoryCommit {
     pub summary: String,
     pub author: RepositoryCommitIdentity,
     pub committer: RepositoryCommitIdentity,
+    pub signature: RepositorySignature,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -61,6 +63,34 @@ pub struct RepositoryCommitIdentity {
     pub name: String,
     pub email: String,
     pub date: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct TrustedGpgKey {
+    pub key_id: String,
+    pub fingerprint: String,
+    pub public_key: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositorySignature {
+    pub state: RepositorySignatureState,
+    pub key_id: String,
+    pub fingerprint: String,
+    pub primary_key_fingerprint: String,
+    pub signer: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RepositorySignatureState {
+    Unsigned,
+    Valid,
+    Trusted,
+    Untrusted,
+    Bad,
+    Unknown,
+    Expired,
+    Revoked,
 }
 
 #[derive(Debug, PartialEq, Eq)]
