@@ -1,7 +1,7 @@
 import type { RepositoryBlob } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 
-const plainTextLineSeparatorRegex = /\r?\n/
+const PLAIN_TEXT_LINE_SEPARATOR_REGEX = /\r?\n/
 
 interface RepositoryCodeListingProps {
 	blob: RepositoryBlob & {
@@ -136,7 +136,7 @@ function getHighlightedRows(
 }
 
 function getPlainTextLines(content: string) {
-	const lines = content.split(plainTextLineSeparatorRegex)
+	const lines = content.split(PLAIN_TEXT_LINE_SEPARATOR_REGEX)
 
 	if (lines.at(-1) === '') return lines.slice(0, -1)
 
