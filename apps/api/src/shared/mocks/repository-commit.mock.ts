@@ -12,4 +12,7 @@ export const mockRepositoryCommit = {
 		email: 'codex@example.com',
 		date: '2026-05-15T12:05:00Z',
 	},
+	signature: {
+		state: 'unsigned',
+	},
 }

@@ -14,6 +14,7 @@ import {
 import { Metadata, status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { InvalidGitAccessTokenError } from '@modules/git-access-tokens/domain/git-access-token.errors'
+import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { RepositoriesService } from '@modules/repositories/application/repositories.service'
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
@@ -106,6 +107,12 @@ describe('Git authorization gRPC integration', () => {
 				{
 					provide: GitAccessTokensService,
 					useValue: gitAccessTokensService,
+				},
+				{
+					provide: GpgPublicKeysService,
+					useValue: {
+						list: vi.fn().mockResolvedValue([]),
+					},
 				},
 				{
 					provide: EnvService,

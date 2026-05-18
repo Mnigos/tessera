@@ -672,6 +672,7 @@ describe('Repositories integration', () => {
 		expect(gitStorageListRepositoryRefs).toHaveBeenCalledWith({
 			repositoryId: body.repository.id,
 			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
+			trustedGpgKeys: [],
 		})
 	})
 
@@ -732,6 +733,7 @@ describe('Repositories integration', () => {
 		expect(gitStorageListRepositoryRefs).toHaveBeenCalledWith({
 			repositoryId: body.repository.id,
 			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
+			trustedGpgKeys: [],
 		})
 	})
 
@@ -1109,6 +1111,7 @@ describe('Repositories integration', () => {
 			storagePath: `/var/lib/tessera/repositories/${body.repository.id}.git`,
 			ref: 'main',
 			limit: 10,
+			trustedGpgKeys: [],
 		})
 	})
 

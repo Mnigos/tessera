@@ -16,6 +16,13 @@ import {
 import { GIT_STORAGE_GRPC_CLIENT, GitStorageClient } from './git-storage.client'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+const trustedGpgKeys = [
+	{
+		keyId: '0123456789ABCDEF',
+		fingerprint: '0123456789ABCDEF0123456789ABCDEF01234567',
+		publicKey: '-----BEGIN PGP PUBLIC KEY BLOCK-----',
+	},
+]
 
 describe(GitStorageClient.name, () => {
 	let moduleRef: TestingModule
@@ -268,6 +275,7 @@ describe(GitStorageClient.name, () => {
 			await client.listRepositoryRefs({
 				repositoryId,
 				storagePath: '/var/lib/tessera/repositories/repo.git',
+				trustedGpgKeys,
 			})
 		).toEqual({
 			branches: [
@@ -290,6 +298,7 @@ describe(GitStorageClient.name, () => {
 		expect(gitStorageService.listRepositoryRefs).toHaveBeenCalledWith({
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedGpgKeys,
 		})
 	})
 
@@ -454,15 +463,24 @@ describe(GitStorageClient.name, () => {
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				ref: 'main',
 				limit: 20,
+				trustedGpgKeys,
 			})
 		).toEqual({
-			commits: [mockRepositoryCommit],
+			commits: [
+				{
+					...mockRepositoryCommit,
+					signature: {
+						state: 'unsigned',
+					},
+				},
+			],
 		})
 		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
 			repositoryId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			ref: 'main',
 			limit: 20,
+			trustedGpgKeys,
 		})
 	})
 
@@ -472,6 +490,7 @@ describe(GitStorageClient.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			ref: 'main',
 			limit: undefined,
+			trustedGpgKeys,
 		})
 
 		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
@@ -479,6 +498,7 @@ describe(GitStorageClient.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			ref: 'main',
 			limit: 0,
+			trustedGpgKeys,
 		})
 	})
 
