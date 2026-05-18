@@ -7,7 +7,7 @@ interface RepositoryWithCloneFields extends Repository {
 	sshCloneUrl?: string
 }
 
-const trailingSlashesRegex = /\/+$/
+const TRAILING_SLASHES_REGEX = /\/+$/
 
 export function getRepositoryHttpCloneUrl(
 	repository: RepositoryWithCloneFields,
@@ -16,7 +16,7 @@ export function getRepositoryHttpCloneUrl(
 	if (repository.httpCloneUrl) return repository.httpCloneUrl
 	if (repository.cloneUrl) return repository.cloneUrl
 
-	return `${env.VITE_PUBLIC_GIT_HTTP_BASE_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
+	return `${env.VITE_PUBLIC_GIT_HTTP_BASE_URL.replace(TRAILING_SLASHES_REGEX, '')}/${owner.username}/${repository.slug}.git`
 }
 
 export function getRepositorySshCloneUrl(
@@ -25,5 +25,5 @@ export function getRepositorySshCloneUrl(
 ) {
 	if (repository.sshCloneUrl) return repository.sshCloneUrl
 
-	return `${env.VITE_PUBLIC_GIT_SSH_BASE_URL.replace(trailingSlashesRegex, '')}/${owner.username}/${repository.slug}.git`
+	return `${env.VITE_PUBLIC_GIT_SSH_BASE_URL.replace(TRAILING_SLASHES_REGEX, '')}/${owner.username}/${repository.slug}.git`
 }
