@@ -60,14 +60,14 @@ describe(GitAuthorizationGrpcController.name, () => {
 		expect(
 			await controller.authenticateSshKey({
 				username: 'git',
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 			})
 		).toEqual({
 			trustedUser: '00000000-0000-4000-8000-000000000001',
 		})
 		expect(authenticateSshKeySpy).toHaveBeenCalledWith({
 			username: 'git',
-			fingerprintSha256: 'SHA256:abc',
+			fingerprint: 'SHA256:abc',
 		})
 	})
 
@@ -138,7 +138,7 @@ describe(GitAuthorizationGrpcController.name, () => {
 				repositorySlug: 'notes',
 				service: 'git-upload-pack',
 				action: 'upload_pack',
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 			})
 		).toEqual({
 			repositoryId: '00000000-0000-4000-8000-000000000002',
@@ -148,7 +148,7 @@ describe(GitAuthorizationGrpcController.name, () => {
 		expect(authorizeSshGitRepositoryReadSpy).toHaveBeenCalledWith({
 			username: 'marta',
 			slug: 'notes' as RepositorySlug,
-			fingerprintSha256: 'SHA256:abc',
+			fingerprint: 'SHA256:abc',
 		})
 	})
 
@@ -166,13 +166,13 @@ describe(GitAuthorizationGrpcController.name, () => {
 			repositorySlug: 'notes',
 			service: 'git-receive-pack',
 			action: 'receive_pack',
-			fingerprintSha256: 'SHA256:abc',
+			fingerprint: 'SHA256:abc',
 		})
 
 		expect(authorizeSshGitRepositoryWriteSpy).toHaveBeenCalledWith({
 			username: 'marta',
 			slug: 'notes' as RepositorySlug,
-			fingerprintSha256: 'SHA256:abc',
+			fingerprint: 'SHA256:abc',
 		})
 	})
 

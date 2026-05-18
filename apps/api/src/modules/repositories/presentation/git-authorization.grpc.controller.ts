@@ -64,7 +64,7 @@ export class GitAuthorizationGrpcController
 		try {
 			return await this.repositoriesService.authenticateSshKey({
 				username: request.username,
-				fingerprintSha256: request.fingerprintSha256,
+				fingerprint: request.fingerprint,
 			})
 		} catch (error) {
 			throw toGrpcException(error)
@@ -79,7 +79,7 @@ export class GitAuthorizationGrpcController
 			return await this.repositoriesService.authorizeSshGitRepositoryRead({
 				username: request.ownerUsername,
 				slug: request.repositorySlug as RepositorySlug,
-				fingerprintSha256: request.fingerprintSha256,
+				fingerprint: request.fingerprint,
 			})
 		} catch (error) {
 			throw toGrpcException(error)
@@ -94,7 +94,7 @@ export class GitAuthorizationGrpcController
 			return await this.repositoriesService.authorizeSshGitRepositoryWrite({
 				username: request.ownerUsername,
 				slug: request.repositorySlug as RepositorySlug,
-				fingerprintSha256: request.fingerprintSha256,
+				fingerprint: request.fingerprint,
 			})
 		} catch (error) {
 			throw toGrpcException(error)
