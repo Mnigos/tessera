@@ -11,7 +11,7 @@ interface CreateParams extends UserParams {
 	title: string
 	keyType: string
 	publicKey: string
-	fingerprintSha256: string
+	fingerprint: string
 	comment: string | undefined
 }
 
@@ -20,7 +20,7 @@ interface KeyParams extends UserParams {
 }
 
 interface FingerprintParams {
-	fingerprintSha256: string
+	fingerprint: string
 }
 
 @Injectable()
@@ -29,7 +29,7 @@ export class SshPublicKeysRepository {
 
 	async create({
 		comment,
-		fingerprintSha256,
+		fingerprint,
 		keyType,
 		publicKey,
 		title,
@@ -42,7 +42,7 @@ export class SshPublicKeysRepository {
 				title,
 				keyType,
 				publicKey,
-				fingerprintSha256,
+				fingerprint,
 				comment,
 			})
 			.returning({
@@ -51,8 +51,9 @@ export class SshPublicKeysRepository {
 				title: sshPublicKeys.title,
 				keyType: sshPublicKeys.keyType,
 				publicKey: sshPublicKeys.publicKey,
-				fingerprintSha256: sshPublicKeys.fingerprintSha256,
+				fingerprint: sshPublicKeys.fingerprint,
 				comment: sshPublicKeys.comment,
+				lastUsedAt: sshPublicKeys.lastUsedAt,
 				createdAt: sshPublicKeys.createdAt,
 				updatedAt: sshPublicKeys.updatedAt,
 			})
@@ -70,11 +71,20 @@ export class SshPublicKeysRepository {
 	}
 
 	async findByFingerprint({
-		fingerprintSha256,
+		fingerprint,
 	}: FingerprintParams): Promise<SshPublicKey | undefined> {
 		return await this.db.query.sshPublicKeys.findFirst({
-			where: eq(sshPublicKeys.fingerprintSha256, fingerprintSha256),
+			where: eq(sshPublicKeys.fingerprint, fingerprint),
 		})
+	}
+
+	async recordUsageByFingerprint({
+		fingerprint,
+	}: FingerprintParams): Promise<void> {
+		await this.db
+			.update(sshPublicKeys)
+			.set({ lastUsedAt: new Date() })
+			.where(eq(sshPublicKeys.fingerprint, fingerprint))
 	}
 
 	async delete({

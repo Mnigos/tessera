@@ -13,6 +13,7 @@ import { SshPublicKeysRepository } from '../infrastructure/ssh-public-keys.repos
 
 const SSH_PUBLIC_KEY_UNIQUE_CONSTRAINTS = new Set([
 	'ssh_public_keys_fingerprint_unique',
+	'ssh_public_keys_owner_fingerprint_unique',
 ])
 
 @Injectable()
@@ -39,7 +40,7 @@ export class SshPublicKeysService {
 			if (isUniqueViolation(error, SSH_PUBLIC_KEY_UNIQUE_CONSTRAINTS))
 				throw new DuplicateSshPublicKeyError({
 					userId,
-					fingerprintSha256: normalizedKey.fingerprintSha256,
+					fingerprint: normalizedKey.fingerprint,
 				})
 
 			throw error
@@ -52,15 +53,25 @@ export class SshPublicKeysService {
 		return sshPublicKeys.map(toSshPublicKeyOutput)
 	}
 
-	async findOwnerByFingerprint(fingerprintSha256: string): Promise<UserId> {
+	async findOwnerByFingerprint(fingerprint: string): Promise<UserId> {
 		const sshPublicKey = await this.sshPublicKeysRepository.findByFingerprint({
-			fingerprintSha256,
+			fingerprint,
 		})
 
 		if (!sshPublicKey)
-			throw new SshPublicKeyAuthenticationError({ fingerprintSha256 })
+			throw new SshPublicKeyAuthenticationError({ fingerprint })
 
 		return sshPublicKey.ownerUserId
+	}
+
+	async authenticateByFingerprint(fingerprint: string): Promise<UserId> {
+		const userId = await this.findOwnerByFingerprint(fingerprint)
+
+		await this.sshPublicKeysRepository.recordUsageByFingerprint({
+			fingerprint,
+		})
+
+		return userId
 	}
 
 	async revoke(userId: UserId, sshPublicKeyId: SshPublicKeyId): Promise<void> {

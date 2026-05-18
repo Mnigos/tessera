@@ -29,6 +29,13 @@
       "when": 1779000458652,
       "tag": "0003_absent_moonstone",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1779052003383,
+      "tag": "0004_add_ssh_public_key_last_used_at",
+      "breakpoints": true
     }
   ]
 }

@@ -19,6 +19,9 @@ describe(SshPublicKeysRepository.name, () => {
 	const deleteMock = vi.fn()
 	const deleteWhereMock = vi.fn()
 	const deleteReturningMock = vi.fn()
+	const updateMock = vi.fn()
+	const setMock = vi.fn()
+	const updateWhereMock = vi.fn()
 
 	beforeEach(async () => {
 		returningMock.mockResolvedValue([{ title: 'Laptop' }])
@@ -27,6 +30,9 @@ describe(SshPublicKeysRepository.name, () => {
 		deleteReturningMock.mockResolvedValue([{ id: sshPublicKeyId }])
 		deleteWhereMock.mockReturnValue({ returning: deleteReturningMock })
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
+		updateWhereMock.mockResolvedValue(undefined)
+		setMock.mockReturnValue({ where: updateWhereMock })
+		updateMock.mockReturnValue({ set: setMock })
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -41,6 +47,7 @@ describe(SshPublicKeysRepository.name, () => {
 							},
 						},
 						insert: insertMock,
+						update: updateMock,
 						delete: deleteMock,
 					},
 				},
@@ -62,7 +69,7 @@ describe(SshPublicKeysRepository.name, () => {
 				title: 'Laptop',
 				keyType: 'ssh-ed25519',
 				publicKey: 'ssh-ed25519 AAAA marta@laptop',
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				comment: 'marta@laptop',
 			})
 		).toEqual({ title: 'Laptop' })
@@ -72,14 +79,15 @@ describe(SshPublicKeysRepository.name, () => {
 			title: 'Laptop',
 			keyType: 'ssh-ed25519',
 			publicKey: 'ssh-ed25519 AAAA marta@laptop',
-			fingerprintSha256: 'SHA256:abc',
+			fingerprint: 'SHA256:abc',
 			comment: 'marta@laptop',
 		})
 		expect(returningMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				id: sshPublicKeys.id,
 				ownerUserId: sshPublicKeys.ownerUserId,
-				fingerprintSha256: sshPublicKeys.fingerprintSha256,
+				fingerprint: sshPublicKeys.fingerprint,
+				lastUsedAt: sshPublicKeys.lastUsedAt,
 			})
 		)
 	})
@@ -102,12 +110,35 @@ describe(SshPublicKeysRepository.name, () => {
 
 		expect(
 			await sshPublicKeysRepository.findByFingerprint({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 			})
 		).toEqual({ title: 'Laptop' })
 		expect(findFirstMock).toHaveBeenCalledWith({
-			where: eq(sshPublicKeys.fingerprintSha256, 'SHA256:abc'),
+			where: eq(sshPublicKeys.fingerprint, 'SHA256:abc'),
 		})
+	})
+
+	test('records usage by fingerprint', async () => {
+		const before = Date.now()
+
+		await sshPublicKeysRepository.recordUsageByFingerprint({
+			fingerprint: 'SHA256:abc',
+		})
+
+		expect(updateMock).toHaveBeenCalledWith(sshPublicKeys)
+		expect(setMock).toHaveBeenCalledWith({
+			lastUsedAt: expect.any(Date),
+		})
+		const [usageUpdate] = setMock.mock.calls[0] ?? []
+
+		expect(usageUpdate).toEqual({
+			lastUsedAt: expect.any(Date),
+		})
+		if (!usageUpdate?.lastUsedAt) throw new Error('Expected lastUsedAt update')
+		expect(usageUpdate.lastUsedAt.getTime()).toBeGreaterThanOrEqual(before)
+		expect(updateWhereMock).toHaveBeenCalledWith(
+			eq(sshPublicKeys.fingerprint, 'SHA256:abc')
+		)
 	})
 
 	test('deletes a key by id and owner', async () => {

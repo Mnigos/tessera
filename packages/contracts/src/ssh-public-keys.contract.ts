@@ -2,13 +2,21 @@ import { oc } from '@orpc/contract'
 import type { SshPublicKeyId } from '@repo/domain'
 import { z } from 'zod'
 
+const optionalDateSchema = z
+	.preprocess(
+		value => (typeof value === 'string' ? new Date(value) : value),
+		z.date()
+	)
+	.optional()
+
 export const sshPublicKeySchema = z.object({
 	id: z.uuid().brand<'ssh_public_key_id'>(),
 	title: z.string(),
 	keyType: z.string(),
 	publicKey: z.string(),
-	fingerprintSha256: z.string(),
+	fingerprint: z.string(),
 	comment: z.string().optional(),
+	lastUsedAt: optionalDateSchema,
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
 })

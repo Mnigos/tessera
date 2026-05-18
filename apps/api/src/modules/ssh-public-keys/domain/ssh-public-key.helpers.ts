@@ -33,7 +33,7 @@ const minimumRsaModulusBits = 2048
 export interface NormalizedSshPublicKey {
 	keyType: string
 	publicKey: string
-	fingerprintSha256: string
+	fingerprint: string
 	comment: string | undefined
 }
 
@@ -66,7 +66,7 @@ export function normalizeSshPublicKey(input: string): NormalizedSshPublicKey {
 	const normalizedBlob = keyBlob.toString('base64')
 	const comment = commentParts.join(' ') || undefined
 	const publicKey = [keyType, normalizedBlob, comment].filter(Boolean).join(' ')
-	const fingerprintSha256 = `SHA256:${createHash('sha256')
+	const fingerprint = `SHA256:${createHash('sha256')
 		.update(keyBlob)
 		.digest('base64')
 		.replace(base64PaddingRegex, '')}`
@@ -74,7 +74,7 @@ export function normalizeSshPublicKey(input: string): NormalizedSshPublicKey {
 	return {
 		keyType,
 		publicKey,
-		fingerprintSha256,
+		fingerprint,
 		comment,
 	}
 }
