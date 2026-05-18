@@ -54,7 +54,7 @@ describe(normalizeSshPublicKey.name, () => {
 			keyType: 'ssh-ed25519',
 			publicKey,
 			comment: 'marta@laptop',
-			fingerprintSha256: `SHA256:${createHash('sha256')
+			fingerprint: `SHA256:${createHash('sha256')
 				.update(blob)
 				.digest('base64')
 				.replace(base64PaddingRegex, '')}`,

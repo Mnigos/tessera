@@ -21,8 +21,9 @@ export const sshPublicKeys = pgTable(
 		title: text('title').notNull(),
 		keyType: text('key_type').notNull(),
 		publicKey: text('public_key').notNull(),
-		fingerprintSha256: text('fingerprint_sha256').notNull(),
+		fingerprint: text('fingerprint_sha256').notNull(),
 		comment: text('comment'),
+		lastUsedAt: timestamp('last_used_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -31,7 +32,7 @@ export const sshPublicKeys = pgTable(
 	},
 	table => [
 		index('ssh_public_keys_owner_user_id_idx').on(table.ownerUserId),
-		unique('ssh_public_keys_fingerprint_unique').on(table.fingerprintSha256),
+		unique('ssh_public_keys_fingerprint_unique').on(table.fingerprint),
 	]
 )
 

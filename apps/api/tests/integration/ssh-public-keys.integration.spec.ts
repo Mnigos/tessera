@@ -8,6 +8,7 @@ import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { sshPublicKeySchema } from '@repo/contracts'
 import { db } from '@repo/db/client'
 import { session, sshPublicKeys, user } from '@repo/db/schema'
 import { makeSignature } from 'better-auth/crypto'
@@ -42,8 +43,9 @@ interface SshPublicKeyResponseBody {
 		title: string
 		keyType: string
 		publicKey: string
-		fingerprintSha256: string
+		fingerprint: string
 		comment?: string
+		lastUsedAt?: string
 		createdAt: string
 		updatedAt: string
 	}
@@ -129,11 +131,12 @@ describe('SSH public keys integration', () => {
 			title: 'Laptop',
 			keyType: 'ssh-ed25519',
 			publicKey: validPublicKey,
-			fingerprintSha256: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
+			fingerprint: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
 			comment: 'marta@laptop',
 		})
 		expect(createBody.sshPublicKey.id).toEqual(expect.any(String))
 		expect(Date.parse(createBody.sshPublicKey.createdAt)).not.toBeNaN()
+		expect(createBody.sshPublicKey).not.toHaveProperty('lastUsedAt')
 
 		const listResponse = await listSshPublicKeys(headers)
 		const listBody =
@@ -142,6 +145,13 @@ describe('SSH public keys integration', () => {
 		expect(listResponse.status).toBe(200)
 		expect(listBody.sshPublicKeys).toHaveLength(1)
 		expect(listBody.sshPublicKeys[0]).toMatchObject(createBody.sshPublicKey)
+		expect(listBody.sshPublicKeys[0]).not.toHaveProperty('lastUsedAt')
+		expect(
+			sshPublicKeySchema.safeParse({
+				...createBody.sshPublicKey,
+				lastUsedAt: null,
+			}).success
+		).toBe(false)
 	})
 
 	test('rejects invalid SSH public keys clearly', async () => {

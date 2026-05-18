@@ -13,8 +13,9 @@ const sshPublicKey: SshPublicKey = {
 	keyType: 'ssh-ed25519',
 	publicKey:
 		'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA marta@laptop',
-	fingerprintSha256: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
+	fingerprint: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
 	comment: 'marta@laptop',
+	lastUsedAt: new Date('2026-05-13T00:00:00Z'),
 	createdAt: new Date('2026-05-12T00:00:00Z'),
 	updatedAt: new Date('2026-05-12T00:00:00Z'),
 }

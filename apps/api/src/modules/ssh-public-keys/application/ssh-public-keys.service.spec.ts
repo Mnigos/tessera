@@ -12,6 +12,7 @@ import { SshPublicKeysRepository } from '../infrastructure/ssh-public-keys.repos
 import { SshPublicKeysService } from './ssh-public-keys.service'
 
 const createdAt = new Date('2026-05-12T00:00:00Z')
+const lastUsedAt = new Date('2026-05-13T00:00:00Z')
 const otherUserId = '00000000-0000-4000-8000-000000000099' as UserId
 const sshPublicKeyId = '00000000-0000-4000-8000-000000000021' as SshPublicKeyId
 const publicKey =
@@ -23,8 +24,9 @@ const sshPublicKey: SshPublicKey = {
 	title: 'Laptop',
 	keyType: 'ssh-ed25519',
 	publicKey,
-	fingerprintSha256: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
+	fingerprint: 'SHA256:kmYcvdi2GkPeWxB6XLjrZB8JHsy2Hm8luHMFp9GMvqk',
 	comment: 'marta@laptop',
+	lastUsedAt: null,
 	createdAt,
 	updatedAt: createdAt,
 }
@@ -44,6 +46,7 @@ describe(SshPublicKeysService.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						findByFingerprint: vi.fn(),
+						recordUsageByFingerprint: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -74,8 +77,9 @@ describe(SshPublicKeysService.name, () => {
 			title: 'Laptop',
 			keyType: 'ssh-ed25519',
 			publicKey,
-			fingerprintSha256: sshPublicKey.fingerprintSha256,
+			fingerprint: sshPublicKey.fingerprint,
 			comment: 'marta@laptop',
+			lastUsedAt: undefined,
 			createdAt,
 			updatedAt: createdAt,
 		})
@@ -84,7 +88,7 @@ describe(SshPublicKeysService.name, () => {
 			title: 'Laptop',
 			keyType: 'ssh-ed25519',
 			publicKey,
-			fingerprintSha256: sshPublicKey.fingerprintSha256,
+			fingerprint: sshPublicKey.fingerprint,
 			comment: 'marta@laptop',
 		})
 	})
@@ -92,12 +96,13 @@ describe(SshPublicKeysService.name, () => {
 	test('lists only keys returned for the requesting owner', async () => {
 		const listSpy = vi
 			.spyOn(sshPublicKeysRepository, 'list')
-			.mockResolvedValue([sshPublicKey])
+			.mockResolvedValue([{ ...sshPublicKey, lastUsedAt }])
 
 		expect(await sshPublicKeysService.list(mockUserId)).toEqual([
 			expect.objectContaining({
 				id: sshPublicKey.id,
 				title: 'Laptop',
+				lastUsedAt,
 			}),
 		])
 		expect(listSpy).toHaveBeenCalledWith({ userId: mockUserId })
@@ -110,11 +115,36 @@ describe(SshPublicKeysService.name, () => {
 
 		expect(
 			await sshPublicKeysService.findOwnerByFingerprint(
-				sshPublicKey.fingerprintSha256
+				sshPublicKey.fingerprint
 			)
 		).toBe(mockUserId)
 		expect(findByFingerprintSpy).toHaveBeenCalledWith({
-			fingerprintSha256: sshPublicKey.fingerprintSha256,
+			fingerprint: sshPublicKey.fingerprint,
+		})
+		expect(
+			sshPublicKeysRepository.recordUsageByFingerprint
+		).not.toHaveBeenCalled()
+	})
+
+	test('records usage when authenticating a known fingerprint', async () => {
+		const findByFingerprintSpy = vi
+			.spyOn(sshPublicKeysRepository, 'findByFingerprint')
+			.mockResolvedValue(sshPublicKey)
+		const recordUsageByFingerprintSpy = vi.spyOn(
+			sshPublicKeysRepository,
+			'recordUsageByFingerprint'
+		)
+
+		expect(
+			await sshPublicKeysService.authenticateByFingerprint(
+				sshPublicKey.fingerprint
+			)
+		).toBe(mockUserId)
+		expect(findByFingerprintSpy).toHaveBeenCalledWith({
+			fingerprint: sshPublicKey.fingerprint,
+		})
+		expect(recordUsageByFingerprintSpy).toHaveBeenCalledWith({
+			fingerprint: sshPublicKey.fingerprint,
 		})
 	})
 
@@ -126,6 +156,9 @@ describe(SshPublicKeysService.name, () => {
 		await expect(
 			sshPublicKeysService.findOwnerByFingerprint('SHA256:missing')
 		).rejects.toBeInstanceOf(SshPublicKeyAuthenticationError)
+		expect(
+			sshPublicKeysRepository.recordUsageByFingerprint
+		).not.toHaveBeenCalled()
 	})
 
 	test('rejects invalid SSH public keys', async () => {

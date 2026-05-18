@@ -9,8 +9,9 @@ export function toSshPublicKeyOutput(
 		title: sshPublicKey.title,
 		keyType: sshPublicKey.keyType,
 		publicKey: sshPublicKey.publicKey,
-		fingerprintSha256: sshPublicKey.fingerprintSha256,
+		fingerprint: sshPublicKey.fingerprint,
 		comment: sshPublicKey.comment ?? undefined,
+		lastUsedAt: sshPublicKey.lastUsedAt ?? undefined,
 		createdAt: sshPublicKey.createdAt,
 		updatedAt: sshPublicKey.updatedAt,
 	}
