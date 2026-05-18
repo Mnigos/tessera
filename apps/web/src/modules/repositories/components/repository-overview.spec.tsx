@@ -96,6 +96,10 @@ const baseSummary = {
 			name: 'v1.0.0',
 			qualifiedName: 'refs/tags/v1.0.0',
 			target: 'commit-release',
+			signature: {
+				state: 'unknown',
+				keyId: '8CFDE12197965A9A',
+			},
 		},
 	],
 	isEmpty: false,
@@ -130,8 +134,8 @@ const baseSummary = {
 const expectedCloneUrl = 'http://git.localhost/mnigos/tessera-notes.git'
 const expectedSshCloneUrl = 'ssh://git@localhost:2222/mnigos/tessera-notes.git'
 
-const readmeHeadingRegex = /readme/i
-const readmeTruncatedRegex = /README preview is truncated/i
+const README_HEADING_REGEX = /readme/i
+const README_TRUNCATED_REGEX = /README preview is truncated/i
 
 function getSummary(
 	overrides: Partial<RepositoryBrowserSummary> = {}
@@ -219,9 +223,9 @@ describe('RepositoryOverview', () => {
 		render(<RepositoryOverview summary={getSummary()} />)
 
 		expect(
-			screen.queryByRole('heading', { name: readmeHeadingRegex })
+			screen.queryByRole('heading', { name: README_HEADING_REGEX })
 		).toBeNull()
-		expect(screen.queryByText(readmeTruncatedRegex)).toBeNull()
+		expect(screen.queryByText(README_TRUNCATED_REGEX)).toBeNull()
 		expect(screen.getByRole('heading', { name: 'Files' })).toBeTruthy()
 		expect(screen.getByText('src')).toBeTruthy()
 		expect(screen.getByText('package.json')).toBeTruthy()
@@ -315,6 +319,10 @@ describe('RepositoryOverview', () => {
 						name: 'release',
 						qualifiedName: 'refs/tags/release',
 						target: 'commit-release',
+						signature: {
+							state: 'valid',
+							signer: 'Release Bot',
+						},
 					},
 				})}
 			/>
@@ -394,6 +402,12 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByText('Tags')).toBeTruthy()
 		expect(screen.getByText('feature/browser-ref-selector')).toBeTruthy()
 		expect(screen.getByText('v1.0.0')).toBeTruthy()
+		expect(screen.getByText('Unknown')).toBeTruthy()
+		expect(
+			screen
+				.getByText('Unknown')
+				.closest('[title="Unknown signer: 8CFDE12197965A9A"]')
+		).toBeTruthy()
 	})
 
 	test('shows clone and push commands for an empty repository', async () => {

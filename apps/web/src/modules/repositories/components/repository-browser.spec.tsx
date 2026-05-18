@@ -55,6 +55,7 @@ const treeQueryMock = vi.mocked(useRepositoryTreeQuery)
 const blobQueryMock = vi.mocked(useRepositoryBlobQuery)
 const commitsQueryMock = vi.mocked(useRepositoryCommitsQuery)
 const refsQueryMock = vi.mocked(useRepositoryRefsQuery)
+const TAG_V1_OPTION_NAME_REGEX = /v1\.0\.0/
 
 const baseTree = {
 	owner: { username: 'mnigos' },
@@ -155,6 +156,10 @@ const baseCommits = {
 				email: 'marek@example.com',
 				date: '2026-01-02T10:30:00.000Z',
 			},
+			signature: {
+				state: 'trusted',
+				signer: 'Marek Nigos',
+			},
 		},
 		{
 			sha: 'c28fb983d8b441f2b8731999f9f690fc14787dd4',
@@ -169,6 +174,10 @@ const baseCommits = {
 				name: 'Grace Hopper',
 				email: 'grace@example.com',
 				date: '2026-01-03T12:00:00.000Z',
+			},
+			signature: {
+				state: 'untrusted',
+				keyId: '8CFDE12197965A9A',
 			},
 		},
 	],
@@ -198,6 +207,10 @@ const baseSummary = {
 			name: 'v1.0.0',
 			qualifiedName: 'refs/tags/v1.0.0',
 			target: 'commit-release',
+			signature: {
+				state: 'valid',
+				signer: 'Release Bot',
+			},
 		},
 	],
 	isEmpty: false,
@@ -358,6 +371,10 @@ describe('Repository browser components', () => {
 						kind: 'tag',
 						name: 'v1.0.0',
 						qualifiedName: 'refs/tags/v1.0.0',
+						signature: {
+							state: 'bad',
+							signer: 'Release Bot',
+						},
 					},
 				]}
 				selectedRef="refs/heads/main"
@@ -369,7 +386,9 @@ describe('Repository browser components', () => {
 			screen.getByRole('option', { name: 'feature/browser-ref-selector' })
 		)
 		await user.click(screen.getByRole('combobox', { name: 'Repository ref' }))
-		await user.click(screen.getByRole('option', { name: 'v1.0.0' }))
+		await user.click(
+			screen.getByRole('option', { name: TAG_V1_OPTION_NAME_REGEX })
+		)
 
 		expect(onSelectedRefChange).toHaveBeenNthCalledWith(
 			1,
@@ -620,6 +639,12 @@ describe('Repository browser components', () => {
 		expect(
 			within(rows[0] as HTMLElement).getByText('Add repository browser')
 		).toBeTruthy()
+		expect(within(rows[0] as HTMLElement).getByText('Verified')).toBeTruthy()
+		expect(
+			within(rows[0] as HTMLElement)
+				.getByText('Verified')
+				.closest('[title="Verified signature: Marek Nigos"]')
+		).toBeTruthy()
 		expect(
 			within(rows[0] as HTMLElement).getByText(
 				'Marek Nigos <marek@example.com>'
@@ -629,6 +654,12 @@ describe('Repository browser components', () => {
 		expect(within(rows[1] as HTMLElement).getByText('c28fb98')).toBeTruthy()
 		expect(
 			within(rows[1] as HTMLElement).getByText('Merge remote changes')
+		).toBeTruthy()
+		expect(within(rows[1] as HTMLElement).getByText('Unverified')).toBeTruthy()
+		expect(
+			within(rows[1] as HTMLElement)
+				.getByText('Unverified')
+				.closest('[title="Signed but unverified signature: 8CFDE12197965A9A"]')
 		).toBeTruthy()
 		expect(
 			within(rows[1] as HTMLElement).getByText('Ada Lovelace <ada@example.com>')
