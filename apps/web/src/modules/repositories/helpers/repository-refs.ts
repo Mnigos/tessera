@@ -2,12 +2,14 @@ import type {
 	RepositoryBrowserSummary,
 	RepositoryRef,
 	RepositoryRefs,
+	RepositorySignature,
 } from '@repo/contracts'
 
 export interface RepositoryRefOption {
 	kind: 'branch' | 'tag'
 	name: string
 	qualifiedName: string
+	signature?: RepositorySignature
 }
 
 interface GetSelectedRepositoryRefOptionInput {
@@ -109,6 +111,7 @@ function getRepositoryRefOption(ref: RepositoryRef): RepositoryRefOption {
 		kind: ref.type,
 		name: ref.name,
 		qualifiedName: ref.qualifiedName,
+		signature: ref.type === 'tag' ? ref.signature : undefined,
 	}
 }
 

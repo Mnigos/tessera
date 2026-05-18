@@ -7,6 +7,7 @@ import {
 	hasDifferentRepositoryCommitter,
 } from '../helpers/repository-commit-formatting'
 import { RepositoryBrowserMessage } from './repository-browser-message'
+import { RepositorySignatureBadge } from './repository-signature-badge'
 
 interface RepositoryCommitRowsProps {
 	commits: RepositoryCommit[]
@@ -44,11 +45,16 @@ function RepositoryCommitRow({ commit }: Readonly<RepositoryCommitRowProps>) {
 			data-commit-sha={commit.sha}
 			data-testid="repository-commit-row"
 		>
-			<div className="font-mono text-muted-foreground text-sm">
-				{commit.shortSha}
+			<div className="flex min-w-0 items-center gap-2 sm:block">
+				<span className="font-mono text-muted-foreground text-sm">
+					{commit.shortSha}
+				</span>
 			</div>
 			<div className="flex min-w-0 flex-col gap-2">
-				<h2 className="truncate font-medium text-sm">{commit.summary}</h2>
+				<div className="flex min-w-0 items-center gap-2">
+					<h2 className="truncate font-medium text-sm">{commit.summary}</h2>
+					<RepositorySignatureBadge signature={commit.signature} />
+				</div>
 				<div className="flex flex-col gap-1 text-muted-foreground text-sm">
 					<RepositoryCommitIdentityLine
 						identity={commit.author}

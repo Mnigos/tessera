@@ -12,6 +12,7 @@ import {
 	getRepositoryRefDisplayName,
 	type RepositoryRefOption,
 } from '../helpers/repository-refs'
+import { RepositorySignatureBadge } from './repository-signature-badge'
 
 interface RepositoryRefSelectorProps {
 	refs: RepositoryRefOption[]
@@ -68,7 +69,10 @@ export function RepositoryRefSelector({
 						<SelectLabel>Tags</SelectLabel>
 						{tagRefs.map(ref => (
 							<SelectItem key={ref.qualifiedName} value={ref.qualifiedName}>
-								{ref.name}
+								<span className="flex min-w-0 items-center gap-2">
+									<span className="min-w-0 truncate">{ref.name}</span>
+									<RepositorySignatureBadge signature={ref.signature} />
+								</span>
 							</SelectItem>
 						))}
 					</SelectGroup>
