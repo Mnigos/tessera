@@ -6,6 +6,7 @@ import {
 	getRepositoryRefOptions,
 	getSelectedRepositoryQualifiedRef,
 } from '../helpers/repository-refs'
+import { RepositoryClonePanel } from './repository-clone-panel'
 import { RepositoryEmptyState } from './repository-empty-state'
 import { RepositoryReadmePreview } from './repository-readme-preview'
 import { RepositoryRefSelector } from './repository-ref-selector'
@@ -85,6 +86,7 @@ export function RepositoryOverview({
 				<RepositoryEmptyState owner={owner} repository={repository} />
 			) : (
 				<>
+					<RepositoryClonePanel owner={owner} repository={repository} />
 					{readme && <RepositoryReadmePreview readme={readme} />}
 					<RepositoryRootTree
 						entries={rootEntries}
