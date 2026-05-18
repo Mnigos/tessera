@@ -3,7 +3,10 @@ import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
-import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
+import {
+	getRepositoryHttpCloneUrl,
+	getRepositorySshCloneUrl,
+} from '../helpers/get-repository-clone-url'
 import {
 	getFallbackRefOptions,
 	getSelectedRepositoryQualifiedRef,
@@ -52,9 +55,12 @@ vi.mock('@repo/ui/components/sonner', async importOriginal => {
 
 vi.mock('../helpers/get-repository-clone-url', () => ({
 	getRepositoryCloneUrl: vi.fn(),
+	getRepositoryHttpCloneUrl: vi.fn(),
+	getRepositorySshCloneUrl: vi.fn(),
 }))
 
-const getRepositoryCloneUrlMock = vi.mocked(getRepositoryCloneUrl)
+const getRepositoryHttpCloneUrlMock = vi.mocked(getRepositoryHttpCloneUrl)
+const getRepositorySshCloneUrlMock = vi.mocked(getRepositorySshCloneUrl)
 
 const baseSummary = {
 	repository: {
@@ -123,6 +129,7 @@ const baseSummary = {
 } satisfies RepositoryBrowserSummary
 
 const expectedCloneUrl = 'http://git.localhost/mnigos/tessera-notes.git'
+const expectedSshCloneUrl = 'ssh://git@localhost:2222/mnigos/tessera-notes.git'
 
 const readmeHeadingRegex = /readme/i
 const readmeTruncatedRegex = /README preview is truncated/i
@@ -147,6 +154,11 @@ function getSummary(
 describe('RepositoryOverview', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
+	})
+
+	beforeEach(() => {
+		getRepositoryHttpCloneUrlMock.mockReturnValue(expectedCloneUrl)
+		getRepositorySshCloneUrlMock.mockReturnValue(expectedSshCloneUrl)
 	})
 
 	test('renders README markdown before the root tree when README is present', () => {
@@ -214,6 +226,35 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByRole('heading', { name: 'Files' })).toBeTruthy()
 		expect(screen.getByText('src')).toBeTruthy()
 		expect(screen.getByText('package.json')).toBeTruthy()
+	})
+
+	test('shows SSH and HTTPS clone URLs for non-empty repositories', async () => {
+		const writeTextSpy = vi
+			.spyOn(navigator.clipboard, 'writeText')
+			.mockResolvedValue(undefined)
+		const user = userEvent.setup()
+
+		render(<RepositoryOverview summary={getSummary()} />)
+
+		expect(screen.getByRole('heading', { name: 'Clone' })).toBeTruthy()
+		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
+		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
+
+		await user.click(screen.getByRole('button', { name: 'Copy SSH clone URL' }))
+
+		expect(writeTextSpy).toHaveBeenCalledWith(expectedSshCloneUrl)
+		expect(
+			screen.getByRole('button', { name: 'SSH clone URL copied' })
+		).toBeTruthy()
+
+		await user.click(
+			screen.getByRole('button', { name: 'Copy HTTPS clone URL' })
+		)
+
+		expect(writeTextSpy).toHaveBeenCalledWith(expectedCloneUrl)
+		expect(
+			screen.getByRole('button', { name: 'HTTPS clone URL copied' })
+		).toBeTruthy()
 	})
 
 	test('distinguishes directory and file rows', () => {
@@ -360,7 +401,6 @@ describe('RepositoryOverview', () => {
 		const writeTextSpy = vi
 			.spyOn(navigator.clipboard, 'writeText')
 			.mockResolvedValue(undefined)
-		getRepositoryCloneUrlMock.mockReturnValue(expectedCloneUrl)
 		const user = userEvent.setup()
 
 		render(
@@ -381,35 +421,37 @@ describe('RepositoryOverview', () => {
 				'Clone it locally or push an existing project to publish the first commit.'
 			)
 		).toBeTruthy()
-		expect(screen.getByText(`git clone ${expectedCloneUrl}`)).toBeTruthy()
+		expect(screen.getByText(`git clone ${expectedSshCloneUrl}`)).toBeTruthy()
+		const setupCommands = [
+			`git remote add origin ${expectedSshCloneUrl}`,
+			'git branch -M main',
+			'git push -u origin main',
+		].join('\n')
 		expect(
-			screen.getByText(`git remote add origin ${expectedCloneUrl}`)
+			screen.getAllByText(
+				(_, element) => element?.textContent === setupCommands
+			)
 		).toBeTruthy()
-		expect(screen.getByText('git push origin main')).toBeTruthy()
+		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
 		expect(
 			screen
 				.getByRole('combobox', { name: 'Repository ref' })
 				.hasAttribute('disabled')
 		).toBe(true)
 
-		await user.click(
-			screen.getByRole('button', { name: 'Copy repository clone URL' })
-		)
+		await user.click(screen.getByRole('button', { name: 'Copy SSH clone URL' }))
 
-		expect(writeTextSpy).toHaveBeenCalledWith(expectedCloneUrl)
+		expect(writeTextSpy).toHaveBeenCalledWith(expectedSshCloneUrl)
 		expect(
-			screen.getByRole('button', { name: 'Clone URL copied' })
+			screen.getByRole('button', { name: 'SSH clone URL copied' })
 		).toBeTruthy()
-		expect(screen.getByText('Clone URL copied')).toBeTruthy()
+		expect(screen.getByText('SSH clone URL copied')).toBeTruthy()
 	})
 
-	test('shows copy failure feedback for empty repositories', async () => {
-		const error = new Error('clipboard unavailable')
-		const consoleErrorSpy = vi
-			.spyOn(console, 'error')
-			.mockImplementation(() => undefined)
-		vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(error)
-		getRepositoryCloneUrlMock.mockReturnValue(expectedCloneUrl)
+	test('copies empty repository setup command blocks', async () => {
+		const writeTextSpy = vi
+			.spyOn(navigator.clipboard, 'writeText')
+			.mockResolvedValue(undefined)
 		const user = userEvent.setup()
 
 		render(
@@ -422,9 +464,44 @@ describe('RepositoryOverview', () => {
 			/>
 		)
 
-		await user.click(
-			screen.getByRole('button', { name: 'Copy repository clone URL' })
+		await user.click(screen.getByRole('button', { name: 'Copy clone command' }))
+
+		expect(writeTextSpy).toHaveBeenCalledWith(
+			`git clone ${expectedSshCloneUrl}`
 		)
+
+		await user.click(
+			screen.getByRole('button', { name: 'Copy setup commands' })
+		)
+
+		expect(writeTextSpy).toHaveBeenCalledWith(
+			[
+				`git remote add origin ${expectedSshCloneUrl}`,
+				'git branch -M main',
+				'git push -u origin main',
+			].join('\n')
+		)
+	})
+
+	test('shows copy failure feedback for empty repositories', async () => {
+		const error = new Error('clipboard unavailable')
+		const consoleErrorSpy = vi
+			.spyOn(console, 'error')
+			.mockImplementation(() => undefined)
+		vi.spyOn(navigator.clipboard, 'writeText').mockRejectedValue(error)
+		const user = userEvent.setup()
+
+		render(
+			<RepositoryOverview
+				summary={getSummary({
+					isEmpty: true,
+					rootEntries: [],
+					readme: undefined,
+				})}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Copy SSH clone URL' }))
 
 		expect(consoleErrorSpy).toHaveBeenCalledWith(error)
 		expect(toast.error).toHaveBeenCalledWith('Could not copy clone URL')

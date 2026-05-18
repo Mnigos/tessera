@@ -1,15 +1,12 @@
 'use client'
 
 import type { Repository, RepositoryOwner } from '@repo/contracts'
-import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
-import { toast } from '@repo/ui/components/sonner'
-import { Check, Copy } from 'lucide-react'
-import { useRef, useState } from 'react'
-import { useMountEffect } from '@/shared/hooks/use-mount-effect'
-import { getRepositoryCloneUrl } from '../helpers/get-repository-clone-url'
-
-const COPY_FEEDBACK_DURATION_MS = 2000
+import {
+	getRepositoryHttpCloneUrl,
+	getRepositorySshCloneUrl,
+} from '../helpers/get-repository-clone-url'
+import { RepositoryCopyButton } from './repository-copy-button'
 
 interface RepositoryEmptyStateProps {
 	owner: RepositoryOwner
@@ -20,32 +17,14 @@ export function RepositoryEmptyState({
 	owner,
 	repository,
 }: Readonly<RepositoryEmptyStateProps>) {
-	const [isCloneUrlCopied, setIsCloneUrlCopied] = useState(false)
-	const copyFeedbackTimeout = useRef<ReturnType<typeof setTimeout> | undefined>(
-		undefined
-	)
-	const cloneUrl = getRepositoryCloneUrl(repository, owner)
-
-	useMountEffect(() => () => {
-		if (copyFeedbackTimeout.current) clearTimeout(copyFeedbackTimeout.current)
-	})
-
-	async function handleCopyCloneUrl() {
-		try {
-			await navigator.clipboard.writeText(cloneUrl)
-			if (copyFeedbackTimeout.current) clearTimeout(copyFeedbackTimeout.current)
-
-			setIsCloneUrlCopied(true)
-			copyFeedbackTimeout.current = setTimeout(
-				() => setIsCloneUrlCopied(false),
-				COPY_FEEDBACK_DURATION_MS
-			)
-		} catch (error) {
-			setIsCloneUrlCopied(false)
-			console.error(error)
-			toast.error('Could not copy clone URL')
-		}
-	}
+	const sshCloneUrl = getRepositorySshCloneUrl(repository, owner)
+	const httpCloneUrl = getRepositoryHttpCloneUrl(repository, owner)
+	const cloneCommand = `git clone ${sshCloneUrl}`
+	const existingProjectCommands = [
+		`git remote add origin ${sshCloneUrl}`,
+		'git branch -M main',
+		'git push -u origin main',
+	].join('\n')
 
 	return (
 		<Card className="gap-5 p-5">
@@ -61,46 +40,62 @@ export function RepositoryEmptyState({
 			<div className="flex flex-col gap-4">
 				<div className="flex flex-col gap-2 sm:flex-row">
 					<code className="min-w-0 flex-1 overflow-x-auto rounded-md border border-input bg-muted px-3 py-2 text-sm">
-						{cloneUrl}
+						{sshCloneUrl}
 					</code>
-					<Button
-						aria-label={
-							isCloneUrlCopied
-								? 'Clone URL copied'
-								: 'Copy repository clone URL'
-						}
-						className="sm:w-fit"
-						onClick={handleCopyCloneUrl}
-						type="button"
-						variant="outline"
-					>
-						{isCloneUrlCopied ? (
-							<Check className="size-4" />
-						) : (
-							<Copy className="size-4" />
-						)}
-						{isCloneUrlCopied ? 'Copied' : 'Copy'}
-					</Button>
-					<output aria-live="polite" className="sr-only">
-						{isCloneUrlCopied ? 'Clone URL copied' : ''}
-					</output>
+					<RepositoryCopyButton
+						copiedLabel="SSH clone URL copied"
+						errorMessage="Could not copy clone URL"
+						label="Copy SSH clone URL"
+						text={sshCloneUrl}
+					/>
 				</div>
-				<div className="flex flex-col gap-2">
-					<code className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">
-						git clone {cloneUrl}
-					</code>
-					<code className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">
-						git remote add origin {cloneUrl}
-					</code>
-					<code className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">
-						git push origin main
-					</code>
-				</div>
+				<CommandBlock
+					command={cloneCommand}
+					copiedLabel="Clone command copied"
+					label="Copy clone command"
+					title="Clone the repository"
+				/>
+				<CommandBlock
+					command={existingProjectCommands}
+					copiedLabel="Setup commands copied"
+					label="Copy setup commands"
+					title="Push an existing project"
+				/>
 				<p className="text-muted-foreground text-sm">
-					When Git prompts for credentials, use your Tessera username and a Git
-					access token with git:write as the password.
+					HTTPS is also available: <code>{httpCloneUrl}</code>
 				</p>
 			</div>
 		</Card>
+	)
+}
+
+interface CommandBlockProps {
+	command: string
+	copiedLabel: string
+	label: string
+	title: string
+}
+
+function CommandBlock({
+	command,
+	copiedLabel,
+	label,
+	title,
+}: Readonly<CommandBlockProps>) {
+	return (
+		<div className="flex flex-col gap-2">
+			<div className="flex items-center justify-between gap-3">
+				<h3 className="font-medium text-sm">{title}</h3>
+				<RepositoryCopyButton
+					copiedLabel={copiedLabel}
+					errorMessage="Could not copy setup commands"
+					label={label}
+					text={command}
+				/>
+			</div>
+			<pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 text-sm">
+				<code>{command}</code>
+			</pre>
+		</div>
 	)
 }
