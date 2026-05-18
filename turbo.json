@@ -51,7 +51,9 @@
     "GIT_API_GRPC_URL",
     "GIT_API_GRPC_AUTHORIZATION_TOKEN",
     "INTERNAL_API_TOKEN",
-    "VITE_APP_URL"
+    "VITE_APP_URL",
+    "VITE_PUBLIC_GIT_HTTP_BASE_URL",
+    "VITE_PUBLIC_GIT_SSH_BASE_URL"
   ],
   "globalPassThroughEnv": ["NODE_ENV", "CI", "npm_lifecycle_event"]
 }

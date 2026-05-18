@@ -54,6 +54,13 @@ Required for production:
 - `API_URL`
 - `VITE_API_URL`
 - `VITE_APP_URL`
+- `VITE_PUBLIC_GIT_HTTP_BASE_URL`
+- `VITE_PUBLIC_GIT_SSH_BASE_URL`
+
+Safe local examples:
+
+- `VITE_PUBLIC_GIT_HTTP_BASE_URL=http://localhost:4001`
+- `VITE_PUBLIC_GIT_SSH_BASE_URL=ssh://git@localhost:2222`
 
 ## Deploy Order
 
@@ -66,7 +73,7 @@ Required for production:
 7. Set Git service variables, including `GIT_API_GRPC_URL` and `GIT_API_GRPC_AUTHORIZATION_TOKEN`.
 8. Deploy API and verify `/health/ping`.
 9. Create the Web service using `/apps/web/railway.json`.
-10. Set Web variables using the final API, Git HTTP, and Web domains.
+10. Set Web variables using the final API, Git HTTP, Git SSH, and Web domains.
 11. Deploy Web and verify `/`.
 
 API migrations run during Railway predeploy with `bun run db:migrate`.
