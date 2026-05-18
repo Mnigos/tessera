@@ -6,12 +6,15 @@ use tokio::time::{Duration, timeout};
 
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryError, RepositoryRawBlob,
-    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositoryTree,
-    RepositoryTreeEntry, RepositoryTreeEntryKind,
+    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositorySignature,
+    RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
 };
 use crate::storage::infrastructure::repository_browser_helpers::{
     normalize_repository_path, normalize_requested_ref, parse_ls_tree_entries, treeish_path,
     validate_git_ref, validate_object_id,
+};
+use crate::storage::infrastructure::repository_commits::{
+    signature_from_git_fields, unsigned_signature,
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
@@ -82,6 +85,7 @@ impl RepositoryStorage {
         &self,
         repository_id: &str,
         storage_path: &str,
+        trusted_gpg_keys: &[TrustedGpgKey],
     ) -> Result<RepositoryRefList, RepositoryError> {
         let repository_path = self
             .existing_bare_repository_path(repository_id, storage_path)
@@ -104,8 +108,63 @@ impl RepositoryStorage {
         }
 
         let refs = parse_repository_refs(&output.stdout, default_branch.as_deref())?;
+        let refs = self
+            .repository_refs_with_signatures(&repository_path, refs, trusted_gpg_keys)
+            .await?;
 
         Ok(RepositoryRefList { refs })
+    }
+
+    async fn repository_refs_with_signatures(
+        &self,
+        repository_path: &Path,
+        refs: Vec<RepositoryRef>,
+        trusted_gpg_keys: &[TrustedGpgKey],
+    ) -> Result<Vec<RepositoryRef>, RepositoryError> {
+        let mut refs_with_signatures = Vec::with_capacity(refs.len());
+        let gpg_home = self.trusted_gpg_home(trusted_gpg_keys).await?;
+
+        for mut repository_ref in refs {
+            if repository_ref.kind == RepositoryRefKind::Tag {
+                repository_ref.signature = self
+                    .tag_signature(
+                        repository_path,
+                        &repository_ref.qualified_name,
+                        trusted_gpg_keys,
+                        &gpg_home,
+                    )
+                    .await?;
+            }
+
+            refs_with_signatures.push(repository_ref);
+        }
+
+        Ok(refs_with_signatures)
+    }
+
+    async fn tag_signature(
+        &self,
+        repository_path: &Path,
+        qualified_name: &str,
+        trusted_gpg_keys: &[TrustedGpgKey],
+        gpg_home: &super::repository_gpg::IsolatedGpgHome,
+    ) -> Result<RepositorySignature, RepositoryError> {
+        validate_git_ref(qualified_name)?;
+        let object_type = self.object_type(repository_path, qualified_name).await?;
+
+        if object_type != "tag" {
+            return Ok(unsigned_signature());
+        }
+
+        let output = self
+            .git_with_gpg_home(
+                repository_path,
+                ["verify-tag", "--raw", qualified_name],
+                gpg_home,
+            )
+            .await?;
+
+        Ok(parse_verify_tag_signature(&output.stderr, trusted_gpg_keys))
     }
 
     pub async fn get_repository_tree(
@@ -563,6 +622,7 @@ fn parse_repository_refs(
                 qualified_name,
                 commit_id: object_id,
                 is_default_branch,
+                signature: unsigned_signature(),
             });
             continue;
         }
@@ -585,6 +645,7 @@ fn parse_repository_refs(
             qualified_name,
             commit_id,
             is_default_branch: false,
+            signature: unsigned_signature(),
         });
     }
 
@@ -605,5 +666,86 @@ fn ref_kind_order(kind: &RepositoryRefKind) -> u8 {
     match kind {
         RepositoryRefKind::Branch => 0,
         RepositoryRefKind::Tag => 1,
+    }
+}
+
+fn parse_verify_tag_signature(
+    output: &[u8],
+    trusted_gpg_keys: &[TrustedGpgKey],
+) -> RepositorySignature {
+    let text = String::from_utf8_lossy(output);
+    let mut status = "";
+    let mut key_id = String::new();
+    let mut fingerprint = String::new();
+    let mut primary_key_fingerprint = String::new();
+    let mut signer = String::new();
+
+    for line in text.lines() {
+        let Some(status_line) = line.strip_prefix("[GNUPG:] ") else {
+            continue;
+        };
+        let mut parts = status_line.split_whitespace();
+        let Some(kind) = parts.next() else {
+            continue;
+        };
+
+        match kind {
+            "GOODSIG" => {
+                status = "G";
+                key_id = parts.next().unwrap_or("").to_string();
+                signer = parts.collect::<Vec<_>>().join(" ");
+            }
+            "VALIDSIG" => {
+                fingerprint = parts.next().unwrap_or("").to_string();
+                primary_key_fingerprint = parts.nth(8).unwrap_or("").to_string();
+            }
+            "TRUST_ULTIMATE" | "TRUST_FULLY" => status = "U",
+            "BADSIG" => {
+                status = "B";
+                key_id = parts.next().unwrap_or("").to_string();
+                signer = parts.collect::<Vec<_>>().join(" ");
+            }
+            "EXPSIG" | "EXPKEYSIG" => status = "X",
+            "REVKEYSIG" => status = "R",
+            "ERRSIG" => {
+                if status.is_empty() {
+                    status = "E";
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if status.is_empty() {
+        return unsigned_signature();
+    }
+
+    signature_from_git_fields(
+        status,
+        key_id,
+        fingerprint,
+        primary_key_fingerprint,
+        signer,
+        trusted_gpg_keys,
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::RepositorySignatureState;
+
+    #[test]
+    fn parse_verify_tag_signature_maps_expired_statuses() {
+        let signature = parse_verify_tag_signature(b"[GNUPG:] EXPKEYSIG ABCDEF Ada Example\n", &[]);
+
+        assert_eq!(signature.state, RepositorySignatureState::Expired);
+    }
+
+    #[test]
+    fn parse_verify_tag_signature_maps_revoked_statuses() {
+        let signature = parse_verify_tag_signature(b"[GNUPG:] REVKEYSIG ABCDEF Ada Example\n", &[]);
+
+        assert_eq!(signature.state, RepositorySignatureState::Revoked);
     }
 }

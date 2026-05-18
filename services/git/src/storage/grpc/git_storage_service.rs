@@ -1,7 +1,9 @@
 use crate::config::Config;
 use crate::domain::{
     RepositoryBlobPreview, RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
-    RepositoryError, RepositoryRefKind, RepositoryTreeEntryKind,
+    RepositoryError, RepositoryRefKind, RepositorySignature as DomainRepositorySignature,
+    RepositorySignatureState as DomainRepositorySignatureState, RepositoryTreeEntryKind,
+    TrustedGpgKey as DomainTrustedGpgKey,
 };
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
@@ -12,8 +14,9 @@ use crate::proto::{
     ListRepositoryCommitsRequest, ListRepositoryCommitsResponse, ListRepositoryRefsRequest,
     ListRepositoryRefsResponse, RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState,
     RepositoryCommit, RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
-    RepositoryRefKind as ProtoRepositoryRefKind, RepositoryTreeEntry,
-    RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind,
+    RepositoryRefKind as ProtoRepositoryRefKind, RepositorySignature,
+    RepositorySignatureState as ProtoRepositorySignatureState, RepositoryTreeEntry,
+    RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind, TrustedGpgKey,
 };
 use crate::storage::application::GitStorageApplication;
 use crate::storage::infrastructure::RepositoryStorage;
@@ -105,9 +108,14 @@ impl GitStorageService for GitStorageGrpcService {
         request: Request<ListRepositoryRefsRequest>,
     ) -> Result<Response<ListRepositoryRefsResponse>, Status> {
         let request = request.into_inner();
+        let trusted_gpg_keys = domain_trusted_gpg_keys(request.trusted_gpg_keys);
         let ref_list = self
             .application
-            .list_repository_refs(&request.repository_id, &request.storage_path)
+            .list_repository_refs(
+                &request.repository_id,
+                &request.storage_path,
+                &trusted_gpg_keys,
+            )
             .await
             .map_err(repository_error_to_status)?;
 
@@ -121,6 +129,7 @@ impl GitStorageService for GitStorageGrpcService {
                     qualified_name: repository_ref.qualified_name,
                     commit_id: repository_ref.commit_id,
                     is_default_branch: repository_ref.is_default_branch,
+                    signature: Some(proto_signature(repository_ref.signature)),
                 })
                 .collect(),
         }))
@@ -205,6 +214,7 @@ impl GitStorageService for GitStorageGrpcService {
         request: Request<ListRepositoryCommitsRequest>,
     ) -> Result<Response<ListRepositoryCommitsResponse>, Status> {
         let request = request.into_inner();
+        let trusted_gpg_keys = domain_trusted_gpg_keys(request.trusted_gpg_keys);
         let commit_list = self
             .application
             .list_repository_commits(
@@ -212,6 +222,7 @@ impl GitStorageService for GitStorageGrpcService {
                 &request.storage_path,
                 &request.r#ref,
                 request.limit,
+                &trusted_gpg_keys,
             )
             .await
             .map_err(repository_error_to_status)?;
@@ -226,6 +237,7 @@ impl GitStorageService for GitStorageGrpcService {
                     summary: commit.summary,
                     author: Some(proto_commit_identity(commit.author)),
                     committer: Some(proto_commit_identity(commit.committer)),
+                    signature: Some(proto_signature(commit.signature)),
                 })
                 .collect(),
         }))
@@ -327,5 +339,38 @@ fn proto_commit_identity(identity: DomainRepositoryCommitIdentity) -> Repository
         name: identity.name,
         email: identity.email,
         date: identity.date,
+    }
+}
+
+fn domain_trusted_gpg_keys(keys: Vec<TrustedGpgKey>) -> Vec<DomainTrustedGpgKey> {
+    keys.into_iter()
+        .map(|key| DomainTrustedGpgKey {
+            key_id: key.key_id,
+            fingerprint: key.fingerprint,
+            public_key: key.public_key,
+        })
+        .collect()
+}
+
+fn proto_signature(signature: DomainRepositorySignature) -> RepositorySignature {
+    RepositorySignature {
+        state: proto_signature_state(signature.state).into(),
+        key_id: signature.key_id,
+        fingerprint: signature.fingerprint,
+        primary_key_fingerprint: signature.primary_key_fingerprint,
+        signer: signature.signer,
+    }
+}
+
+fn proto_signature_state(state: DomainRepositorySignatureState) -> ProtoRepositorySignatureState {
+    match state {
+        DomainRepositorySignatureState::Unsigned => ProtoRepositorySignatureState::Unsigned,
+        DomainRepositorySignatureState::Valid => ProtoRepositorySignatureState::Valid,
+        DomainRepositorySignatureState::Trusted => ProtoRepositorySignatureState::Trusted,
+        DomainRepositorySignatureState::Untrusted => ProtoRepositorySignatureState::Untrusted,
+        DomainRepositorySignatureState::Bad => ProtoRepositorySignatureState::Bad,
+        DomainRepositorySignatureState::Unknown => ProtoRepositorySignatureState::Unknown,
+        DomainRepositorySignatureState::Expired => ProtoRepositorySignatureState::Expired,
+        DomainRepositorySignatureState::Revoked => ProtoRepositorySignatureState::Revoked,
     }
 }

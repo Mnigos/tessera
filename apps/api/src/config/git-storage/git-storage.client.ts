@@ -24,6 +24,7 @@ import {
 	type HealthResponse,
 	type ListRepositoryCommitsResponse,
 	type ListRepositoryRefsResponse,
+	type TrustedGpgKey,
 } from './generated/tessera/git/v1/git_storage'
 import {
 	toRepositoryBlob,
@@ -54,6 +55,7 @@ export interface GitStorageGetRepositoryBrowserSummaryParams {
 export interface GitStorageListRepositoryRefsParams {
 	repositoryId: RepositoryId
 	storagePath: string
+	trustedGpgKeys: GitStorageTrustedGpgKey[]
 }
 
 export interface GitStorageGetRepositoryTreeParams {
@@ -80,7 +82,10 @@ export interface GitStorageListRepositoryCommitsParams {
 	ref: string
 	repositoryId: RepositoryId
 	storagePath: string
+	trustedGpgKeys: GitStorageTrustedGpgKey[]
 }
+
+export type GitStorageTrustedGpgKey = TrustedGpgKey
 
 export interface GitStorageRepositoryTreeEntry {
 	kind: 'directory' | 'file' | 'submodule' | 'symlink' | 'unknown'
@@ -116,6 +121,7 @@ export interface GitStorageRepositoryTagRef {
 	type: 'tag'
 	name: string
 	qualifiedName: string
+	signature?: GitStorageRepositorySignature
 	target: string
 }
 
@@ -157,11 +163,30 @@ export interface GitStorageRepositoryCommitIdentity {
 	name: string
 }
 
+export type GitStorageRepositorySignatureState =
+	| 'bad'
+	| 'expired'
+	| 'revoked'
+	| 'trusted'
+	| 'unknown'
+	| 'unsigned'
+	| 'untrusted'
+	| 'valid'
+
+export interface GitStorageRepositorySignature {
+	fingerprint?: string
+	keyId?: string
+	primaryKeyFingerprint?: string
+	signer?: string
+	state: GitStorageRepositorySignatureState
+}
+
 export interface GitStorageRepositoryCommit {
 	author: GitStorageRepositoryCommitIdentity | undefined
 	committer: GitStorageRepositoryCommitIdentity | undefined
 	sha: string
 	shortSha: string
+	signature: GitStorageRepositorySignature
 	summary: string
 }
 
@@ -231,12 +256,14 @@ export class GitStorageClient implements OnModuleInit {
 	async listRepositoryRefs({
 		repositoryId,
 		storagePath,
+		trustedGpgKeys,
 	}: GitStorageListRepositoryRefsParams): Promise<GitStorageRepositoryRefs> {
 		const response = await firstValueFrom(
 			this.service
 				.listRepositoryRefs({
 					repositoryId,
 					storagePath,
+					trustedGpgKeys,
 				})
 				.pipe(mapGitStorageErrors<ListRepositoryRefsResponse>())
 		)
@@ -305,6 +332,7 @@ export class GitStorageClient implements OnModuleInit {
 		ref,
 		repositoryId,
 		storagePath,
+		trustedGpgKeys,
 	}: GitStorageListRepositoryCommitsParams): Promise<GitStorageRepositoryCommitHistory> {
 		const response = await firstValueFrom(
 			this.service
@@ -313,6 +341,7 @@ export class GitStorageClient implements OnModuleInit {
 					storagePath,
 					ref,
 					limit: limit ?? 0,
+					trustedGpgKeys,
 				})
 				.pipe(mapGitStorageErrors<ListRepositoryCommitsResponse>())
 		)

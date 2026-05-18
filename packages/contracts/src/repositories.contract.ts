@@ -134,11 +134,30 @@ export const repositoryBranchRefSchema = z.object({
 })
 export type RepositoryBranchRef = z.infer<typeof repositoryBranchRefSchema>
 
+export const repositorySignatureSchema = z.object({
+	state: z.enum([
+		'unsigned',
+		'valid',
+		'trusted',
+		'untrusted',
+		'bad',
+		'unknown',
+		'expired',
+		'revoked',
+	]),
+	keyId: z.string().optional(),
+	fingerprint: z.string().optional(),
+	primaryKeyFingerprint: z.string().optional(),
+	signer: z.string().optional(),
+})
+export type RepositorySignature = z.infer<typeof repositorySignatureSchema>
+
 export const repositoryTagRefSchema = z.object({
 	type: z.literal('tag'),
 	name: z.string(),
 	qualifiedName: z.string(),
 	target: z.string(),
+	signature: repositorySignatureSchema.optional(),
 })
 export type RepositoryTagRef = z.infer<typeof repositoryTagRefSchema>
 
@@ -235,6 +254,7 @@ export const repositoryCommitSchema = z.object({
 	summary: z.string(),
 	author: repositoryCommitIdentitySchema.optional(),
 	committer: repositoryCommitIdentitySchema.optional(),
+	signature: repositorySignatureSchema,
 })
 export type RepositoryCommit = z.infer<typeof repositoryCommitSchema>
 

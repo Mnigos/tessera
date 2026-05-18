@@ -1,6 +1,7 @@
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryCreated,
     RepositoryError, RepositoryId, RepositoryRawBlob, RepositoryRefList, RepositoryTree,
+    TrustedGpgKey,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -43,9 +44,10 @@ impl GitStorageApplication {
         &self,
         repository_id: &str,
         storage_path: &str,
+        trusted_gpg_keys: &[TrustedGpgKey],
     ) -> Result<RepositoryRefList, RepositoryError> {
         self.storage
-            .list_repository_refs(repository_id, storage_path)
+            .list_repository_refs(repository_id, storage_path, trusted_gpg_keys)
             .await
     }
 
@@ -89,9 +91,16 @@ impl GitStorageApplication {
         storage_path: &str,
         ref_name: &str,
         limit: u32,
+        trusted_gpg_keys: &[TrustedGpgKey],
     ) -> Result<RepositoryCommitList, RepositoryError> {
         self.storage
-            .list_repository_commits(repository_id, storage_path, ref_name, limit)
+            .list_repository_commits(
+                repository_id,
+                storage_path,
+                ref_name,
+                limit,
+                trusted_gpg_keys,
+            )
             .await
     }
 }
