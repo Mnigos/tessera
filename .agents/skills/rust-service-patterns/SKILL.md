@@ -16,6 +16,7 @@ Before editing, read:
 ## Structure
 
 - Keep `services/git/src/lib.rs` as module declarations and public exports only.
+- Keep Rust `mod.rs` files declaration/export-only. Put enums, structs, helpers, and other logic in named sibling files, then re-export from `mod.rs` when needed.
 - Use layers:
   - `domain/` for value objects, domain result types, and domain errors.
   - `application/` for orchestration and use-case methods.
