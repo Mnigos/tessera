@@ -2,6 +2,7 @@ import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { GitAccessTokensSection } from '@/modules/git-access-tokens/components/git-access-tokens-section'
+import { GpgPublicKeysSection } from '@/modules/gpg-public-keys/components/gpg-public-keys-section'
 import { CreateRepositorySection } from '@/modules/repositories/components/create-repository-section'
 import { useRepositoriesListQuery } from '@/modules/repositories/hooks/use-repositories-list.query'
 import { SshPublicKeysSection } from '@/modules/ssh-public-keys/components/ssh-public-keys-section'
@@ -38,6 +39,9 @@ export const Route = createFileRoute('/profile/$username')({
 				),
 				context.queryClient.ensureQueryData(
 					context.orpc.sshPublicKeys.list.queryOptions()
+				),
+				context.queryClient.ensureQueryData(
+					context.orpc.gpgPublicKeys.list.queryOptions()
 				),
 			])
 
@@ -104,6 +108,7 @@ function ProfileUsernameRoute() {
 					</section>
 					<GitAccessTokensSection enabled={isViewerProfile} />
 					<SshPublicKeysSection enabled={isViewerProfile} />
+					<GpgPublicKeysSection enabled={isViewerProfile} />
 				</>
 			)}
 		</main>
