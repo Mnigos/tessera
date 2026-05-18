@@ -51,7 +51,7 @@ impl SshGitAuthorizer for ApiSshGitAuthorizer {
             .authenticate_ssh_key(with_authorization_metadata(
                 AuthenticateSshKeyRequest {
                     username: request.username,
-                    fingerprint_sha256: request.public_key_fingerprint,
+                    fingerprint: request.public_key_fingerprint,
                 },
                 self.token.as_deref(),
             )?)
@@ -90,7 +90,7 @@ impl SshGitAuthorizer for ApiSshGitAuthorizer {
                 repository_slug: request.repository,
                 service: request.operation.git_service().to_string(),
                 action: request.operation.action_name().to_string(),
-                fingerprint_sha256: request.public_key_fingerprint,
+                fingerprint: request.public_key_fingerprint,
             };
 
             return authorize_ssh_write(&mut client, body, self.token.as_deref()).await;
@@ -101,7 +101,7 @@ impl SshGitAuthorizer for ApiSshGitAuthorizer {
             repository_slug: request.repository,
             service: request.operation.git_service().to_string(),
             action: request.operation.action_name().to_string(),
-            fingerprint_sha256: request.public_key_fingerprint,
+            fingerprint: request.public_key_fingerprint,
         };
 
         authorize_ssh_read(&mut client, body, self.token.as_deref()).await
@@ -200,7 +200,7 @@ mod tests {
                 repository_slug: "repo".to_string(),
                 service: "git-upload-pack".to_string(),
                 action: "upload_pack".to_string(),
-                fingerprint_sha256: "SHA256:abc".to_string(),
+                fingerprint: "SHA256:abc".to_string(),
             },
             Some("service-token"),
         )
@@ -209,7 +209,7 @@ mod tests {
         let body = request.get_ref();
         assert_eq!(body.owner_username, "mona");
         assert_eq!(body.repository_slug, "repo");
-        assert_eq!(body.fingerprint_sha256, "SHA256:abc");
+        assert_eq!(body.fingerprint, "SHA256:abc");
         assert_eq!(
             request.metadata().get("authorization").unwrap(),
             "Bearer service-token"
@@ -224,7 +224,7 @@ mod tests {
                 repository_slug: "repo".to_string(),
                 service: "git-receive-pack".to_string(),
                 action: "receive_pack".to_string(),
-                fingerprint_sha256: "SHA256:abc".to_string(),
+                fingerprint: "SHA256:abc".to_string(),
             },
             Some("service-token"),
         )
@@ -233,7 +233,7 @@ mod tests {
         let body = request.get_ref();
         assert_eq!(body.service, "git-receive-pack");
         assert_eq!(body.action, "receive_pack");
-        assert_eq!(body.fingerprint_sha256, "SHA256:abc");
+        assert_eq!(body.fingerprint, "SHA256:abc");
         assert_eq!(
             request.metadata().get("authorization").unwrap(),
             "Bearer service-token"

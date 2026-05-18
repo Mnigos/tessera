@@ -95,13 +95,13 @@ export interface AuthorizeGitRepositoryWriteInput {
 }
 
 export interface AuthorizeSshGitRepositoryInput {
-	fingerprintSha256: string
+	fingerprint: string
 	slug: RepositorySlug
 	username: string
 }
 
 export interface AuthenticateSshKeyInput {
-	fingerprintSha256: string
+	fingerprint: string
 	username: string
 }
 
@@ -484,12 +484,12 @@ export class RepositoriesService {
 	}
 
 	async authorizeSshGitRepositoryRead({
-		fingerprintSha256,
+		fingerprint,
 		slug,
 		username,
 	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
 		const keyOwnerUserId =
-			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprint)
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
@@ -519,21 +519,21 @@ export class RepositoriesService {
 	}
 
 	async authenticateSshKey({
-		fingerprintSha256,
+		fingerprint,
 	}: AuthenticateSshKeyInput): Promise<{ trustedUser: UserId }> {
 		const keyOwnerUserId =
-			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+			await this.sshPublicKeysService.authenticateByFingerprint(fingerprint)
 
 		return { trustedUser: keyOwnerUserId }
 	}
 
 	async authorizeSshGitRepositoryWrite({
-		fingerprintSha256,
+		fingerprint,
 		slug,
 		username,
 	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
 		const keyOwnerUserId =
-			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprintSha256)
+			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprint)
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,

@@ -37,6 +37,7 @@ import type {
 	SshPublicKeyId,
 	UserId,
 } from '@repo/domain'
+import { eq } from 'drizzle-orm'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { firstValueFrom } from 'rxjs'
 
@@ -334,7 +335,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: otherSshPublicKeyId,
 			ownerUserId: otherUserId,
-			fingerprintSha256: otherFingerprintSha256,
+			fingerprint: otherFingerprintSha256,
 		})
 		await createIntegrationRepository({
 			id: publicRepositoryId,
@@ -355,6 +356,31 @@ describe('Git authorization gRPC integration', () => {
 			storagePath: `/var/lib/tessera/repositories/${publicRepositoryId}.git`,
 			trustedUser: otherUserId,
 		})
+		expect(await getSshPublicKeyLastUsedAt(otherSshPublicKeyId)).toBeNull()
+	})
+
+	test('records last-used time when authenticating an ssh key', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprint: ownerFingerprintSha256,
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authenticateSshKey(createSshKeyRequest(), createMetadata())
+			)
+		).toEqual({
+			trustedUser: ownerUserId,
+		})
+		expect(await getSshPublicKeyLastUsedAt(ownerSshPublicKeyId)).toBeInstanceOf(
+			Date
+		)
 	})
 
 	test('authorizes ssh read requests for private repositories owned by the key owner', async () => {
@@ -366,7 +392,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: ownerSshPublicKeyId,
 			ownerUserId,
-			fingerprintSha256: ownerFingerprintSha256,
+			fingerprint: ownerFingerprintSha256,
 		})
 		await createIntegrationRepository({
 			id: privateRepositoryId,
@@ -400,7 +426,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: otherSshPublicKeyId,
 			ownerUserId: otherUserId,
-			fingerprintSha256: otherFingerprintSha256,
+			fingerprint: otherFingerprintSha256,
 		})
 		await createIntegrationRepository({
 			id: privateRepositoryId,
@@ -428,7 +454,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: ownerSshPublicKeyId,
 			ownerUserId,
-			fingerprintSha256: ownerFingerprintSha256,
+			fingerprint: ownerFingerprintSha256,
 		})
 		await createIntegrationRepository({
 			id: privateRepositoryId,
@@ -462,7 +488,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: otherSshPublicKeyId,
 			ownerUserId: otherUserId,
-			fingerprintSha256: otherFingerprintSha256,
+			fingerprint: otherFingerprintSha256,
 		})
 		await createIntegrationRepository({
 			id: privateRepositoryId,
@@ -498,7 +524,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: ownerSshPublicKeyId,
 			ownerUserId,
-			fingerprintSha256: ownerFingerprintSha256,
+			fingerprint: ownerFingerprintSha256,
 		})
 		await db.delete(sshPublicKeys)
 
@@ -518,7 +544,7 @@ describe('Git authorization gRPC integration', () => {
 		await createIntegrationSshPublicKey({
 			id: ownerSshPublicKeyId,
 			ownerUserId,
-			fingerprintSha256: ownerFingerprintSha256,
+			fingerprint: ownerFingerprintSha256,
 		})
 
 		await expect(
@@ -549,23 +575,30 @@ function createWriteRequest() {
 	}
 }
 
-function createSshReadRequest(fingerprintSha256 = ownerFingerprintSha256) {
+function createSshReadRequest(fingerprint = ownerFingerprintSha256) {
 	return {
 		ownerUsername: 'marta',
 		repositorySlug: 'notes',
 		service: 'git-upload-pack',
 		action: 'upload_pack',
-		fingerprintSha256,
+		fingerprint,
 	}
 }
 
-function createSshWriteRequest(fingerprintSha256 = ownerFingerprintSha256) {
+function createSshKeyRequest(fingerprint = ownerFingerprintSha256) {
+	return {
+		username: 'git',
+		fingerprint,
+	}
+}
+
+function createSshWriteRequest(fingerprint = ownerFingerprintSha256) {
 	return {
 		ownerUsername: 'marta',
 		repositorySlug: 'notes',
 		service: 'git-receive-pack',
 		action: 'receive_pack',
-		fingerprintSha256,
+		fingerprint,
 	}
 }
 
@@ -610,11 +643,11 @@ async function createIntegrationRepository({
 interface CreateIntegrationSshPublicKeyOptions {
 	id: SshPublicKeyId
 	ownerUserId: UserId
-	fingerprintSha256: string
+	fingerprint: string
 }
 
 async function createIntegrationSshPublicKey({
-	fingerprintSha256,
+	fingerprint,
 	id,
 	ownerUserId,
 }: CreateIntegrationSshPublicKeyOptions) {
@@ -624,8 +657,17 @@ async function createIntegrationSshPublicKey({
 		title: 'Laptop',
 		keyType: 'ssh-ed25519',
 		publicKey: `ssh-ed25519 AAAA ${id}`,
-		fingerprintSha256,
+		fingerprint,
 	})
+}
+
+async function getSshPublicKeyLastUsedAt(id: SshPublicKeyId) {
+	const sshPublicKey = await db.query.sshPublicKeys.findFirst({
+		columns: { lastUsedAt: true },
+		where: eq(sshPublicKeys.id, id),
+	})
+
+	return sshPublicKey?.lastUsedAt
 }
 
 async function resetIntegrationDatabase() {

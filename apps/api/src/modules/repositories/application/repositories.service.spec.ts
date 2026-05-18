@@ -164,6 +164,7 @@ describe(RepositoriesService.name, () => {
 					provide: SshPublicKeysService,
 					useValue: {
 						findOwnerByFingerprint: vi.fn().mockResolvedValue(mockUserId),
+						authenticateByFingerprint: vi.fn().mockResolvedValue(mockUserId),
 					},
 				},
 			],
@@ -1760,7 +1761,7 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeSshGitRepositoryRead({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1777,20 +1778,21 @@ describe(RepositoriesService.name, () => {
 	})
 
 	test('authenticates known ssh keys before command authorization', async () => {
-		const findOwnerByFingerprintSpy = vi.spyOn(
+		const authenticateByFingerprintSpy = vi.spyOn(
 			sshPublicKeysService,
-			'findOwnerByFingerprint'
+			'authenticateByFingerprint'
 		)
 
 		expect(
 			await repositoriesService.authenticateSshKey({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'git',
 			})
 		).toEqual({
 			trustedUser: mockUserId,
 		})
-		expect(findOwnerByFingerprintSpy).toHaveBeenCalledWith('SHA256:abc')
+		expect(authenticateByFingerprintSpy).toHaveBeenCalledWith('SHA256:abc')
+		expect(sshPublicKeysService.findOwnerByFingerprint).not.toHaveBeenCalled()
 	})
 
 	test('authorizes ssh git reads for private repositories owned by the key owner', async () => {
@@ -1802,7 +1804,7 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeSshGitRepositoryRead({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1825,7 +1827,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeSshGitRepositoryRead({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1840,7 +1842,7 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.authorizeSshGitRepositoryWrite({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1862,7 +1864,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.authorizeSshGitRepositoryWrite({
-				fingerprintSha256: 'SHA256:abc',
+				fingerprint: 'SHA256:abc',
 				username: 'marta',
 				slug: repository.slug,
 			})

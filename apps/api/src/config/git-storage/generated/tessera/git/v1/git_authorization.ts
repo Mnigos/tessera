@@ -42,7 +42,7 @@ export interface AuthorizeWriteResponse {
 
 export interface AuthenticateSshKeyRequest {
   username: string;
-  fingerprintSha256: string;
+  fingerprint: string;
 }
 
 export interface AuthenticateSshKeyResponse {
@@ -54,7 +54,7 @@ export interface AuthorizeSshReadRequest {
   repositorySlug: string;
   service: string;
   action: string;
-  fingerprintSha256: string;
+  fingerprint: string;
 }
 
 export interface AuthorizeSshReadResponse {
@@ -68,7 +68,7 @@ export interface AuthorizeSshWriteRequest {
   repositorySlug: string;
   service: string;
   action: string;
-  fingerprintSha256: string;
+  fingerprint: string;
 }
 
 export interface AuthorizeSshWriteResponse {
@@ -360,7 +360,7 @@ export const AuthorizeWriteResponse: MessageFns<AuthorizeWriteResponse> = {
 };
 
 function createBaseAuthenticateSshKeyRequest(): AuthenticateSshKeyRequest {
-  return { username: "", fingerprintSha256: "" };
+  return { username: "", fingerprint: "" };
 }
 
 export const AuthenticateSshKeyRequest: MessageFns<AuthenticateSshKeyRequest> = {
@@ -368,8 +368,8 @@ export const AuthenticateSshKeyRequest: MessageFns<AuthenticateSshKeyRequest> = 
     if (message.username !== "") {
       writer.uint32(10).string(message.username);
     }
-    if (message.fingerprintSha256 !== "") {
-      writer.uint32(18).string(message.fingerprintSha256);
+    if (message.fingerprint !== "") {
+      writer.uint32(18).string(message.fingerprint);
     }
     return writer;
   },
@@ -394,7 +394,7 @@ export const AuthenticateSshKeyRequest: MessageFns<AuthenticateSshKeyRequest> = 
             break;
           }
 
-          message.fingerprintSha256 = reader.string();
+          message.fingerprint = reader.string();
           continue;
         }
       }
@@ -445,7 +445,7 @@ export const AuthenticateSshKeyResponse: MessageFns<AuthenticateSshKeyResponse> 
 };
 
 function createBaseAuthorizeSshReadRequest(): AuthorizeSshReadRequest {
-  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprintSha256: "" };
+  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprint: "" };
 }
 
 export const AuthorizeSshReadRequest: MessageFns<AuthorizeSshReadRequest> = {
@@ -462,8 +462,8 @@ export const AuthorizeSshReadRequest: MessageFns<AuthorizeSshReadRequest> = {
     if (message.action !== "") {
       writer.uint32(34).string(message.action);
     }
-    if (message.fingerprintSha256 !== "") {
-      writer.uint32(42).string(message.fingerprintSha256);
+    if (message.fingerprint !== "") {
+      writer.uint32(42).string(message.fingerprint);
     }
     return writer;
   },
@@ -512,7 +512,7 @@ export const AuthorizeSshReadRequest: MessageFns<AuthorizeSshReadRequest> = {
             break;
           }
 
-          message.fingerprintSha256 = reader.string();
+          message.fingerprint = reader.string();
           continue;
         }
       }
@@ -585,7 +585,7 @@ export const AuthorizeSshReadResponse: MessageFns<AuthorizeSshReadResponse> = {
 };
 
 function createBaseAuthorizeSshWriteRequest(): AuthorizeSshWriteRequest {
-  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprintSha256: "" };
+  return { ownerUsername: "", repositorySlug: "", service: "", action: "", fingerprint: "" };
 }
 
 export const AuthorizeSshWriteRequest: MessageFns<AuthorizeSshWriteRequest> = {
@@ -602,8 +602,8 @@ export const AuthorizeSshWriteRequest: MessageFns<AuthorizeSshWriteRequest> = {
     if (message.action !== "") {
       writer.uint32(34).string(message.action);
     }
-    if (message.fingerprintSha256 !== "") {
-      writer.uint32(42).string(message.fingerprintSha256);
+    if (message.fingerprint !== "") {
+      writer.uint32(42).string(message.fingerprint);
     }
     return writer;
   },
@@ -652,7 +652,7 @@ export const AuthorizeSshWriteRequest: MessageFns<AuthorizeSshWriteRequest> = {
             break;
           }
 
-          message.fingerprintSha256 = reader.string();
+          message.fingerprint = reader.string();
           continue;
         }
       }
