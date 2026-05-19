@@ -30,6 +30,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Use `z.coerce.number()` and `z.coerce.date()` for GET query/search params that arrive from URLs.
 - Use `z.coerce.date()` for output fields that should revive as `Date` after JSON/OpenAPI transport.
 - Prefer `.optional()` over `.nullable()` at the API boundary.
+- For reusable enum-like contract fields, export a named leaf schema and inferred type, then reference that schema from object fields. Avoid burying repeated `z.enum([...])` literal arrays inside larger schemas.
 - Use `zod-schemas` for Zod v4 details and schema organization decisions.
 
 ## Common Decisions

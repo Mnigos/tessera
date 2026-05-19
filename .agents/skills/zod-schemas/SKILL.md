@@ -27,6 +27,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Use `z.coerce.date()` for JSON/OpenAPI output that should become `Date` on the client.
 - Use `z.record(keySchema, valueSchema)` in Zod v4.
 - Keep schema names camelCase with `Schema`; keep inferred types PascalCase.
+- When a string enum/literal set is part of a reusable API or domain shape, export a named schema and inferred type instead of inlining `z.enum([...])` inside object fields. Reuse that schema from parent object schemas.
 
 ## Common Decisions
 
