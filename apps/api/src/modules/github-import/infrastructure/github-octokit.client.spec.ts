@@ -57,7 +57,14 @@ describe(GitHubOctokitClient.name, () => {
 	})
 
 	test('lists repositories with the authenticated GitHub user client', async () => {
-		paginate.mockResolvedValue([githubRepositoryResponse])
+		paginate.mockImplementation((_endpoint, _options, mapPage) => {
+			const done = vi.fn()
+			const repositories = mapPage({ data: [githubRepositoryResponse] }, done)
+
+			expect(done).toHaveBeenCalled()
+
+			return repositories
+		})
 
 		expect(
 			await githubOctokitClient.listRepositories({
@@ -67,12 +74,16 @@ describe(GitHubOctokitClient.name, () => {
 		expect(githubOctokitClient.createForUser).toHaveBeenCalledWith(
 			'github-token'
 		)
-		expect(paginate).toHaveBeenCalledWith(listForAuthenticatedUser, {
-			visibility: 'all',
-			sort: 'pushed',
-			direction: 'desc',
-			per_page: 100,
-		})
+		expect(paginate).toHaveBeenCalledWith(
+			listForAuthenticatedUser,
+			{
+				visibility: 'all',
+				sort: 'pushed',
+				direction: 'desc',
+				per_page: 100,
+			},
+			expect.any(Function)
+		)
 	})
 
 	test('falls back to private visibility when GitHub omits visibility', async () => {

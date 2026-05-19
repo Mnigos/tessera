@@ -11,6 +11,7 @@ import {
 } from '../domain/github-import.errors'
 
 const GITHUB_REPOSITORIES_PER_PAGE = 100
+const GITHUB_REPOSITORIES_LIMIT = 100
 
 interface ListRepositoriesParams {
 	accessToken: string
@@ -42,6 +43,10 @@ export class GitHubOctokitClient {
 					sort: 'pushed',
 					direction: 'desc',
 					per_page: GITHUB_REPOSITORIES_PER_PAGE,
+				},
+				(response, done) => {
+					done()
+					return response.data.slice(0, GITHUB_REPOSITORIES_LIMIT)
 				}
 			)
 
