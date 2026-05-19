@@ -79,9 +79,17 @@
 ## Quality
 
 - Run relevant checks before finishing:
-  - `bun run typecheck`
-  - `bun run check:fix`
-  - `bun run test`
+	- `bun run typecheck`
+	- `bun run check:fix`
+	- `bun run test`
+- Before committing or pushing any code changes, run the full validation set:
+	- `bun run typecheck`
+	- `bun run check:fix`
+	- `bun run test`
+	- `bun --filter @repo/api test:integration`
+	- `bun run test:e2e`
+	- `bun run test:e2e:git`
+- If integration or E2E tests cannot run because the database is not running, stop and ask the user to launch the database before committing or pushing.
 
 ## Git And GitHub
 
