@@ -96,6 +96,7 @@ describe('GitHub import integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let paginate: ReturnType<typeof vi.fn>
+	let githubOctokitClient: GitHubOctokitClient
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -106,20 +107,20 @@ describe('GitHub import integration', () => {
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
 		paginate = vi.fn()
+		githubOctokitClient = new GitHubOctokitClient()
+		vi.spyOn(githubOctokitClient, 'createForUser').mockReturnValue({
+			paginate,
+			rest: {
+				repos: {
+					listForAuthenticatedUser: vi.fn(),
+				},
+			},
+		} as never)
 		moduleRef = await Test.createTestingModule({
 			imports: [GitHubImportIntegrationTestModule],
 		})
 			.overrideProvider(GitHubOctokitClient)
-			.useValue({
-				createForUser: vi.fn(() => ({
-					paginate,
-					rest: {
-						repos: {
-							listForAuthenticatedUser: vi.fn(),
-						},
-					},
-				})),
-			})
+			.useValue(githubOctokitClient)
 			.compile()
 
 		adapter = new HonoAdapter()
@@ -160,7 +161,7 @@ describe('GitHub import integration', () => {
 			userId: integrationSession.userId,
 			accessToken: 'github-token',
 		})
-		paginate.mockResolvedValue([publicRepository, privateRepository])
+		mockGitHubRepositories([publicRepository, privateRepository])
 
 		const response = await listGitHubImportRepositories(
 			integrationSession.headers
@@ -189,12 +190,16 @@ describe('GitHub import integration', () => {
 				githubUrl: 'https://github.com/marta/private-notes',
 			},
 		])
-		expect(paginate).toHaveBeenCalledWith(expect.any(Function), {
-			visibility: 'all',
-			sort: 'pushed',
-			direction: 'desc',
-			per_page: 100,
-		})
+		expect(paginate).toHaveBeenCalledWith(
+			expect.any(Function),
+			{
+				visibility: 'all',
+				sort: 'pushed',
+				direction: 'desc',
+				per_page: 100,
+			},
+			expect.any(Function)
+		)
 	})
 
 	test('returns an empty list when GitHub returns no repositories', async () => {
@@ -206,7 +211,7 @@ describe('GitHub import integration', () => {
 			userId: integrationSession.userId,
 			accessToken: 'github-token',
 		})
-		paginate.mockResolvedValue([])
+		mockGitHubRepositories([])
 
 		const response = await listGitHubImportRepositories(
 			integrationSession.headers
@@ -344,5 +349,13 @@ describe('GitHub import integration', () => {
 		return adapter.hono.request('http://localhost/github-import/repositories', {
 			headers,
 		})
+	}
+
+	function mockGitHubRepositories(
+		repositories: (typeof publicRepository | typeof privateRepository)[]
+	) {
+		paginate.mockImplementation((_endpoint, _options, mapPage) =>
+			mapPage({ data: repositories }, vi.fn())
+		)
 	}
 })
