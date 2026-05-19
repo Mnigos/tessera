@@ -30,6 +30,7 @@
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "catalog:",
     "@nestjs/microservices": "^11.1.13",
+    "@octokit/rest": "^22.0.1",
     "@orpc/contract": "catalog:",
     "@orpc/nest": "1.14.1",
     "@orpc/openapi": "1.14.1",
