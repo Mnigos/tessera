@@ -16,9 +16,17 @@ Use this skill when the user asks for a PR.
 
 1. Inspect branch, status, recent commits, and diff against the base branch.
 2. If uncommitted changes exist, confirm they are intended by the PR request, then commit them with `conventional-commit`.
-3. Push the current branch.
-4. Open a ready-for-review PR unless the user explicitly asks for draft.
-5. Include summary, validation, important risks, and linked issue when discoverable.
+3. Before pushing code changes, run the full validation set:
+   - `bun run typecheck`
+   - `bun run check:fix`
+   - `bun run test`
+   - `bun --filter @repo/api test:integration`
+   - `bun run test:e2e`
+   - `bun run test:e2e:git`
+4. If integration or E2E tests cannot run because the database is not running, stop and ask the user to launch the database before pushing.
+5. Push the current branch.
+6. Open a ready-for-review PR unless the user explicitly asks for draft.
+7. Include summary, validation, important risks, and linked issue when discoverable.
 
 ## Rules
 

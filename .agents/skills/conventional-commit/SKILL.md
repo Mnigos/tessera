@@ -12,9 +12,17 @@ Use this skill only when the user explicitly asks to commit.
 1. Inspect `git status`.
 2. Inspect staged and unstaged diffs for the intended scope.
 3. Compare the diff with user intent and avoid unrelated user changes.
-4. Stage only intended files when staging is needed.
-5. Create a concise Conventional Commit message.
-6. Commit.
+4. Before staging/committing code changes, run the full validation set:
+   - `bun run typecheck`
+   - `bun run check:fix`
+   - `bun run test`
+   - `bun --filter @repo/api test:integration`
+   - `bun run test:e2e`
+   - `bun run test:e2e:git`
+5. If integration or E2E tests cannot run because the database is not running, stop and ask the user to launch the database before committing.
+6. Stage only intended files when staging is needed.
+7. Create a concise Conventional Commit message.
+8. Commit.
 
 ## Message Rules
 
