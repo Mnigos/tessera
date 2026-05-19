@@ -97,7 +97,7 @@ export function initAuth({
 			github: {
 				clientId: githubClientId ?? '',
 				clientSecret: githubClientSecret ?? '',
-				scopes: ['repo'],
+				scope: ['repo'],
 				mapProfileToUser: async profile => {
 					const existingAccount = await db.query.account.findFirst({
 						where: and(
