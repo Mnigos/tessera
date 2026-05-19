@@ -1,7 +1,8 @@
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Label } from '@repo/ui/components/label'
-import { Plus } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { Github, Plus } from 'lucide-react'
 import type { ComponentProps } from 'react'
 import { getCreateRepositoryInput } from '../helpers/create-repository-input'
 import { useCreateRepositoryMutation } from '../hooks/use-create-repository.mutation'
@@ -98,6 +99,17 @@ export function CreateRepositorySection({
 					{createRepository.isPending ? 'Creating' : 'Create repository'}
 				</Button>
 			</form>
+			<div className="border-border border-t pt-4">
+				<Button
+					className="w-full"
+					nativeButton={false}
+					render={<Link to="/import/github" />}
+					variant="secondary"
+				>
+					<Github className="size-4" />
+					Import from GitHub
+				</Button>
+			</div>
 		</Card>
 	)
 }
