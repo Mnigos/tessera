@@ -10,8 +10,10 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as modulesProfileRoutesProfileDotrouteRouteImport } from './modules/profile/routes/profile.route'
+import { Route as modulesGithubImportRoutesImportDotrouteRouteImport } from './modules/github-import/routes/import.route'
 import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/home/routes/index.route'
 import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
+import { Route as modulesGithubImportRoutesImportDotgithubDotrouteRouteImport } from './modules/github-import/routes/import.github.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.commits.$ref.route'
@@ -22,6 +24,12 @@ const modulesProfileRoutesProfileDotrouteRoute =
   modulesProfileRoutesProfileDotrouteRouteImport.update({
     id: '/profile',
     path: '/profile',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const modulesGithubImportRoutesImportDotrouteRoute =
+  modulesGithubImportRoutesImportDotrouteRouteImport.update({
+    id: '/import',
+    path: '/import',
     getParentRoute: () => rootRouteImport,
   } as any)
 const modulesHomeRoutesIndexDotrouteRoute =
@@ -35,6 +43,12 @@ const modulesProfileRoutesProfileDotusernameDotrouteRoute =
     id: '/$username',
     path: '/$username',
     getParentRoute: () => modulesProfileRoutesProfileDotrouteRoute,
+  } as any)
+const modulesGithubImportRoutesImportDotgithubDotrouteRoute =
+  modulesGithubImportRoutesImportDotgithubDotrouteRouteImport.update({
+    id: '/github',
+    path: '/github',
+    getParentRoute: () => modulesGithubImportRoutesImportDotrouteRoute,
   } as any)
 const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute =
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport.update(
@@ -77,8 +91,10 @@ const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotro
 
 export interface FileRoutesByFullPath {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
+  '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
@@ -87,8 +103,10 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
+  '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
@@ -98,8 +116,10 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
+  '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
@@ -110,8 +130,10 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/import'
     | '/profile'
     | '/$username/$slug'
+    | '/import/github'
     | '/profile/$username'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
@@ -120,8 +142,10 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/import'
     | '/profile'
     | '/$username/$slug'
+    | '/import/github'
     | '/profile/$username'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
@@ -130,8 +154,10 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/import'
     | '/profile'
     | '/$username/$slug'
+    | '/import/github'
     | '/profile/$username'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
@@ -141,6 +167,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   modulesHomeRoutesIndexDotrouteRoute: typeof modulesHomeRoutesIndexDotrouteRoute
+  modulesGithubImportRoutesImportDotrouteRoute: typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
@@ -158,6 +185,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof modulesProfileRoutesProfileDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/import': {
+      id: '/import'
+      path: '/import'
+      fullPath: '/import'
+      preLoaderRoute: typeof modulesGithubImportRoutesImportDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -171,6 +205,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/profile/$username'
       preLoaderRoute: typeof modulesProfileRoutesProfileDotusernameDotrouteRouteImport
       parentRoute: typeof modulesProfileRoutesProfileDotrouteRoute
+    }
+    '/import/github': {
+      id: '/import/github'
+      path: '/github'
+      fullPath: '/import/github'
+      preLoaderRoute: typeof modulesGithubImportRoutesImportDotgithubDotrouteRouteImport
+      parentRoute: typeof modulesGithubImportRoutesImportDotrouteRoute
     }
     '/$username/$slug': {
       id: '/$username/$slug'
@@ -210,6 +251,21 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface modulesGithubImportRoutesImportDotrouteRouteChildren {
+  modulesGithubImportRoutesImportDotgithubDotrouteRoute: typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
+}
+
+const modulesGithubImportRoutesImportDotrouteRouteChildren: modulesGithubImportRoutesImportDotrouteRouteChildren =
+  {
+    modulesGithubImportRoutesImportDotgithubDotrouteRoute:
+      modulesGithubImportRoutesImportDotgithubDotrouteRoute,
+  }
+
+const modulesGithubImportRoutesImportDotrouteRouteWithChildren =
+  modulesGithubImportRoutesImportDotrouteRoute._addFileChildren(
+    modulesGithubImportRoutesImportDotrouteRouteChildren,
+  )
+
 interface modulesProfileRoutesProfileDotrouteRouteChildren {
   modulesProfileRoutesProfileDotusernameDotrouteRoute: typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
 }
@@ -227,6 +283,8 @@ const modulesProfileRoutesProfileDotrouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   modulesHomeRoutesIndexDotrouteRoute: modulesHomeRoutesIndexDotrouteRoute,
+  modulesGithubImportRoutesImportDotrouteRoute:
+    modulesGithubImportRoutesImportDotrouteRouteWithChildren,
   modulesProfileRoutesProfileDotrouteRoute:
     modulesProfileRoutesProfileDotrouteRouteWithChildren,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute:
