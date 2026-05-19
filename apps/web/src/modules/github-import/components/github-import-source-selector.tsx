@@ -70,7 +70,7 @@ export function GitHubImportSourceSelector({
 }
 
 export function isAuthenticationError(error: unknown) {
-	if (!error || typeof error !== 'object' || !('status' in error)) return false
+	if (!error || typeof error !== 'object' || !('message' in error)) return false
 
-	return error.status === 401 || error.status === 403
+	return error.message === 'github import authentication required'
 }

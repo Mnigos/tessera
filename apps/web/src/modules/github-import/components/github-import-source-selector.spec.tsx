@@ -63,7 +63,10 @@ describe('GitHubImportSourceSelector', () => {
 	test('shows auth failure state', () => {
 		render(
 			<GitHubImportSourceSelector
-				error={{ status: 401 }}
+				error={{
+					message: 'github import authentication required',
+					status: 401,
+				}}
 				isError
 				isLoading={false}
 				onSelectRepository={vi.fn()}
@@ -75,7 +78,15 @@ describe('GitHubImportSourceSelector', () => {
 		expect(
 			screen.getByText('Reconnect GitHub from your profile, then return here.')
 		).toBeTruthy()
-		expect(isAuthenticationError({ status: 403 })).toBe(true)
+		expect(
+			isAuthenticationError({
+				message: 'github import authentication required',
+				status: 403,
+			})
+		).toBe(true)
+		expect(
+			isAuthenticationError({ message: 'Unauthorized', status: 401 })
+		).toBe(false)
 	})
 
 	test('shows empty state', () => {
