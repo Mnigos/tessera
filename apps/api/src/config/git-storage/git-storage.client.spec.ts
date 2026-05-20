@@ -31,6 +31,7 @@ describe(GitStorageClient.name, () => {
 	let gitStorageService: {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
+		importRepository: ReturnType<typeof vi.fn>
 		getRepositoryBrowserSummary: ReturnType<typeof vi.fn>
 		getRepositoryTree: ReturnType<typeof vi.fn>
 		getRepositoryBlob: ReturnType<typeof vi.fn>
@@ -45,6 +46,12 @@ describe(GitStorageClient.name, () => {
 			createRepository: vi.fn(() =>
 				of({
 					storagePath: '/var/lib/tessera/repositories/repo.git',
+				})
+			),
+			importRepository: vi.fn(() =>
+				of({
+					storagePath: '/var/lib/tessera/repositories/repo.git',
+					defaultBranch: 'trunk',
 				})
 			),
 			getRepositoryBrowserSummary: vi.fn(() =>
@@ -172,6 +179,28 @@ describe(GitStorageClient.name, () => {
 		})
 		expect(gitStorageService.createRepository).toHaveBeenCalledWith({
 			repositoryId,
+		})
+	})
+
+	test('imports repository storage with source metadata', async () => {
+		expect(
+			await client.importRepository({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				sourceUrl: 'https://github.com/marta/tessera',
+				accessToken: 'github-token',
+				defaultBranchHint: 'main',
+			})
+		).toEqual({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'trunk',
+		})
+		expect(gitStorageService.importRepository).toHaveBeenCalledWith({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			sourceUrl: 'https://github.com/marta/tessera',
+			accessToken: 'github-token',
+			defaultBranchHint: 'main',
 		})
 	})
 
@@ -562,6 +591,34 @@ describe(GitStorageClient.name, () => {
 
 		await expect(
 			client.createRepository({ repositoryId })
+		).rejects.toBeInstanceOf(ExternalServiceError)
+	})
+
+	test('maps missing import storage path to an external service error', async () => {
+		gitStorageService.importRepository.mockReturnValue(
+			of({ defaultBranch: 'main' })
+		)
+
+		await expect(
+			client.importRepository({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				sourceUrl: 'https://github.com/marta/tessera',
+			})
+		).rejects.toBeInstanceOf(ExternalServiceError)
+	})
+
+	test('maps missing import default branch to an external service error', async () => {
+		gitStorageService.importRepository.mockReturnValue(
+			of({ storagePath: '/var/lib/tessera/repositories/repo.git' })
+		)
+
+		await expect(
+			client.importRepository({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				sourceUrl: 'https://github.com/marta/tessera',
+			})
 		).rejects.toBeInstanceOf(ExternalServiceError)
 	})
 
