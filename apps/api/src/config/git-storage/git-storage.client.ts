@@ -22,6 +22,7 @@ import {
 	GIT_STORAGE_SERVICE_NAME,
 	type GitStorageServiceClient,
 	type HealthResponse,
+	type ImportRepositoryResponse,
 	type ListRepositoryCommitsResponse,
 	type ListRepositoryRefsResponse,
 	type TrustedGpgKey,
@@ -42,6 +43,19 @@ export interface GitStorageCreateRepositoryParams {
 }
 
 export interface GitStorageCreateRepositoryResult {
+	storagePath: string
+}
+
+export interface GitStorageImportRepositoryParams {
+	accessToken?: string
+	defaultBranchHint?: string
+	repositoryId: RepositoryId
+	sourceUrl: string
+	storagePath: string
+}
+
+export interface GitStorageImportRepositoryResult {
+	defaultBranch: string
 	storagePath: string
 }
 
@@ -231,6 +245,43 @@ export class GitStorageClient implements OnModuleInit {
 			})
 
 		return { storagePath: response.storagePath }
+	}
+
+	async importRepository({
+		accessToken,
+		defaultBranchHint,
+		repositoryId,
+		sourceUrl,
+		storagePath,
+	}: GitStorageImportRepositoryParams): Promise<GitStorageImportRepositoryResult> {
+		const response = await firstValueFrom(
+			this.service
+				.importRepository({
+					repositoryId,
+					storagePath,
+					sourceUrl,
+					accessToken,
+					defaultBranchHint: defaultBranchHint ?? '',
+				})
+				.pipe(mapGitStorageErrors<ImportRepositoryResponse>())
+		)
+
+		if (!response.storagePath)
+			throw new ExternalServiceError('git storage', {
+				repositoryId,
+				reason: 'missing_storage_path',
+			})
+
+		if (!response.defaultBranch)
+			throw new ExternalServiceError('git storage', {
+				repositoryId,
+				reason: 'missing_default_branch',
+			})
+
+		return {
+			defaultBranch: response.defaultBranch,
+			storagePath: response.storagePath,
+		}
 	}
 
 	async getRepositoryBrowserSummary({
