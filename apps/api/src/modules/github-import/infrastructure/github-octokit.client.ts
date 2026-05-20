@@ -17,6 +17,10 @@ interface ListRepositoriesParams {
 	accessToken: string
 }
 
+interface GetRepositoryParams extends ListRepositoriesParams {
+	githubId: string
+}
+
 interface GitHubRequestErrorLike {
 	status: number
 }
@@ -51,7 +55,7 @@ export class GitHubOctokitClient {
 			)
 
 			return repositories.map(repository => ({
-				githubId: repository.id,
+				githubId: repository.id.toString(),
 				ownerLogin: repository.owner.login,
 				name: repository.name,
 				fullName: repository.full_name,
@@ -63,7 +67,38 @@ export class GitHubOctokitClient {
 				githubUrl: repository.html_url,
 			}))
 		} catch (error) {
-			throw this.mapRepositoryListError(error)
+			throw this.mapRepositoryRequestError(error, 'listing')
+		}
+	}
+
+	async getRepository({
+		accessToken,
+		githubId,
+	}: GetRepositoryParams): Promise<GitHubImportRepository> {
+		const octokit = this.createForUser(accessToken)
+
+		try {
+			const response = await octokit.request(
+				'GET /repositories/{repository_id}',
+				{
+					repository_id: githubId,
+				}
+			)
+
+			return {
+				githubId: response.data.id.toString(),
+				ownerLogin: response.data.owner.login,
+				name: response.data.name,
+				fullName: response.data.full_name,
+				visibility: getRepositoryVisibility(response.data),
+				defaultBranch: response.data.default_branch,
+				pushedAt: response.data.pushed_at
+					? new Date(response.data.pushed_at)
+					: undefined,
+				githubUrl: response.data.html_url,
+			}
+		} catch (error) {
+			throw this.mapRepositoryRequestError(error, 'fetching')
 		}
 	}
 
@@ -71,22 +106,22 @@ export class GitHubOctokitClient {
 		return new Octokit({ auth: accessToken })
 	}
 
-	private mapRepositoryListError(error: unknown) {
+	private mapRepositoryRequestError(error: unknown, action: string) {
 		if (isGitHubRequestError(error, 401)) {
-			this.logger.warn('GitHub repository listing was unauthorized')
+			this.logger.warn(`GitHub repository ${action} was unauthorized`)
 			return new GitHubImportAuthenticationError({
 				reason: 'github_unauthorized',
 			})
 		}
 
 		if (isGitHubRequestError(error, 403)) {
-			this.logger.warn('GitHub repository listing was forbidden')
+			this.logger.warn(`GitHub repository ${action} was forbidden`)
 			return new GitHubImportForbiddenError({ reason: 'github_forbidden' })
 		}
 
 		if (isGitHubRequestError(error)) {
 			this.logger.warn(
-				`GitHub repository listing failed with status ${error.status}`
+				`GitHub repository ${action} failed with status ${error.status}`
 			)
 			return new GitHubImportExternalServiceError(
 				{
@@ -97,7 +132,7 @@ export class GitHubOctokitClient {
 			)
 		}
 
-		this.logger.error('GitHub repository listing failed', error)
+		this.logger.error(`GitHub repository ${action} failed`, error)
 		return new GitHubImportExternalServiceError(
 			{ reason: 'github_request_failed' },
 			{ cause: error }
