@@ -1,6 +1,8 @@
 import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
+import { GitStorageModule } from '@config/git-storage'
+import { QueueModule } from '@config/queue'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
@@ -11,7 +13,7 @@ import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { GitHubImportRepositoryVisibility } from '@repo/contracts'
 import { db } from '@repo/db/client'
-import { account, session, user } from '@repo/db/schema'
+import { account, repositoryImports, session, user } from '@repo/db/schema'
 import type { UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
@@ -24,6 +26,8 @@ const MIGRATIONS_FOLDER = fileURLToPath(
 	imports: [
 		EnvModule,
 		DatabaseModule,
+		GitStorageModule,
+		QueueModule,
 		RPCModule,
 		AuthModule,
 		GitHubImportModule,
@@ -39,7 +43,7 @@ class GitHubImportIntegrationTestModule {}
 
 interface GitHubImportRepositoriesResponseBody {
 	repositories: {
-		githubId: number
+		githubId: string
 		ownerLogin: string
 		name: string
 		fullName: string
@@ -171,7 +175,7 @@ describe('GitHub import integration', () => {
 		expect(response.status).toBe(200)
 		expect(body.repositories).toEqual([
 			{
-				githubId: 123,
+				githubId: '123',
 				ownerLogin: 'marta',
 				name: 'tessera',
 				fullName: 'marta/tessera',
@@ -181,7 +185,7 @@ describe('GitHub import integration', () => {
 				githubUrl: 'https://github.com/marta/tessera',
 			},
 			{
-				githubId: 456,
+				githubId: '456',
 				ownerLogin: 'marta',
 				name: 'private-notes',
 				fullName: 'marta/private-notes',
@@ -340,6 +344,7 @@ describe('GitHub import integration', () => {
 	}
 
 	async function resetIntegrationDatabase() {
+		await db.delete(repositoryImports)
 		await db.delete(account)
 		await db.delete(session)
 		await db.delete(user)
