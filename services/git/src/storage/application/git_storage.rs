@@ -1,7 +1,7 @@
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryCreated,
-    RepositoryError, RepositoryId, RepositoryRawBlob, RepositoryRefList, RepositoryTree,
-    TrustedGpgKey,
+    RepositoryError, RepositoryId, RepositoryImported, RepositoryRawBlob, RepositoryRefList,
+    RepositoryTree, TrustedGpgKey,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -26,6 +26,27 @@ impl GitStorageApplication {
         let repository_id = RepositoryId::parse(repository_id)?;
 
         self.storage.create_repository(&repository_id).await
+    }
+
+    pub async fn import_repository(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        source_url: &str,
+        access_token: Option<&str>,
+        default_branch_hint: &str,
+    ) -> Result<RepositoryImported, RepositoryError> {
+        let repository_id = RepositoryId::parse(repository_id)?;
+
+        self.storage
+            .import_repository(
+                &repository_id,
+                storage_path,
+                source_url,
+                access_token,
+                default_branch_hint,
+            )
+            .await
     }
 
     pub async fn get_repository_browser_summary(

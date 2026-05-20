@@ -215,6 +215,312 @@ async fn create_repository_rejects_repository_path_replaced_by_symlink_before_gi
 }
 
 #[tokio::test]
+async fn import_repository_mirrors_local_history_refs_and_default_branch() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    push_commit(
+        temp_dir.path(),
+        &source_repository_path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &source_repository_path,
+        "develop",
+        &[("README.md", "develop\n")],
+    );
+    git(&source_repository_path, ["tag", "v1.0.0", "main"]);
+    git(
+        &source_repository_path,
+        ["symbolic-ref", "HEAD", "refs/heads/main"],
+    );
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let storage_path = storage
+        .repository_path(REPOSITORY_ID)
+        .unwrap()
+        .display()
+        .to_string();
+
+    let imported = storage
+        .import_repository(
+            &repository_id(),
+            &storage_path,
+            source_repository_path.to_str().unwrap(),
+            None,
+            "develop",
+        )
+        .await
+        .unwrap();
+    let refs = storage
+        .list_repository_refs(REPOSITORY_ID, &imported.storage_path, &[])
+        .await
+        .unwrap()
+        .refs;
+
+    assert_eq!(imported.default_branch, "develop");
+    assert_eq!(
+        git_stdout(
+            &storage.repository_path(REPOSITORY_ID).unwrap(),
+            ["symbolic-ref", "--short", "HEAD"]
+        )
+        .trim(),
+        "develop"
+    );
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Branch
+            && repository_ref.display_name == "main"
+            && repository_ref.commit_id.len() == 40
+    }));
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Branch
+            && repository_ref.display_name == "develop"
+            && repository_ref.is_default_branch
+            && repository_ref.commit_id.len() == 40
+    }));
+    assert!(refs.iter().any(|repository_ref| {
+        repository_ref.kind == RepositoryRefKind::Tag
+            && repository_ref.display_name == "v1.0.0"
+            && repository_ref.qualified_name == "refs/tags/v1.0.0"
+    }));
+}
+
+#[tokio::test]
+async fn import_repository_preserves_author_and_committer_metadata() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    push_commit_with_metadata(
+        temp_dir.path(),
+        &source_repository_path,
+        "main",
+        &[("README.md", b"metadata\n")],
+        CommitMetadata {
+            message: "metadata commit",
+            author_name: "Ada Author",
+            author_email: "ada@example.com",
+            author_date: "2026-05-16T10:00:00+00:00",
+            committer_name: "Grace Committer",
+            committer_email: "grace@example.com",
+            committer_date: "2026-05-16T10:01:00+00:00",
+        },
+    );
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let storage_path = storage
+        .repository_path(REPOSITORY_ID)
+        .unwrap()
+        .display()
+        .to_string();
+
+    let imported = storage
+        .import_repository(
+            &repository_id(),
+            &storage_path,
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap();
+    let commits = storage
+        .list_repository_commits(REPOSITORY_ID, &imported.storage_path, "main", 10, &[])
+        .await
+        .unwrap()
+        .commits;
+
+    assert_eq!(commits[0].author.name, "Ada Author");
+    assert_eq!(commits[0].author.email, "ada@example.com");
+    assert_utc_git_date_eq(&commits[0].author.date, "2026-05-16T10:00:00");
+    assert_eq!(commits[0].committer.name, "Grace Committer");
+    assert_eq!(commits[0].committer.email, "grace@example.com");
+    assert_utc_git_date_eq(&commits[0].committer.date, "2026-05-16T10:01:00");
+}
+
+#[tokio::test]
+async fn import_repository_passes_access_token_as_basic_auth_header() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    let auth_header_path = temp_dir.path().join("auth-header.txt");
+    let git_script = temp_dir.path().join("git-wrapper.sh");
+    create_bare_repository(&source_repository_path, "main");
+    push_commit(
+        temp_dir.path(),
+        &source_repository_path,
+        "main",
+        &[("README.md", "auth\n")],
+    );
+    fs::write(
+		&git_script,
+		format!(
+			"#!/bin/sh\nif [ -n \"$GIT_CONFIG_VALUE_0\" ]; then printf '%s' \"$GIT_CONFIG_VALUE_0\" > '{}'; fi\nexec git \"$@\"\n",
+			auth_header_path.display()
+		),
+	)
+	.unwrap();
+    make_executable(&git_script);
+    let storage = storage(
+        temp_dir.path().join("storage").as_path(),
+        git_script.to_str().unwrap(),
+    );
+    let storage_path = storage
+        .repository_path(REPOSITORY_ID)
+        .unwrap()
+        .display()
+        .to_string();
+
+    storage
+        .import_repository(
+            &repository_id(),
+            &storage_path,
+            source_repository_path.to_str().unwrap(),
+            Some("secret-token"),
+            "main",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        fs::read_to_string(auth_header_path).unwrap(),
+        "Authorization: Basic eC1hY2Nlc3MtdG9rZW46c2VjcmV0LXRva2Vu"
+    );
+}
+
+#[tokio::test]
+async fn import_repository_rejects_storage_path_mismatch() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+
+    let error = storage
+        .import_repository(
+            &repository_id(),
+            "/tmp/wrong/repository.git",
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::StoragePathMismatch));
+}
+
+#[tokio::test]
+async fn import_repository_rejects_existing_non_bare_path() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository_path = storage.repository_path(REPOSITORY_ID).unwrap();
+    fs::create_dir_all(&repository_path).unwrap();
+    fs::write(repository_path.join("README.md"), "not bare").unwrap();
+
+    let error = storage
+        .import_repository(
+            &repository_id(),
+            &repository_path.display().to_string(),
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::ExistingPathNotBare));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn import_repository_rejects_repositories_symlink_escape() {
+    let temp_dir = TempDir::new().unwrap();
+    let outside_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    std::os::unix::fs::symlink(outside_dir.path(), temp_dir.path().join("repositories")).unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let storage_path = storage
+        .repository_path(REPOSITORY_ID)
+        .unwrap()
+        .display()
+        .to_string();
+
+    let error = storage
+        .import_repository(
+            &repository_id(),
+            &storage_path,
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn import_repository_rejects_repository_leaf_symlink_escape() {
+    let temp_dir = TempDir::new().unwrap();
+    let outside_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    let repository_storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let outside_storage = storage(outside_dir.path(), "git");
+    let repository_id = repository_id();
+    let outside_repository_path = outside_storage
+        .create_repository(&repository_id)
+        .await
+        .unwrap()
+        .path;
+    let repository_path = repository_storage.repository_path(REPOSITORY_ID).unwrap();
+    fs::create_dir_all(repository_path.parent().unwrap()).unwrap();
+    std::os::unix::fs::symlink(outside_repository_path, &repository_path).unwrap();
+
+    let error = repository_storage
+        .import_repository(
+            &repository_id,
+            &repository_path.display().to_string(),
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn import_repository_rejects_existing_bare_repository_with_internal_symlink() {
+    let temp_dir = TempDir::new().unwrap();
+    let outside_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository_id = repository_id();
+    let repository = storage.create_repository(&repository_id).await.unwrap();
+    fs::remove_dir_all(repository.path.join("objects")).unwrap();
+    std::os::unix::fs::symlink(outside_dir.path(), repository.path.join("objects")).unwrap();
+
+    let error = storage
+        .import_repository(
+            &repository_id,
+            &repository.storage_path,
+            source_repository_path.to_str().unwrap(),
+            None,
+            "",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::PathEscapesStorageRoot));
+}
+
+#[tokio::test]
 async fn browser_summary_returns_empty_state_for_empty_repository() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");
@@ -1480,6 +1786,20 @@ fn grpc_service(storage_root: &Path) -> GitStorageGrpcService {
 
 fn repository_id() -> RepositoryId {
     RepositoryId::parse(REPOSITORY_ID).unwrap()
+}
+
+fn create_bare_repository(path: &Path, initial_branch: &str) {
+    command(
+        path.parent().unwrap_or_else(|| Path::new(".")),
+        [
+            "git",
+            "init",
+            "--bare",
+            "--initial-branch",
+            initial_branch,
+            path.to_str().unwrap(),
+        ],
+    );
 }
 
 fn push_commit(
