@@ -90,14 +90,6 @@ export class GitHubImportRepository {
 		})
 	}
 
-	async findImportById(
-		importId: RepositoryImportId
-	): Promise<RepositoryImport | undefined> {
-		return await this.db.query.repositoryImports.findFirst({
-			where: eq(repositoryImports.id, importId),
-		})
-	}
-
 	async findOwnerUsername({ userId }: UserParams): Promise<string | undefined> {
 		const row = await this.db.query.user.findFirst({
 			where: eq(user.id, userId),

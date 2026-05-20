@@ -81,7 +81,7 @@ function getGitHubImportErrorMessage(error: unknown): string {
 
 		if (message === 'github repository import source already exists')
 			return 'This GitHub repository already has an active import.'
-		if (message === 'github import target slug is unavailable')
+		if (message === 'github repository import target slug already exists')
 			return 'A repository with this target slug already exists.'
 
 		return message

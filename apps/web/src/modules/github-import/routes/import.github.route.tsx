@@ -1,4 +1,5 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
+import { useState } from 'react'
 import { z } from 'zod'
 import { authClient } from '@/lib/auth/client'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
@@ -35,6 +36,7 @@ function GitHubImportRoute() {
 	const repositoriesQuery = useGitHubImportRepositoriesQuery()
 	const importsQuery = useGitHubImportsQuery()
 	const createImportMutation = useCreateGitHubImportMutation()
+	const [importError, setImportError] = useState<unknown>()
 	const selectedRepositoryIds = parseSelectedRepositoryIds(
 		selectedRepositoryIdsSearch
 	)
@@ -72,15 +74,23 @@ function GitHubImportRoute() {
 	}
 
 	async function handleContinue() {
-		await Promise.all(
-			selectedRepositoryIds.map(githubId =>
-				createImportMutation.mutateAsync({ githubId })
-			)
-		)
+		setImportError(undefined)
+		const failedRepositoryIds: string[] = []
+
+		for (const githubId of selectedRepositoryIds) {
+			try {
+				await createImportMutation.mutateAsync({ githubId })
+			} catch (error) {
+				failedRepositoryIds.push(githubId)
+				setImportError(error)
+			}
+		}
+
 		await navigate({
 			search: previousSearch => ({
 				...previousSearch,
-				selectedRepositoryIds: undefined,
+				selectedRepositoryIds:
+					serializeSelectedRepositoryIds(failedRepositoryIds),
 			}),
 		})
 	}
@@ -109,7 +119,7 @@ function GitHubImportRoute() {
 			</div>
 			<GitHubImportSourceSelector
 				error={repositoriesQuery.error}
-				importError={createImportMutation.error}
+				importError={importError ?? createImportMutation.error}
 				isError={repositoriesQuery.isError}
 				isImporting={createImportMutation.isPending}
 				isLoading={repositoriesQuery.isLoading}

@@ -232,4 +232,26 @@ describe('GitHubImportSourceSelector', () => {
 				.getAttribute('aria-pressed')
 		).toBe('true')
 	})
+
+	test('shows friendly import conflict messages', () => {
+		render(
+			<GitHubImportSourceSelector
+				importError={{
+					message: 'github repository import target slug already exists',
+				}}
+				isError={false}
+				isImporting={false}
+				isLoading={false}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
+				repositories={repositories}
+				selectedRepositoryIds={['1']}
+			/>
+		)
+
+		expect(
+			screen.getByText('A repository with this target slug already exists.')
+		).toBeTruthy()
+	})
 })
