@@ -2,7 +2,7 @@ import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryImportId } from '@repo/db'
 import { account, and, eq, inArray, repositoryImports } from '@repo/db'
-import type { RepositorySlug } from '@repo/domain'
+import type { RepositoryId, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { GitHubImportRepository } from './github-import.repository'
 
@@ -87,7 +87,7 @@ describe(GitHubImportRepository.name, () => {
 				userId: mockUserId,
 				githubId: '123',
 			})
-		).toBe(true)
+		).toBeTruthy()
 		expect(findFirstImportMock).toHaveBeenCalledWith({
 			where: and(
 				eq(repositoryImports.ownerUserId, mockUserId),
@@ -106,7 +106,7 @@ describe(GitHubImportRepository.name, () => {
 				userId: mockUserId,
 				targetSlug: 'tessera' as RepositorySlug,
 			})
-		).toBe(false)
+		).toBeFalsy()
 		expect(findFirstImportMock).toHaveBeenCalledWith({
 			where: and(
 				eq(repositoryImports.ownerUserId, mockUserId),
@@ -129,6 +129,42 @@ describe(GitHubImportRepository.name, () => {
 			startedAt: expect.any(Date),
 			failureReason: null,
 		})
+		expect(whereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositoryImports.id, importId),
+				inArray(repositoryImports.status, ['pending', 'running'])
+			)
+		)
+	})
+
+	test('only marks pending or running imports as succeeded', async () => {
+		const importId =
+			'00000000-0000-4000-8000-000000000029' as RepositoryImportId
+
+		await githubImportRepository.markSucceeded({
+			importId,
+			repositoryId: '00000000-0000-4000-8000-000000000030' as RepositoryId,
+		})
+
+		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
+		expect(whereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositoryImports.id, importId),
+				inArray(repositoryImports.status, ['pending', 'running'])
+			)
+		)
+	})
+
+	test('only marks pending or running imports as failed', async () => {
+		const importId =
+			'00000000-0000-4000-8000-000000000029' as RepositoryImportId
+
+		await githubImportRepository.markFailed({
+			importId,
+			failureReason: 'clone failed',
+		})
+
+		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
 		expect(whereMock).toHaveBeenCalledWith(
 			and(
 				eq(repositoryImports.id, importId),

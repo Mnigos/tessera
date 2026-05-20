@@ -320,4 +320,54 @@ describe(GitHubImportService.name, () => {
 		).rejects.toBeInstanceOf(GitHubImportTargetSlugUnavailableError)
 		expect(githubImportRepository.createImport).not.toHaveBeenCalled()
 	})
+
+	test('maps active source unique violations to duplicate source errors', async () => {
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubOctokitClient, 'getRepository').mockResolvedValue(repository)
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(false)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(false)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+		vi.spyOn(githubImportRepository, 'createImport').mockRejectedValue({
+			code: '23505',
+			constraint: 'repository_imports_active_source_unique',
+		})
+
+		await expect(
+			githubImportService.createImport(mockUserId, { githubId: '123' })
+		).rejects.toBeInstanceOf(GitHubImportDuplicateActiveSourceError)
+	})
+
+	test('maps active target unique violations to unavailable slug errors', async () => {
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubOctokitClient, 'getRepository').mockResolvedValue(repository)
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(false)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(false)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+		vi.spyOn(githubImportRepository, 'createImport').mockRejectedValue({
+			code: '23505',
+			constraint: 'repository_imports_active_target_slug_unique',
+		})
+
+		await expect(
+			githubImportService.createImport(mockUserId, { githubId: '123' })
+		).rejects.toBeInstanceOf(GitHubImportTargetSlugUnavailableError)
+	})
 })

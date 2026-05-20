@@ -338,6 +338,32 @@ async fn import_repository_preserves_author_and_committer_metadata() {
 }
 
 #[tokio::test]
+async fn import_repository_uses_default_branch_hint_for_empty_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    let source_repository_path = temp_dir.path().join("source.git");
+    create_bare_repository(&source_repository_path, "main");
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let storage_path = storage
+        .repository_path(REPOSITORY_ID)
+        .unwrap()
+        .display()
+        .to_string();
+
+    let imported = storage
+        .import_repository(
+            &repository_id(),
+            &storage_path,
+            source_repository_path.to_str().unwrap(),
+            None,
+            "main",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(imported.default_branch, "main");
+}
+
+#[tokio::test]
 async fn import_repository_passes_access_token_as_basic_auth_header() {
     let temp_dir = TempDir::new().unwrap();
     let source_repository_path = temp_dir.path().join("source.git");

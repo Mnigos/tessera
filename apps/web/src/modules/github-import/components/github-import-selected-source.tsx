@@ -84,7 +84,7 @@ function getGitHubImportErrorMessage(error: unknown): string {
 		if (message === 'github repository import target slug already exists')
 			return 'A repository with this target slug already exists.'
 
-		return message
+		return 'GitHub import could not be queued.'
 	}
 
 	return 'GitHub import could not be queued.'

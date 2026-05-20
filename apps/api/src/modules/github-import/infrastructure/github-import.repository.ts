@@ -203,7 +203,12 @@ export class GitHubImportRepository {
 				completedAt: new Date(),
 				failureReason: null,
 			})
-			.where(eq(repositoryImports.id, importId))
+			.where(
+				and(
+					eq(repositoryImports.id, importId),
+					inArray(repositoryImports.status, ['pending', 'running'])
+				)
+			)
 			.returning()
 
 		return repositoryImport
@@ -220,7 +225,12 @@ export class GitHubImportRepository {
 				failureReason,
 				completedAt: new Date(),
 			})
-			.where(eq(repositoryImports.id, importId))
+			.where(
+				and(
+					eq(repositoryImports.id, importId),
+					inArray(repositoryImports.status, ['pending', 'running'])
+				)
+			)
 			.returning()
 
 		return repositoryImport

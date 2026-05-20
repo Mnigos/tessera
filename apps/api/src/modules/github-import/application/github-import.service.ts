@@ -11,6 +11,7 @@ import type {
 } from '@repo/contracts'
 import type { RepositoryImportId } from '@repo/db'
 import type { RepositorySlug, UserId } from '@repo/domain'
+import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
 	GitHubImportAuthenticationError,
 	GitHubImportDuplicateActiveSourceError,
@@ -24,6 +25,17 @@ import {
 import { GitHubImportQueue } from '../infrastructure/github-import.queue'
 import { GitHubImportRepository as GitHubImportAccountsRepository } from '../infrastructure/github-import.repository'
 import { GitHubOctokitClient } from '../infrastructure/github-octokit.client'
+
+const ACTIVE_SOURCE_UNIQUE_CONSTRAINT =
+	'repository_imports_active_source_unique'
+const ACTIVE_TARGET_SLUG_UNIQUE_CONSTRAINT =
+	'repository_imports_active_target_slug_unique'
+const ACTIVE_SOURCE_UNIQUE_CONSTRAINTS = new Set([
+	ACTIVE_SOURCE_UNIQUE_CONSTRAINT,
+])
+const ACTIVE_TARGET_SLUG_UNIQUE_CONSTRAINTS = new Set([
+	ACTIVE_TARGET_SLUG_UNIQUE_CONSTRAINT,
+])
 
 @Injectable()
 export class GitHubImportService {
@@ -74,7 +86,7 @@ export class GitHubImportService {
 			userId,
 		})
 
-		const repositoryImport = await this.githubImportRepository.createImport({
+		const repositoryImport = await this.createAvailableImport({
 			userId,
 			targetSlug,
 			repository,
@@ -167,5 +179,37 @@ export class GitHubImportService {
 				targetSlug,
 				userId,
 			})
+	}
+
+	private async createAvailableImport({
+		repository,
+		targetSlug,
+		userId,
+	}: {
+		repository: GitHubImportRepository
+		targetSlug: RepositorySlug
+		userId: UserId
+	}) {
+		try {
+			return await this.githubImportRepository.createImport({
+				userId,
+				targetSlug,
+				repository,
+			})
+		} catch (error) {
+			if (isUniqueViolation(error, ACTIVE_SOURCE_UNIQUE_CONSTRAINTS))
+				throw new GitHubImportDuplicateActiveSourceError({
+					githubId: repository.githubId,
+					userId,
+				})
+
+			if (isUniqueViolation(error, ACTIVE_TARGET_SLUG_UNIQUE_CONSTRAINTS))
+				throw new GitHubImportTargetSlugUnavailableError({
+					targetSlug,
+					userId,
+				})
+
+			throw error
+		}
 	}
 }
