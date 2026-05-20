@@ -79,9 +79,9 @@ function getGitHubImportErrorMessage(error: unknown): string {
 	if (error && typeof error === 'object' && 'message' in error) {
 		const message = String(error.message)
 
-		if (message === 'github repository import source already exists')
+		if (message.includes('github repository import source'))
 			return 'This GitHub repository already has an active import.'
-		if (message === 'github repository import target slug already exists')
+		if (message.includes('github repository import target slug'))
 			return 'A repository with this target slug already exists.'
 
 		return 'GitHub import could not be queued.'

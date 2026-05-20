@@ -37,6 +37,7 @@ function GitHubImportRoute() {
 	const importsQuery = useGitHubImportsQuery()
 	const createImportMutation = useCreateGitHubImportMutation()
 	const [importError, setImportError] = useState<unknown>()
+	const [isImportingBatch, setIsImportingBatch] = useState(false)
 	const selectedRepositoryIds = parseSelectedRepositoryIds(
 		selectedRepositoryIdsSearch
 	)
@@ -74,25 +75,32 @@ function GitHubImportRoute() {
 	}
 
 	async function handleContinue() {
+		if (isImportingBatch) return
+
 		setImportError(undefined)
+		setIsImportingBatch(true)
 		const failedRepositoryIds: string[] = []
 
-		for (const githubId of selectedRepositoryIds) {
-			try {
-				await createImportMutation.mutateAsync({ githubId })
-			} catch (error) {
-				failedRepositoryIds.push(githubId)
-				setImportError(error)
+		try {
+			for (const githubId of selectedRepositoryIds) {
+				try {
+					await createImportMutation.mutateAsync({ githubId })
+				} catch (error) {
+					failedRepositoryIds.push(githubId)
+					setImportError(error)
+				}
 			}
-		}
 
-		await navigate({
-			search: previousSearch => ({
-				...previousSearch,
-				selectedRepositoryIds:
-					serializeSelectedRepositoryIds(failedRepositoryIds),
-			}),
-		})
+			await navigate({
+				search: previousSearch => ({
+					...previousSearch,
+					selectedRepositoryIds:
+						serializeSelectedRepositoryIds(failedRepositoryIds),
+				}),
+			})
+		} finally {
+			setIsImportingBatch(false)
+		}
 	}
 
 	async function handleReconnectGitHub() {
@@ -121,7 +129,7 @@ function GitHubImportRoute() {
 				error={repositoriesQuery.error}
 				importError={importError ?? createImportMutation.error}
 				isError={repositoriesQuery.isError}
-				isImporting={createImportMutation.isPending}
+				isImporting={isImportingBatch || createImportMutation.isPending}
 				isLoading={repositoriesQuery.isLoading}
 				onContinue={handleContinue}
 				onReconnectGitHub={handleReconnectGitHub}

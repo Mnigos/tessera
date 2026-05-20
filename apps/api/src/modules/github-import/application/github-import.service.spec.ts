@@ -192,6 +192,19 @@ describe(GitHubImportService.name, () => {
 		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
 	})
 
+	test('rejects repository listing when the GitHub token has no recorded scope', async () => {
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: null,
+			accessTokenExpiresAt: null,
+		})
+
+		await expect(
+			githubImportService.listRepositories(mockUserId)
+		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
+		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
+	})
+
 	test('creates an import from GitHub metadata and enqueues it', async () => {
 		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
 			accessToken: 'github-token',

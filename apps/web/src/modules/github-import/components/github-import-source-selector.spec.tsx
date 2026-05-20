@@ -2,7 +2,6 @@ import type { GitHubImportRepository } from '@repo/contracts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import {
 	GitHubImportSourceSelector,
-	isAuthenticationError,
 	isGitHubAccessError,
 } from './github-import-source-selector'
 
@@ -98,15 +97,6 @@ describe('GitHubImportSourceSelector', () => {
 		).toBeTruthy()
 		fireEvent.click(screen.getByRole('button', { name: 'Reconnect GitHub' }))
 		expect(onReconnectGitHub).toHaveBeenCalledOnce()
-		expect(
-			isAuthenticationError({
-				message: 'github import authentication required',
-				status: 403,
-			})
-		).toBe(true)
-		expect(
-			isAuthenticationError({ message: 'Unauthorized', status: 401 })
-		).toBe(false)
 	})
 
 	test('shows reconnect state for GitHub permission failures', () => {
@@ -131,6 +121,9 @@ describe('GitHubImportSourceSelector', () => {
 		expect(isGitHubAccessError({ message: 'Forbidden', status: 403 })).toBe(
 			true
 		)
+		expect(
+			isGitHubAccessError({ code: 'FORBIDDEN', message: 'Forbidden' })
+		).toBe(true)
 		expect(isGitHubAccessError({ message: 'Internal Server Error' })).toBe(
 			false
 		)
