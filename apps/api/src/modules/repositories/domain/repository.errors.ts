@@ -82,8 +82,12 @@ export class RepositoryGitWriteForbiddenError extends ForbiddenError {
 	}
 }
 
-export class RepositoryStoragePathMissingError extends InternalError {
+export class RepositoryStoragePathMissingError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
-		super('repository storage path', context)
+		super(
+			'repository',
+			{ ...context, reason: 'storage_path_missing' },
+			'repository not found while storage is being prepared'
+		)
 	}
 }
