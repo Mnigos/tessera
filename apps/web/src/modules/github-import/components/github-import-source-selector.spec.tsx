@@ -3,11 +3,12 @@ import { fireEvent, render, screen, within } from '@testing-library/react'
 import {
 	GitHubImportSourceSelector,
 	isAuthenticationError,
+	isGitHubAccessError,
 } from './github-import-source-selector'
 
 const repositories: GitHubImportRepository[] = [
 	{
-		githubId: 1,
+		githubId: '1',
 		ownerLogin: 'mnigos',
 		name: 'tessera',
 		fullName: 'mnigos/tessera',
@@ -17,7 +18,7 @@ const repositories: GitHubImportRepository[] = [
 		githubUrl: 'https://github.com/mnigos/tessera',
 	},
 	{
-		githubId: 2,
+		githubId: '2',
 		ownerLogin: 'ludus',
 		name: 'engine',
 		fullName: 'ludus/engine',
@@ -34,23 +35,31 @@ describe('GitHubImportSourceSelector', () => {
 		render(
 			<GitHubImportSourceSelector
 				isError={false}
+				isImporting={false}
 				isLoading
-				onSelectRepository={vi.fn()}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
 				repositories={[]}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
 		expect(screen.queryByText('No repositories found')).toBeNull()
-		expect(screen.queryByText('Selected source')).toBeNull()
+		expect(screen.queryByText('Selected sources')).toBeNull()
 	})
 
 	test('shows generic error state', () => {
 		render(
 			<GitHubImportSourceSelector
 				isError
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={vi.fn()}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
 				repositories={[]}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
@@ -61,6 +70,8 @@ describe('GitHubImportSourceSelector', () => {
 	})
 
 	test('shows auth failure state', () => {
+		const onReconnectGitHub = vi.fn()
+
 		render(
 			<GitHubImportSourceSelector
 				error={{
@@ -68,16 +79,25 @@ describe('GitHubImportSourceSelector', () => {
 					status: 401,
 				}}
 				isError
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={vi.fn()}
+				onContinue={vi.fn()}
+				onReconnectGitHub={onReconnectGitHub}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
 				repositories={[]}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
 		expect(screen.getByText('GitHub access needs attention')).toBeTruthy()
 		expect(
-			screen.getByText('Reconnect GitHub from your profile, then return here.')
+			screen.getByText(
+				'Reconnect GitHub with repository access, then return here.'
+			)
 		).toBeTruthy()
+		fireEvent.click(screen.getByRole('button', { name: 'Reconnect GitHub' }))
+		expect(onReconnectGitHub).toHaveBeenCalledOnce()
 		expect(
 			isAuthenticationError({
 				message: 'github import authentication required',
@@ -89,13 +109,44 @@ describe('GitHubImportSourceSelector', () => {
 		).toBe(false)
 	})
 
+	test('shows reconnect state for GitHub permission failures', () => {
+		render(
+			<GitHubImportSourceSelector
+				error={{
+					message: 'github import access denied',
+					status: 403,
+				}}
+				isError
+				isImporting={false}
+				isLoading={false}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
+				repositories={[]}
+				selectedRepositoryIds={[]}
+			/>
+		)
+
+		expect(screen.getByText('GitHub access needs attention')).toBeTruthy()
+		expect(isGitHubAccessError({ message: 'Forbidden', status: 403 })).toBe(
+			true
+		)
+		expect(isGitHubAccessError({ message: 'Internal Server Error' })).toBe(
+			false
+		)
+	})
+
 	test('shows empty state', () => {
 		render(
 			<GitHubImportSourceSelector
 				isError={false}
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={vi.fn()}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
 				repositories={[]}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
@@ -109,9 +160,13 @@ describe('GitHubImportSourceSelector', () => {
 		render(
 			<GitHubImportSourceSelector
 				isError={false}
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={vi.fn()}
+				onContinue={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
 				repositories={repositories}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
@@ -126,14 +181,20 @@ describe('GitHubImportSourceSelector', () => {
 		expect(screen.getByText('trunk')).toBeTruthy()
 	})
 
-	test('selects one repository through the URL-backed callback', () => {
-		const onSelectRepository = vi.fn()
+	test('selects multiple repositories through URL-backed callbacks', () => {
+		const onContinue = vi.fn()
+		const onSelectAllRepositories = vi.fn()
+		const onToggleRepository = vi.fn()
 		const { rerender } = render(
 			<GitHubImportSourceSelector
 				isError={false}
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={onSelectRepository}
+				onContinue={onContinue}
+				onSelectAllRepositories={onSelectAllRepositories}
+				onToggleRepository={onToggleRepository}
 				repositories={repositories}
+				selectedRepositoryIds={[]}
 			/>
 		)
 
@@ -141,23 +202,30 @@ describe('GitHubImportSourceSelector', () => {
 			screen.getByRole('button', { name: TESSERA_REPOSITORY_NAME_REGEX })
 		)
 
-		expect(onSelectRepository).toHaveBeenCalledWith(1)
+		expect(onToggleRepository).toHaveBeenCalledWith('1')
 
 		rerender(
 			<GitHubImportSourceSelector
 				isError={false}
+				isImporting={false}
 				isLoading={false}
-				onSelectRepository={onSelectRepository}
+				onContinue={onContinue}
+				onSelectAllRepositories={onSelectAllRepositories}
+				onToggleRepository={onToggleRepository}
 				repositories={repositories}
-				selectedRepositoryId={1}
+				selectedRepositoryIds={['1', '2']}
 			/>
 		)
 
-		expect(screen.getAllByText('mnigos/tessera')).toHaveLength(2)
+		expect(screen.getByText('2 repositories ready to import.')).toBeTruthy()
 		expect(
 			screen.getByRole<HTMLButtonElement>('button', { name: 'Continue' })
 				.disabled
-		).toBe(true)
+		).toBe(false)
+		fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
+		expect(onContinue).toHaveBeenCalledOnce()
+		fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+		expect(onSelectAllRepositories).toHaveBeenCalledOnce()
 		expect(
 			screen
 				.getByRole('button', { name: TESSERA_REPOSITORY_NAME_REGEX })
