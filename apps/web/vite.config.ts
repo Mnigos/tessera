@@ -41,6 +41,18 @@ const config = defineConfig({
 				'/git-access-tokens/**': {
 					proxy: `${apiUrl}/git-access-tokens/**`,
 				},
+				'/github-import': {
+					proxy: `${apiUrl}/github-import`,
+				},
+				'/github-import/**': {
+					proxy: `${apiUrl}/github-import/**`,
+				},
+				'/gpg-public-keys': {
+					proxy: `${apiUrl}/gpg-public-keys`,
+				},
+				'/gpg-public-keys/**': {
+					proxy: `${apiUrl}/gpg-public-keys/**`,
+				},
 				'/organizations': {
 					proxy: `${apiUrl}/organizations`,
 				},

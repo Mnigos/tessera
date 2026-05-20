@@ -1,6 +1,7 @@
 import { ORPCError, safe } from '@orpc/client'
-import { createFileRoute, notFound } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { z } from 'zod'
+import { RepositoryBrowserMessage } from '../components/repository-browser-message'
 import { RepositoryOverview } from '../components/repository-overview'
 import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 
@@ -18,7 +19,12 @@ export const Route = createFileRoute('/$username/$slug')({
 			)
 		)
 
-		if (error instanceof ORPCError && error.status === 404) throw notFound()
+		if (error instanceof ORPCError && error.status === 404)
+			return {
+				name: slug,
+				slug,
+				username,
+			}
 
 		if (error) throw error
 
@@ -51,6 +57,7 @@ function RepositoryRoute() {
 	const { ref } = Route.useSearch()
 	const {
 		data: summary,
+		error,
 		isLoading,
 		isError,
 	} = useRepositoryBrowserSummaryQuery({ ref, slug, username })
@@ -69,18 +76,26 @@ function RepositoryRoute() {
 	if (isError)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
-				<div className="border border-border border-dashed p-6 text-muted-foreground text-sm">
-					Repository could not be loaded.
-				</div>
+				<RepositoryBrowserMessage
+					title={
+						error instanceof ORPCError && error.status === 404
+							? 'Repository is not ready'
+							: 'Repository could not be loaded'
+					}
+				>
+					{error instanceof ORPCError && error.status === 404
+						? 'This repository exists, but its Git data is not available yet. Try again after the import finishes.'
+						: 'The repository overview could not be loaded.'}
+				</RepositoryBrowserMessage>
 			</main>
 		)
 
 	if (!summary)
 		return (
 			<main className="mx-auto max-w-6xl px-6 py-8">
-				<div className="border border-border border-dashed p-6 text-muted-foreground text-sm">
-					Repository has no overview data yet.
-				</div>
+				<RepositoryBrowserMessage title="Repository has no overview data">
+					The repository overview returned no data.
+				</RepositoryBrowserMessage>
 			</main>
 		)
 
