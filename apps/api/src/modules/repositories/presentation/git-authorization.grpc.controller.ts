@@ -114,11 +114,11 @@ function toGrpcException(error: unknown) {
 function getGrpcStatus(error: unknown) {
 	if (!(error instanceof DomainError)) return status.INTERNAL
 
+	if (error instanceof RepositoryStoragePathMissingError)
+		return status.FAILED_PRECONDITION
 	if (error.code === 'UNAUTHORIZED') return status.UNAUTHENTICATED
 	if (error.code === 'FORBIDDEN') return status.PERMISSION_DENIED
 	if (error.code === 'NOT_FOUND') return status.NOT_FOUND
-	if (error instanceof RepositoryStoragePathMissingError)
-		return status.FAILED_PRECONDITION
 
 	return status.INTERNAL
 }

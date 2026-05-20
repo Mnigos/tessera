@@ -1,6 +1,6 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { and, eq, repositories } from '@repo/db'
+import { and, eq, isNotNull, repositories } from '@repo/db'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
@@ -109,7 +109,10 @@ describe(RepositoriesRepository.name, () => {
 		])
 		expect(findManyMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: eq(repositories.ownerUserId, mockUserId),
+				where: and(
+					eq(repositories.ownerUserId, mockUserId),
+					isNotNull(repositories.storagePath)
+				),
 			})
 		)
 	})

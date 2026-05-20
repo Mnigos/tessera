@@ -1,6 +1,6 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
-import { and, asc, eq, repositories, user } from '@repo/db'
+import { and, asc, eq, isNotNull, repositories, user } from '@repo/db'
 import type {
 	RepositoryId,
 	RepositoryName,
@@ -48,13 +48,22 @@ interface UpdateStoragePathParams extends RepositoryIdParams {
 	username: string
 }
 
+interface UpdateImportStorageParams extends RepositoryIdParams {
+	defaultBranch: string
+	storagePath: string
+	username: string
+}
+
 @Injectable()
 export class RepositoriesRepository {
 	constructor(private readonly db: Database) {}
 
 	async list({ userId }: UserParams): Promise<RepositoryWithOwner[]> {
 		const rows = await this.db.query.repositories.findMany({
-			where: eq(repositories.ownerUserId, userId),
+			where: and(
+				eq(repositories.ownerUserId, userId),
+				isNotNull(repositories.storagePath)
+			),
 			with: {
 				ownerUser: { columns: { username: true } },
 			},
@@ -169,6 +178,38 @@ export class RepositoriesRepository {
 		const [repository] = await this.db
 			.update(repositories)
 			.set({ storagePath })
+			.where(eq(repositories.id, repositoryId))
+			.returning({
+				id: repositories.id,
+				name: repositories.name,
+				slug: repositories.slug,
+				description: repositories.description,
+				visibility: repositories.visibility,
+				ownerUserId: repositories.ownerUserId,
+				ownerOrganizationId: repositories.ownerOrganizationId,
+				defaultBranch: repositories.defaultBranch,
+				storagePath: repositories.storagePath,
+				createdAt: repositories.createdAt,
+				updatedAt: repositories.updatedAt,
+			})
+
+		if (!repository) return undefined
+
+		return {
+			...repository,
+			ownerUser: { username },
+		}
+	}
+
+	async updateImportStorage({
+		defaultBranch,
+		repositoryId,
+		storagePath,
+		username,
+	}: UpdateImportStorageParams): Promise<RepositoryWithOwner | undefined> {
+		const [repository] = await this.db
+			.update(repositories)
+			.set({ defaultBranch, storagePath })
 			.where(eq(repositories.id, repositoryId))
 			.returning({
 				id: repositories.id,

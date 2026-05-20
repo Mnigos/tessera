@@ -80,6 +80,13 @@ interface CreateRepositoryMetadataParams {
 	visibility: CreateRepositoryInput['visibility']
 }
 
+interface UpdateImportedRepositoryStorageParams {
+	defaultBranch: string
+	repositoryId: RepositoryId
+	storagePath: string
+	username: string
+}
+
 interface ReadableRepositoryContext {
 	repository: RepositoryWithOwnerEntity
 	storagePath: string
@@ -111,6 +118,14 @@ export interface GitRepositoryAuthorization {
 	repositoryId: RepositoryId
 	storagePath: string
 	trustedUser: string
+}
+
+export interface CreateImportedRepositoryMetadataInput {
+	name: RepositoryName
+	slug: RepositorySlug
+	userId: UserId
+	username: string
+	visibility: CreateRepositoryInput['visibility']
 }
 
 @Injectable()
@@ -171,6 +186,43 @@ export class RepositoriesService {
 		const repositories = await this.repositoriesRepository.list({ userId })
 
 		return repositories.map(toRepositoryOutput)
+	}
+
+	async createImportedRepositoryMetadata({
+		name,
+		slug,
+		userId,
+		username,
+		visibility,
+	}: CreateImportedRepositoryMetadataInput): Promise<RepositoryWithOwnerEntity> {
+		return await this.createRepositoryMetadata({
+			userId,
+			name,
+			slug,
+			username,
+			description: undefined,
+			visibility,
+		})
+	}
+
+	async updateImportedRepositoryStorage({
+		defaultBranch,
+		repositoryId,
+		storagePath,
+		username,
+	}: UpdateImportedRepositoryStorageParams): Promise<
+		RepositoryWithOwnerEntity | undefined
+	> {
+		return await this.repositoriesRepository.updateImportStorage({
+			repositoryId,
+			storagePath,
+			defaultBranch,
+			username,
+		})
+	}
+
+	async deleteRepositoryMetadata(repositoryId: RepositoryId): Promise<void> {
+		await this.cleanupCreatedRepository(repositoryId)
 	}
 
 	async get(
