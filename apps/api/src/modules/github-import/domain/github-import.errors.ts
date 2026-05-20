@@ -2,7 +2,6 @@ import {
 	ConflictError,
 	ExternalServiceError,
 	ForbiddenError,
-	InternalError,
 	NotFoundError,
 	UnauthorizedError,
 } from '~/shared/errors'
@@ -43,11 +42,5 @@ export class GitHubImportTargetSlugUnavailableError extends ConflictError {
 export class GitHubImportNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super('github repository import', context)
-	}
-}
-
-export class GitHubImportRepositoryCreateFailedError extends InternalError {
-	constructor(context?: Record<string, unknown>) {
-		super('github repository import repository create', context)
 	}
 }
