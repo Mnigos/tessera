@@ -35,15 +35,18 @@ const githubRepositoryResponse = {
 describe(GitHubOctokitClient.name, () => {
 	let githubOctokitClient: GitHubOctokitClient
 	let paginate: ReturnType<typeof vi.fn>
+	let request: ReturnType<typeof vi.fn>
 	const listForAuthenticatedUser = vi.fn()
 
 	beforeEach(() => {
 		vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 		paginate = vi.fn()
+		request = vi.fn()
 		githubOctokitClient = new GitHubOctokitClient()
 		vi.spyOn(githubOctokitClient, 'createForUser').mockReturnValue({
 			paginate,
+			request,
 			rest: {
 				repos: {
 					listForAuthenticatedUser,
@@ -84,6 +87,20 @@ describe(GitHubOctokitClient.name, () => {
 			},
 			expect.any(Function)
 		)
+	})
+
+	test('fetches a repository by numeric GitHub id', async () => {
+		request.mockResolvedValue({ data: githubRepositoryResponse })
+
+		expect(
+			await githubOctokitClient.getRepository({
+				accessToken: 'github-token',
+				githubId: '123',
+			})
+		).toEqual(repository)
+		expect(request).toHaveBeenCalledWith('GET /repositories/{repository_id}', {
+			repository_id: 123,
+		})
 	})
 
 	test('falls back to private visibility when GitHub omits visibility', async () => {

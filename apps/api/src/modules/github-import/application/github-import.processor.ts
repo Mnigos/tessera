@@ -33,6 +33,7 @@ export class GitHubImportProcessor extends WorkerHost {
 		if (!repositoryImport) return
 
 		let repositoryId: RepositoryId | undefined
+		let didCreateStorage = false
 
 		try {
 			const [account, username] = await Promise.all([
@@ -63,6 +64,7 @@ export class GitHubImportProcessor extends WorkerHost {
 			const { storagePath } = await this.gitStorageClient.createRepository({
 				repositoryId: repository.id,
 			})
+			didCreateStorage = true
 			const importResult = await this.gitStorageClient.importRepository({
 				repositoryId: repository.id,
 				storagePath,
@@ -102,7 +104,7 @@ export class GitHubImportProcessor extends WorkerHost {
 			}
 			const isFinalAttempt = isFinalJobAttempt(job)
 
-			if (isFinalAttempt)
+			if (isFinalAttempt || didCreateStorage)
 				await this.githubImportRepository.markFailed({
 					importId: repositoryImport.id,
 					failureReason,
@@ -113,7 +115,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 			this.logImportFailure(error, isFinalAttempt)
 
-			if (!isFinalAttempt) throw error
+			if (!(isFinalAttempt || didCreateStorage)) throw error
 		}
 	}
 

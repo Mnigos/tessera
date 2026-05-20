@@ -228,7 +228,57 @@ describe(GitHubImportProcessor.name, () => {
 		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
 	})
 
-	test('throws without marking failed before the final retry attempt', async () => {
+	test('throws without marking failed before storage is allocated on a retryable attempt', async () => {
+		const retryingJob = {
+			...job,
+			attemptsMade: 0,
+			opts: { attempts: 2 },
+		} as Job<GitHubImportRepositoryJobData>
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
+			new Error('storage unavailable')
+		)
+		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
+
+		await expect(processor.process(retryingJob)).rejects.toThrow(
+			'storage unavailable'
+		)
+		expect(markFailedSpy).not.toHaveBeenCalled()
+		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+	})
+
+	test('marks failed without retrying after storage is allocated', async () => {
 		const retryingJob = {
 			...job,
 			attemptsMade: 0,
@@ -269,9 +319,18 @@ describe(GitHubImportProcessor.name, () => {
 			new Error('clone failed')
 		)
 		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
 
-		await expect(processor.process(retryingJob)).rejects.toThrow('clone failed')
-		expect(markFailedSpy).not.toHaveBeenCalled()
+		await processor.process(retryingJob)
+
+		expect(markFailedSpy).toHaveBeenCalledWith({
+			importId,
+			failureReason: 'clone failed',
+		})
+		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
 	})
 
 	test('warns without marking failed when git storage is temporarily unavailable', async () => {
