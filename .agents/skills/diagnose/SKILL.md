@@ -59,6 +59,7 @@ Confirm:
 - [ ] The loop produces the failure mode the **user** described — not a different failure that happens to be nearby. Wrong bug = wrong fix.
 - [ ] The failure is reproducible across multiple runs (or, for non-deterministic bugs, reproducible at a high enough rate to debug against).
 - [ ] You have captured the exact symptom (error message, wrong output, slow timing) so later phases can verify the fix actually addresses it.
+- [ ] For async, queued, import, sync, or background-worker bugs, the loop observes the actual state transition and terminal status, not only a nicer loading/error placeholder.
 
 Do not proceed until you reproduce the bug.
 
@@ -110,6 +111,7 @@ Required before declaring done:
 
 - [ ] Original repro no longer reproduces (re-run the Phase 1 loop)
 - [ ] Regression test passes (or absence of seam is documented)
+- [ ] For background workflows, the user-visible action has a visible queued/running/succeeded/failed result and the backend state confirms the terminal outcome.
 - [ ] All `[DEBUG-...]` instrumentation removed (`grep` the prefix)
 - [ ] Throwaway prototypes deleted (or moved to a clearly-marked debug location)
 - [ ] The hypothesis that turned out correct is stated in the commit / PR message — so the next debugger learns
