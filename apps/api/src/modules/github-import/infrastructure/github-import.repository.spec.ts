@@ -1,6 +1,8 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { account, and, eq } from '@repo/db'
+import type { RepositoryImportId } from '@repo/db'
+import { account, and, eq, inArray, repositoryImports } from '@repo/db'
+import type { RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { GitHubImportRepository } from './github-import.repository'
 
@@ -9,8 +11,17 @@ describe(GitHubImportRepository.name, () => {
 	let githubImportRepository: GitHubImportRepository
 
 	const findFirstMock = vi.fn()
+	const findFirstImportMock = vi.fn()
+	const updateMock = vi.fn()
+	const setMock = vi.fn()
+	const whereMock = vi.fn()
+	const updateReturningMock = vi.fn()
 
 	beforeEach(async () => {
+		updateReturningMock.mockResolvedValue([])
+		whereMock.mockReturnValue({ returning: updateReturningMock })
+		setMock.mockReturnValue({ where: whereMock })
+		updateMock.mockReturnValue({ set: setMock })
 		moduleRef = await Test.createTestingModule({
 			providers: [
 				GitHubImportRepository,
@@ -21,7 +32,11 @@ describe(GitHubImportRepository.name, () => {
 							account: {
 								findFirst: findFirstMock,
 							},
+							repositoryImports: {
+								findFirst: findFirstImportMock,
+							},
 						},
+						update: updateMock,
 					},
 				},
 			],
@@ -60,5 +75,65 @@ describe(GitHubImportRepository.name, () => {
 				accessTokenExpiresAt: true,
 			},
 		})
+	})
+
+	test('checks active imports for a GitHub source', async () => {
+		findFirstImportMock.mockResolvedValue({
+			id: '00000000-0000-4000-8000-000000000029',
+		})
+
+		expect(
+			await githubImportRepository.hasActiveSource({
+				userId: mockUserId,
+				githubId: '123',
+			})
+		).toBe(true)
+		expect(findFirstImportMock).toHaveBeenCalledWith({
+			where: and(
+				eq(repositoryImports.ownerUserId, mockUserId),
+				eq(repositoryImports.sourceGithubId, 123n),
+				inArray(repositoryImports.status, ['pending', 'running', 'succeeded'])
+			),
+			columns: { id: true },
+		})
+	})
+
+	test('checks active imports for a target slug', async () => {
+		findFirstImportMock.mockResolvedValue(undefined)
+
+		expect(
+			await githubImportRepository.hasActiveTargetSlug({
+				userId: mockUserId,
+				targetSlug: 'tessera' as RepositorySlug,
+			})
+		).toBe(false)
+		expect(findFirstImportMock).toHaveBeenCalledWith({
+			where: and(
+				eq(repositoryImports.ownerUserId, mockUserId),
+				eq(repositoryImports.targetSlug, 'tessera' as RepositorySlug),
+				inArray(repositoryImports.status, ['pending', 'running', 'succeeded'])
+			),
+			columns: { id: true },
+		})
+	})
+
+	test('only marks pending or running imports as running', async () => {
+		const importId =
+			'00000000-0000-4000-8000-000000000029' as RepositoryImportId
+
+		await githubImportRepository.markRunning({ importId })
+
+		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
+		expect(setMock).toHaveBeenCalledWith({
+			status: 'running',
+			startedAt: expect.any(Date),
+			failureReason: null,
+		})
+		expect(whereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositoryImports.id, importId),
+				inArray(repositoryImports.status, ['pending', 'running'])
+			)
+		)
 	})
 })

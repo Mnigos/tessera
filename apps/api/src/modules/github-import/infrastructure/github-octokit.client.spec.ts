@@ -8,7 +8,7 @@ import {
 import { GitHubOctokitClient } from './github-octokit.client'
 
 const repository: GitHubImportRepository = {
-	githubId: 123,
+	githubId: '123',
 	ownerLogin: 'marta',
 	name: 'tessera',
 	fullName: 'marta/tessera',
