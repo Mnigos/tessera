@@ -19,7 +19,7 @@ export const Route = createFileRoute('/$username/$slug')({
 			)
 		)
 
-		if (error instanceof ORPCError && error.status === 404)
+		if (isRepositoryNotReadyError(error))
 			return {
 				name: slug,
 				slug,
@@ -78,12 +78,12 @@ function RepositoryRoute() {
 			<main className="mx-auto max-w-6xl px-6 py-8">
 				<RepositoryBrowserMessage
 					title={
-						error instanceof ORPCError && error.status === 404
+						isRepositoryNotReadyError(error)
 							? 'Repository is not ready'
 							: 'Repository could not be loaded'
 					}
 				>
-					{error instanceof ORPCError && error.status === 404
+					{isRepositoryNotReadyError(error)
 						? 'This repository exists, but its Git data is not available yet. Try again after the import finishes.'
 						: 'The repository overview could not be loaded.'}
 				</RepositoryBrowserMessage>
@@ -103,5 +103,13 @@ function RepositoryRoute() {
 		<main className="mx-auto max-w-6xl px-6 py-8">
 			<RepositoryOverview selectedRef={ref} summary={summary} />
 		</main>
+	)
+}
+
+function isRepositoryNotReadyError(error: unknown) {
+	return (
+		error instanceof ORPCError &&
+		error.status === 404 &&
+		error.message === 'repository not found while storage is being prepared'
 	)
 }

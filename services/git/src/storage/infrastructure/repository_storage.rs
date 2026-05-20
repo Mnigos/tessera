@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use base64::Engine;
 use tokio::fs;
@@ -113,7 +114,6 @@ impl RepositoryStorage {
         tracing::info!(
             repository_id = %repository_id,
             storage_path = %storage_path,
-            source_url = %source_url,
             "importing repository"
         );
 
@@ -233,6 +233,7 @@ impl RepositoryStorage {
         source_url: &str,
         access_token: Option<&str>,
     ) -> Result<(), RepositoryError> {
+        let temporary_repository_path = temporary_import_path(repository_path);
         let mut command = Command::new(&self.git_binary);
         add_access_token_config(&mut command, access_token);
         let output = timeout(
@@ -241,7 +242,7 @@ impl RepositoryStorage {
                 .arg("clone")
                 .arg("--mirror")
                 .arg(source_url)
-                .arg(repository_path)
+                .arg(&temporary_repository_path)
                 .output(),
         )
         .await
@@ -249,9 +250,18 @@ impl RepositoryStorage {
         .map_err(RepositoryError::GitProcessIo)?;
 
         if !output.status.success() {
-            cleanup_created_repository(&repository_path.to_path_buf()).await;
+            cleanup_created_repository(&temporary_repository_path).await;
 
             return Err(RepositoryError::GitProcessFailed);
+        }
+
+        reject_symlink(&temporary_repository_path).await?;
+        if let Err(error) = fs::rename(&temporary_repository_path, repository_path).await {
+            cleanup_created_repository(&temporary_repository_path).await;
+
+            if error.kind() != std::io::ErrorKind::AlreadyExists {
+                return Err(RepositoryError::StorageIo(error));
+            }
         }
 
         Ok(())
@@ -331,7 +341,13 @@ impl RepositoryStorage {
             .to_string();
 
         if default_branch.is_empty() {
-            return Err(RepositoryError::InvalidRepositoryRef);
+            if hinted_branch.is_empty() {
+                return Err(RepositoryError::InvalidRepositoryRef);
+            }
+
+            set_symbolic_head(&self.git_binary, repository_path, hinted_branch).await?;
+
+            return Ok(hinted_branch.to_string());
         }
 
         set_symbolic_head(&self.git_binary, repository_path, &default_branch).await?;
@@ -496,6 +512,19 @@ async fn ensure_repositories_root(storage_root: &Path) -> Result<(), RepositoryE
 
 async fn cleanup_created_repository(repository_path: &PathBuf) {
     let _ = fs::remove_dir_all(repository_path).await;
+}
+
+fn temporary_import_path(repository_path: &Path) -> PathBuf {
+    let suffix = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_nanos())
+        .unwrap_or_default();
+    let file_name = repository_path
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or("repository.git");
+
+    repository_path.with_file_name(format!("{file_name}.import-{suffix}"))
 }
 
 #[cfg(test)]

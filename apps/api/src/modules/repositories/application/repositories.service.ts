@@ -222,7 +222,7 @@ export class RepositoriesService {
 	}
 
 	async deleteRepositoryMetadata(repositoryId: RepositoryId): Promise<void> {
-		await this.cleanupCreatedRepository(repositoryId)
+		await this.repositoriesRepository.delete({ repositoryId })
 	}
 
 	async get(
