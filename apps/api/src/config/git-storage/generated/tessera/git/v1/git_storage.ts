@@ -64,6 +64,19 @@ export interface CreateRepositoryResponse {
   storagePath: string;
 }
 
+export interface ImportRepositoryRequest {
+  repositoryId: string;
+  storagePath: string;
+  sourceUrl: string;
+  accessToken?: string | undefined;
+  defaultBranchHint: string;
+}
+
+export interface ImportRepositoryResponse {
+  defaultBranch: string;
+  storagePath: string;
+}
+
 export interface ListRepositoryRefsRequest {
   repositoryId: string;
   storagePath: string;
@@ -316,6 +329,135 @@ export const CreateRepositoryResponse: MessageFns<CreateRepositoryResponse> = {
       switch (tag >>> 3) {
         case 1: {
           if (tag !== 10) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseImportRepositoryRequest(): ImportRepositoryRequest {
+  return { repositoryId: "", storagePath: "", sourceUrl: "", defaultBranchHint: "" };
+}
+
+export const ImportRepositoryRequest: MessageFns<ImportRepositoryRequest> = {
+  encode(message: ImportRepositoryRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.sourceUrl !== "") {
+      writer.uint32(26).string(message.sourceUrl);
+    }
+    if (message.accessToken !== undefined) {
+      writer.uint32(34).string(message.accessToken);
+    }
+    if (message.defaultBranchHint !== "") {
+      writer.uint32(42).string(message.defaultBranchHint);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImportRepositoryRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImportRepositoryRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.sourceUrl = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.accessToken = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.defaultBranchHint = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseImportRepositoryResponse(): ImportRepositoryResponse {
+  return { defaultBranch: "", storagePath: "" };
+}
+
+export const ImportRepositoryResponse: MessageFns<ImportRepositoryResponse> = {
+  encode(message: ImportRepositoryResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.defaultBranch !== "") {
+      writer.uint32(10).string(message.defaultBranch);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): ImportRepositoryResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseImportRepositoryResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.defaultBranch = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
             break;
           }
 
@@ -1623,6 +1765,8 @@ export interface GitStorageServiceClient {
 
   createRepository(request: CreateRepositoryRequest, metadata?: Metadata): Observable<CreateRepositoryResponse>;
 
+  importRepository(request: ImportRepositoryRequest, metadata?: Metadata): Observable<ImportRepositoryResponse>;
+
   listRepositoryRefs(request: ListRepositoryRefsRequest, metadata?: Metadata): Observable<ListRepositoryRefsResponse>;
 
   getRepositoryBrowserSummary(
@@ -1655,6 +1799,11 @@ export interface GitStorageServiceController {
     request: CreateRepositoryRequest,
     metadata?: Metadata,
   ): Promise<CreateRepositoryResponse> | Observable<CreateRepositoryResponse> | CreateRepositoryResponse;
+
+  importRepository(
+    request: ImportRepositoryRequest,
+    metadata?: Metadata,
+  ): Promise<ImportRepositoryResponse> | Observable<ImportRepositoryResponse> | ImportRepositoryResponse;
 
   listRepositoryRefs(
     request: ListRepositoryRefsRequest,
@@ -1695,6 +1844,7 @@ export function GitStorageServiceControllerMethods() {
     const grpcMethods: string[] = [
       "health",
       "createRepository",
+      "importRepository",
       "listRepositoryRefs",
       "getRepositoryBrowserSummary",
       "getRepositoryTree",
@@ -1737,6 +1887,17 @@ export const GitStorageServiceService = {
     responseSerialize: (value: CreateRepositoryResponse): Buffer =>
       Buffer.from(CreateRepositoryResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): CreateRepositoryResponse => CreateRepositoryResponse.decode(value),
+  },
+  importRepository: {
+    path: "/tessera.git.v1.GitStorageService/ImportRepository" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: ImportRepositoryRequest): Buffer =>
+      Buffer.from(ImportRepositoryRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): ImportRepositoryRequest => ImportRepositoryRequest.decode(value),
+    responseSerialize: (value: ImportRepositoryResponse): Buffer =>
+      Buffer.from(ImportRepositoryResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): ImportRepositoryResponse => ImportRepositoryResponse.decode(value),
   },
   listRepositoryRefs: {
     path: "/tessera.git.v1.GitStorageService/ListRepositoryRefs" as const,
@@ -1811,6 +1972,7 @@ export const GitStorageServiceService = {
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
   health: handleUnaryCall<HealthRequest, HealthResponse>;
   createRepository: handleUnaryCall<CreateRepositoryRequest, CreateRepositoryResponse>;
+  importRepository: handleUnaryCall<ImportRepositoryRequest, ImportRepositoryResponse>;
   listRepositoryRefs: handleUnaryCall<ListRepositoryRefsRequest, ListRepositoryRefsResponse>;
   getRepositoryBrowserSummary: handleUnaryCall<GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse>;
   getRepositoryTree: handleUnaryCall<GetRepositoryTreeRequest, GetRepositoryTreeResponse>;
