@@ -1,7 +1,7 @@
+use std::env;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
-use std::{env, process};
 
 const DEFAULT_HOST: &str = "::";
 const DEFAULT_PORT: u16 = 50051;
@@ -104,7 +104,7 @@ fn load_dotenv() {
 }
 
 fn default_storage_root() -> PathBuf {
-    env::temp_dir().join(format!("tessera-git-{}", process::id()))
+    env::temp_dir().join("tessera-git-storage")
 }
 
 fn required_env(name: &str, error: ConfigError) -> Result<String, ConfigError> {
@@ -162,3 +162,16 @@ impl fmt::Display for ConfigError {
 }
 
 impl std::error::Error for ConfigError {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_storage_root_is_stable_across_process_restarts() {
+        assert_eq!(
+            default_storage_root(),
+            env::temp_dir().join("tessera-git-storage")
+        );
+    }
+}

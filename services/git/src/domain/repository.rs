@@ -8,6 +8,12 @@ pub struct RepositoryCreated {
 }
 
 #[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryImported {
+    pub default_branch: String,
+    pub storage_path: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub struct RepositoryBrowserSummary {
     pub is_empty: bool,
     pub default_branch: String,

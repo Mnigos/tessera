@@ -11,9 +11,10 @@ use crate::proto::{
     GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
     GetRepositoryBrowserSummaryResponse, GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse,
     GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
-    ListRepositoryCommitsRequest, ListRepositoryCommitsResponse, ListRepositoryRefsRequest,
-    ListRepositoryRefsResponse, RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState,
-    RepositoryCommit, RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
+    ImportRepositoryRequest, ImportRepositoryResponse, ListRepositoryCommitsRequest,
+    ListRepositoryCommitsResponse, ListRepositoryRefsRequest, ListRepositoryRefsResponse,
+    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryCommit,
+    RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
     RepositoryRefKind as ProtoRepositoryRefKind, RepositorySignature,
     RepositorySignatureState as ProtoRepositorySignatureState, RepositoryTreeEntry,
     RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind, TrustedGpgKey,
@@ -60,6 +61,29 @@ impl GitStorageService for GitStorageGrpcService {
 
         Ok(Response::new(CreateRepositoryResponse {
             storage_path: repository.storage_path,
+        }))
+    }
+
+    async fn import_repository(
+        &self,
+        request: Request<ImportRepositoryRequest>,
+    ) -> Result<Response<ImportRepositoryResponse>, Status> {
+        let request = request.into_inner();
+        let import = self
+            .application
+            .import_repository(
+                &request.repository_id,
+                &request.storage_path,
+                &request.source_url,
+                request.access_token.as_deref(),
+                &request.default_branch_hint,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(ImportRepositoryResponse {
+            default_branch: import.default_branch,
+            storage_path: import.storage_path,
         }))
     }
 
