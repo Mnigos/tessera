@@ -1,11 +1,19 @@
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { z } from 'zod'
+import { authClient } from '@/lib/auth/client'
+import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { GitHubImportActivity } from '../components/github-import-activity'
 import { GitHubImportSourceSelector } from '../components/github-import-source-selector'
+import { useCreateGitHubImportMutation } from '../hooks/use-create-github-import.mutation'
 import { useGitHubImportRepositoriesQuery } from '../hooks/use-github-import-repositories.query'
+import { useGitHubImportsQuery } from '../hooks/use-github-imports.query'
 
 export const Route = createFileRoute('/import/github')({
 	validateSearch: z.object({
-		selectedRepositoryId: z.coerce.number().int().nonnegative().optional(),
+		selectedRepositoryIds: z
+			.string()
+			.regex(/^\d+(,\d+)*$/)
+			.optional(),
 	}),
 	head: () => ({
 		meta: [
@@ -20,16 +28,68 @@ export const Route = createFileRoute('/import/github')({
 })
 
 function GitHubImportRoute() {
-	const { selectedRepositoryId } = Route.useSearch()
+	const { selectedRepositoryIds: selectedRepositoryIdsSearch } =
+		Route.useSearch()
 	const navigate = useNavigate({ from: '/import/github' })
+	const { user } = useAuth()
 	const repositoriesQuery = useGitHubImportRepositoriesQuery()
+	const importsQuery = useGitHubImportsQuery()
+	const createImportMutation = useCreateGitHubImportMutation()
+	const selectedRepositoryIds = parseSelectedRepositoryIds(
+		selectedRepositoryIdsSearch
+	)
 
-	function handleSelectRepository(repositoryId: number) {
+	function handleToggleRepository(repositoryId: string) {
 		navigate({
 			search: previousSearch => ({
 				...previousSearch,
-				selectedRepositoryId: repositoryId,
+				selectedRepositoryIds: serializeSelectedRepositoryIds(
+					toggleSelectedRepositoryId(selectedRepositoryIds, repositoryId)
+				),
 			}),
+		})
+	}
+
+	function handleSelectAllRepositories() {
+		const repositoryIds =
+			repositoriesQuery.data?.repositories.map(
+				repository => repository.githubId
+			) ?? []
+		const allRepositoryIdsSelected =
+			repositoryIds.length > 0 &&
+			repositoryIds.every(repositoryId =>
+				selectedRepositoryIds.includes(repositoryId)
+			)
+		const nextRepositoryIds = allRepositoryIdsSelected ? [] : repositoryIds
+
+		navigate({
+			search: previousSearch => ({
+				...previousSearch,
+				selectedRepositoryIds:
+					serializeSelectedRepositoryIds(nextRepositoryIds),
+			}),
+		})
+	}
+
+	async function handleContinue() {
+		await Promise.all(
+			selectedRepositoryIds.map(githubId =>
+				createImportMutation.mutateAsync({ githubId })
+			)
+		)
+		await navigate({
+			search: previousSearch => ({
+				...previousSearch,
+				selectedRepositoryIds: undefined,
+			}),
+		})
+	}
+
+	async function handleReconnectGitHub() {
+		await authClient.linkSocial({
+			provider: 'github',
+			scopes: ['repo'],
+			callbackURL: window.location.href,
 		})
 	}
 
@@ -43,18 +103,51 @@ function GitHubImportRoute() {
 					Choose a source repository
 				</h1>
 				<p className="text-muted-foreground">
-					Select one GitHub repository now. Importing history starts in the next
-					step.
+					Select one or more GitHub repositories. Tessera will queue each import
+					when you continue.
 				</p>
 			</div>
 			<GitHubImportSourceSelector
 				error={repositoriesQuery.error}
+				importError={createImportMutation.error}
 				isError={repositoriesQuery.isError}
+				isImporting={createImportMutation.isPending}
 				isLoading={repositoriesQuery.isLoading}
-				onSelectRepository={handleSelectRepository}
+				onContinue={handleContinue}
+				onReconnectGitHub={handleReconnectGitHub}
+				onSelectAllRepositories={handleSelectAllRepositories}
+				onToggleRepository={handleToggleRepository}
 				repositories={repositoriesQuery.data?.repositories ?? []}
-				selectedRepositoryId={selectedRepositoryId}
+				selectedRepositoryIds={selectedRepositoryIds}
+			/>
+			<GitHubImportActivity
+				imports={importsQuery.data?.imports ?? []}
+				isError={importsQuery.isError}
+				isLoading={importsQuery.isLoading}
+				username={user?.username ?? undefined}
 			/>
 		</main>
 	)
+}
+
+function parseSelectedRepositoryIds(selectedRepositoryIds?: string) {
+	return selectedRepositoryIds?.split(',') ?? []
+}
+
+function serializeSelectedRepositoryIds(selectedRepositoryIds: string[]) {
+	return selectedRepositoryIds.length > 0
+		? selectedRepositoryIds.join(',')
+		: undefined
+}
+
+function toggleSelectedRepositoryId(
+	selectedRepositoryIds: string[],
+	repositoryId: string
+) {
+	if (selectedRepositoryIds.includes(repositoryId))
+		return selectedRepositoryIds.filter(
+			selectedRepositoryId => selectedRepositoryId !== repositoryId
+		)
+
+	return [...selectedRepositoryIds, repositoryId]
 }

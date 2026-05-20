@@ -4,20 +4,20 @@ import { formatGitHubImportDate } from '../helpers/format-github-import-date'
 
 interface GitHubImportRepositoryRowProps {
 	isSelected: boolean
-	onSelectRepository: (repositoryId: number) => void
+	onToggleRepository: (repositoryId: string) => void
 	repository: GitHubImportRepository
 }
 
 export function GitHubImportRepositoryRow({
 	isSelected,
-	onSelectRepository,
+	onToggleRepository,
 	repository,
 }: Readonly<GitHubImportRepositoryRowProps>) {
 	return (
 		<button
 			aria-pressed={isSelected}
-			className="grid w-full gap-3 p-4 text-left transition-colors hover:bg-muted/60 aria-pressed:bg-primary/10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
-			onClick={() => onSelectRepository(repository.githubId)}
+			className="group grid w-full cursor-pointer gap-3 p-4 text-left transition duration-150 ease-out hover:-translate-y-px hover:bg-muted/60 aria-pressed:bg-primary/10 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+			onClick={() => onToggleRepository(repository.githubId)}
 			type="button"
 		>
 			<div className="flex min-w-0 flex-col gap-2">
@@ -54,7 +54,7 @@ export function GitHubImportRepositoryRow({
 					)}
 				</div>
 			</div>
-			<span className="rounded-md border border-border px-2 py-1 text-muted-foreground text-xs">
+			<span className="rounded-md border border-border px-2 py-1 text-muted-foreground text-xs transition duration-150 ease-out group-hover:border-primary/50 group-hover:bg-primary/10 group-hover:text-foreground">
 				{isSelected ? 'Selected' : 'Choose'}
 			</span>
 		</button>
