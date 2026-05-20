@@ -19,4 +19,35 @@ export class GitHubImportController {
 			})
 		)
 	}
+
+	@Implement(contract.githubImport.createImport)
+	createImport(@Session() session: UserSession) {
+		return implement(contract.githubImport.createImport).handler(
+			async ({ input }) => ({
+				import: await this.githubImportService.createImport(
+					session.user.id,
+					input
+				),
+			})
+		)
+	}
+
+	@Implement(contract.githubImport.listImports)
+	listImports(@Session() session: UserSession) {
+		return implement(contract.githubImport.listImports).handler(async () => ({
+			imports: await this.githubImportService.listImports(session.user.id),
+		}))
+	}
+
+	@Implement(contract.githubImport.getImport)
+	getImport(@Session() session: UserSession) {
+		return implement(contract.githubImport.getImport).handler(
+			async ({ input }) => ({
+				import: await this.githubImportService.getImport(
+					session.user.id,
+					input
+				),
+			})
+		)
+	}
 }
