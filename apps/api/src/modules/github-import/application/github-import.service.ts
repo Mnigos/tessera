@@ -55,7 +55,7 @@ export class GitHubImportService {
 				reason: 'missing_github_account_token',
 				userId,
 			})
-		if (account.scope && !hasGitHubRepoScope(account.scope))
+		if (!(account.scope && hasGitHubRepoScope(account.scope)))
 			throw new GitHubImportAuthenticationError({
 				reason: 'missing_github_repo_scope',
 				scope: account.scope,
@@ -139,7 +139,7 @@ export class GitHubImportService {
 				reason: 'missing_github_account_token',
 				userId,
 			})
-		if (account.scope && !hasGitHubRepoScope(account.scope))
+		if (!(account.scope && hasGitHubRepoScope(account.scope)))
 			throw new GitHubImportAuthenticationError({
 				reason: 'missing_github_repo_scope',
 				scope: account.scope,

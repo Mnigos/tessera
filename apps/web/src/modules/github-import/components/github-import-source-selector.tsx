@@ -114,14 +114,10 @@ export function GitHubImportSourceSelector({
 	)
 }
 
-export function isAuthenticationError(error: unknown) {
-	if (!error || typeof error !== 'object' || !('message' in error)) return false
-
-	return error.message === 'github import authentication required'
-}
-
 export function isGitHubAccessError(error: unknown) {
 	if (!error || typeof error !== 'object' || !('message' in error)) return false
+	if ('code' in error && error.code === 'UNAUTHORIZED') return true
+	if ('code' in error && error.code === 'FORBIDDEN') return true
 	if (error.message === 'github import authentication required') return true
 	if (error.message === 'github import access denied') return true
 
