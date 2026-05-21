@@ -245,6 +245,39 @@ describe(GitHubImportProcessor.name, () => {
 		})
 	})
 
+	test('keeps previously linked metadata when storage allocation can retry', async () => {
+		const retryingJob = {
+			...job,
+			attemptsMade: 0,
+			opts: { attempts: 2 },
+		} as Job<GitHubImportRepositoryJobData>
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue({
+			...repositoryImport,
+			repositoryId,
+		})
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
+			new Error('storage unavailable')
+		)
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
+
+		await expect(processor.process(retryingJob)).rejects.toThrow(
+			'storage unavailable'
+		)
+
+		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
+	})
+
 	test('deletes newly created metadata when linking it to the import fails', async () => {
 		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
 			repositoryImport

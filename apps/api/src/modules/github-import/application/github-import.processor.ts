@@ -35,6 +35,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 		let repositoryId: RepositoryId | undefined
 		let didCreateStorage = false
+		let didCreateRepositoryMetadata = false
 
 		try {
 			const [account, username] = await Promise.all([
@@ -49,10 +50,13 @@ export class GitHubImportProcessor extends WorkerHost {
 			if (!account?.accessToken) throw new Error('missing GitHub access token')
 			if (!username) throw new Error('missing owner username')
 
-			repositoryId = await this.prepareRepositoryMetadata({
+			const repositoryMetadata = await this.prepareRepositoryMetadata({
 				repositoryImport,
 				username,
 			})
+			repositoryId = repositoryMetadata.repositoryId
+			didCreateRepositoryMetadata =
+				repositoryMetadata.didCreateRepositoryMetadata
 
 			const { storagePath } = await this.gitStorageClient.createRepository({
 				repositoryId,
@@ -103,7 +107,7 @@ export class GitHubImportProcessor extends WorkerHost {
 					failureReason,
 				})
 
-			if (repositoryId && !didCreateStorage)
+			if (didCreateRepositoryMetadata && repositoryId && !didCreateStorage)
 				await this.repositoriesService.deleteRepositoryMetadata(repositoryId)
 
 			this.logImportFailure(error, isFinalAttempt, didCreateStorage)
@@ -119,7 +123,11 @@ export class GitHubImportProcessor extends WorkerHost {
 		repositoryImport: RepositoryImport
 		username: string
 	}) {
-		if (repositoryImport.repositoryId) return repositoryImport.repositoryId
+		if (repositoryImport.repositoryId)
+			return {
+				repositoryId: repositoryImport.repositoryId,
+				didCreateRepositoryMetadata: false,
+			}
 
 		const repository =
 			await this.repositoriesService.createImportedRepositoryMetadata({
@@ -141,7 +149,10 @@ export class GitHubImportProcessor extends WorkerHost {
 			throw error
 		}
 
-		return repository.id
+		return {
+			repositoryId: repository.id,
+			didCreateRepositoryMetadata: true,
+		}
 	}
 
 	private logImportFailure(
