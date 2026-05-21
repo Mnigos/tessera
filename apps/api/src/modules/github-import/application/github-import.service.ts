@@ -46,21 +46,7 @@ export class GitHubImportService {
 	) {}
 
 	async listRepositories(userId: UserId): Promise<GitHubImportRepository[]> {
-		const account = await this.githubImportRepository.findGitHubAccount({
-			userId,
-		})
-
-		if (!account?.accessToken)
-			throw new GitHubImportAuthenticationError({
-				reason: 'missing_github_account_token',
-				userId,
-			})
-		if (!(account.scope && hasGitHubRepoScope(account.scope)))
-			throw new GitHubImportAuthenticationError({
-				reason: 'missing_github_repo_scope',
-				scope: account.scope,
-				userId,
-			})
+		const account = await this.requireGitHubAccount(userId)
 
 		return await this.githubOctokitClient.listRepositories({
 			accessToken: account.accessToken,
