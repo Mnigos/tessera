@@ -80,6 +80,7 @@ function GitHubImportRoute() {
 		setImportError(undefined)
 		setIsImportingBatch(true)
 		const failedRepositoryIds: string[] = []
+		let firstImportError: unknown
 
 		try {
 			for (const githubId of selectedRepositoryIds) {
@@ -87,10 +88,11 @@ function GitHubImportRoute() {
 					await createImportMutation.mutateAsync({ githubId })
 				} catch (error) {
 					failedRepositoryIds.push(githubId)
-					setImportError(error)
+					firstImportError ??= error
 				}
 			}
 
+			setImportError(firstImportError)
 			await navigate({
 				search: previousSearch => ({
 					...previousSearch,

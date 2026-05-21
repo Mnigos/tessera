@@ -131,10 +131,15 @@ export class GitHubImportProcessor extends WorkerHost {
 					repositoryImport.sourceVisibility === 'public' ? 'public' : 'private',
 			})
 
-		await this.githubImportRepository.markRepositoryMetadata({
-			importId: repositoryImport.id,
-			repositoryId: repository.id,
-		})
+		try {
+			await this.githubImportRepository.markRepositoryMetadata({
+				importId: repositoryImport.id,
+				repositoryId: repository.id,
+			})
+		} catch (error) {
+			await this.repositoriesService.deleteRepositoryMetadata(repository.id)
+			throw error
+		}
 
 		return repository.id
 	}

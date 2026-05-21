@@ -245,6 +245,50 @@ describe(GitHubImportProcessor.name, () => {
 		})
 	})
 
+	test('deletes newly created metadata when linking it to the import fails', async () => {
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(
+			githubImportRepository,
+			'markRepositoryMetadata'
+		).mockRejectedValue(new Error('import link failed'))
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
+
+		await processor.process(job)
+
+		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+		expect(gitStorageClient.createRepository).not.toHaveBeenCalled()
+	})
+
 	test('marks failed and keeps repository metadata after storage is allocated', async () => {
 		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
 			repositoryImport
@@ -342,6 +386,51 @@ describe(GitHubImportProcessor.name, () => {
 		)
 		expect(markFailedSpy).not.toHaveBeenCalled()
 		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+	})
+
+	test('keeps the penultimate BullMQ attempt retryable', async () => {
+		const retryingJob = {
+			...job,
+			attemptsMade: 8,
+			opts: { attempts: 10 },
+		} as Job<GitHubImportRepositoryJobData>
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
+			new Error('storage unavailable')
+		)
+		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+
+		await expect(processor.process(retryingJob)).rejects.toThrow(
+			'storage unavailable'
+		)
+		expect(markFailedSpy).not.toHaveBeenCalled()
 	})
 
 	test('marks failed without retrying after storage is allocated', async () => {
