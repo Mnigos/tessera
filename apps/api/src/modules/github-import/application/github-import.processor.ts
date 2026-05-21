@@ -4,6 +4,7 @@ import { DuplicateRepositorySlugError } from '@modules/repositories/domain/repos
 import { normalizeRepositoryName } from '@modules/repositories/domain/repository.helpers'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { Injectable, Logger } from '@nestjs/common'
+import type { RepositoryImport } from '@repo/db'
 import type { RepositoryId } from '@repo/domain'
 import type { Job } from 'bullmq'
 import { ServiceUnavailableError } from '~/shared/errors'
@@ -48,25 +49,17 @@ export class GitHubImportProcessor extends WorkerHost {
 			if (!account?.accessToken) throw new Error('missing GitHub access token')
 			if (!username) throw new Error('missing owner username')
 
-			const repository =
-				await this.repositoriesService.createImportedRepositoryMetadata({
-					userId: repositoryImport.ownerUserId,
-					username,
-					name: normalizeRepositoryName(repositoryImport.sourceName),
-					slug: repositoryImport.targetSlug,
-					visibility:
-						repositoryImport.sourceVisibility === 'public'
-							? 'public'
-							: 'private',
-				})
-			repositoryId = repository.id
+			repositoryId = await this.prepareRepositoryMetadata({
+				repositoryImport,
+				username,
+			})
 
 			const { storagePath } = await this.gitStorageClient.createRepository({
-				repositoryId: repository.id,
+				repositoryId,
 			})
 			didCreateStorage = true
 			const importResult = await this.gitStorageClient.importRepository({
-				repositoryId: repository.id,
+				repositoryId,
 				storagePath,
 				sourceUrl: repositoryImport.sourceGithubUrl,
 				accessToken: account.accessToken,
@@ -75,7 +68,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 			const repositoryWithStorage =
 				await this.repositoriesService.updateImportedRepositoryStorage({
-					repositoryId: repository.id,
+					repositoryId,
 					username,
 					storagePath: importResult.storagePath,
 					defaultBranch:
@@ -87,7 +80,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 			await this.githubImportRepository.markSucceeded({
 				importId: repositoryImport.id,
-				repositoryId: repository.id,
+				repositoryId,
 			})
 		} catch (error) {
 			const failureReason =
@@ -117,6 +110,33 @@ export class GitHubImportProcessor extends WorkerHost {
 
 			if (!(isFinalAttempt || didCreateStorage)) throw error
 		}
+	}
+
+	private async prepareRepositoryMetadata({
+		repositoryImport,
+		username,
+	}: {
+		repositoryImport: RepositoryImport
+		username: string
+	}) {
+		if (repositoryImport.repositoryId) return repositoryImport.repositoryId
+
+		const repository =
+			await this.repositoriesService.createImportedRepositoryMetadata({
+				userId: repositoryImport.ownerUserId,
+				username,
+				name: normalizeRepositoryName(repositoryImport.sourceName),
+				slug: repositoryImport.targetSlug,
+				visibility:
+					repositoryImport.sourceVisibility === 'public' ? 'public' : 'private',
+			})
+
+		await this.githubImportRepository.markRepositoryMetadata({
+			importId: repositoryImport.id,
+			repositoryId: repository.id,
+		})
+
+		return repository.id
 	}
 
 	private logImportFailure(

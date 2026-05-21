@@ -7,6 +7,7 @@ import {
 	desc,
 	eq,
 	inArray,
+	isNotNull,
 	type RepositoryImport,
 	type RepositoryImportId,
 	repositories,
@@ -41,6 +42,10 @@ interface MarkRunningParams {
 }
 
 interface MarkSucceededParams extends MarkRunningParams {
+	repositoryId: RepositoryId
+}
+
+interface MarkRepositoryMetadataParams extends MarkRunningParams {
 	repositoryId: RepositoryId
 }
 
@@ -135,7 +140,8 @@ export class GitHubImportRepository {
 		const row = await this.db.query.repositories.findFirst({
 			where: and(
 				eq(repositories.ownerUserId, userId),
-				eq(repositories.slug, targetSlug)
+				eq(repositories.slug, targetSlug),
+				isNotNull(repositories.storagePath)
 			),
 			columns: { id: true },
 		})
@@ -180,6 +186,24 @@ export class GitHubImportRepository {
 				startedAt: new Date(),
 				failureReason: null,
 			})
+			.where(
+				and(
+					eq(repositoryImports.id, importId),
+					inArray(repositoryImports.status, ['pending', 'running'])
+				)
+			)
+			.returning()
+
+		return repositoryImport
+	}
+
+	async markRepositoryMetadata({
+		importId,
+		repositoryId,
+	}: MarkRepositoryMetadataParams): Promise<RepositoryImport | undefined> {
+		const [repositoryImport] = await this.db
+			.update(repositoryImports)
+			.set({ repositoryId })
 			.where(
 				and(
 					eq(repositoryImports.id, importId),

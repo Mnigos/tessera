@@ -61,6 +61,7 @@ describe(GitHubImportProcessor.name, () => {
 						markRunning: vi.fn(),
 						findGitHubAccount: vi.fn(),
 						findOwnerUsername: vi.fn(),
+						markRepositoryMetadata: vi.fn(),
 						markSucceeded: vi.fn(),
 						markFailed: vi.fn(),
 					},
@@ -151,6 +152,10 @@ describe(GitHubImportProcessor.name, () => {
 				ownerUser: { username: 'marta' },
 			})
 		const markSucceededSpy = vi.spyOn(githubImportRepository, 'markSucceeded')
+		const markRepositoryMetadataSpy = vi.spyOn(
+			githubImportRepository,
+			'markRepositoryMetadata'
+		)
 
 		await processor.process(job)
 
@@ -160,6 +165,10 @@ describe(GitHubImportProcessor.name, () => {
 			name: 'tessera',
 			slug: 'tessera',
 			visibility: 'private',
+		})
+		expect(markRepositoryMetadataSpy).toHaveBeenCalledWith({
+			importId,
+			repositoryId,
 		})
 		expect(createRepositorySpy).toHaveBeenCalledWith({ repositoryId })
 		expect(importRepositorySpy).toHaveBeenCalledWith({
@@ -177,6 +186,61 @@ describe(GitHubImportProcessor.name, () => {
 		})
 		expect(markSucceededSpy).toHaveBeenCalledWith({
 			importId,
+			repositoryId,
+		})
+	})
+
+	test('reuses repository metadata linked by a previous attempt', async () => {
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue({
+			...repositoryImport,
+			repositoryId,
+		})
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		const createImportedRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		)
+		const markRepositoryMetadataSpy = vi.spyOn(
+			githubImportRepository,
+			'markRepositoryMetadata'
+		)
+		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(gitStorageClient, 'importRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'trunk',
+		})
+		vi.spyOn(
+			repositoriesService,
+			'updateImportedRepositoryStorage'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'trunk',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+
+		await processor.process(job)
+
+		expect(createImportedRepositoryMetadataSpy).not.toHaveBeenCalled()
+		expect(markRepositoryMetadataSpy).not.toHaveBeenCalled()
+		expect(gitStorageClient.createRepository).toHaveBeenCalledWith({
 			repositoryId,
 		})
 	})

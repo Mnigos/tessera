@@ -1,7 +1,15 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryImportId } from '@repo/db'
-import { account, and, eq, inArray, repositoryImports } from '@repo/db'
+import {
+	account,
+	and,
+	eq,
+	inArray,
+	isNotNull,
+	repositories,
+	repositoryImports,
+} from '@repo/db'
 import type { RepositoryId, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { GitHubImportRepository } from './github-import.repository'
@@ -12,6 +20,7 @@ describe(GitHubImportRepository.name, () => {
 
 	const findFirstMock = vi.fn()
 	const findFirstImportMock = vi.fn()
+	const findFirstRepositoryMock = vi.fn()
 	const updateMock = vi.fn()
 	const setMock = vi.fn()
 	const whereMock = vi.fn()
@@ -34,6 +43,9 @@ describe(GitHubImportRepository.name, () => {
 							},
 							repositoryImports: {
 								findFirst: findFirstImportMock,
+							},
+							repositories: {
+								findFirst: findFirstRepositoryMock,
 							},
 						},
 						update: updateMock,
@@ -117,6 +129,25 @@ describe(GitHubImportRepository.name, () => {
 		})
 	})
 
+	test('checks only storage-backed repositories for a target slug', async () => {
+		findFirstRepositoryMock.mockResolvedValue(undefined)
+
+		expect(
+			await githubImportRepository.hasRepositoryTargetSlug({
+				userId: mockUserId,
+				targetSlug: 'tessera' as RepositorySlug,
+			})
+		).toBeFalsy()
+		expect(findFirstRepositoryMock).toHaveBeenCalledWith({
+			where: and(
+				eq(repositories.ownerUserId, mockUserId),
+				eq(repositories.slug, 'tessera' as RepositorySlug),
+				isNotNull(repositories.storagePath)
+			),
+			columns: { id: true },
+		})
+	})
+
 	test('only marks pending or running imports as running', async () => {
 		const importId =
 			'00000000-0000-4000-8000-000000000029' as RepositoryImportId
@@ -152,6 +183,27 @@ describe(GitHubImportRepository.name, () => {
 			completedAt: expect.any(Date),
 			repositoryId: '00000000-0000-4000-8000-000000000030',
 			failureReason: null,
+		})
+		expect(whereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositoryImports.id, importId),
+				inArray(repositoryImports.status, ['pending', 'running'])
+			)
+		)
+	})
+
+	test('only links pending or running imports to repository metadata', async () => {
+		const importId =
+			'00000000-0000-4000-8000-000000000029' as RepositoryImportId
+
+		await githubImportRepository.markRepositoryMetadata({
+			importId,
+			repositoryId: '00000000-0000-4000-8000-000000000030' as RepositoryId,
+		})
+
+		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
+		expect(setMock).toHaveBeenCalledWith({
+			repositoryId: '00000000-0000-4000-8000-000000000030',
 		})
 		expect(whereMock).toHaveBeenCalledWith(
 			and(
