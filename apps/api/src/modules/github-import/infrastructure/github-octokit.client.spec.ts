@@ -89,17 +89,17 @@ describe(GitHubOctokitClient.name, () => {
 		)
 	})
 
-	test('fetches a repository by numeric GitHub id', async () => {
+	test('fetches a repository by string GitHub id without numeric coercion', async () => {
 		request.mockResolvedValue({ data: githubRepositoryResponse })
 
 		expect(
 			await githubOctokitClient.getRepository({
 				accessToken: 'github-token',
-				githubId: '123',
+				githubId: '9007199254740993',
 			})
 		).toEqual(repository)
 		expect(request).toHaveBeenCalledWith('GET /repositories/{repository_id}', {
-			repository_id: 123,
+			repository_id: '9007199254740993',
 		})
 	})
 

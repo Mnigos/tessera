@@ -78,11 +78,10 @@ export class GitHubOctokitClient {
 		const octokit = this.createForUser(accessToken)
 
 		try {
-			const repositoryId = Number(githubId)
 			const response = await octokit.request(
 				'GET /repositories/{repository_id}',
 				{
-					repository_id: repositoryId,
+					repository_id: githubId,
 				}
 			)
 
