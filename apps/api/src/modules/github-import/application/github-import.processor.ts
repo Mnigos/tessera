@@ -34,6 +34,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 		let repositoryId: RepositoryId | undefined
 		let didCreateStorage = false
+		let didPersistStorage = false
 
 		try {
 			const [account, username] = await Promise.all([
@@ -84,6 +85,7 @@ export class GitHubImportProcessor extends WorkerHost {
 
 			if (!repositoryWithStorage)
 				throw new Error('failed to update imported repository storage')
+			didPersistStorage = true
 
 			await this.githubImportRepository.markSucceeded({
 				importId: repositoryImport.id,
@@ -110,7 +112,7 @@ export class GitHubImportProcessor extends WorkerHost {
 					failureReason,
 				})
 
-			if (repositoryId)
+			if (repositoryId && !didPersistStorage)
 				await this.repositoriesService.deleteRepositoryMetadata(repositoryId)
 
 			this.logImportFailure(error, isFinalAttempt, didCreateStorage)
