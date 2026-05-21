@@ -181,7 +181,7 @@ describe(GitHubImportProcessor.name, () => {
 		})
 	})
 
-	test('marks failed and cleans repository metadata after storage failure', async () => {
+	test('marks failed and keeps repository metadata after storage is allocated', async () => {
 		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
 			repositoryImport
 		)
@@ -227,7 +227,7 @@ describe(GitHubImportProcessor.name, () => {
 			importId,
 			failureReason: 'clone failed',
 		})
-		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
 	})
 
 	test('throws without marking failed before storage is allocated on a retryable attempt', async () => {
@@ -332,7 +332,7 @@ describe(GitHubImportProcessor.name, () => {
 			importId,
 			failureReason: 'clone failed',
 		})
-		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
 	})
 
 	test('keeps repository metadata when import status update fails after storage is persisted', async () => {
