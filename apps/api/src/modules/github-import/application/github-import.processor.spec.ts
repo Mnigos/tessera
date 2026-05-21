@@ -1,4 +1,5 @@
 import { GitStorageClient } from '@config/git-storage'
+import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryImportId } from '@repo/db'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
@@ -91,6 +92,7 @@ describe(GitHubImportProcessor.name, () => {
 	afterEach(async () => {
 		await moduleRef.close()
 		vi.clearAllMocks()
+		vi.restoreAllMocks()
 	})
 
 	test('imports a repository and marks the import succeeded', async () => {
@@ -331,6 +333,64 @@ describe(GitHubImportProcessor.name, () => {
 			failureReason: 'clone failed',
 		})
 		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
+	})
+
+	test('does not log retry intent for unavailable storage after storage is allocated', async () => {
+		const retryingJob = {
+			...job,
+			attemptsMade: 0,
+			opts: { attempts: 2 },
+		} as Job<GitHubImportRepositoryJobData>
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(gitStorageClient, 'importRepository').mockRejectedValue(
+			new ServiceUnavailableError('git storage')
+		)
+		const warnSpy = vi
+			.spyOn(Logger.prototype, 'warn')
+			.mockImplementation(() => undefined)
+		const errorSpy = vi
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined)
+
+		await processor.process(retryingJob)
+
+		expect(warnSpy).not.toHaveBeenCalledWith(
+			'GitHub repository import dependency unavailable; retrying'
+		)
+		expect(errorSpy).toHaveBeenCalledWith(
+			'GitHub repository import failed',
+			expect.any(String)
+		)
 	})
 
 	test('warns without marking failed when git storage is temporarily unavailable', async () => {

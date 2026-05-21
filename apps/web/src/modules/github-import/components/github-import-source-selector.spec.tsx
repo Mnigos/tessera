@@ -124,6 +124,8 @@ describe('GitHubImportSourceSelector', () => {
 		expect(
 			isGitHubAccessError({ code: 'FORBIDDEN', message: 'Forbidden' })
 		).toBe(true)
+		expect(isGitHubAccessError({ code: 'UNAUTHORIZED' })).toBe(true)
+		expect(isGitHubAccessError({ status: 401 })).toBe(true)
 		expect(isGitHubAccessError({ message: 'Internal Server Error' })).toBe(
 			false
 		)

@@ -113,14 +113,21 @@ export class GitHubImportProcessor extends WorkerHost {
 			if (repositoryId)
 				await this.repositoriesService.deleteRepositoryMetadata(repositoryId)
 
-			this.logImportFailure(error, isFinalAttempt)
+			this.logImportFailure(error, isFinalAttempt, didCreateStorage)
 
 			if (!(isFinalAttempt || didCreateStorage)) throw error
 		}
 	}
 
-	private logImportFailure(error: unknown, isFinalAttempt: boolean) {
-		if (error instanceof ServiceUnavailableError && !isFinalAttempt) {
+	private logImportFailure(
+		error: unknown,
+		isFinalAttempt: boolean,
+		didCreateStorage: boolean
+	) {
+		if (
+			error instanceof ServiceUnavailableError &&
+			!(isFinalAttempt || didCreateStorage)
+		) {
 			this.logger.warn(
 				'GitHub repository import dependency unavailable; retrying'
 			)

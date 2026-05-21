@@ -361,6 +361,14 @@ async fn import_repository_uses_default_branch_hint_for_empty_repository() {
         .unwrap();
 
     assert_eq!(imported.default_branch, "main");
+    assert_eq!(
+        git_stdout(
+            &storage.repository_path(REPOSITORY_ID).unwrap(),
+            ["symbolic-ref", "HEAD"]
+        )
+        .trim(),
+        "refs/heads/main"
+    );
 }
 
 #[tokio::test]

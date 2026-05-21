@@ -147,6 +147,12 @@ describe(GitHubImportRepository.name, () => {
 		})
 
 		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
+		expect(setMock).toHaveBeenCalledWith({
+			status: 'succeeded',
+			completedAt: expect.any(Date),
+			repositoryId: '00000000-0000-4000-8000-000000000030',
+			failureReason: null,
+		})
 		expect(whereMock).toHaveBeenCalledWith(
 			and(
 				eq(repositoryImports.id, importId),
@@ -165,6 +171,11 @@ describe(GitHubImportRepository.name, () => {
 		})
 
 		expect(updateMock).toHaveBeenCalledWith(repositoryImports)
+		expect(setMock).toHaveBeenCalledWith({
+			status: 'failed',
+			completedAt: expect.any(Date),
+			failureReason: 'clone failed',
+		})
 		expect(whereMock).toHaveBeenCalledWith(
 			and(
 				eq(repositoryImports.id, importId),
