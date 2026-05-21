@@ -335,6 +335,77 @@ describe(GitHubImportProcessor.name, () => {
 		expect(deleteRepositoryMetadataSpy).toHaveBeenCalledWith(repositoryId)
 	})
 
+	test('keeps repository metadata when import status update fails after storage is persisted', async () => {
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(gitStorageClient, 'importRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'trunk',
+		})
+		vi.spyOn(
+			repositoriesService,
+			'updateImportedRepositoryStorage'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'trunk',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(githubImportRepository, 'markSucceeded').mockRejectedValue(
+			new Error('status update failed')
+		)
+		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
+
+		await processor.process(job)
+
+		expect(markFailedSpy).toHaveBeenCalledWith({
+			importId,
+			failureReason: 'status update failed',
+		})
+		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
+	})
+
 	test('does not log retry intent for unavailable storage after storage is allocated', async () => {
 		const retryingJob = {
 			...job,
