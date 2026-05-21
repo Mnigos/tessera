@@ -1,5 +1,5 @@
 import { ORPCError, safe } from '@orpc/client'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, notFound } from '@tanstack/react-router'
 import { z } from 'zod'
 import { RepositoryBrowserMessage } from '../components/repository-browser-message'
 import { RepositoryOverview } from '../components/repository-overview'
@@ -25,6 +25,8 @@ export const Route = createFileRoute('/$username/$slug')({
 				slug,
 				username,
 			}
+
+		if (error instanceof ORPCError && error.status === 404) throw notFound()
 
 		if (error) throw error
 
