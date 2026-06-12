@@ -22,7 +22,7 @@ bun run dev
 
 Configuration defaults are local-only:
 
-- `GIT_SERVICE_HOST`: `::`
+- `GIT_SERVICE_HOST`: `127.0.0.1`; set `0.0.0.0` in production service containers that must accept private network traffic
 - `GIT_SERVICE_PORT`: `50051`
 - `GIT_HTTP_HOST`: `::`
 - `GIT_HTTP_PORT`: `50052`
@@ -31,8 +31,9 @@ Configuration defaults are local-only:
 - `GIT_SSH_HOST_KEY_PATH`: defaults to `ssh_host_ed25519_key` under `GIT_STORAGE_ROOT`
 - `GIT_STORAGE_ROOT`: stable OS temp directory at `tessera-git-storage`
 - `GIT_STORAGE_GIT_BINARY`: `git`
+- `GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN`: required raw internal token accepted by the Git storage gRPC service for API -> Git calls. Set this to the same value as API `INTERNAL_API_TOKEN`, for example `test-internal-token`; the API sends it as a bearer token.
 - `GIT_API_GRPC_URL`: required API gRPC endpoint for smart HTTP authorization, for example `http://localhost:50053`
-- `GIT_API_GRPC_AUTHORIZATION_TOKEN`: required raw internal token for the API authorization service. Set this to the same value as `INTERNAL_API_TOKEN`, for example `test-internal-token`; the Git service sends it as a bearer token.
+- `GIT_API_GRPC_AUTHORIZATION_TOKEN`: required raw internal token used by Git -> API authorization calls. Set this to the same value as API `INTERNAL_API_TOKEN`, for example `test-internal-token`; the Git service sends it as a bearer token.
 
 ## Smart HTTP
 

@@ -47,6 +47,16 @@ Railway provides:
 - `PORT`
 - `RAILWAY_GIT_COMMIT_SHA`
 
+## Git Service Variables
+
+Required for production:
+
+- `GIT_STORAGE_ROOT`
+- `GIT_SERVICE_HOST`: `0.0.0.0` so the API service can reach Git storage inside Railway
+- `GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN`: inbound API -> Git storage gRPC token. Set this equal to the API service `INTERNAL_API_TOKEN`.
+- `GIT_API_GRPC_URL`
+- `GIT_API_GRPC_AUTHORIZATION_TOKEN`: outbound Git -> API authorization token. Set this equal to the API service `INTERNAL_API_TOKEN`.
+
 ## Web Variables
 
 Required for production:
@@ -70,7 +80,7 @@ Safe local examples:
 4. Create the Git service and attach a Railway Volume for `GIT_STORAGE_ROOT`.
 5. Create the API service using `/apps/api/railway.json`.
 6. Set API variables, including `DATABASE_URL`, `REDIS_URL`, `INTERNAL_API_TOKEN`, and `API_GRPC_URL`.
-7. Set Git service variables, including `GIT_API_GRPC_URL` and `GIT_API_GRPC_AUTHORIZATION_TOKEN`.
+7. Set Git service variables, including `GIT_SERVICE_HOST`, `GIT_API_GRPC_URL`, `GIT_API_GRPC_AUTHORIZATION_TOKEN`, and `GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN`.
 8. Deploy API and verify `/health/ping`.
 9. Create the Web service using `/apps/web/railway.json`.
 10. Set Web variables using the final API, Git HTTP, Git SSH, and Web domains.
