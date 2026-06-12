@@ -426,11 +426,15 @@ export class GitStorageClient implements OnModuleInit {
 	}
 
 	private createAuthorizationMetadata() {
+		const token = this.envService.get('INTERNAL_API_TOKEN')
+
+		if (!token)
+			throw new ExternalServiceError('git storage', {
+				reason: 'missing_internal_api_token',
+			})
+
 		const metadata = new Metadata()
-		metadata.set(
-			'authorization',
-			`Bearer ${this.envService.get('INTERNAL_API_TOKEN')}`
-		)
+		metadata.set('authorization', `Bearer ${token}`)
 
 		return metadata
 	}
