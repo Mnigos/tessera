@@ -176,6 +176,30 @@ export class GitHubImportRepository {
 		return repositoryImport
 	}
 
+	async resetToPending({
+		importId,
+		userId,
+	}: ImportIdParams): Promise<RepositoryImport | undefined> {
+		const [repositoryImport] = await this.db
+			.update(repositoryImports)
+			.set({
+				status: 'pending',
+				failureReason: null,
+				startedAt: null,
+				completedAt: null,
+			})
+			.where(
+				and(
+					eq(repositoryImports.id, importId),
+					eq(repositoryImports.ownerUserId, userId),
+					eq(repositoryImports.status, 'failed')
+				)
+			)
+			.returning()
+
+		return repositoryImport
+	}
+
 	async markRunning({
 		importId,
 	}: MarkRunningParams): Promise<RepositoryImport | undefined> {

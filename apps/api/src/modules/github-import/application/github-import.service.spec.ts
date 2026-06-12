@@ -9,6 +9,8 @@ import { mockUserId } from '~/shared/test-utils'
 import {
 	GitHubImportAuthenticationError,
 	GitHubImportDuplicateActiveSourceError,
+	GitHubImportNotFoundError,
+	GitHubImportNotRetryableError,
 	GitHubImportTargetSlugUnavailableError,
 } from '../domain/github-import.errors'
 import { GitHubImportQueue } from '../infrastructure/github-import.queue'
@@ -71,6 +73,13 @@ const repositoryImportOutput: GitHubRepositoryImport = {
 	createdAt: repositoryImport.createdAt,
 	updatedAt: repositoryImport.updatedAt,
 }
+const failedImport = {
+	...repositoryImport,
+	status: 'failed' as const,
+	failureReason: 'storage unavailable',
+	startedAt: new Date('2026-05-19T00:00:01Z'),
+	completedAt: new Date('2026-05-19T00:00:02Z'),
+}
 
 describe(GitHubImportService.name, () => {
 	let moduleRef: TestingModule
@@ -93,6 +102,7 @@ describe(GitHubImportService.name, () => {
 						createImport: vi.fn(),
 						listImports: vi.fn(),
 						findImport: vi.fn(),
+						resetToPending: vi.fn(),
 						markFailed: vi.fn(),
 					},
 				},
@@ -192,17 +202,40 @@ describe(GitHubImportService.name, () => {
 		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
 	})
 
-	test('rejects repository listing when the GitHub token has no recorded scope', async () => {
+	test('lists repositories when the GitHub token has no recorded scope', async () => {
 		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
 			accessToken: 'github-token',
 			scope: null,
 			accessTokenExpiresAt: null,
 		})
+		const listRepositoriesSpy = vi
+			.spyOn(githubOctokitClient, 'listRepositories')
+			.mockResolvedValue([repository])
 
-		await expect(
-			githubImportService.listRepositories(mockUserId)
-		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
-		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
+		expect(await githubImportService.listRepositories(mockUserId)).toEqual([
+			repository,
+		])
+		expect(listRepositoriesSpy).toHaveBeenCalledWith({
+			accessToken: 'github-token',
+		})
+	})
+
+	test('lists repositories when the GitHub token has a blank recorded scope', async () => {
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: '',
+			accessTokenExpiresAt: null,
+		})
+		const listRepositoriesSpy = vi
+			.spyOn(githubOctokitClient, 'listRepositories')
+			.mockResolvedValue([repository])
+
+		expect(await githubImportService.listRepositories(mockUserId)).toEqual([
+			repository,
+		])
+		expect(listRepositoriesSpy).toHaveBeenCalledWith({
+			accessToken: 'github-token',
+		})
 	})
 
 	test('creates an import from GitHub metadata and enqueues it', async () => {
@@ -382,5 +415,178 @@ describe(GitHubImportService.name, () => {
 		await expect(
 			githubImportService.createImport(mockUserId, { githubId: '123' })
 		).rejects.toBeInstanceOf(GitHubImportTargetSlugUnavailableError)
+	})
+
+	test('retries a failed import, resets state, and re-enqueues it', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			failedImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(false)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(false)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+		const resetToPendingSpy = vi
+			.spyOn(githubImportRepository, 'resetToPending')
+			.mockResolvedValue(repositoryImport)
+		const enqueueRepositoryImportSpy = vi.spyOn(
+			githubImportQueue,
+			'enqueueRepositoryImport'
+		)
+
+		expect(
+			await githubImportService.retryImport(mockUserId, {
+				id: repositoryImportId,
+			})
+		).toEqual(repositoryImportOutput)
+		expect(resetToPendingSpy).toHaveBeenCalledWith({
+			importId: repositoryImportId,
+			userId: mockUserId,
+		})
+		expect(enqueueRepositoryImportSpy).toHaveBeenCalledWith(repositoryImportId)
+	})
+
+	test('marks a retried import failed when enqueue fails', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			failedImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(false)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(false)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+		const resetToPendingSpy = vi
+			.spyOn(githubImportRepository, 'resetToPending')
+			.mockResolvedValue(repositoryImport)
+		vi.spyOn(githubImportQueue, 'enqueueRepositoryImport').mockRejectedValue(
+			new Error('redis unavailable')
+		)
+		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toThrow('redis unavailable')
+		expect(resetToPendingSpy).toHaveBeenCalledWith({
+			importId: repositoryImportId,
+			userId: mockUserId,
+		})
+		expect(markFailedSpy).toHaveBeenCalledWith({
+			importId: repositoryImportId,
+			failureReason: 'redis unavailable',
+		})
+	})
+
+	test('rejects retry when the import does not exist', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(undefined)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportNotFoundError)
+		expect(githubImportRepository.resetToPending).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry when the import is not owned by the user', async () => {
+		const findImportSpy = vi
+			.spyOn(githubImportRepository, 'findImport')
+			.mockResolvedValue(undefined)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportNotFoundError)
+		expect(findImportSpy).toHaveBeenCalledWith({
+			userId: mockUserId,
+			importId: repositoryImportId,
+		})
+		expect(githubImportQueue.enqueueRepositoryImport).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry when the import is not in a failed state', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			repositoryImport
+		)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportNotRetryableError)
+		expect(githubImportRepository.resetToPending).not.toHaveBeenCalled()
+		expect(githubImportQueue.enqueueRepositoryImport).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry when the GitHub auth is missing', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			failedImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue(
+			undefined
+		)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
+		expect(githubImportRepository.resetToPending).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry when another active import owns the source', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			failedImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(true)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(false)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportDuplicateActiveSourceError)
+		expect(githubImportRepository.resetToPending).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry when the target slug is unavailable', async () => {
+		vi.spyOn(githubImportRepository, 'findImport').mockResolvedValue(
+			failedImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'hasActiveSource').mockResolvedValue(false)
+		vi.spyOn(
+			githubImportRepository,
+			'hasRepositoryTargetSlug'
+		).mockResolvedValue(true)
+		vi.spyOn(githubImportRepository, 'hasActiveTargetSlug').mockResolvedValue(
+			false
+		)
+
+		await expect(
+			githubImportService.retryImport(mockUserId, { id: repositoryImportId })
+		).rejects.toBeInstanceOf(GitHubImportTargetSlugUnavailableError)
+		expect(githubImportRepository.resetToPending).not.toHaveBeenCalled()
 	})
 })
