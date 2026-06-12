@@ -26,6 +26,7 @@ const rootDirectory = new URL('../../../../', import.meta.url).pathname.replace(
 )
 const apiDirectory = `${rootDirectory}/apps/api`
 const gitServiceBinary = `${process.env.CARGO_TARGET_DIR ?? `${rootDirectory}/target`}/debug/tessera-git`
+const INTERNAL_API_TOKEN = 'test-internal-token'
 const bunBinary = process.env.BUN_INSTALL
 	? `${process.env.BUN_INSTALL}/bin/bun`
 	: 'bun'
@@ -48,7 +49,7 @@ export async function startGitE2EProcesses({
 		DB_POOL_MAX: '5',
 		GITHUB_CLIENT_ID: 'test-github-client-id',
 		GITHUB_CLIENT_SECRET: 'test-github-client-secret',
-		INTERNAL_API_TOKEN: 'test-internal-token',
+		INTERNAL_API_TOKEN,
 		PATH: bunPath,
 		REDIS_URL: process.env.REDIS_URL ?? 'redis://localhost:6379',
 		TESSERA_SKIP_ENV_FILE: 'true',
@@ -72,7 +73,7 @@ export async function startGitE2EProcesses({
 		cwd: rootDirectory,
 		env: {
 			...sharedEnv,
-			GIT_API_GRPC_AUTHORIZATION_TOKEN: 'test-internal-token',
+			GIT_API_GRPC_AUTHORIZATION_TOKEN: INTERNAL_API_TOKEN,
 			GIT_API_GRPC_URL: `http://localhost:${ports.apiGrpc}`,
 			GIT_HTTP_HOST: '127.0.0.1',
 			GIT_HTTP_PORT: String(ports.gitHttp),
@@ -81,7 +82,7 @@ export async function startGitE2EProcesses({
 			GIT_SSH_HOST: '127.0.0.1',
 			GIT_SSH_HOST_KEY_PATH: `${storageRoot}/ssh_host_ed25519_key`,
 			GIT_SSH_PORT: String(ports.gitSsh),
-			GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN: 'test-internal-token',
+			GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN: INTERNAL_API_TOKEN,
 			GIT_STORAGE_ROOT: storageRoot,
 		},
 		stderr: 'pipe',

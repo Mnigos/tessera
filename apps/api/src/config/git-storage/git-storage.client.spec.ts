@@ -26,11 +26,18 @@ const trustedGpgKeys = [
 	},
 ]
 
+interface EnvServiceMock {
+	get: ReturnType<
+		typeof vi.fn<(key: 'INTERNAL_API_TOKEN') => string | undefined>
+	>
+}
+
 describe(GitStorageClient.name, () => {
 	let moduleRef: TestingModule
 	let client: GitStorageClient
 	let clientGrpc: Pick<ClientGrpc, 'getService'>
-	let envService: EnvService
+	let envService: EnvServiceMock
+	let getEnv: EnvServiceMock['get']
 	let gitStorageService: {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
@@ -148,9 +155,12 @@ describe(GitStorageClient.name, () => {
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
 		}
+		getEnv = vi
+			.fn<(key: 'INTERNAL_API_TOKEN') => string | undefined>()
+			.mockReturnValue('test-internal-token')
 		envService = {
-			get: vi.fn().mockReturnValue('test-internal-token'),
-		} as unknown as EnvService
+			get: getEnv,
+		}
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -187,6 +197,21 @@ describe(GitStorageClient.name, () => {
 		expect(getGitStorageAuthorization(gitStorageService.health)).toEqual([
 			'Bearer test-internal-token',
 		])
+	})
+
+	test('fails before calling git storage when the internal token is missing', async () => {
+		getEnv.mockReturnValueOnce(undefined)
+
+		const promise = client.health()
+
+		await expect(promise).rejects.toMatchObject({
+			code: 'BAD_GATEWAY',
+			context: expect.objectContaining({
+				reason: 'missing_internal_api_token',
+				service: 'git storage',
+			}),
+		})
+		expect(gitStorageService.health).not.toHaveBeenCalled()
 	})
 
 	test('creates repository storage with only repository id', async () => {
