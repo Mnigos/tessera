@@ -1,9 +1,10 @@
 import { useQuery } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
 
-export function useGitHubImportsQuery() {
+export function useGitHubImportsQuery(enabled: boolean) {
 	return useQuery(
 		orpcQuery.githubImport.listImports.queryOptions({
+			enabled,
 			refetchInterval: query =>
 				query.state.data?.imports.some(repositoryImport =>
 					['pending', 'running'].includes(repositoryImport.status)

@@ -18,6 +18,7 @@ export function useAuth() {
 	async function signIn() {
 		await authClient.signIn.social({
 			provider: 'github',
+			scopes: ['repo'],
 			callbackURL: `${window.location.origin}/profile`,
 		})
 	}

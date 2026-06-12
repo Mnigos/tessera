@@ -1,9 +1,13 @@
+import { Button } from '@repo/ui/components/button'
 import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
+import { FaGithub } from 'react-icons/fa'
 import { z } from 'zod'
 import { authClient } from '@/lib/auth/client'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { GitHubImportActivity } from '../components/github-import-activity'
+import { GitHubImportLoadingState } from '../components/github-import-loading-state'
+import { GitHubImportMessage } from '../components/github-import-message'
 import { GitHubImportSourceSelector } from '../components/github-import-source-selector'
 import { useCreateGitHubImportMutation } from '../hooks/use-create-github-import.mutation'
 import { useGitHubImportRepositoriesQuery } from '../hooks/use-github-import-repositories.query'
@@ -32,9 +36,10 @@ function GitHubImportRoute() {
 	const { selectedRepositoryIds: selectedRepositoryIdsSearch } =
 		Route.useSearch()
 	const navigate = useNavigate({ from: '/import/github' })
-	const { user } = useAuth()
-	const repositoriesQuery = useGitHubImportRepositoriesQuery()
-	const importsQuery = useGitHubImportsQuery()
+	const { isLoading: isAuthLoading, signIn, user } = useAuth()
+	const isAuthenticated = user !== undefined
+	const repositoriesQuery = useGitHubImportRepositoriesQuery(isAuthenticated)
+	const importsQuery = useGitHubImportsQuery(isAuthenticated)
 	const createImportMutation = useCreateGitHubImportMutation()
 	const [importError, setImportError] = useState<unknown>()
 	const [isImportingBatch, setIsImportingBatch] = useState(false)
@@ -127,25 +132,42 @@ function GitHubImportRoute() {
 					when you continue.
 				</p>
 			</div>
-			<GitHubImportSourceSelector
-				error={repositoriesQuery.error}
-				importError={importError ?? createImportMutation.error}
-				isError={repositoriesQuery.isError}
-				isImporting={isImportingBatch || createImportMutation.isPending}
-				isLoading={repositoriesQuery.isLoading}
-				onContinue={handleContinue}
-				onReconnectGitHub={handleReconnectGitHub}
-				onSelectAllRepositories={handleSelectAllRepositories}
-				onToggleRepository={handleToggleRepository}
-				repositories={repositoriesQuery.data?.repositories ?? []}
-				selectedRepositoryIds={selectedRepositoryIds}
-			/>
-			<GitHubImportActivity
-				imports={importsQuery.data?.imports ?? []}
-				isError={importsQuery.isError}
-				isLoading={importsQuery.isLoading}
-				username={user?.username ?? undefined}
-			/>
+			{isAuthLoading ? (
+				<GitHubImportLoadingState />
+			) : isAuthenticated ? (
+				<>
+					<GitHubImportSourceSelector
+						error={repositoriesQuery.error}
+						importError={importError ?? createImportMutation.error}
+						isError={repositoriesQuery.isError}
+						isImporting={isImportingBatch || createImportMutation.isPending}
+						isLoading={repositoriesQuery.isLoading}
+						onContinue={handleContinue}
+						onReconnectGitHub={handleReconnectGitHub}
+						onSelectAllRepositories={handleSelectAllRepositories}
+						onToggleRepository={handleToggleRepository}
+						repositories={repositoriesQuery.data?.repositories ?? []}
+						selectedRepositoryIds={selectedRepositoryIds}
+					/>
+					<GitHubImportActivity
+						imports={importsQuery.data?.imports ?? []}
+						isError={importsQuery.isError}
+						isLoading={importsQuery.isLoading}
+						username={user.username}
+					/>
+				</>
+			) : (
+				<GitHubImportMessage
+					action={
+						<Button onClick={signIn} size="sm">
+							<FaGithub className="size-4" />
+							Sign in with GitHub
+						</Button>
+					}
+					description="Sign in with GitHub before importing repositories."
+					title="Sign in required"
+				/>
+			)}
 		</main>
 	)
 }
