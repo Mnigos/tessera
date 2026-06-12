@@ -8,10 +8,12 @@ const UNAUTHORIZED_MESSAGE: &str = "Unauthorized";
 pub fn storage_grpc_auth_interceptor(
     token: String,
 ) -> impl FnMut(Request<()>) -> Result<Request<()>, Status> + Clone {
-    move |request| authorize_request(request, &token)
+    let expected = format!("{BEARER_PREFIX}{token}");
+
+    move |request| authorize_request(request, &expected)
 }
 
-fn authorize_request(request: Request<()>, token: &str) -> Result<Request<()>, Status> {
+fn authorize_request(request: Request<()>, expected: &str) -> Result<Request<()>, Status> {
     let Some(value) = request.metadata().get(AUTHORIZATION_HEADER) else {
         return Err(unauthorized());
     };
@@ -19,8 +21,6 @@ fn authorize_request(request: Request<()>, token: &str) -> Result<Request<()>, S
     let Ok(value) = value.to_str() else {
         return Err(unauthorized());
     };
-
-    let expected = format!("{BEARER_PREFIX}{token}");
 
     if value.as_bytes().ct_eq(expected.as_bytes()).into() {
         return Ok(request);
