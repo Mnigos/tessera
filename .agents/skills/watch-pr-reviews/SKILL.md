@@ -18,8 +18,8 @@ Use this skill to watch a PR for actionable review feedback during the current t
 1. Identify the open PR from the current branch or the user's URL.
 2. Poll PR review comments and PR comments every 1-3 minutes for up to 15 minutes.
 3. If actionable findings appear, use `fix-review-findings`.
-4. Commit and push valid fixes only when the user asked for commits or PR-fix automation.
-5. Restart the 15-minute watch window after pushing fixes.
+4. If the user asked for commit/push automation, validate, commit valid fixes in a dedicated review-fix commit, push, and restart the 15-minute watch window.
+5. If workflow or skill instructions are changed during the loop, commit those separately from product fixes.
 6. Stop after a full watch window with no actionable findings.
 
 ## Rules
@@ -28,3 +28,4 @@ Use this skill to watch a PR for actionable review feedback during the current t
 - Do not create GitHub comments or discussions unless the user explicitly asks.
 - Do not run indefinitely without an explicit automation or follow-up request.
 - If the user wants background watching after the current turn, use a thread heartbeat automation.
+- After pushing review fixes, watch the PR again before reporting completion.
