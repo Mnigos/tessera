@@ -81,6 +81,7 @@ export async function startGitE2EProcesses({
 			GIT_SSH_HOST: '127.0.0.1',
 			GIT_SSH_HOST_KEY_PATH: `${storageRoot}/ssh_host_ed25519_key`,
 			GIT_SSH_PORT: String(ports.gitSsh),
+			GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN: 'test-internal-token',
 			GIT_STORAGE_ROOT: storageRoot,
 		},
 		stderr: 'pipe',
