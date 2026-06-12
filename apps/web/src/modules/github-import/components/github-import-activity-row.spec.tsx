@@ -180,7 +180,7 @@ describe('GitHubImportActivityRow', () => {
 		expect(
 			screen.getByRole<HTMLButtonElement>('button', { name: 'Retrying...' })
 				.disabled
-		).toBe(true)
+		).toBeTruthy()
 	})
 
 	test('surfaces the generic fallback for unknown retry errors', () => {
@@ -194,6 +194,21 @@ describe('GitHubImportActivityRow', () => {
 		expect(
 			screen.getByText('Retry could not be queued. Please try again.')
 		).toBeTruthy()
+	})
+
+	test('hides stale retry errors after an import leaves failed state', () => {
+		mockRetryMutation({
+			isError: true,
+			error: new Error('Internal Server Error'),
+		})
+
+		render(
+			<GitHubImportActivityRow import={getImport({ status: 'running' })} />
+		)
+
+		expect(
+			screen.queryByText('Retry could not be queued. Please try again.')
+		).toBeNull()
 	})
 
 	test('surfaces the collision message for a target slug conflict', () => {
