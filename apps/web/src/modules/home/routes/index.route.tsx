@@ -40,16 +40,27 @@ function HomeRoute() {
 						</div>
 					</div>
 
-					<div>
+					<div className="flex flex-wrap items-center gap-3">
 						{isAuthenticated ? (
-							<Button
-								nativeButton={false}
-								render={<Link to="/profile" />}
-								size="lg"
-							>
-								<Code2 className="size-5" />
-								Open profile
-							</Button>
+							<>
+								<Button
+									nativeButton={false}
+									render={<Link to="/profile" />}
+									size="lg"
+								>
+									<Code2 className="size-5" />
+									Open profile
+								</Button>
+								<Button
+									nativeButton={false}
+									render={<Link to="/import/github" />}
+									size="lg"
+									variant="outline"
+								>
+									<FaGithub className="size-5" />
+									Import from GitHub
+								</Button>
+							</>
 						) : (
 							<Button disabled={isLoading} onClick={signIn} size="lg">
 								<FaGithub className="size-5" />

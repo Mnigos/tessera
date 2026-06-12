@@ -1,12 +1,15 @@
 import type { RepositoryWithOwner } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Link } from '@tanstack/react-router'
+import { FaGithub } from 'react-icons/fa'
 
 interface ProfileRepositoriesSectionProps {
 	username: string
 	repositories: RepositoryWithOwner[]
 	isLoading: boolean
 	isError: boolean
+	isOwner: boolean
 }
 
 export function ProfileRepositoriesSection({
@@ -14,6 +17,7 @@ export function ProfileRepositoriesSection({
 	repositories,
 	isLoading,
 	isError,
+	isOwner,
 }: Readonly<ProfileRepositoriesSectionProps>) {
 	if (isLoading)
 		return (
@@ -40,8 +44,29 @@ export function ProfileRepositoriesSection({
 		return (
 			<section className="flex flex-col gap-3">
 				<RepositoryListHeader username={username} />
-				<Card className="border-dashed p-5 text-muted-foreground text-sm">
-					No repositories yet.
+				<Card className="gap-4 border-dashed p-5">
+					<div className="flex flex-col gap-1">
+						<p className="text-muted-foreground text-sm">
+							No repositories yet.
+						</p>
+						{isOwner && (
+							<p className="text-muted-foreground text-sm">
+								Import your existing projects straight from GitHub to get
+								started.
+							</p>
+						)}
+					</div>
+					{isOwner && (
+						<Button
+							className="self-start"
+							nativeButton={false}
+							render={<Link to="/import/github" />}
+							size="sm"
+						>
+							<FaGithub className="size-4" />
+							Import from GitHub
+						</Button>
+					)}
 				</Card>
 			</section>
 		)
