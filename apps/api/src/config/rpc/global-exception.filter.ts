@@ -10,8 +10,9 @@ export class GlobalExceptionFilter implements ExceptionFilter {
 
 		response.status(status as Parameters<Context['status']>[0])
 		response.res = response.json({
-			defined: true,
+			defined: false,
 			code,
+			status,
 			message,
 		})
 	}

@@ -141,8 +141,9 @@ interface RepositoryRefsResponseBody extends RepositoryResponseBody {
 }
 
 interface ErrorResponseBody {
-	defined: true
+	defined: false
 	code: string
+	status: number
 	message: string
 }
 
