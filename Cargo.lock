@@ -2579,6 +2579,7 @@ dependencies = [
  "protoc-bin-vendored",
  "rand 0.10.1",
  "russh",
+ "subtle",
  "tempfile",
  "tokio",
  "tonic",

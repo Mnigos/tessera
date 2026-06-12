@@ -4,6 +4,7 @@ use tessera_git::ssh::SshGitApplication;
 use tessera_git::ssh::infrastructure::{
     ApiSshGitAuthorizer, SshGitServer, load_or_generate_host_key, run_ssh_server,
 };
+use tessera_git::storage::grpc::storage_grpc_auth_interceptor;
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{Config, GitStorageGrpcService};
 use tokio::net::TcpListener;
@@ -20,6 +21,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr = config.socket_addr()?;
     let http_addr = config.http_socket_addr()?;
     let ssh_addr = config.ssh_socket_addr()?;
+    let storage_grpc_authorization_token = config.storage_grpc_authorization_token.clone();
     let ssh_host_key = load_or_generate_host_key(&config.ssh_host_key_path).await?;
     let grpc_service = GitStorageGrpcService::new(config.clone());
     let http_router = router(config.clone());
@@ -40,7 +42,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let grpc_server = async {
         Server::builder()
-            .add_service(GitStorageServiceServer::new(grpc_service))
+            .add_service(GitStorageServiceServer::with_interceptor(
+                grpc_service,
+                storage_grpc_auth_interceptor(storage_grpc_authorization_token),
+            ))
             .serve(addr)
             .await
             .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
