@@ -90,4 +90,8 @@ export const githubImportContract = {
 		.route({ method: 'GET', path: '/github-import/imports/{id}' })
 		.input(getGitHubRepositoryImportInputSchema)
 		.output(z.object({ import: githubRepositoryImportSchema })),
+	retryImport: oc
+		.route({ method: 'POST', path: '/github-import/imports/{id}/retry' })
+		.input(getGitHubRepositoryImportInputSchema)
+		.output(z.object({ import: githubRepositoryImportSchema })),
 }

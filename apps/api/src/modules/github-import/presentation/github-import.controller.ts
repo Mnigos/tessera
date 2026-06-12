@@ -50,4 +50,16 @@ export class GitHubImportController {
 			})
 		)
 	}
+
+	@Implement(contract.githubImport.retryImport)
+	retryImport(@Session() session: UserSession) {
+		return implement(contract.githubImport.retryImport).handler(
+			async ({ input }) => ({
+				import: await this.githubImportService.retryImport(
+					session.user.id,
+					input
+				),
+			})
+		)
+	}
 }

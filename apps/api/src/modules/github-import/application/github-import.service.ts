@@ -16,6 +16,7 @@ import {
 	GitHubImportAuthenticationError,
 	GitHubImportDuplicateActiveSourceError,
 	GitHubImportNotFoundError,
+	GitHubImportNotRetryableError,
 	GitHubImportTargetSlugUnavailableError,
 } from '../domain/github-import.errors'
 import {
@@ -78,19 +79,7 @@ export class GitHubImportService {
 			repository,
 		})
 
-		try {
-			await this.githubImportQueue.enqueueRepositoryImport(repositoryImport.id)
-		} catch (error) {
-			await this.githubImportRepository.markFailed({
-				importId: repositoryImport.id,
-				failureReason:
-					error instanceof Error
-						? error.message
-						: 'GitHub import enqueue failed',
-			})
-
-			throw error
-		}
+		await this.enqueueRepositoryImport(repositoryImport.id)
 
 		return toGitHubRepositoryImport(repositoryImport)
 	}
@@ -115,6 +104,45 @@ export class GitHubImportService {
 		return toGitHubRepositoryImport(repositoryImport)
 	}
 
+	async retryImport(
+		userId: UserId,
+		{ id }: GetGitHubRepositoryImportInput
+	): Promise<GitHubRepositoryImport> {
+		const importId = id as RepositoryImportId
+		const existingImport = await this.githubImportRepository.findImport({
+			userId,
+			importId,
+		})
+
+		if (!existingImport) throw new GitHubImportNotFoundError({ id })
+		if (existingImport.status !== 'failed')
+			throw new GitHubImportNotRetryableError({
+				id,
+				status: existingImport.status,
+			})
+
+		await this.requireGitHubAccount(userId)
+		await this.assertImportAvailable({
+			githubId: existingImport.sourceGithubId.toString(),
+			targetSlug: existingImport.targetSlug,
+			userId,
+		})
+
+		const repositoryImport = await this.resetAvailableImport({
+			importId,
+			userId,
+			githubId: existingImport.sourceGithubId.toString(),
+			targetSlug: existingImport.targetSlug,
+		})
+
+		if (!repositoryImport)
+			throw new GitHubImportNotRetryableError({ id, status: 'unknown' })
+
+		await this.enqueueRepositoryImport(repositoryImport.id)
+
+		return toGitHubRepositoryImport(repositoryImport)
+	}
+
 	private async requireGitHubAccount(userId: UserId) {
 		const account = await this.githubImportRepository.findGitHubAccount({
 			userId,
@@ -125,7 +153,7 @@ export class GitHubImportService {
 				reason: 'missing_github_account_token',
 				userId,
 			})
-		if (!(account.scope && hasGitHubRepoScope(account.scope)))
+		if (account.scope?.trim() && !hasGitHubRepoScope(account.scope))
 			throw new GitHubImportAuthenticationError({
 				reason: 'missing_github_repo_scope',
 				scope: account.scope,
@@ -194,6 +222,49 @@ export class GitHubImportService {
 					targetSlug,
 					userId,
 				})
+
+			throw error
+		}
+	}
+
+	private async resetAvailableImport({
+		githubId,
+		importId,
+		targetSlug,
+		userId,
+	}: {
+		githubId: string
+		importId: RepositoryImportId
+		targetSlug: RepositorySlug
+		userId: UserId
+	}) {
+		try {
+			return await this.githubImportRepository.resetToPending({
+				importId,
+				userId,
+			})
+		} catch (error) {
+			if (isUniqueViolation(error, ACTIVE_SOURCE_UNIQUE_CONSTRAINTS))
+				throw new GitHubImportDuplicateActiveSourceError({ githubId, userId })
+
+			if (isUniqueViolation(error, ACTIVE_TARGET_SLUG_UNIQUE_CONSTRAINTS))
+				throw new GitHubImportTargetSlugUnavailableError({ targetSlug, userId })
+
+			throw error
+		}
+	}
+
+	private async enqueueRepositoryImport(importId: RepositoryImportId) {
+		try {
+			await this.githubImportQueue.enqueueRepositoryImport(importId)
+		} catch (error) {
+			await this.githubImportRepository.markFailed({
+				importId,
+				failureReason:
+					error instanceof Error
+						? error.message
+						: 'GitHub import enqueue failed',
+			})
 
 			throw error
 		}

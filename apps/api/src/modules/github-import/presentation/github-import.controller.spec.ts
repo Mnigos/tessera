@@ -47,6 +47,7 @@ describe(GitHubImportController.name, () => {
 						createImport: vi.fn(),
 						listImports: vi.fn(),
 						getImport: vi.fn(),
+						retryImport: vi.fn(),
 					},
 				},
 			],
@@ -133,6 +134,26 @@ describe(GitHubImportController.name, () => {
 			})
 		).toEqual({ import: repositoryImport })
 		expect(getImportSpy).toHaveBeenCalledWith(mockUserId, {
+			id: repositoryImport.id,
+		})
+	})
+
+	test('delegates retry import requests to the service', async () => {
+		const retryImportSpy = vi
+			.spyOn(githubImportService, 'retryImport')
+			.mockResolvedValue(repositoryImport)
+
+		expect(
+			await githubImportController.retryImport(session)['~orpc'].handler({
+				input: { id: repositoryImport.id },
+				context: {},
+				path: ['githubImport', 'retryImport'],
+				procedure: githubImportController.retryImport(session),
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual({ import: repositoryImport })
+		expect(retryImportSpy).toHaveBeenCalledWith(mockUserId, {
 			id: repositoryImport.id,
 		})
 	})

@@ -7,14 +7,16 @@ import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import { GitHubImportModule } from '@modules/github-import'
+import { GitHubImportQueue } from '@modules/github-import/infrastructure/github-import.queue'
 import { GitHubOctokitClient } from '@modules/github-import/infrastructure/github-octokit.client'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { GitHubImportRepositoryVisibility } from '@repo/contracts'
+import { eq, type RepositoryImportId } from '@repo/db'
 import { db } from '@repo/db/client'
 import { account, repositoryImports, session, user } from '@repo/db/schema'
-import type { UserId } from '@repo/domain'
+import type { RepositorySlug, UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
@@ -55,8 +57,9 @@ interface GitHubImportRepositoriesResponseBody {
 }
 
 interface ErrorResponseBody {
-	defined: true
+	defined: false
 	code: string
+	status: number
 	message: string
 }
 
@@ -101,6 +104,7 @@ describe('GitHub import integration', () => {
 	let adapter: HonoAdapter
 	let paginate: ReturnType<typeof vi.fn>
 	let githubOctokitClient: GitHubOctokitClient
+	let enqueueRepositoryImport: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -120,11 +124,14 @@ describe('GitHub import integration', () => {
 				},
 			},
 		} as never)
+		enqueueRepositoryImport = vi.fn().mockResolvedValue(undefined)
 		moduleRef = await Test.createTestingModule({
 			imports: [GitHubImportIntegrationTestModule],
 		})
 			.overrideProvider(GitHubOctokitClient)
 			.useValue(githubOctokitClient)
+			.overrideProvider(GitHubImportQueue)
+			.useValue({ enqueueRepositoryImport })
 			.compile()
 
 		adapter = new HonoAdapter()
@@ -136,6 +143,8 @@ describe('GitHub import integration', () => {
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
 		paginate.mockReset()
+		enqueueRepositoryImport.mockClear()
+		enqueueRepositoryImport.mockResolvedValue(undefined)
 	})
 
 	afterAll(async () => {
@@ -226,6 +235,27 @@ describe('GitHub import integration', () => {
 		expect(body.repositories).toEqual([])
 	})
 
+	test('lists repositories when the stored GitHub scope is blank', async () => {
+		const integrationSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createGitHubAccount({
+			userId: integrationSession.userId,
+			accessToken: 'github-token',
+			scope: '',
+		})
+		mockGitHubRepositories([])
+
+		const response = await listGitHubImportRepositories(
+			integrationSession.headers
+		)
+		const body = (await response.json()) as GitHubImportRepositoriesResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.repositories).toEqual([])
+	})
+
 	test('rejects authenticated users without a GitHub account token', async () => {
 		const integrationSession = await createIntegrationSession({
 			username: 'marta',
@@ -290,6 +320,97 @@ describe('GitHub import integration', () => {
 		})
 	})
 
+	test('retries a failed import, resetting it to pending and re-enqueueing', async () => {
+		const integrationSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createGitHubAccount({
+			userId: integrationSession.userId,
+			accessToken: 'github-token',
+		})
+		const importId = await createRepositoryImport({
+			userId: integrationSession.userId,
+			status: 'failed',
+		})
+
+		const response = await retryGitHubImport(
+			importId,
+			integrationSession.headers
+		)
+		const body = (await response.json()) as { import: { status: string } }
+
+		expect(response.status).toBe(200)
+		expect(body.import.status).toBe('pending')
+
+		const persisted = await findRepositoryImport(importId)
+		expect(persisted?.status).toBe('pending')
+		expect(persisted?.failureReason).toBeNull()
+		expect(persisted?.startedAt).toBeNull()
+		expect(persisted?.completedAt).toBeNull()
+		expect(enqueueRepositoryImport).toHaveBeenCalledWith(importId)
+	})
+
+	test('rejects retry of an import that is not failed', async () => {
+		const integrationSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createGitHubAccount({
+			userId: integrationSession.userId,
+			accessToken: 'github-token',
+		})
+		const importId = await createRepositoryImport({
+			userId: integrationSession.userId,
+			status: 'pending',
+		})
+
+		const response = await retryGitHubImport(
+			importId,
+			integrationSession.headers
+		)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(409)
+		expect(body).toMatchObject({
+			code: 'CONFLICT',
+			message: 'github repository import is not retryable',
+		})
+		expect(enqueueRepositoryImport).not.toHaveBeenCalled()
+	})
+
+	test('rejects retry by a user who does not own the import', async () => {
+		const ownerSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		const otherSession = await createIntegrationSession({
+			username: 'olek',
+			email: 'olek@example.com',
+		})
+		await createGitHubAccount({
+			userId: otherSession.userId,
+			accessToken: 'github-token',
+		})
+		const importId = await createRepositoryImport({
+			userId: ownerSession.userId,
+			status: 'failed',
+		})
+
+		const response = await retryGitHubImport(importId, otherSession.headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'github repository import not found',
+		})
+		expect(enqueueRepositoryImport).not.toHaveBeenCalled()
+
+		const persisted = await findRepositoryImport(importId)
+		expect(persisted?.status).toBe('failed')
+	})
+
 	async function createIntegrationSession({
 		email,
 		name,
@@ -329,9 +450,11 @@ describe('GitHub import integration', () => {
 
 	async function createGitHubAccount({
 		accessToken,
+		scope = 'repo',
 		userId,
 	}: {
 		accessToken: string
+		scope?: string | null
 		userId: UserId
 	}) {
 		await db.insert(account).values({
@@ -339,7 +462,47 @@ describe('GitHub import integration', () => {
 			providerId: 'github',
 			userId,
 			accessToken,
-			scope: 'repo',
+			scope,
+		})
+	}
+
+	async function createRepositoryImport({
+		status,
+		userId,
+	}: {
+		status: 'pending' | 'running' | 'succeeded' | 'failed'
+		userId: UserId
+	}): Promise<RepositoryImportId> {
+		const isFailed = status === 'failed'
+		const [created] = await db
+			.insert(repositoryImports)
+			.values({
+				ownerUserId: userId,
+				provider: 'github',
+				targetName: publicRepository.name,
+				targetSlug: publicRepository.name as RepositorySlug,
+				sourceGithubId: BigInt(publicRepository.id),
+				sourceOwnerLogin: publicRepository.owner.login,
+				sourceName: publicRepository.name,
+				sourceFullName: publicRepository.full_name,
+				sourceVisibility: publicRepository.visibility,
+				sourceDefaultBranch: publicRepository.default_branch,
+				sourceGithubUrl: publicRepository.html_url,
+				status,
+				failureReason: isFailed ? 'storage unavailable' : null,
+				startedAt: isFailed ? new Date() : null,
+				completedAt: isFailed ? new Date() : null,
+			})
+			.returning({ id: repositoryImports.id })
+
+		if (!created) throw new Error('Failed to create repository import')
+
+		return created.id
+	}
+
+	async function findRepositoryImport(importId: RepositoryImportId) {
+		return await db.query.repositoryImports.findFirst({
+			where: eq(repositoryImports.id, importId),
 		})
 	}
 
@@ -354,6 +517,16 @@ describe('GitHub import integration', () => {
 		return adapter.hono.request('http://localhost/github-import/repositories', {
 			headers,
 		})
+	}
+
+	function retryGitHubImport(importId: RepositoryImportId, headers?: Headers) {
+		return adapter.hono.request(
+			`http://localhost/github-import/imports/${importId}/retry`,
+			{
+				method: 'POST',
+				headers,
+			}
+		)
 	}
 
 	function mockGitHubRepositories(

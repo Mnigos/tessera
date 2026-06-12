@@ -44,3 +44,13 @@ export class GitHubImportNotFoundError extends NotFoundError {
 		super('github repository import', context)
 	}
 }
+
+export class GitHubImportNotRetryableError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'github repository import',
+			context,
+			'github repository import is not retryable'
+		)
+	}
+}
