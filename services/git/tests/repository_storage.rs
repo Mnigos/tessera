@@ -1815,6 +1815,7 @@ fn grpc_service(storage_root: &Path) -> GitStorageGrpcService {
         git_binary: PathBuf::from("git"),
         api_grpc_url: "http://localhost:50053".to_string(),
         api_grpc_authorization_token: Some("test-internal-token".to_string()),
+        storage_grpc_authorization_token: "test-storage-token".to_string(),
     })
 }
 

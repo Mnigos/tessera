@@ -3,7 +3,7 @@ use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
 
-const DEFAULT_HOST: &str = "::";
+const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 50051;
 const DEFAULT_HTTP_HOST: &str = "::";
 const DEFAULT_HTTP_PORT: u16 = 50052;
@@ -24,6 +24,7 @@ pub struct Config {
     pub git_binary: PathBuf,
     pub api_grpc_url: String,
     pub api_grpc_authorization_token: Option<String>,
+    pub storage_grpc_authorization_token: String,
 }
 
 impl Config {
@@ -62,6 +63,10 @@ impl Config {
             "GIT_API_GRPC_AUTHORIZATION_TOKEN",
             ConfigError::MissingApiGrpcAuthorizationToken,
         )?;
+        let storage_grpc_authorization_token = required_env(
+            "GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN",
+            ConfigError::MissingStorageGrpcAuthorizationToken,
+        )?;
 
         Ok(Self {
             host,
@@ -75,6 +80,7 @@ impl Config {
             git_binary,
             api_grpc_url,
             api_grpc_authorization_token: Some(api_grpc_authorization_token),
+            storage_grpc_authorization_token,
         })
     }
 
@@ -137,6 +143,7 @@ pub enum ConfigError {
     InvalidSocketAddress,
     MissingApiGrpcUrl,
     MissingApiGrpcAuthorizationToken,
+    MissingStorageGrpcAuthorizationToken,
 }
 
 impl fmt::Display for ConfigError {
@@ -156,6 +163,12 @@ impl fmt::Display for ConfigError {
             }
             Self::MissingApiGrpcAuthorizationToken => {
                 write!(formatter, "GIT_API_GRPC_AUTHORIZATION_TOKEN is required")
+            }
+            Self::MissingStorageGrpcAuthorizationToken => {
+                write!(
+                    formatter,
+                    "GIT_STORAGE_GRPC_AUTHORIZATION_TOKEN is required"
+                )
             }
         }
     }
