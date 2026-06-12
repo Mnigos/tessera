@@ -101,6 +101,7 @@ function ProfileUsernameRoute() {
 						<ProfileRepositoriesSection
 							isError={repositoriesQuery.isError}
 							isLoading={repositoriesQuery.isLoading}
+							isOwner={isViewerProfile}
 							repositories={repositoriesQuery.data?.repositories ?? []}
 							username={username}
 						/>
