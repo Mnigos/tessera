@@ -2,6 +2,9 @@ import type { GitHubImportRepository } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { formatGitHubImportDate } from '../helpers/format-github-import-date'
+import { getGitHubImportErrorMessage } from '../helpers/get-github-import-error-message'
+
+const CREATE_IMPORT_ERROR_FALLBACK = 'GitHub import could not be queued.'
 
 interface GitHubImportSelectedSourceProps {
 	error?: unknown
@@ -61,7 +64,7 @@ export function GitHubImportSelectedSource({
 			)}
 			{Boolean(error) && (
 				<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-destructive text-sm">
-					{getGitHubImportErrorMessage(error)}
+					{getGitHubImportErrorMessage(error, CREATE_IMPORT_ERROR_FALLBACK)}
 				</div>
 			)}
 			<Button
@@ -73,19 +76,4 @@ export function GitHubImportSelectedSource({
 			</Button>
 		</Card>
 	)
-}
-
-function getGitHubImportErrorMessage(error: unknown): string {
-	if (error && typeof error === 'object' && 'message' in error) {
-		const message = String(error.message)
-
-		if (message.includes('github repository import source'))
-			return 'This GitHub repository already has an active import.'
-		if (message.includes('github repository import target slug'))
-			return 'A repository with this target slug already exists.'
-
-		return 'GitHub import could not be queued.'
-	}
-
-	return 'GitHub import could not be queued.'
 }

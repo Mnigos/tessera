@@ -2,6 +2,7 @@ import type { GitHubImportRepository } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { FaGithub } from 'react-icons/fa'
+import { isGitHubAccessError } from '../helpers/is-github-access-error'
 import { GitHubImportLoadingState } from './github-import-loading-state'
 import { GitHubImportMessage } from './github-import-message'
 import { GitHubImportRepositoryRow } from './github-import-repository-row'
@@ -112,19 +113,4 @@ export function GitHubImportSourceSelector({
 			/>
 		</div>
 	)
-}
-
-export function isGitHubAccessError(error: unknown) {
-	if (!error || typeof error !== 'object') return false
-	if ('code' in error && error.code === 'UNAUTHORIZED') return true
-	if ('code' in error && error.code === 'FORBIDDEN') return true
-	if (
-		'message' in error &&
-		error.message === 'github import authentication required'
-	)
-		return true
-	if ('message' in error && error.message === 'github import access denied')
-		return true
-
-	return 'status' in error && (error.status === 401 || error.status === 403)
 }

@@ -1,9 +1,7 @@
 import type { GitHubImportRepository } from '@repo/contracts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import {
-	GitHubImportSourceSelector,
-	isGitHubAccessError,
-} from './github-import-source-selector'
+import { isGitHubAccessError } from '../helpers/is-github-access-error'
+import { GitHubImportSourceSelector } from './github-import-source-selector'
 
 const repositories: GitHubImportRepository[] = [
 	{
