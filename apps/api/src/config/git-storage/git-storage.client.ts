@@ -1,4 +1,5 @@
-import { status } from '@grpc/grpc-js'
+import { EnvService } from '@config/env'
+import { Metadata, status } from '@grpc/grpc-js'
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common'
 import type { ClientGrpc } from '@nestjs/microservices'
 import type { RepositoryId } from '@repo/domain'
@@ -214,7 +215,8 @@ export class GitStorageClient implements OnModuleInit {
 
 	constructor(
 		@Inject(GIT_STORAGE_GRPC_CLIENT)
-		private readonly client: ClientGrpc
+		private readonly client: ClientGrpc,
+		private readonly envService: EnvService
 	) {}
 
 	onModuleInit() {
@@ -225,7 +227,9 @@ export class GitStorageClient implements OnModuleInit {
 
 	async health(): Promise<HealthResponse> {
 		return await firstValueFrom(
-			this.service.health({}).pipe(mapGitStorageErrors())
+			this.service
+				.health({}, this.createAuthorizationMetadata())
+				.pipe(mapGitStorageErrors())
 		)
 	}
 
@@ -234,7 +238,7 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageCreateRepositoryParams): Promise<GitStorageCreateRepositoryResult> {
 		const response = await firstValueFrom(
 			this.service
-				.createRepository({ repositoryId })
+				.createRepository({ repositoryId }, this.createAuthorizationMetadata())
 				.pipe(mapGitStorageErrors<CreateRepositoryResponse>())
 		)
 
@@ -256,13 +260,16 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageImportRepositoryParams): Promise<GitStorageImportRepositoryResult> {
 		const response = await firstValueFrom(
 			this.service
-				.importRepository({
-					repositoryId,
-					storagePath,
-					sourceUrl,
-					accessToken,
-					defaultBranchHint: defaultBranchHint ?? '',
-				})
+				.importRepository(
+					{
+						repositoryId,
+						storagePath,
+						sourceUrl,
+						accessToken,
+						defaultBranchHint: defaultBranchHint ?? '',
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<ImportRepositoryResponse>())
 		)
 
@@ -292,12 +299,15 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageGetRepositoryBrowserSummaryParams): Promise<GitStorageRepositoryBrowserSummary> {
 		const response = await firstValueFrom(
 			this.service
-				.getRepositoryBrowserSummary({
-					repositoryId,
-					storagePath,
-					defaultBranch,
-					ref: ref ?? '',
-				})
+				.getRepositoryBrowserSummary(
+					{
+						repositoryId,
+						storagePath,
+						defaultBranch,
+						ref: ref ?? '',
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<GetRepositoryBrowserSummaryResponse>())
 		)
 
@@ -311,11 +321,14 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageListRepositoryRefsParams): Promise<GitStorageRepositoryRefs> {
 		const response = await firstValueFrom(
 			this.service
-				.listRepositoryRefs({
-					repositoryId,
-					storagePath,
-					trustedGpgKeys,
-				})
+				.listRepositoryRefs(
+					{
+						repositoryId,
+						storagePath,
+						trustedGpgKeys,
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<ListRepositoryRefsResponse>())
 		)
 
@@ -330,12 +343,15 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageGetRepositoryTreeParams): Promise<GitStorageRepositoryTree> {
 		const response = await firstValueFrom(
 			this.service
-				.getRepositoryTree({
-					repositoryId,
-					storagePath,
-					ref,
-					path,
-				})
+				.getRepositoryTree(
+					{
+						repositoryId,
+						storagePath,
+						ref,
+						path,
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<GetRepositoryTreeResponse>())
 		)
 
@@ -349,11 +365,14 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageGetRepositoryBlobParams): Promise<GitStorageRepositoryBlob> {
 		const response = await firstValueFrom(
 			this.service
-				.getRepositoryBlob({
-					repositoryId,
-					storagePath,
-					objectId,
-				})
+				.getRepositoryBlob(
+					{
+						repositoryId,
+						storagePath,
+						objectId,
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<GetRepositoryBlobResponse>())
 		)
 
@@ -367,11 +386,14 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageGetRepositoryRawBlobParams): Promise<GitStorageRepositoryRawBlob> {
 		const response = await firstValueFrom(
 			this.service
-				.getRepositoryRawBlob({
-					repositoryId,
-					storagePath,
-					objectId,
-				})
+				.getRepositoryRawBlob(
+					{
+						repositoryId,
+						storagePath,
+						objectId,
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<GetRepositoryRawBlobResponse>())
 		)
 
@@ -387,17 +409,30 @@ export class GitStorageClient implements OnModuleInit {
 	}: GitStorageListRepositoryCommitsParams): Promise<GitStorageRepositoryCommitHistory> {
 		const response = await firstValueFrom(
 			this.service
-				.listRepositoryCommits({
-					repositoryId,
-					storagePath,
-					ref,
-					limit: limit ?? 0,
-					trustedGpgKeys,
-				})
+				.listRepositoryCommits(
+					{
+						repositoryId,
+						storagePath,
+						ref,
+						limit: limit ?? 0,
+						trustedGpgKeys,
+					},
+					this.createAuthorizationMetadata()
+				)
 				.pipe(mapGitStorageErrors<ListRepositoryCommitsResponse>())
 		)
 
 		return toRepositoryCommitHistory(response)
+	}
+
+	private createAuthorizationMetadata() {
+		const metadata = new Metadata()
+		metadata.set(
+			'authorization',
+			`Bearer ${this.envService.get('INTERNAL_API_TOKEN')}`
+		)
+
+		return metadata
 	}
 }
 

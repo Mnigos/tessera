@@ -1,3 +1,5 @@
+import { EnvService } from '@config/env'
+import { Metadata } from '@grpc/grpc-js'
 import type { ClientGrpc } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId } from '@repo/domain'
@@ -28,6 +30,7 @@ describe(GitStorageClient.name, () => {
 	let moduleRef: TestingModule
 	let client: GitStorageClient
 	let clientGrpc: Pick<ClientGrpc, 'getService'>
+	let envService: EnvService
 	let gitStorageService: {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
@@ -145,6 +148,9 @@ describe(GitStorageClient.name, () => {
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
 		}
+		envService = {
+			get: vi.fn().mockReturnValue('test-internal-token'),
+		} as unknown as EnvService
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -152,6 +158,10 @@ describe(GitStorageClient.name, () => {
 				{
 					provide: GIT_STORAGE_GRPC_CLIENT,
 					useValue: clientGrpc,
+				},
+				{
+					provide: EnvService,
+					useValue: envService,
 				},
 			],
 		}).compile()
@@ -170,16 +180,28 @@ describe(GitStorageClient.name, () => {
 
 	test('exposes typed health without leaking the grpc client', async () => {
 		expect(await client.health()).toEqual({ status: 'SERVING' })
-		expect(gitStorageService.health).toHaveBeenCalledWith({})
+		expect(gitStorageService.health).toHaveBeenLastCalledWith(
+			{},
+			expect.any(Metadata)
+		)
+		expect(getGitStorageAuthorization(gitStorageService.health)).toEqual([
+			'Bearer test-internal-token',
+		])
 	})
 
 	test('creates repository storage with only repository id', async () => {
 		expect(await client.createRepository({ repositoryId })).toEqual({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 		})
-		expect(gitStorageService.createRepository).toHaveBeenCalledWith({
-			repositoryId,
-		})
+		expect(gitStorageService.createRepository).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.createRepository)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('imports repository storage with source metadata', async () => {
@@ -195,13 +217,19 @@ describe(GitStorageClient.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'trunk',
 		})
-		expect(gitStorageService.importRepository).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			sourceUrl: 'https://github.com/marta/tessera',
-			accessToken: 'github-token',
-			defaultBranchHint: 'main',
-		})
+		expect(gitStorageService.importRepository).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				sourceUrl: 'https://github.com/marta/tessera',
+				accessToken: 'github-token',
+				defaultBranchHint: 'main',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.importRepository)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('maps repository browser summary without exposing the storage path', async () => {
@@ -239,12 +267,20 @@ describe(GitStorageClient.name, () => {
 				isTruncated: false,
 			},
 		})
-		expect(gitStorageService.getRepositoryBrowserSummary).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			defaultBranch: 'main',
-			ref: '',
-		})
+		expect(
+			gitStorageService.getRepositoryBrowserSummary
+		).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'main',
+				ref: '',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.getRepositoryBrowserSummary)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('normalizes grpc uint64 size values returned as strings', async () => {
@@ -291,12 +327,20 @@ describe(GitStorageClient.name, () => {
 			ref: 'feature/ref-browser',
 		})
 
-		expect(gitStorageService.getRepositoryBrowserSummary).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			defaultBranch: 'main',
-			ref: 'feature/ref-browser',
-		})
+		expect(
+			gitStorageService.getRepositoryBrowserSummary
+		).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'main',
+				ref: 'feature/ref-browser',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.getRepositoryBrowserSummary)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('lists repository refs without exposing storage fields', async () => {
@@ -324,11 +368,17 @@ describe(GitStorageClient.name, () => {
 				},
 			],
 		})
-		expect(gitStorageService.listRepositoryRefs).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			trustedGpgKeys,
-		})
+		expect(gitStorageService.listRepositoryRefs).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				trustedGpgKeys,
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.listRepositoryRefs)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('maps repository tree entries and normalizes uint64 values', async () => {
@@ -370,12 +420,18 @@ describe(GitStorageClient.name, () => {
 				},
 			],
 		})
-		expect(gitStorageService.getRepositoryTree).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			ref: 'main',
-			path: 'src',
-		})
+		expect(gitStorageService.getRepositoryTree).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ref: 'main',
+				path: 'src',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.getRepositoryTree)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('maps text blob previews and normalizes uint64 values', async () => {
@@ -403,11 +459,17 @@ describe(GitStorageClient.name, () => {
 				content: 'hello',
 			},
 		})
-		expect(gitStorageService.getRepositoryBlob).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			objectId: 'blob123',
-		})
+		expect(gitStorageService.getRepositoryBlob).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.getRepositoryBlob)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('maps binary and too large blob preview states', async () => {
@@ -478,11 +540,17 @@ describe(GitStorageClient.name, () => {
 			content,
 			sizeBytes: 5,
 		})
-		expect(gitStorageService.getRepositoryRawBlob).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			objectId: 'blob123',
-		})
+		expect(gitStorageService.getRepositoryRawBlob).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				objectId: 'blob123',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.getRepositoryRawBlob)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('lists repository commits with identity metadata', async () => {
@@ -504,13 +572,19 @@ describe(GitStorageClient.name, () => {
 				},
 			],
 		})
-		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			ref: 'main',
-			limit: 20,
-			trustedGpgKeys,
-		})
+		expect(gitStorageService.listRepositoryCommits).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ref: 'main',
+				limit: 20,
+				trustedGpgKeys,
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.listRepositoryCommits)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('lets storage use its default commit limit when omitted', async () => {
@@ -522,13 +596,19 @@ describe(GitStorageClient.name, () => {
 			trustedGpgKeys,
 		})
 
-		expect(gitStorageService.listRepositoryCommits).toHaveBeenCalledWith({
-			repositoryId,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			ref: 'main',
-			limit: 0,
-			trustedGpgKeys,
-		})
+		expect(gitStorageService.listRepositoryCommits).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ref: 'main',
+				limit: 0,
+				trustedGpgKeys,
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.listRepositoryCommits)
+		).toEqual(['Bearer test-internal-token'])
 	})
 
 	test('maps omitted grpc repeated root entries to an empty list', async () => {
@@ -642,3 +722,11 @@ describe(GitStorageClient.name, () => {
 		).rejects.toBeInstanceOf(GatewayTimeoutError)
 	})
 })
+
+function getGitStorageAuthorization(call: ReturnType<typeof vi.fn>) {
+	const metadata = call.mock.lastCall?.[1]
+
+	return metadata instanceof Metadata
+		? metadata.get('authorization')
+		: undefined
+}
