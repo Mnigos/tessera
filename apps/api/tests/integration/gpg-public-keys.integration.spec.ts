@@ -80,8 +80,9 @@ interface GpgPublicKeysListResponseBody {
 }
 
 interface ErrorResponseBody {
-	defined: true
+	defined: false
 	code: string
+	status: number
 	message: string
 }
 

@@ -47,8 +47,9 @@ describe(GlobalExceptionFilter.name, () => {
 		const response = getResponse(host)
 		expect(response.status).toHaveBeenCalledWith(HttpStatus.NOT_FOUND)
 		expect(response.json).toHaveBeenCalledWith({
-			defined: true,
+			defined: false,
 			code: 'NOT_FOUND',
+			status: HttpStatus.NOT_FOUND,
 			message: 'profile not found',
 		})
 		expect(response.res).toBeInstanceOf(Response)
