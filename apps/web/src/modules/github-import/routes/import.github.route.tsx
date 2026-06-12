@@ -37,7 +37,7 @@ function GitHubImportRoute() {
 		Route.useSearch()
 	const navigate = useNavigate({ from: '/import/github' })
 	const { isLoading: isAuthLoading, signIn, user } = useAuth()
-	const isAuthenticated = user !== undefined
+	const isAuthenticated = user != null
 	const repositoriesQuery = useGitHubImportRepositoriesQuery(isAuthenticated)
 	const importsQuery = useGitHubImportsQuery(isAuthenticated)
 	const createImportMutation = useCreateGitHubImportMutation()
@@ -134,7 +134,7 @@ function GitHubImportRoute() {
 			</div>
 			{isAuthLoading ? (
 				<GitHubImportLoadingState />
-			) : isAuthenticated ? (
+			) : user ? (
 				<>
 					<GitHubImportSourceSelector
 						error={repositoriesQuery.error}

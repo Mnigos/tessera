@@ -46,7 +46,7 @@ export function GitHubImportActivityRow({
 						{repositoryImport.failureReason ?? FAILURE_REASON_FALLBACK}
 					</p>
 				)}
-				{retryMutation.isError && (
+				{isFailed && retryMutation.isError && (
 					<p className="text-destructive text-xs">
 						{getGitHubImportErrorMessage(
 							retryMutation.error,
