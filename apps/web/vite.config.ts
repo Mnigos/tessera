@@ -3,14 +3,28 @@ import tailwindcss from '@tailwindcss/vite'
 import { tanstackStart } from '@tanstack/react-start/plugin/vite'
 import react, { reactCompilerPreset } from '@vitejs/plugin-react'
 import { nitro } from 'nitro/vite'
-import { defineConfig } from 'vite'
+import { defineConfig, type Plugin } from 'vite'
 import { env } from './src/env'
 import { routes } from './src/routes'
 
 const apiUrl = env.API_URL
 
+function noStoreDevCache(): Plugin {
+	return {
+		name: 'tessera:no-store-dev-cache',
+		config: () => ({
+			server: {
+				headers: {
+					'Cache-Control': 'no-store',
+				},
+			},
+		}),
+	}
+}
+
 const config = defineConfig({
 	plugins: [
+		noStoreDevCache(),
 		tailwindcss(),
 		tanstackStart({
 			router: {
