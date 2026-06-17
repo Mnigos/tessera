@@ -1,6 +1,7 @@
 import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { z } from 'zod'
+import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { RepositoryBrowserMessage } from '../components/repository-browser-message'
 import { RepositoryOverview } from '../components/repository-overview'
 import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
@@ -57,6 +58,7 @@ export const Route = createFileRoute('/$username/$slug')({
 function RepositoryRoute() {
 	const { username, slug } = Route.useParams()
 	const { ref } = Route.useSearch()
+	const { user } = useAuth()
 	const {
 		data: summary,
 		error,
@@ -103,7 +105,11 @@ function RepositoryRoute() {
 
 	return (
 		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryOverview selectedRef={ref} summary={summary} />
+			<RepositoryOverview
+				isCurrentOwner={user?.username === summary.owner.username}
+				selectedRef={ref}
+				summary={summary}
+			/>
 		</main>
 	)
 }
