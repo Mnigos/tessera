@@ -11,9 +11,9 @@ function createMockHost(type: 'http' | 'rpc' = 'http'): ArgumentsHost {
 	}
 
 	return {
-		switchToHttp: () => ({
+		switchToHttp: vi.fn(() => ({
 			getResponse: () => response,
-		}),
+		})),
 		getArgs: vi.fn(),
 		getArgByIndex: vi.fn(),
 		switchToRpc: vi.fn(),
@@ -65,5 +65,14 @@ describe(GlobalExceptionFilter.name, () => {
 		})
 
 		expect(() => filter.catch(exception, host)).toThrow(exception)
+	})
+
+	test('passes non-rpc exceptions through in rpc contexts', () => {
+		const filter = new GlobalExceptionFilter()
+		const host = createMockHost('rpc')
+		const exception = new Error('boom')
+
+		expect(() => filter.catch(exception, host)).toThrow(exception)
+		expect(host.switchToHttp).not.toHaveBeenCalled()
 	})
 })
