@@ -47,6 +47,9 @@ interface RepositoryResponseBody {
 		visibility: 'public' | 'private'
 		description?: string
 		defaultBranch: string
+		externalSource: {
+			mode: 'none' | 'imported' | 'github_to_tessera'
+		}
 		createdAt: string
 		updatedAt: string
 	}
