@@ -6,7 +6,9 @@ use tonic::transport::{Channel, Endpoint};
 use crate::proto::git_authorization_service_client::GitAuthorizationServiceClient;
 use crate::proto::{AuthorizeReadRequest, AuthorizeWriteRequest};
 use crate::smart_http::application::{SmartHttpAuthorizationRequest, SmartHttpAuthorizer};
-use crate::smart_http::domain::{SmartHttpError, SmartHttpRepositoryMetadata};
+use crate::smart_http::domain::{
+    GITHUB_MIRROR_WRITE_DENIED_MESSAGE, SmartHttpError, SmartHttpRepositoryMetadata,
+};
 
 #[derive(Clone, Debug)]
 pub struct ApiSmartHttpAuthorizer {
@@ -137,6 +139,13 @@ fn with_authorization_metadata<T>(
 }
 
 fn status_to_smart_http_error(status: tonic::Status) -> SmartHttpError {
+    if status
+        .message()
+        .contains(GITHUB_MIRROR_WRITE_DENIED_MESSAGE)
+    {
+        return SmartHttpError::GitHubMirrorWriteDenied;
+    }
+
     match status.code() {
         Code::Unauthenticated => SmartHttpError::InvalidCredentials,
         Code::PermissionDenied | Code::NotFound => SmartHttpError::Unauthorized,
@@ -221,6 +230,20 @@ mod tests {
         assert_eq!(
             status_to_smart_http_error(tonic::Status::new(Code::PermissionDenied, "")),
             SmartHttpError::Unauthorized
+        );
+        assert_eq!(
+            status_to_smart_http_error(tonic::Status::new(
+                Code::Unknown,
+                "2 UNKNOWN: GitHub is the source of truth for this repository. Push to GitHub instead.",
+            )),
+            SmartHttpError::GitHubMirrorWriteDenied
+        );
+        assert_eq!(
+            status_to_smart_http_error(tonic::Status::new(
+                Code::NotFound,
+                "GitHub is the source of truth for this repository. Push to GitHub instead.",
+            )),
+            SmartHttpError::GitHubMirrorWriteDenied
         );
     }
 

@@ -1,6 +1,6 @@
 use axum::body::Body;
 use axum::extract::{Path, RawQuery, State};
-use axum::http::{HeaderMap, Method, Response, StatusCode};
+use axum::http::{HeaderMap, Method, Response, StatusCode, header};
 use base64::Engine;
 
 use crate::smart_http::application::{SmartHttpAuthorizationContext, SmartHttpRequest};
@@ -187,9 +187,59 @@ fn smart_http_error_response(
         }
 
         basic_auth_challenge_response(error)
+    } else if matches!(error, SmartHttpError::GitHubMirrorWriteDenied) && is_receive_pack {
+        git_receive_pack_error_response(error, query)
+    } else if matches!(error, SmartHttpError::GitHubMirrorWriteDenied) {
+        plain_text_error_response(status, error)
     } else {
         empty_response(status)
     }
+}
+
+fn plain_text_error_response(status: StatusCode, error: SmartHttpError) -> Response<Body> {
+    Response::builder()
+        .status(status)
+        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+        .body(Body::from(format!("{error}\n")))
+        .expect("failed to build smart HTTP error response")
+}
+
+fn git_receive_pack_error_response(
+    error: SmartHttpError,
+    query: &Option<String>,
+) -> Response<Body> {
+    let is_advertisement = matches!(
+        query_service(query.as_deref()).ok().flatten(),
+        Some("git-receive-pack")
+    );
+    let (content_type, body) = if is_advertisement {
+        (
+            "application/x-git-receive-pack-advertisement",
+            [
+                pkt_line("# service=git-receive-pack\n"),
+                "0000".as_bytes().to_vec(),
+                pkt_line(&format!("ERR {error}\n")),
+            ]
+            .concat(),
+        )
+    } else {
+        (
+            "application/x-git-receive-pack-result",
+            pkt_line(&format!("ERR {error}\n")),
+        )
+    };
+
+    Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, content_type)
+        .body(Body::from(body))
+        .expect("failed to build smart HTTP error response")
+}
+
+fn pkt_line(value: &str) -> Vec<u8> {
+    let length = value.len() + 4;
+
+    format!("{length:04x}{value}").into_bytes()
 }
 
 fn parse_repo_git_segment(repo_git: &str) -> Option<String> {
@@ -264,6 +314,7 @@ mod tests {
 
     use axum::body::Body;
     use axum::http::{HeaderMap, Method, StatusCode};
+    use http_body_util::BodyExt;
     use tempfile::TempDir;
 
     use crate::smart_http::application::SmartHttpApplication;
@@ -364,6 +415,57 @@ mod tests {
                 .get(http::header::WWW_AUTHENTICATE)
                 .unwrap(),
             "Basic realm=\"Tessera Git\""
+        );
+    }
+
+    #[tokio::test]
+    async fn github_mirror_write_denial_returns_client_facing_copy() {
+        let response = smart_http_error_response(
+            SmartHttpError::GitHubMirrorWriteDenied,
+            &Method::GET,
+            "mona/repo.git/info/refs",
+            &Some("service=git-receive-pack".to_string()),
+            true,
+        );
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "application/x-git-receive-pack-advertisement"
+        );
+        assert!(
+            !response
+                .headers()
+                .contains_key(http::header::WWW_AUTHENTICATE)
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+
+        assert_eq!(
+            String::from_utf8(body.to_vec()).unwrap(),
+            "001f# service=git-receive-pack\n00000053ERR GitHub is the source of truth for this repository. Push to GitHub instead.\n"
+        );
+    }
+
+    #[tokio::test]
+    async fn github_mirror_write_denial_returns_receive_pack_result_for_post() {
+        let response = smart_http_error_response(
+            SmartHttpError::GitHubMirrorWriteDenied,
+            &Method::POST,
+            "mona/repo.git/git-receive-pack",
+            &None,
+            true,
+        );
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers().get(http::header::CONTENT_TYPE).unwrap(),
+            "application/x-git-receive-pack-result"
+        );
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+
+        assert_eq!(
+            String::from_utf8(body.to_vec()).unwrap(),
+            "0053ERR GitHub is the source of truth for this repository. Push to GitHub instead.\n"
         );
     }
 

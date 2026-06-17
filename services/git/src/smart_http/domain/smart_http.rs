@@ -1,5 +1,8 @@
 use std::fmt;
 
+pub const GITHUB_MIRROR_WRITE_DENIED_MESSAGE: &str =
+    "GitHub is the source of truth for this repository. Push to GitHub instead.";
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SmartHttpAction {
     UploadPackInfoRefs,
@@ -38,6 +41,7 @@ pub enum SmartHttpError {
     InvalidCredentials,
     AuthorizationUnavailable,
     Unauthorized,
+    GitHubMirrorWriteDenied,
     InvalidRepositoryMetadata,
     RepositoryUnavailable,
     BackendFailed,
@@ -56,6 +60,9 @@ impl fmt::Display for SmartHttpError {
                 write!(formatter, "authorization service unavailable")
             }
             Self::Unauthorized => write!(formatter, "repository access denied"),
+            Self::GitHubMirrorWriteDenied => {
+                write!(formatter, "{GITHUB_MIRROR_WRITE_DENIED_MESSAGE}")
+            }
             Self::InvalidRepositoryMetadata => write!(formatter, "repository metadata is invalid"),
             Self::RepositoryUnavailable => write!(formatter, "repository is unavailable"),
             Self::BackendFailed => write!(formatter, "git http-backend failed"),

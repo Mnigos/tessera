@@ -258,6 +258,19 @@ fn reject_exec(
     error: SshGitError,
 ) -> Result<(), russh::Error> {
     tracing::warn!(error = %error, "rejecting SSH Git exec request");
+    if matches!(error, SshGitError::GitHubMirrorWriteDenied) {
+        session.channel_success(channel)?;
+        session.extended_data(
+            channel,
+            1,
+            format!("{}\n", ssh_exec_failure_message(&error)).into_bytes(),
+        )?;
+        session.exit_status_request(channel, 1)?;
+        session.eof(channel)?;
+        session.close(channel)?;
+        return Ok(());
+    }
+
     session.extended_data(
         channel,
         1,

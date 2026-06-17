@@ -10,7 +10,7 @@ use crate::proto::{AuthenticateSshKeyRequest, AuthorizeSshReadRequest, Authorize
 use crate::ssh::application::{
     SshAuthenticatedKey, SshGitAuthenticationRequest, SshGitAuthorizationRequest, SshGitAuthorizer,
 };
-use crate::ssh::domain::{SshGitError, SshRepositoryMetadata};
+use crate::ssh::domain::{GITHUB_MIRROR_WRITE_DENIED_MESSAGE, SshGitError, SshRepositoryMetadata};
 
 #[derive(Clone, Debug)]
 pub struct ApiSshGitAuthorizer {
@@ -175,6 +175,13 @@ fn with_authorization_metadata<T>(
 }
 
 fn status_to_ssh_error(status: tonic::Status) -> SshGitError {
+    if status
+        .message()
+        .contains(GITHUB_MIRROR_WRITE_DENIED_MESSAGE)
+    {
+        return SshGitError::GitHubMirrorWriteDenied;
+    }
+
     match status.code() {
         Code::Unauthenticated => SshGitError::Unauthorized,
         Code::PermissionDenied | Code::NotFound => SshGitError::Unauthorized,
@@ -249,6 +256,27 @@ mod tests {
         assert_eq!(
             status_to_ssh_error(tonic::Status::new(Code::FailedPrecondition, "")),
             SshGitError::InvalidRepositoryMetadata
+        );
+        assert_eq!(
+            status_to_ssh_error(tonic::Status::new(
+                Code::Unknown,
+                "2 UNKNOWN: GitHub is the source of truth for this repository. Push to GitHub instead.",
+            )),
+            SshGitError::GitHubMirrorWriteDenied
+        );
+        assert_eq!(
+            status_to_ssh_error(tonic::Status::new(
+                Code::NotFound,
+                "GitHub is the source of truth for this repository. Push to GitHub instead.",
+            )),
+            SshGitError::GitHubMirrorWriteDenied
+        );
+        assert_eq!(
+            status_to_ssh_error(tonic::Status::new(
+                Code::PermissionDenied,
+                "repository is read-only",
+            )),
+            SshGitError::Unauthorized
         );
     }
 

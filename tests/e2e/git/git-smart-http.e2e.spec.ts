@@ -1,3 +1,6 @@
+import { db } from '@repo/db/client'
+import { repositoryExternalSources } from '@repo/db/schema'
+import type { RepositoryId } from '@repo/domain'
 import { $, file } from 'bun'
 import {
 	createGitAccessToken,
@@ -32,6 +35,9 @@ interface GitE2EPorts {
 }
 
 type GitE2EProcesses = Awaited<ReturnType<typeof startGitE2EProcesses>>
+
+const GITHUB_SOURCE_OF_TRUTH_MESSAGE =
+	'GitHub is the source of truth for this repository. Push to GitHub instead.'
 
 describe('Git smart HTTP e2e', () => {
 	let ports: GitE2EPorts
@@ -204,6 +210,98 @@ describe('Git smart HTTP e2e', () => {
 		})
 	})
 
+	test('rejects HTTP pushes to GitHub mirrored repositories without breaking fetches', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'http-mirror@example.com',
+			username: 'http-mirror',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'HTTP Mirror',
+			slug: 'http-mirror',
+			visibility: 'public',
+		})
+		await createGitHubMirroredExternalSource({
+			externalRepositoryId: 3_701n,
+			fullName: 'http-mirror/http-mirror',
+			name: 'http-mirror',
+			ownerLogin: 'http-mirror',
+			repositoryId: repository.id as RepositoryId,
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:write'],
+		})
+		const localRepository = `${runDirectory}/http-mirror-push`
+
+		await createCommittedRepository(localRepository, 'README.md', '# Mirror\n')
+		const pushResult = await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, 'http-mirror', repository.slug, token)
+		)
+		const lsResult = await lsRemote(
+			smartHttpUrl(ports.gitHttp, 'http-mirror', repository.slug)
+		)
+
+		expect(pushResult.exitCode).not.toBe(0)
+		expect(`${pushResult.stderr}\n${pushResult.stdout}`).toContain(
+			GITHUB_SOURCE_OF_TRUTH_MESSAGE
+		)
+		expect(lsResult.exitCode, lsResult.stderr).toBe(0)
+	})
+
+	test('rejects SSH pushes to GitHub mirrored repositories without breaking fetches', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'ssh-mirror@example.com',
+			username: 'ssh-mirror',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'SSH Mirror',
+			slug: 'ssh-mirror',
+			visibility: 'public',
+		})
+		await createGitHubMirroredExternalSource({
+			externalRepositoryId: 3_702n,
+			fullName: 'ssh-mirror/ssh-mirror',
+			name: 'ssh-mirror',
+			ownerLogin: 'ssh-mirror',
+			repositoryId: repository.id as RepositoryId,
+		})
+		const key = await createSshKeyPair('ssh-mirror')
+		await createSshPublicKey({
+			apiBaseUrl,
+			headers,
+			publicKey: key.publicKey,
+			title: 'Mirror SSH key',
+		})
+		const localRepository = `${runDirectory}/ssh-mirror-push`
+		const remoteUrl = sshUrl(ports.gitSsh, 'ssh-mirror', repository.slug)
+
+		await createCommittedRepository(localRepository, 'README.md', '# Mirror\n')
+		const pushResult = await pushRepositoryOverSsh(
+			localRepository,
+			remoteUrl,
+			key.privateKeyPath
+		)
+		const cloneResult = await cloneRepositoryOverSsh(
+			remoteUrl,
+			`${runDirectory}/ssh-mirror-clone`,
+			key.privateKeyPath
+		)
+
+		expect(pushResult.exitCode).not.toBe(0)
+		expect(`${pushResult.stderr}\n${pushResult.stdout}`).toContain(
+			GITHUB_SOURCE_OF_TRUTH_MESSAGE
+		)
+		expect(cloneResult.exitCode, cloneResult.stderr).toBe(0)
+	})
+
 	test('rejects unregistered SSH keys before repository access', async () => {
 		const headers = await createTestSessionHeaders({
 			apiBaseUrl,
@@ -326,3 +424,31 @@ describe('Git smart HTTP e2e', () => {
 		return { privateKeyPath, publicKey }
 	}
 })
+
+interface CreateGitHubMirroredExternalSourceOptions {
+	externalRepositoryId: bigint
+	fullName: string
+	name: string
+	ownerLogin: string
+	repositoryId: RepositoryId
+}
+
+async function createGitHubMirroredExternalSource({
+	externalRepositoryId,
+	fullName,
+	name,
+	ownerLogin,
+	repositoryId,
+}: CreateGitHubMirroredExternalSourceOptions) {
+	await db.insert(repositoryExternalSources).values({
+		repositoryId,
+		externalRepositoryId,
+		ownerLogin,
+		name,
+		fullName,
+		sourceUrl: `https://github.com/${fullName}`,
+		sourceDefaultBranch: 'main',
+		mirrorMode: 'github_to_tessera',
+		syncStatus: 'succeeded',
+	})
+}
