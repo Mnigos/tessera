@@ -90,6 +90,7 @@ export class GitHubMirrorSyncProcessor extends WorkerHost {
 				'GitHub mirror sync failed',
 				error instanceof Error ? error.stack : undefined
 			)
+			throw error
 		}
 	}
 }

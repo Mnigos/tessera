@@ -154,7 +154,9 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 		)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-		await processor.process(job)
+		await expect(processor.process(job)).rejects.toThrow(
+			'missing GitHub access token'
+		)
 
 		expect(gitStorageClient.importRepository).not.toHaveBeenCalled()
 		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
@@ -184,7 +186,9 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 		)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-		await processor.process(job)
+		await expect(processor.process(job)).rejects.toThrow(
+			'missing GitHub mirror sync start time'
+		)
 
 		expect(gitStorageClient.importRepository).not.toHaveBeenCalled()
 		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
@@ -245,7 +249,7 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 		)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-		await processor.process(finalJob)
+		await expect(processor.process(finalJob)).rejects.toThrow('fetch failed')
 
 		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
 			repositoryId,
