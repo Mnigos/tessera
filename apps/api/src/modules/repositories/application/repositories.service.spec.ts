@@ -3,6 +3,7 @@ import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
+import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
@@ -21,12 +22,14 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubMirrorSyncUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
+import { GitHubMirrorSyncQueue } from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { RepositoriesService } from './repositories.service'
 
@@ -63,6 +66,7 @@ describe(RepositoriesService.name, () => {
 	let gitAccessTokensService: GitAccessTokensService
 	let gpgPublicKeysService: GpgPublicKeysService
 	let sshPublicKeysService: SshPublicKeysService
+	let githubMirrorSyncQueue: GitHubMirrorSyncQueue
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -78,6 +82,8 @@ describe(RepositoriesService.name, () => {
 						updateImportStorage: vi.fn(),
 						completeImportedGitHubRepository: vi.fn(),
 						upsertGitHubExternalSource: vi.fn(),
+						markGitHubMirrorSyncPending: vi.fn(),
+						markGitHubMirrorSyncFailed: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -200,6 +206,12 @@ describe(RepositoriesService.name, () => {
 						authenticateByFingerprint: vi.fn().mockResolvedValue(mockUserId),
 					},
 				},
+				{
+					provide: GitHubMirrorSyncQueue,
+					useValue: {
+						enqueueRepositorySync: vi.fn(),
+					},
+				},
 			],
 		}).compile()
 
@@ -208,6 +220,7 @@ describe(RepositoriesService.name, () => {
 		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
 		gpgPublicKeysService = moduleRef.get(GpgPublicKeysService)
 		sshPublicKeysService = moduleRef.get(SshPublicKeysService)
+		githubMirrorSyncQueue = moduleRef.get(GitHubMirrorSyncQueue)
 		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
 	})
 
@@ -571,6 +584,255 @@ describe(RepositoriesService.name, () => {
 				slug: 'missing' as RepositorySlug,
 			})
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('queues a GitHub mirror sync for an imported GitHub repository', async () => {
+		const pendingRepository = {
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'pending' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...pendingRepository,
+			externalSource: {
+				...pendingRepository.externalSource,
+				mirrorMode: 'imported',
+				syncStatus: 'succeeded',
+			},
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncPending'
+		).mockResolvedValue({
+			didMarkPending: true,
+			repository: pendingRepository,
+		})
+		const enqueueRepositorySyncSpy = vi.spyOn(
+			githubMirrorSyncQueue,
+			'enqueueRepositorySync'
+		)
+
+		expect(
+			await repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({
+					externalSource: expect.objectContaining({
+						mode: 'github_to_tessera',
+						syncStatus: 'pending',
+					}),
+				}),
+			})
+		)
+		expect(enqueueRepositorySyncSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			requesterUserId: mockUserId,
+		})
+	})
+
+	test('does not enqueue duplicate GitHub mirror sync jobs', async () => {
+		const pendingRepository = {
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'pending' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: null,
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			pendingRepository
+		)
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncPending'
+		).mockResolvedValue({
+			didMarkPending: false,
+			repository: pendingRepository,
+		})
+		const enqueueRepositorySyncSpy = vi.spyOn(
+			githubMirrorSyncQueue,
+			'enqueueRepositorySync'
+		)
+
+		await repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+			username: 'marta',
+			slug: repository.slug,
+		})
+
+		expect(enqueueRepositorySyncSpy).not.toHaveBeenCalled()
+	})
+
+	test('marks GitHub mirror sync failed when enqueue fails', async () => {
+		const pendingRepository = {
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'pending' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: null,
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			pendingRepository
+		)
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncPending'
+		).mockResolvedValue({
+			didMarkPending: true,
+			repository: pendingRepository,
+		})
+		vi.spyOn(githubMirrorSyncQueue, 'enqueueRepositorySync').mockRejectedValue(
+			new Error('redis unavailable')
+		)
+		const markGitHubMirrorSyncFailedSpy = vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncFailed'
+		)
+
+		await expect(
+			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toThrow('redis unavailable')
+		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			failedAt: expect.any(Date),
+			failureReason: 'redis unavailable',
+		})
+	})
+
+	test('preserves enqueue errors when failed status persistence also fails', async () => {
+		const pendingRepository = {
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'pending' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: null,
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			pendingRepository
+		)
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncPending'
+		).mockResolvedValue({
+			didMarkPending: true,
+			repository: pendingRepository,
+		})
+		vi.spyOn(githubMirrorSyncQueue, 'enqueueRepositorySync').mockRejectedValue(
+			new Error('redis unavailable')
+		)
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncFailed'
+		).mockRejectedValue(new Error('status update failed'))
+		const loggerErrorSpy = vi
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(
+			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toThrow('redis unavailable')
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to mark GitHub mirror sync as failed after enqueue error',
+			expect.any(String)
+		)
+	})
+
+	test('rejects GitHub mirror sync while storage is missing', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(repository)
+
+		await expect(
+			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+	})
+
+	test('rejects GitHub mirror sync for non-mirrored repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		await expect(
+			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
 	})
 
 	test('throws when a readable repository is unknown', async () => {

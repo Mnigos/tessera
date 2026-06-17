@@ -38,4 +38,20 @@ export class RepositoriesController {
 			this.repositoriesService.get(targetUserId, input)
 		)
 	}
+
+	@UseGuards(RepositoryOwnerGuard)
+	@Implement(contract.repositories.syncGitHubMirror)
+	syncGitHubMirror(
+		@Session() session: UserSession,
+		@TargetUserId() targetUserId: UserId
+	) {
+		return implement(contract.repositories.syncGitHubMirror).handler(
+			({ input }) =>
+				this.repositoriesService.syncGitHubMirror(
+					session.user.id,
+					targetUserId,
+					input
+				)
+		)
+	}
 }

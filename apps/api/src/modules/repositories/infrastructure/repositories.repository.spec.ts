@@ -34,6 +34,7 @@ describe(RepositoriesRepository.name, () => {
 
 	const findManyMock = vi.fn()
 	const findFirstRepositoryMock = vi.fn()
+	const findFirstAccountMock = vi.fn()
 	const insertMock = vi.fn()
 	const updateMock = vi.fn()
 	const deleteMock = vi.fn()
@@ -56,6 +57,9 @@ describe(RepositoriesRepository.name, () => {
 	beforeEach(async () => {
 		const databaseMock = {
 			query: {
+				account: {
+					findFirst: findFirstAccountMock,
+				},
 				repositories: {
 					findMany: findManyMock,
 					findFirst: findFirstRepositoryMock,
@@ -97,7 +101,11 @@ describe(RepositoriesRepository.name, () => {
 		orderByMock.mockResolvedValue([repositoryRow])
 		selectWhereMock.mockReturnValue({ limit: limitMock, orderBy: orderByMock })
 		leftJoinMock.mockReturnValue({ where: selectWhereMock })
-		innerJoinMock.mockReturnValue({ leftJoin: leftJoinMock })
+		innerJoinMock.mockReturnValue({
+			leftJoin: leftJoinMock,
+			innerJoin: innerJoinMock,
+			where: selectWhereMock,
+		})
 		fromMock.mockReturnValue({ innerJoin: innerJoinMock })
 		selectMock.mockReturnValue({ from: fromMock })
 
@@ -428,6 +436,155 @@ describe(RepositoriesRepository.name, () => {
 			lastSyncSucceededAt: completedAt,
 			lastSyncFailedAt: undefined,
 			syncFailureReason: undefined,
+		})
+	})
+
+	test('finds GitHub account credentials for a user', async () => {
+		findFirstAccountMock.mockResolvedValue({ accessToken: 'github-token' })
+
+		expect(
+			await repositoriesRepository.findGitHubAccount({ userId: mockUserId })
+		).toEqual({ accessToken: 'github-token' })
+	})
+
+	test('marks GitHub mirror sync pending and returns refreshed repository', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		expect(
+			await repositoriesRepository.markGitHubMirrorSyncPending({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toEqual({
+			didMarkPending: true,
+			repository: expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			}),
+		})
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'pending',
+			lastSyncStartedAt: null,
+			lastSyncFailedAt: null,
+			syncFailureReason: null,
+		})
+		expect(updateReturningMock).toHaveBeenCalledWith({
+			id: repositoryExternalSources.id,
+		})
+	})
+
+	test('marks GitHub mirror sync running before processing', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		limitMock.mockResolvedValue([
+			{
+				...repositoryRow,
+				externalSource: {
+					id: '00000000-0000-4000-8000-000000000092',
+					repositoryId,
+					provider: 'github',
+					externalRepositoryId: 123n,
+					ownerLogin: 'marta',
+					name: 'notes',
+					fullName: 'marta/notes',
+					sourceUrl: 'https://github.com/marta/notes',
+					sourceDefaultBranch: 'main',
+					mirrorMode: 'github_to_tessera',
+					syncStatus: 'running',
+					lastSyncStartedAt: null,
+					lastSyncSucceededAt: null,
+					lastSyncFailedAt: null,
+					syncFailureReason: null,
+					createdAt: new Date('2026-05-12T00:00:00Z'),
+					updatedAt: new Date('2026-05-12T00:00:00Z'),
+				},
+			},
+		])
+
+		expect(
+			await repositoriesRepository.markGitHubMirrorSyncRunning({
+				repositoryId,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			syncStatus: 'running',
+			lastSyncStartedAt: expect.any(Date),
+			lastSyncFailedAt: null,
+			syncFailureReason: null,
+		})
+	})
+
+	test('marks GitHub mirror sync succeeded with mirror mode preserved', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+
+		expect(
+			await repositoriesRepository.markGitHubMirrorSyncSucceeded({
+				repositoryId,
+				username: 'marta',
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'trunk',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+				lastSyncSucceededAt: completedAt,
+				lastSyncFailedAt: undefined,
+				syncFailureReason: undefined,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(valuesMock).toHaveBeenCalledWith({
+			repositoryId,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: undefined,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
+	})
+
+	test('marks GitHub mirror sync failed with reason', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const failedAt = new Date('2026-05-12T00:01:00Z')
+
+		await repositoriesRepository.markGitHubMirrorSyncFailed({
+			repositoryId,
+			failedAt,
+			failureReason: 'clone failed',
+		})
+
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			syncStatus: 'failed',
+			lastSyncFailedAt: failedAt,
+			syncFailureReason: 'clone failed',
 		})
 	})
 })

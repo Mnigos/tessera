@@ -50,6 +50,7 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubMirrorSyncUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
@@ -65,6 +66,7 @@ import {
 	type RepositoryBrowserStorageErrorContext,
 	toRepositoryBrowserReadError,
 } from '../helpers/repository-browser-storage-error'
+import { GitHubMirrorSyncQueue } from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 
 const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
@@ -154,7 +156,8 @@ export class RepositoriesService {
 		private readonly gitStorageClient: GitStorageClient,
 		private readonly gitAccessTokensService: GitAccessTokensService,
 		private readonly gpgPublicKeysService: GpgPublicKeysService,
-		private readonly sshPublicKeysService: SshPublicKeysService
+		private readonly sshPublicKeysService: SshPublicKeysService,
+		private readonly githubMirrorSyncQueue: GitHubMirrorSyncQueue
 	) {}
 
 	async create(
@@ -318,6 +321,66 @@ export class RepositoriesService {
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
 		return toRepositoryOutput(repository)
+	}
+
+	async syncGitHubMirror(
+		requesterUserId: UserId,
+		targetUserId: UserId,
+		{ slug, username }: ParsedGetRepositoryInput
+	): Promise<RepositoryWithOwner> {
+		const repository = await this.repositoriesRepository.find({
+			userId: targetUserId,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+		if (!repository.storagePath)
+			throw new RepositoryStoragePathMissingError({
+				repositoryId: repository.id,
+			})
+		if (repository.externalSource?.provider !== 'github')
+			throw new RepositoryGitHubMirrorSyncUnavailableError({
+				repositoryId: repository.id,
+				provider: repository.externalSource?.provider,
+				mirrorMode: repository.externalSource?.mirrorMode,
+			})
+
+		const pendingRepository =
+			await this.repositoriesRepository.markGitHubMirrorSyncPending({
+				repositoryId: repository.id,
+				userId: targetUserId,
+			})
+
+		if (!pendingRepository)
+			throw new RepositoryNotFoundError({ repositoryId: repository.id })
+
+		if (pendingRepository.didMarkPending)
+			try {
+				await this.githubMirrorSyncQueue.enqueueRepositorySync({
+					repositoryId: repository.id,
+					requesterUserId,
+				})
+			} catch (error) {
+				try {
+					await this.repositoriesRepository.markGitHubMirrorSyncFailed({
+						repositoryId: repository.id,
+						failedAt: new Date(),
+						failureReason:
+							error instanceof Error
+								? error.message
+								: 'GitHub mirror sync enqueue failed',
+					})
+				} catch (markError) {
+					this.logger.error(
+						'Failed to mark GitHub mirror sync as failed after enqueue error',
+						markError instanceof Error ? markError.stack : undefined
+					)
+				}
+
+				throw error
+			}
+
+		return toRepositoryOutput(pendingRepository.repository)
 	}
 
 	async getBrowserSummary(
