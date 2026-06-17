@@ -1,4 +1,7 @@
-import type { RepositoryBrowserSummary } from '@repo/contracts'
+import type {
+	RepositoryBrowserSummary,
+	RepositoryExternalSource,
+} from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -12,6 +15,7 @@ import {
 	getSelectedRepositoryQualifiedRef,
 	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
+import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
 import { RepositoryOverview } from './repository-overview'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -58,8 +62,13 @@ vi.mock('../helpers/get-repository-clone-url', () => ({
 	getRepositorySshCloneUrl: vi.fn(),
 }))
 
+vi.mock('../hooks/use-sync-github-mirror.mutation', () => ({
+	useSyncGitHubMirrorMutation: vi.fn(),
+}))
+
 const getRepositoryHttpCloneUrlMock = vi.mocked(getRepositoryHttpCloneUrl)
 const getRepositorySshCloneUrlMock = vi.mocked(getRepositorySshCloneUrl)
+const useSyncGitHubMirrorMutationMock = vi.mocked(useSyncGitHubMirrorMutation)
 
 const baseSummary = {
 	repository: {
@@ -137,6 +146,7 @@ const expectedSshCloneUrl = 'ssh://git@localhost:2222/mnigos/tessera-notes.git'
 
 const README_HEADING_REGEX = /readme/i
 const README_TRUNCATED_REGEX = /README preview is truncated/i
+const syncGitHubMirrorMutateMock = vi.fn()
 
 function getSummary(
 	overrides: Partial<RepositoryBrowserSummary> = {}
@@ -155,14 +165,53 @@ function getSummary(
 	} as RepositoryBrowserSummary
 }
 
+function getMirroredSummary(
+	overrides: Partial<Exclude<RepositoryExternalSource, { mode: 'none' }>> = {}
+) {
+	const summary = getSummary()
+	const externalSource: Exclude<RepositoryExternalSource, { mode: 'none' }> = {
+		mode: 'github_to_tessera',
+		provider: 'github',
+		externalRepositoryId: '123456',
+		ownerLogin: 'mnigos',
+		name: 'upstream-notes',
+		fullName: 'mnigos/upstream-notes',
+		sourceUrl: 'https://github.com/mnigos/upstream-notes',
+		sourceDefaultBranch: 'main',
+		syncStatus: 'succeeded',
+		lastSyncStartedAt: new Date('2026-06-15T10:00:00.000Z'),
+		lastSyncSucceededAt: new Date('2026-06-15T10:01:00.000Z'),
+		lastSyncFailedAt: new Date('2026-06-14T09:00:00.000Z'),
+		createdAt: new Date('2026-06-01T00:00:00.000Z'),
+		updatedAt: new Date('2026-06-15T10:01:00.000Z'),
+		...overrides,
+	}
+
+	return {
+		...summary,
+		repository: {
+			...summary.repository,
+			externalSource,
+		},
+	}
+}
+
 describe('RepositoryOverview', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
+		syncGitHubMirrorMutateMock.mockClear()
 	})
 
 	beforeEach(() => {
 		getRepositoryHttpCloneUrlMock.mockReturnValue(expectedCloneUrl)
 		getRepositorySshCloneUrlMock.mockReturnValue(expectedSshCloneUrl)
+		useSyncGitHubMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: false,
+			mutate: syncGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
 	})
 
 	test('renders README markdown before the root tree when README is present', () => {
@@ -259,6 +308,141 @@ describe('RepositoryOverview', () => {
 		expect(
 			screen.getByRole('button', { name: 'HTTPS clone URL copied' })
 		).toBeTruthy()
+	})
+
+	test('shows GitHub mirror source state and sync timestamps', () => {
+		const summary = getMirroredSummary()
+		const formatter = new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short',
+		})
+
+		render(<RepositoryOverview isCurrentOwner summary={summary} />)
+
+		expect(screen.getByRole('heading', { name: 'GitHub mirror' })).toBeTruthy()
+		expect(screen.getByText('mnigos/upstream-notes')).toBeTruthy()
+		expect(
+			screen.getByRole('link', {
+				name: 'https://github.com/mnigos/upstream-notes',
+			})
+		).toBeTruthy()
+		expect(screen.getByText('Succeeded')).toBeTruthy()
+		expect(screen.getByText('Last started')).toBeTruthy()
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-15T10:00:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getByText('Last success')).toBeTruthy()
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-15T10:01:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getByText('Last failure')).toBeTruthy()
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-14T09:00:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
+	})
+
+	test('queues manual GitHub mirror sync for the current owner', async () => {
+		const user = userEvent.setup()
+
+		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+
+		await user.click(screen.getByRole('button', { name: 'Sync now' }))
+
+		expect(syncGitHubMirrorMutateMock).toHaveBeenCalledWith({
+			username: 'mnigos',
+			slug: 'tessera-notes',
+		})
+	})
+
+	test('hides manual GitHub mirror sync for non-owner users', () => {
+		render(<RepositoryOverview summary={getMirroredSummary()} />)
+
+		expect(screen.getByText('mnigos/upstream-notes')).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
+	})
+
+	test.each([
+		'pending',
+		'running',
+	] as const)('disables manual GitHub mirror sync while status is %s', status => {
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getMirroredSummary({ syncStatus: status })}
+			/>
+		)
+
+		expect(
+			screen.getByText(status === 'pending' ? 'Pending' : 'Running')
+		).toBeTruthy()
+		expect(screen.getByText(`Sync is ${status}.`)).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Sync now' }).hasAttribute('disabled')
+		).toBe(true)
+	})
+
+	test('shows GitHub mirror failure state and reason', () => {
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getMirroredSummary({
+					syncStatus: 'failed',
+					syncFailureReason: 'GitHub source could not be fetched.',
+				})}
+			/>
+		)
+
+		expect(screen.getByText('Failed')).toBeTruthy()
+		expect(screen.getByText('GitHub source could not be fetched.')).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Sync now' }).hasAttribute('disabled')
+		).toBe(false)
+	})
+
+	test('shows manual GitHub mirror sync pending and success states', () => {
+		useSyncGitHubMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: true,
+			isSuccess: true,
+			mutate: syncGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
+
+		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+
+		expect(
+			screen
+				.getByRole('button', { name: 'Syncing...' })
+				.hasAttribute('disabled')
+		).toBe(true)
+		expect(screen.getByText('Sync queued.')).toBeTruthy()
+	})
+
+	test('shows manual GitHub mirror sync mutation errors', () => {
+		useSyncGitHubMirrorMutationMock.mockReturnValue({
+			error: new Error('queue unavailable'),
+			isError: true,
+			isPending: false,
+			isSuccess: false,
+			mutate: syncGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
+
+		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+
+		expect(
+			screen.getByText('GitHub mirror sync could not be queued.')
+		).toBeTruthy()
+	})
+
+	test('shows a non-mirrored fallback', () => {
+		render(<RepositoryOverview isCurrentOwner summary={getSummary()} />)
+
+		expect(screen.getByRole('heading', { name: 'GitHub mirror' })).toBeTruthy()
+		expect(
+			screen.getByText('This repository is not mirrored from GitHub.')
+		).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
 	})
 
 	test('distinguishes directory and file rows', () => {

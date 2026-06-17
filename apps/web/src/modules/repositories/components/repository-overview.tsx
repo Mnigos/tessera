@@ -8,16 +8,19 @@ import {
 } from '../helpers/repository-refs'
 import { RepositoryClonePanel } from './repository-clone-panel'
 import { RepositoryEmptyState } from './repository-empty-state'
+import { RepositoryGitHubMirrorPanel } from './repository-github-mirror-panel'
 import { RepositoryReadmePreview } from './repository-readme-preview'
 import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryRootTree } from './repository-root-tree'
 
 interface RepositoryOverviewProps {
+	isCurrentOwner?: boolean
 	summary: RepositoryBrowserSummary
 	selectedRef?: string
 }
 
 export function RepositoryOverview({
+	isCurrentOwner = false,
 	summary: { owner, repository, defaultBranch, rootEntries, isEmpty, readme },
 	summary,
 	selectedRef,
@@ -86,6 +89,11 @@ export function RepositoryOverview({
 				<RepositoryEmptyState owner={owner} repository={repository} />
 			) : (
 				<>
+					<RepositoryGitHubMirrorPanel
+						isCurrentOwner={isCurrentOwner}
+						owner={owner}
+						repository={repository}
+					/>
 					<RepositoryClonePanel owner={owner} repository={repository} />
 					{readme && <RepositoryReadmePreview readme={readme} />}
 					<RepositoryRootTree
