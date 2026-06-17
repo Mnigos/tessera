@@ -73,6 +73,8 @@ const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 	'repositories_owner_user_slug_unique',
 	'repositories_owner_organization_slug_unique',
 ])
+const GITHUB_MIRROR_SYNC_ENQUEUE_FAILURE_REASON =
+	'GitHub mirror sync could not be queued. Please retry.'
 
 interface CreateRepositoryMetadataParams {
 	description: string | undefined
@@ -361,14 +363,15 @@ export class RepositoriesService {
 					requesterUserId,
 				})
 			} catch (error) {
+				this.logger.error(
+					'Failed to enqueue GitHub mirror sync job',
+					error instanceof Error ? error.stack : undefined
+				)
 				try {
 					await this.repositoriesRepository.markGitHubMirrorSyncFailed({
 						repositoryId: repository.id,
 						failedAt: new Date(),
-						failureReason:
-							error instanceof Error
-								? error.message
-								: 'GitHub mirror sync enqueue failed',
+						failureReason: GITHUB_MIRROR_SYNC_ENQUEUE_FAILURE_REASON,
 					})
 				} catch (markError) {
 					this.logger.error(
