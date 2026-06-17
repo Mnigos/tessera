@@ -153,16 +153,22 @@ function GitHubMirrorStatusBadge({
 
 interface MirrorTimestampProps {
 	label: string
-	value?: Date
+	value?: Date | number | string
 }
 
 function MirrorTimestamp({ label, value }: Readonly<MirrorTimestampProps>) {
+	const date = value ? new Date(value) : undefined
+	const labelText =
+		date && !Number.isNaN(date.getTime())
+			? DATE_FORMATTER.format(date)
+			: 'Never'
+
 	return (
 		<div className="flex flex-col gap-1">
 			<span className="font-medium text-muted-foreground text-xs uppercase">
 				{label}
 			</span>
-			<span>{value ? DATE_FORMATTER.format(value) : 'Never'}</span>
+			<span suppressHydrationWarning>{labelText}</span>
 		</div>
 	)
 }

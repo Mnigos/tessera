@@ -342,6 +342,29 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
 	})
 
+	test('renders serialized GitHub mirror timestamps defensively', () => {
+		const formatter = new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short',
+		})
+
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getMirroredSummary({
+					lastSyncFailedAt: undefined,
+					lastSyncStartedAt: '2026-06-15T10:00:00.000Z' as unknown as Date,
+					lastSyncSucceededAt: 'not-a-date' as unknown as Date,
+				})}
+			/>
+		)
+
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-15T10:00:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getAllByText('Never')).toHaveLength(2)
+	})
+
 	test('queues manual GitHub mirror sync for the current owner', async () => {
 		const user = userEvent.setup()
 
