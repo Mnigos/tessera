@@ -101,3 +101,9 @@ export class RepositoryStoragePathMissingError extends NotFoundError {
 		)
 	}
 }
+
+export class RepositoryGitHubMirrorSyncUnavailableError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository github mirror sync', context)
+	}
+}

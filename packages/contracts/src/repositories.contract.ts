@@ -329,6 +329,13 @@ export const repositoriesContract = {
 		.route({ method: 'GET', path: '/repositories/{username}/{slug}' })
 		.input(getRepositoryInputSchema)
 		.output(repositoryWithOwnerSchema),
+	syncGitHubMirror: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/sync',
+		})
+		.input(getRepositoryInputSchema)
+		.output(repositoryWithOwnerSchema),
 	getBrowserSummary: oc
 		.route({
 			method: 'GET',

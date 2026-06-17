@@ -1,13 +1,16 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
 import {
+	account,
 	and,
 	asc,
 	type DrizzleTransaction,
 	eq,
+	inArray,
 	isNotNull,
 	repositories,
 	repositoryExternalSources,
+	sql,
 	user,
 } from '@repo/db'
 import type {
@@ -54,6 +57,15 @@ interface RepositoryIdParams {
 	repositoryId: RepositoryId
 }
 
+interface RepositoryIdWithUserParams extends RepositoryIdParams {
+	userId: UserId
+}
+
+interface MarkGitHubMirrorSyncFailedParams extends RepositoryIdParams {
+	failedAt: Date
+	failureReason: string
+}
+
 interface UpdateStoragePathParams extends RepositoryIdParams {
 	storagePath: string
 	username: string
@@ -66,6 +78,10 @@ interface UpdateImportStorageParams extends RepositoryIdParams {
 }
 
 export interface CompleteImportedGitHubRepositoryParams
+	extends UpdateImportStorageParams,
+		UpsertGitHubExternalSourceParams {}
+
+interface MarkGitHubMirrorSyncSucceededParams
 	extends UpdateImportStorageParams,
 		UpsertGitHubExternalSourceParams {}
 
@@ -82,6 +98,20 @@ export interface UpsertGitHubExternalSourceParams extends RepositoryIdParams {
 	lastSyncSucceededAt?: Date
 	lastSyncFailedAt?: Date
 	syncFailureReason?: string
+}
+
+export interface GitHubAccountCredentials {
+	accessToken: string | null
+}
+
+export interface MarkGitHubMirrorSyncPendingResult {
+	didMarkPending: boolean
+	repository: RepositoryWithOwner
+}
+
+export interface GitHubMirrorSyncRepository extends RepositoryWithOwner {
+	externalSource: NonNullable<RepositoryWithOwner['externalSource']>
+	storagePath: string
 }
 
 type RepositoryDatabase = Database | DrizzleTransaction
@@ -293,6 +323,148 @@ export class RepositoriesRepository {
 		await this.db.delete(repositories).where(eq(repositories.id, repositoryId))
 	}
 
+	async findGitHubAccount({
+		userId,
+	}: UserParams): Promise<GitHubAccountCredentials | undefined> {
+		return await this.db.query.account.findFirst({
+			where: and(eq(account.userId, userId), eq(account.providerId, 'github')),
+			columns: { accessToken: true },
+		})
+	}
+
+	async findGitHubMirrorSyncRepository({
+		repositoryId,
+	}: RepositoryIdParams): Promise<GitHubMirrorSyncRepository | undefined> {
+		const [row] = await this.db
+			.select(REPOSITORY_WITH_OWNER_COLUMNS)
+			.from(repositories)
+			.innerJoin(user, eq(repositories.ownerUserId, user.id))
+			.innerJoin(
+				repositoryExternalSources,
+				eq(repositoryExternalSources.repositoryId, repositories.id)
+			)
+			.where(
+				and(
+					eq(repositories.id, repositoryId),
+					eq(repositoryExternalSources.provider, 'github')
+				)
+			)
+			.limit(1)
+
+		return toGitHubMirrorSyncRepository(row)
+	}
+
+	async markGitHubMirrorSyncPending({
+		repositoryId,
+		userId,
+	}: RepositoryIdWithUserParams): Promise<
+		MarkGitHubMirrorSyncPendingResult | undefined
+	> {
+		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					mirrorMode: 'github_to_tessera',
+					syncStatus: 'pending',
+					lastSyncStartedAt: null,
+					lastSyncFailedAt: null,
+					syncFailureReason: null,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						sql`${repositoryExternalSources.syncStatus} <> ${'pending'} AND ${repositoryExternalSources.syncStatus} <> ${'running'}`
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+			const repository = await this.findWithClient(transaction, {
+				userId,
+				repositoryId,
+			})
+
+			if (!repository) return undefined
+
+			return {
+				didMarkPending: Boolean(updatedExternalSource),
+				repository,
+			}
+		})
+	}
+
+	async markGitHubMirrorSyncRunning({
+		repositoryId,
+	}: RepositoryIdParams): Promise<GitHubMirrorSyncRepository | undefined> {
+		const [updatedExternalSource] = await this.db
+			.update(repositoryExternalSources)
+			.set({
+				syncStatus: 'running',
+				lastSyncStartedAt: new Date(),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github'),
+					inArray(repositoryExternalSources.syncStatus, ['pending', 'running'])
+				)
+			)
+			.returning({ id: repositoryExternalSources.id })
+
+		if (!updatedExternalSource) return undefined
+
+		return await this.findGitHubMirrorSyncRepository({ repositoryId })
+	}
+
+	async markGitHubMirrorSyncSucceeded({
+		defaultBranch,
+		repositoryId,
+		storagePath,
+		username,
+		...externalSourceParams
+	}: MarkGitHubMirrorSyncSucceededParams): Promise<
+		RepositoryWithOwner | undefined
+	> {
+		return await this.db.transaction(async transaction => {
+			const repository = await this.updateImportStorageWithClient(transaction, {
+				repositoryId,
+				storagePath,
+				defaultBranch,
+				username,
+			})
+
+			if (!repository) return undefined
+
+			await this.upsertGitHubExternalSourceWithClient(transaction, {
+				repositoryId,
+				...externalSourceParams,
+			})
+
+			return repository
+		})
+	}
+
+	async markGitHubMirrorSyncFailed({
+		failedAt,
+		failureReason,
+		repositoryId,
+	}: MarkGitHubMirrorSyncFailedParams): Promise<void> {
+		await this.db
+			.update(repositoryExternalSources)
+			.set({
+				syncStatus: 'failed',
+				lastSyncFailedAt: failedAt,
+				syncFailureReason: failureReason,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github')
+				)
+			)
+	}
+
 	async upsertGitHubExternalSource({
 		externalRepositoryId,
 		fullName,
@@ -358,6 +530,29 @@ export class RepositoriesRepository {
 			...repository,
 			ownerUser: { username },
 		}
+	}
+
+	private async findWithClient(
+		database: RepositoryDatabase,
+		{ repositoryId, userId }: RepositoryIdWithUserParams
+	): Promise<RepositoryWithOwner | undefined> {
+		const [row] = await database
+			.select(REPOSITORY_WITH_OWNER_COLUMNS)
+			.from(repositories)
+			.innerJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(
+				repositoryExternalSources,
+				eq(repositoryExternalSources.repositoryId, repositories.id)
+			)
+			.where(
+				and(
+					eq(repositories.id, repositoryId),
+					eq(repositories.ownerUserId, userId)
+				)
+			)
+			.limit(1)
+
+		return toRepositoryWithOwner(toRepositoryRow(row))
 	}
 
 	private async upsertGitHubExternalSourceWithClient(
@@ -451,5 +646,19 @@ function toRepositoryRow(
 		updatedAt: row.updatedAt,
 		ownerUser: { username: row.ownerUsername },
 		externalSource: row.externalSource?.id ? row.externalSource : undefined,
+	}
+}
+
+function toGitHubMirrorSyncRepository(
+	row: SelectedRepositoryRow | undefined
+): GitHubMirrorSyncRepository | undefined {
+	const repository = toRepositoryWithOwner(toRepositoryRow(row))
+
+	if (!(repository?.storagePath && repository.externalSource)) return undefined
+
+	return {
+		...repository,
+		storagePath: repository.storagePath,
+		externalSource: repository.externalSource,
 	}
 }

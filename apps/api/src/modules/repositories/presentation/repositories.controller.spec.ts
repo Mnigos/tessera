@@ -51,6 +51,7 @@ describe(RepositoriesController.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						get: vi.fn(),
+						syncGitHubMirror: vi.fn(),
 						getBrowserSummary: vi.fn(),
 						getRefs: vi.fn(),
 						getTree: vi.fn(),
@@ -160,6 +161,32 @@ describe(RepositoriesController.name, () => {
 			})
 		).toEqual(repository)
 		expect(getSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
+	})
+
+	test('delegates GitHub mirror sync requests to the repositories service', async () => {
+		const syncGitHubMirrorSpy = vi
+			.spyOn(repositoriesService, 'syncGitHubMirror')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesController
+				.syncGitHubMirror(session, mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'syncGitHubMirror'],
+					procedure: repositoriesController.syncGitHubMirror(
+						session,
+						mockUserId
+					),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(repository)
+		expect(syncGitHubMirrorSpy).toHaveBeenCalledWith(mockUserId, mockUserId, {
 			username: 'marta',
 			slug: repository.repository.slug,
 		})
