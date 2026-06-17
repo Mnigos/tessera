@@ -3,7 +3,6 @@ import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
-import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
@@ -739,6 +738,9 @@ describe(RepositoriesService.name, () => {
 			repositoriesRepository,
 			'markGitHubMirrorSyncFailed'
 		)
+		const loggerErrorSpy = vi
+			.spyOn(repositoriesService['logger'], 'error')
+			.mockImplementation(() => undefined)
 
 		await expect(
 			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
@@ -749,8 +751,12 @@ describe(RepositoriesService.name, () => {
 		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
 			failedAt: expect.any(Date),
-			failureReason: 'redis unavailable',
+			failureReason: 'GitHub mirror sync could not be queued. Please retry.',
 		})
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to enqueue GitHub mirror sync job',
+			expect.any(String)
+		)
 	})
 
 	test('preserves enqueue errors when failed status persistence also fails', async () => {
@@ -795,7 +801,7 @@ describe(RepositoriesService.name, () => {
 			'markGitHubMirrorSyncFailed'
 		).mockRejectedValue(new Error('status update failed'))
 		const loggerErrorSpy = vi
-			.spyOn(Logger.prototype, 'error')
+			.spyOn(repositoriesService['logger'], 'error')
 			.mockImplementation(() => undefined)
 
 		await expect(
@@ -804,6 +810,10 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 			})
 		).rejects.toThrow('redis unavailable')
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'Failed to enqueue GitHub mirror sync job',
+			expect.any(String)
+		)
 		expect(loggerErrorSpy).toHaveBeenCalledWith(
 			'Failed to mark GitHub mirror sync as failed after enqueue error',
 			expect.any(String)

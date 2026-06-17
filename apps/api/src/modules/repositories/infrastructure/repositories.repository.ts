@@ -135,6 +135,7 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	createdAt: repositoryExternalSources.createdAt,
 	updatedAt: repositoryExternalSources.updatedAt,
 }
+const GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES = 30
 
 const REPOSITORY_WITH_OWNER_COLUMNS = {
 	id: repositories.id,
@@ -374,7 +375,13 @@ export class RepositoriesRepository {
 					and(
 						eq(repositoryExternalSources.repositoryId, repositoryId),
 						eq(repositoryExternalSources.provider, 'github'),
-						sql`${repositoryExternalSources.syncStatus} <> ${'pending'} AND ${repositoryExternalSources.syncStatus} <> ${'running'}`
+						sql`exists (
+							select 1
+							from ${repositories}
+							where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+								and ${repositories.ownerUserId} = ${userId}
+						)`,
+						sql`${repositoryExternalSources.syncStatus} <> ${'pending'} AND (${repositoryExternalSources.syncStatus} <> ${'running'} OR ${repositoryExternalSources.lastSyncStartedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute'))`
 					)
 				)
 				.returning({ id: repositoryExternalSources.id })
