@@ -10,7 +10,10 @@ import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GitHubImportModule } from '@modules/github-import'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { HealthModule } from '@modules/health'
-import { RepositoriesModule } from '@modules/repositories'
+import {
+	RepositoriesModule,
+	RepositoriesWorkersModule,
+} from '@modules/repositories'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
@@ -31,6 +34,7 @@ import { APP_FILTER } from '@nestjs/core'
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
 		RepositoriesModule,
+		RepositoriesWorkersModule,
 		DocsModule,
 		HealthModule,
 	],
