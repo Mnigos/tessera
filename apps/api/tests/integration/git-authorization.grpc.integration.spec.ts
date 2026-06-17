@@ -29,7 +29,13 @@ import {
 } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { db } from '@repo/db/client'
-import { repositories, sshPublicKeys, user } from '@repo/db/schema'
+import {
+	type RepositoryExternalSourceId,
+	repositories,
+	repositoryExternalSources,
+	sshPublicKeys,
+	user,
+} from '@repo/db/schema'
 import type {
 	RepositoryId,
 	RepositoryName,
@@ -55,8 +61,12 @@ const ownerSshPublicKeyId =
 	'00000000-0000-4000-8000-000000000201' as SshPublicKeyId
 const otherSshPublicKeyId =
 	'00000000-0000-4000-8000-000000000202' as SshPublicKeyId
+const externalSourceId =
+	'00000000-0000-4000-8000-000000000301' as RepositoryExternalSourceId
 const ownerFingerprintSha256 = 'SHA256:owner-key'
 const otherFingerprintSha256 = 'SHA256:other-key'
+const GITHUB_SOURCE_OF_TRUTH_MESSAGE =
+	'GitHub is the source of truth for this repository. Push to GitHub instead.'
 
 interface ClosableGrpcClient extends ClientGrpc {
 	close(): Promise<void>
@@ -233,6 +243,73 @@ describe('Git authorization gRPC integration', () => {
 		expect(gitAccessTokensService.verify).toHaveBeenCalledWith({
 			rawToken: 'tes_git_raw-secret',
 			requiredPermission: 'git:write',
+		})
+	})
+
+	test('rejects write requests for GitHub mirrored repositories', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'github_to_tessera',
+		})
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: ownerUserId,
+			permissions: {
+				repository: ['write'],
+			},
+		})
+
+		const promise = firstValueFrom(
+			service.authorizeWrite(createWriteRequest(), createMetadata())
+		)
+
+		await expect(promise).rejects.toMatchObject({
+			code: status.PERMISSION_DENIED,
+			details: GITHUB_SOURCE_OF_TRUTH_MESSAGE,
+		})
+	})
+
+	test('authorizes write requests for imported repositories with a valid git access token', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'imported',
+		})
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: ownerUserId,
+			permissions: {
+				repository: ['write'],
+			},
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeWrite(createWriteRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
 		})
 	})
 
@@ -419,6 +496,39 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
+	test('authorizes ssh read requests for GitHub mirrored repositories where visibility permits', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprint: ownerFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'github_to_tessera',
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshRead(createSshReadRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
+		})
+	})
+
 	test('rejects ssh read requests for private repositories not owned by the key owner', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
@@ -478,6 +588,38 @@ describe('Git authorization gRPC integration', () => {
 			repositoryId: privateRepositoryId,
 			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
 			trustedUser: ownerUserId,
+		})
+	})
+
+	test('rejects ssh write requests for GitHub mirrored repositories', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprint: ownerFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'github_to_tessera',
+		})
+
+		const promise = firstValueFrom(
+			service.authorizeSshWrite(createSshWriteRequest(), createMetadata())
+		)
+
+		await expect(promise).rejects.toMatchObject({
+			code: status.PERMISSION_DENIED,
+			details: GITHUB_SOURCE_OF_TRUTH_MESSAGE,
 		})
 	})
 
@@ -647,6 +789,29 @@ async function createIntegrationRepository({
 	})
 }
 
+interface CreateIntegrationExternalSourceOptions {
+	repositoryId: RepositoryId
+	mirrorMode: 'imported' | 'github_to_tessera'
+}
+
+async function createIntegrationExternalSource({
+	mirrorMode,
+	repositoryId,
+}: CreateIntegrationExternalSourceOptions) {
+	await db.insert(repositoryExternalSources).values({
+		id: externalSourceId,
+		repositoryId,
+		externalRepositoryId: 37n,
+		ownerLogin: 'marta',
+		name: 'notes',
+		fullName: 'marta/notes',
+		sourceUrl: 'https://github.com/marta/notes',
+		sourceDefaultBranch: 'main',
+		mirrorMode,
+		syncStatus: 'succeeded',
+	})
+}
+
 interface CreateIntegrationSshPublicKeyOptions {
 	id: SshPublicKeyId
 	ownerUserId: UserId
@@ -678,6 +843,7 @@ async function getSshPublicKeyLastUsedAt(id: SshPublicKeyId) {
 }
 
 async function resetIntegrationDatabase() {
+	await db.delete(repositoryExternalSources)
 	await db.delete(sshPublicKeys)
 	await db.delete(repositories)
 	await db.delete(user)

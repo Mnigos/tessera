@@ -5,7 +5,7 @@ import {
 	type ExecutionContext,
 	Injectable,
 } from '@nestjs/common'
-import { RpcException } from '@nestjs/microservices'
+import { createGitAuthorizationRpcException } from './git-authorization.grpc-status'
 
 const BEARER_PREFIX = 'Bearer '
 
@@ -24,10 +24,10 @@ export class InternalGitAuthorizationGuard implements CanActivate {
 		const expectedToken = this.envService.get('INTERNAL_API_TOKEN')
 
 		if (!expectedToken || authorizationToken !== expectedToken)
-			throw new RpcException({
-				code: status.UNAUTHENTICATED,
-				message: 'Unauthorized',
-			})
+			throw createGitAuthorizationRpcException(
+				status.UNAUTHENTICATED,
+				'Unauthorized'
+			)
 
 		return true
 	}
