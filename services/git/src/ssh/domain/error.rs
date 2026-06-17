@@ -1,5 +1,8 @@
 use std::fmt;
 
+pub const GITHUB_MIRROR_WRITE_DENIED_MESSAGE: &str =
+    "GitHub is the source of truth for this repository. Push to GitHub instead.";
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum SshGitError {
     InvalidCommand,
@@ -7,6 +10,7 @@ pub enum SshGitError {
     InvalidRepositoryPath,
     AuthorizationUnavailable,
     Unauthorized,
+    GitHubMirrorWriteDenied,
     InvalidRepositoryMetadata,
     RepositoryUnavailable,
     BackendFailed,
@@ -22,6 +26,9 @@ impl fmt::Display for SshGitError {
                 write!(formatter, "authorization service unavailable")
             }
             Self::Unauthorized => write!(formatter, "repository access denied"),
+            Self::GitHubMirrorWriteDenied => {
+                write!(formatter, "{GITHUB_MIRROR_WRITE_DENIED_MESSAGE}")
+            }
             Self::InvalidRepositoryMetadata => write!(formatter, "repository metadata is invalid"),
             Self::RepositoryUnavailable => write!(formatter, "repository is unavailable"),
             Self::BackendFailed => write!(formatter, "git command failed"),
@@ -48,10 +55,32 @@ pub fn ssh_exec_failure_message(error: &SshGitError) -> &'static str {
         SshGitError::Unauthorized => {
             "Repository access denied. Confirm the repository exists and your SSH key has access."
         }
+        SshGitError::GitHubMirrorWriteDenied => GITHUB_MIRROR_WRITE_DENIED_MESSAGE,
         SshGitError::InvalidRepositoryMetadata => {
             "Repository metadata is invalid. Contact support if this repository should be available."
         }
         SshGitError::RepositoryUnavailable => "Repository storage is unavailable. Try again later.",
         SshGitError::BackendFailed => "Git backend is unavailable. Try again later.",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_mirror_write_denial_uses_api_client_copy() {
+        assert_eq!(
+            ssh_exec_failure_message(&SshGitError::GitHubMirrorWriteDenied),
+            "GitHub is the source of truth for this repository. Push to GitHub instead."
+        );
+    }
+
+    #[test]
+    fn generic_unauthorized_uses_existing_copy() {
+        assert_eq!(
+            ssh_exec_failure_message(&SshGitError::Unauthorized),
+            "Repository access denied. Confirm the repository exists and your SSH key has access."
+        );
     }
 }
