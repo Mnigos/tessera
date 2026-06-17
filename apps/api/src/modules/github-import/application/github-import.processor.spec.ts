@@ -70,7 +70,9 @@ describe(GitHubImportProcessor.name, () => {
 					provide: RepositoriesService,
 					useValue: {
 						createImportedRepositoryMetadata: vi.fn(),
+						completeImportedGitHubRepository: vi.fn(),
 						updateImportedRepositoryStorage: vi.fn(),
+						initializeImportedGitHubExternalSource: vi.fn(),
 						deleteRepositoryMetadata: vi.fn(),
 					},
 				},
@@ -135,8 +137,8 @@ describe(GitHubImportProcessor.name, () => {
 			.mockResolvedValue({
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 			})
-		const updateImportedRepositoryStorageSpy = vi
-			.spyOn(repositoriesService, 'updateImportedRepositoryStorage')
+		const completeImportedGitHubRepositorySpy = vi
+			.spyOn(repositoriesService, 'completeImportedGitHubRepository')
 			.mockResolvedValue({
 				id: repositoryId,
 				name: 'tessera' as RepositoryName,
@@ -178,11 +180,19 @@ describe(GitHubImportProcessor.name, () => {
 			accessToken: 'github-token',
 			defaultBranchHint: 'main',
 		})
-		expect(updateImportedRepositoryStorageSpy).toHaveBeenCalledWith({
+		expect(completeImportedGitHubRepositorySpy).toHaveBeenCalledWith({
 			repositoryId,
 			username: 'marta',
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'trunk',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'tessera',
+			fullName: 'marta/tessera',
+			sourceUrl: 'https://github.com/marta/tessera',
+			sourceDefaultBranch: 'main',
+			startedAt: repositoryImport.startedAt,
+			completedAt: expect.any(Date),
 		})
 		expect(markSucceededSpy).toHaveBeenCalledWith({
 			importId,
@@ -220,7 +230,7 @@ describe(GitHubImportProcessor.name, () => {
 		})
 		vi.spyOn(
 			repositoriesService,
-			'updateImportedRepositoryStorage'
+			'completeImportedGitHubRepository'
 		).mockResolvedValue({
 			id: repositoryId,
 			name: 'tessera' as RepositoryName,
@@ -521,6 +531,63 @@ describe(GitHubImportProcessor.name, () => {
 		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
 	})
 
+	test('marks failed without succeeding when imported repository completion fails after clone', async () => {
+		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
+			repositoryImport
+		)
+		vi.spyOn(githubImportRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+			scope: 'repo',
+			accessTokenExpiresAt: null,
+		})
+		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
+			'marta'
+		)
+		vi.spyOn(
+			repositoriesService,
+			'createImportedRepositoryMetadata'
+		).mockResolvedValue({
+			id: repositoryId,
+			name: 'tessera' as RepositoryName,
+			slug: 'tessera' as RepositorySlug,
+			description: null,
+			visibility: 'private',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: repositoryImport.createdAt,
+			updatedAt: repositoryImport.updatedAt,
+			ownerUser: { username: 'marta' },
+		})
+		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+		vi.spyOn(gitStorageClient, 'importRepository').mockResolvedValue({
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'trunk',
+		})
+		vi.spyOn(
+			repositoriesService,
+			'completeImportedGitHubRepository'
+		).mockRejectedValue(new Error('external source failed'))
+		const markFailedSpy = vi.spyOn(githubImportRepository, 'markFailed')
+		const markSucceededSpy = vi.spyOn(githubImportRepository, 'markSucceeded')
+		const deleteRepositoryMetadataSpy = vi.spyOn(
+			repositoriesService,
+			'deleteRepositoryMetadata'
+		)
+
+		await processor.process(job)
+
+		expect(markFailedSpy).toHaveBeenCalledWith({
+			importId,
+			failureReason: 'external source failed',
+		})
+		expect(markSucceededSpy).not.toHaveBeenCalled()
+		expect(deleteRepositoryMetadataSpy).not.toHaveBeenCalled()
+	})
+
 	test('keeps repository metadata when import status update fails after storage is persisted', async () => {
 		vi.spyOn(githubImportRepository, 'markRunning').mockResolvedValue(
 			repositoryImport
@@ -559,7 +626,7 @@ describe(GitHubImportProcessor.name, () => {
 		})
 		vi.spyOn(
 			repositoriesService,
-			'updateImportedRepositoryStorage'
+			'completeImportedGitHubRepository'
 		).mockResolvedValue({
 			id: repositoryId,
 			name: 'tessera' as RepositoryName,

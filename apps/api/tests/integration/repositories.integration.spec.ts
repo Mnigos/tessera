@@ -552,6 +552,7 @@ describe('Repositories integration', () => {
 				visibility: 'public',
 				description: 'Project notes',
 				defaultBranch: 'main',
+				externalSource: { mode: 'none' },
 				createdAt: expect.any(String),
 				updatedAt: expect.any(String),
 			},

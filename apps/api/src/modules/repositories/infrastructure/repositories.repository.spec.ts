@@ -1,10 +1,32 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { and, eq, isNotNull, repositories } from '@repo/db'
+import {
+	and,
+	eq,
+	isNotNull,
+	repositories,
+	repositoryExternalSources,
+} from '@repo/db'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
 import { RepositoriesRepository } from './repositories.repository'
+
+const repositoryRow = {
+	id: '00000000-0000-4000-8000-000000000002',
+	slug: 'notes',
+	name: 'Notes',
+	description: null,
+	visibility: 'public',
+	ownerUserId: mockUserId,
+	ownerOrganizationId: null,
+	defaultBranch: 'main',
+	storagePath: '/var/lib/tessera/repositories/repo.git',
+	createdAt: new Date('2026-05-12T00:00:00Z'),
+	updatedAt: new Date('2026-05-12T00:00:00Z'),
+	ownerUsername: 'marta',
+	externalSource: null,
+}
 
 describe(RepositoriesRepository.name, () => {
 	let moduleRef: TestingModule
@@ -18,16 +40,35 @@ describe(RepositoriesRepository.name, () => {
 	const selectMock = vi.fn()
 	const fromMock = vi.fn()
 	const innerJoinMock = vi.fn()
+	const leftJoinMock = vi.fn()
 	const selectWhereMock = vi.fn()
 	const limitMock = vi.fn()
+	const orderByMock = vi.fn()
 	const valuesMock = vi.fn()
+	const onConflictDoUpdateMock = vi.fn()
 	const setMock = vi.fn()
 	const whereMock = vi.fn()
 	const deleteWhereMock = vi.fn()
 	const returningMock = vi.fn()
 	const updateReturningMock = vi.fn()
+	const transactionMock = vi.fn()
 
 	beforeEach(async () => {
+		const databaseMock = {
+			query: {
+				repositories: {
+					findMany: findManyMock,
+					findFirst: findFirstRepositoryMock,
+				},
+			},
+			insert: insertMock,
+			update: updateMock,
+			delete: deleteMock,
+			select: selectMock,
+			transaction: transactionMock,
+		}
+
+		transactionMock.mockImplementation(async callback => callback(databaseMock))
 		returningMock.mockResolvedValue([
 			{
 				id: '00000000-0000-4000-8000-000000000002',
@@ -35,7 +76,10 @@ describe(RepositoriesRepository.name, () => {
 				name: 'Notes',
 			},
 		])
-		valuesMock.mockReturnValue({ returning: returningMock })
+		valuesMock.mockReturnValue({
+			returning: returningMock,
+			onConflictDoUpdate: onConflictDoUpdateMock,
+		})
 		insertMock.mockReturnValue({ values: valuesMock })
 		updateReturningMock.mockResolvedValue([
 			{
@@ -49,24 +93,11 @@ describe(RepositoriesRepository.name, () => {
 		setMock.mockReturnValue({ where: whereMock })
 		updateMock.mockReturnValue({ set: setMock })
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
-		limitMock.mockResolvedValue([
-			{
-				id: '00000000-0000-4000-8000-000000000002',
-				slug: 'notes',
-				name: 'Notes',
-				description: null,
-				visibility: 'public',
-				ownerUserId: mockUserId,
-				ownerOrganizationId: null,
-				defaultBranch: 'main',
-				storagePath: '/var/lib/tessera/repositories/repo.git',
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-				ownerUsername: 'marta',
-			},
-		])
-		selectWhereMock.mockReturnValue({ limit: limitMock })
-		innerJoinMock.mockReturnValue({ where: selectWhereMock })
+		limitMock.mockResolvedValue([repositoryRow])
+		orderByMock.mockResolvedValue([repositoryRow])
+		selectWhereMock.mockReturnValue({ limit: limitMock, orderBy: orderByMock })
+		leftJoinMock.mockReturnValue({ where: selectWhereMock })
+		innerJoinMock.mockReturnValue({ leftJoin: leftJoinMock })
 		fromMock.mockReturnValue({ innerJoin: innerJoinMock })
 		selectMock.mockReturnValue({ from: fromMock })
 
@@ -75,18 +106,7 @@ describe(RepositoriesRepository.name, () => {
 				RepositoriesRepository,
 				{
 					provide: Database,
-					useValue: {
-						query: {
-							repositories: {
-								findMany: findManyMock,
-								findFirst: findFirstRepositoryMock,
-							},
-						},
-						insert: insertMock,
-						update: updateMock,
-						delete: deleteMock,
-						select: selectMock,
-					},
+					useValue: databaseMock,
 				},
 			],
 		}).compile()
@@ -100,31 +120,40 @@ describe(RepositoriesRepository.name, () => {
 	})
 
 	test('lists user-owned repositories', async () => {
-		findManyMock.mockResolvedValue([
-			{ slug: 'notes', ownerUser: { username: 'marta' } },
-		])
-
 		expect(await repositoriesRepository.list({ userId: mockUserId })).toEqual([
-			{ slug: 'notes', ownerUser: { username: 'marta' } },
-		])
-		expect(findManyMock).toHaveBeenCalledWith(
 			expect.objectContaining({
-				where: and(
-					eq(repositories.ownerUserId, mockUserId),
-					isNotNull(repositories.storagePath)
-				),
-			})
+				slug: 'notes',
+				ownerUser: { username: 'marta' },
+			}),
+		])
+		expect(leftJoinMock).toHaveBeenCalledWith(
+			repositoryExternalSources,
+			eq(repositoryExternalSources.repositoryId, repositories.id)
+		)
+		expect(selectWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositories.ownerUserId, mockUserId),
+				isNotNull(repositories.storagePath)
+			)
 		)
 	})
 
 	test('filters repository rows without owner usernames from list output', async () => {
-		findManyMock.mockResolvedValue([
-			{ slug: 'notes', ownerUser: { username: 'marta' } },
-			{ slug: 'missing-owner', ownerUser: null },
+		orderByMock.mockResolvedValue([
+			repositoryRow,
+			{
+				...repositoryRow,
+				id: '00000000-0000-4000-8000-000000000003',
+				slug: 'missing-owner',
+				ownerUsername: null,
+			},
 		])
 
 		expect(await repositoriesRepository.list({ userId: mockUserId })).toEqual([
-			{ slug: 'notes', ownerUser: { username: 'marta' } },
+			expect.objectContaining({
+				slug: 'notes',
+				ownerUser: { username: 'marta' },
+			}),
 		])
 	})
 
@@ -180,6 +209,7 @@ describe(RepositoriesRepository.name, () => {
 			createdAt: new Date('2026-05-12T00:00:00Z'),
 			updatedAt: new Date('2026-05-12T00:00:00Z'),
 			ownerUser: { username: 'marta' },
+			externalSource: undefined,
 		})
 		expect(selectMock).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -192,13 +222,6 @@ describe(RepositoriesRepository.name, () => {
 	})
 
 	test('finds a repository by owner user id and slug', async () => {
-		findFirstRepositoryMock.mockResolvedValue({
-			id: '00000000-0000-4000-8000-000000000002',
-			slug: 'notes',
-			name: 'Notes',
-			ownerUser: { username: 'marta' },
-		})
-
 		expect(
 			await repositoriesRepository.find({
 				userId: mockUserId,
@@ -208,18 +231,22 @@ describe(RepositoriesRepository.name, () => {
 			id: '00000000-0000-4000-8000-000000000002',
 			slug: 'notes',
 			name: 'Notes',
+			description: null,
+			visibility: 'public',
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+			defaultBranch: 'main',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:00:00Z'),
 			ownerUser: { username: 'marta' },
+			externalSource: undefined,
 		})
-		expect(findFirstRepositoryMock).toHaveBeenCalledWith(
-			expect.objectContaining({
-				where: and(
-					eq(repositories.ownerUserId, mockUserId),
-					eq(repositories.slug, 'notes' as RepositorySlug)
-				),
-				with: {
-					ownerUser: { columns: { username: true } },
-				},
-			})
+		expect(selectWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositories.ownerUserId, mockUserId),
+				eq(repositories.slug, 'notes' as RepositorySlug)
+			)
 		)
 	})
 
@@ -235,12 +262,7 @@ describe(RepositoriesRepository.name, () => {
 	})
 
 	test('returns undefined when owner user id lookup has no owner username', async () => {
-		findFirstRepositoryMock.mockResolvedValue({
-			id: '00000000-0000-4000-8000-000000000002',
-			slug: 'notes',
-			name: 'Notes',
-			ownerUser: null,
-		})
+		limitMock.mockResolvedValue([{ ...repositoryRow, ownerUsername: null }])
 
 		expect(
 			await repositoriesRepository.find({
@@ -313,5 +335,99 @@ describe(RepositoriesRepository.name, () => {
 		expect(deleteWhereMock).toHaveBeenCalledWith(
 			eq(repositories.id, repositoryId)
 		)
+	})
+
+	test('upserts GitHub external source metadata', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+
+		await repositoriesRepository.upsertGitHubExternalSource({
+			repositoryId,
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncSucceededAt: completedAt,
+		})
+
+		expect(insertMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(valuesMock).toHaveBeenCalledWith({
+			repositoryId,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: undefined,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
+		expect(onConflictDoUpdateMock).toHaveBeenCalledWith({
+			target: repositoryExternalSources.repositoryId,
+			set: expect.objectContaining({
+				mirrorMode: 'imported',
+				syncStatus: 'succeeded',
+			}),
+		})
+	})
+
+	test('completes imported GitHub repository storage and external source metadata in one transaction', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+
+		expect(
+			await repositoriesRepository.completeImportedGitHubRepository({
+				repositoryId,
+				username: 'marta',
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'trunk',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'imported',
+				syncStatus: 'succeeded',
+				lastSyncSucceededAt: completedAt,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				slug: 'notes',
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(updateMock).toHaveBeenCalledWith(repositories)
+		expect(insertMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(updateMock.mock.invocationCallOrder[0]).toBeLessThan(
+			insertMock.mock.invocationCallOrder[0] ?? 0
+		)
+		expect(valuesMock).toHaveBeenCalledWith({
+			repositoryId,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: undefined,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
 	})
 })

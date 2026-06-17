@@ -1,16 +1,18 @@
 import type { RepositoryWithOwner as RepositoryWithOwnerOutput } from '@repo/contracts'
-import type { Repository } from '@repo/db'
+import type { Repository, RepositoryExternalSource } from '@repo/db'
 
 export interface RepositoryWithOwner extends Repository {
 	ownerUser: {
 		username: string
 	}
+	externalSource?: RepositoryExternalSource
 }
 
-interface RepositoryOwnerRow extends Repository {
+export interface RepositoryOwnerRow extends Repository {
 	ownerUser?: {
 		username: string | null
 	} | null
+	externalSource?: RepositoryExternalSource
 }
 
 export function toRepositoryWithOwner(
@@ -35,11 +37,38 @@ export function toRepositoryOutput(
 			visibility: repository.visibility,
 			description: repository.description ?? undefined,
 			defaultBranch: repository.defaultBranch,
+			externalSource: toRepositoryExternalSourceOutput(
+				repository.externalSource
+			),
 			createdAt: repository.createdAt,
 			updatedAt: repository.updatedAt,
 		},
 		owner: {
 			username: repository.ownerUser.username,
 		},
+	}
+}
+
+function toRepositoryExternalSourceOutput(
+	externalSource: RepositoryExternalSource | null | undefined
+): RepositoryWithOwnerOutput['repository']['externalSource'] {
+	if (!externalSource) return { mode: 'none' }
+
+	return {
+		mode: externalSource.mirrorMode,
+		provider: externalSource.provider,
+		externalRepositoryId: externalSource.externalRepositoryId.toString(),
+		ownerLogin: externalSource.ownerLogin,
+		name: externalSource.name,
+		fullName: externalSource.fullName,
+		sourceUrl: externalSource.sourceUrl,
+		sourceDefaultBranch: externalSource.sourceDefaultBranch,
+		syncStatus: externalSource.syncStatus,
+		lastSyncStartedAt: externalSource.lastSyncStartedAt ?? undefined,
+		lastSyncSucceededAt: externalSource.lastSyncSucceededAt ?? undefined,
+		lastSyncFailedAt: externalSource.lastSyncFailedAt ?? undefined,
+		syncFailureReason: externalSource.syncFailureReason ?? undefined,
+		createdAt: externalSource.createdAt,
+		updatedAt: externalSource.updatedAt,
 	}
 }

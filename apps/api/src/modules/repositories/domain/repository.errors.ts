@@ -82,6 +82,16 @@ export class RepositoryGitWriteForbiddenError extends ForbiddenError {
 	}
 }
 
+export class RepositoryGitHubSourceOfTruthWriteForbiddenError extends ForbiddenError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository git write',
+			context,
+			'GitHub is the source of truth for this repository. Push to GitHub instead.'
+		)
+	}
+}
+
 export class RepositoryStoragePathMissingError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super(

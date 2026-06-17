@@ -1,6 +1,7 @@
 import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
 import {
+	type RepositoryWithOwner,
 	repositoryBlobSchema,
 	repositoryBrowserSummarySchema,
 	repositoryCommitHistorySchema,
@@ -15,7 +16,7 @@ import { RepositoriesController } from './repositories.controller'
 import { RepositoryBrowserController } from './repository-browser.controller'
 import { RepositoryOwnerGuard } from './repository-owner.guard'
 
-const repository = {
+const repository: RepositoryWithOwner = {
 	repository: {
 		id: '00000000-0000-4000-8000-000000000002' as RepositoryId,
 		slug: 'notes' as RepositorySlug,
@@ -23,6 +24,7 @@ const repository = {
 		visibility: 'private' as const,
 		description: undefined,
 		defaultBranch: 'main',
+		externalSource: { mode: 'none' },
 		createdAt: new Date('2026-05-12T00:00:00Z'),
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
 	},

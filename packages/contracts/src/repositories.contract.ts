@@ -12,6 +12,53 @@ export type RepositorySlug = z.infer<typeof repositorySlugSchema>
 export const repositoryNameSchema = z.string().trim().min(1).max(120)
 export type RepositoryName = z.infer<typeof repositoryNameSchema>
 
+export const repositoryExternalSourceProviderSchema = z.enum(['github'])
+export type RepositoryExternalSourceProvider = z.infer<
+	typeof repositoryExternalSourceProviderSchema
+>
+
+export const repositoryMirrorModeSchema = z.enum([
+	'imported',
+	'github_to_tessera',
+])
+export type RepositoryMirrorMode = z.infer<typeof repositoryMirrorModeSchema>
+
+export const repositoryExternalSourceSyncStatusSchema = z.enum([
+	'pending',
+	'running',
+	'succeeded',
+	'failed',
+])
+export type RepositoryExternalSourceSyncStatus = z.infer<
+	typeof repositoryExternalSourceSyncStatusSchema
+>
+
+export const repositoryExternalSourceSchema = z.discriminatedUnion('mode', [
+	z.object({
+		mode: z.literal('none'),
+	}),
+	z.object({
+		mode: repositoryMirrorModeSchema,
+		provider: repositoryExternalSourceProviderSchema,
+		externalRepositoryId: z.string(),
+		ownerLogin: z.string(),
+		name: z.string(),
+		fullName: z.string(),
+		sourceUrl: z.url(),
+		sourceDefaultBranch: z.string(),
+		syncStatus: repositoryExternalSourceSyncStatusSchema,
+		lastSyncStartedAt: z.coerce.date().optional(),
+		lastSyncSucceededAt: z.coerce.date().optional(),
+		lastSyncFailedAt: z.coerce.date().optional(),
+		syncFailureReason: z.string().optional(),
+		createdAt: z.coerce.date(),
+		updatedAt: z.coerce.date(),
+	}),
+])
+export type RepositoryExternalSource = z.infer<
+	typeof repositoryExternalSourceSchema
+>
+
 export const repositorySchema = z.object({
 	id: z.uuid().brand<'repository_id'>(),
 	slug: repositorySlugSchema,
@@ -19,6 +66,7 @@ export const repositorySchema = z.object({
 	visibility: z.enum(['public', 'private']),
 	description: z.string().optional(),
 	defaultBranch: z.string(),
+	externalSource: repositoryExternalSourceSchema,
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
 })

@@ -50,6 +50,13 @@
       "when": 1779221636076,
       "tag": "0006_foamy_golden_guardian",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1781337854685,
+      "tag": "0007_add_repository_external_sources",
+      "breakpoints": true
     }
   ]
 }

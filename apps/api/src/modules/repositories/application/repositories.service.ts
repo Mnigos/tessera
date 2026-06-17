@@ -50,6 +50,7 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
@@ -80,12 +81,28 @@ interface CreateRepositoryMetadataParams {
 	visibility: CreateRepositoryInput['visibility']
 }
 
-interface UpdateImportedRepositoryStorageParams {
+export interface UpdateImportedRepositoryStorageParams {
 	defaultBranch: string
 	repositoryId: RepositoryId
 	storagePath: string
 	username: string
 }
+
+export interface InitializeGitHubExternalSourceInput {
+	externalRepositoryId: bigint
+	ownerLogin: string
+	name: string
+	fullName: string
+	sourceUrl: string
+	sourceDefaultBranch: string
+	repositoryId: RepositoryId
+	startedAt: Date | null
+	completedAt: Date
+}
+
+interface CompleteImportedGitHubRepositoryInput
+	extends UpdateImportedRepositoryStorageParams,
+		InitializeGitHubExternalSourceInput {}
 
 interface ReadableRepositoryContext {
 	repository: RepositoryWithOwnerEntity
@@ -218,6 +235,70 @@ export class RepositoriesService {
 			storagePath,
 			defaultBranch,
 			username,
+		})
+	}
+
+	async initializeImportedGitHubExternalSource({
+		completedAt,
+		externalRepositoryId,
+		fullName,
+		name,
+		ownerLogin,
+		repositoryId,
+		sourceDefaultBranch,
+		sourceUrl,
+		startedAt,
+	}: InitializeGitHubExternalSourceInput): Promise<void> {
+		await this.repositoriesRepository.upsertGitHubExternalSource({
+			repositoryId,
+			externalRepositoryId,
+			ownerLogin,
+			name,
+			fullName,
+			sourceUrl,
+			sourceDefaultBranch,
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: startedAt ?? completedAt,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
+	}
+
+	async completeImportedGitHubRepository({
+		completedAt,
+		defaultBranch,
+		externalRepositoryId,
+		fullName,
+		name,
+		ownerLogin,
+		repositoryId,
+		sourceDefaultBranch,
+		sourceUrl,
+		startedAt,
+		storagePath,
+		username,
+	}: CompleteImportedGitHubRepositoryInput): Promise<
+		RepositoryWithOwnerEntity | undefined
+	> {
+		return await this.repositoriesRepository.completeImportedGitHubRepository({
+			repositoryId,
+			storagePath,
+			defaultBranch,
+			username,
+			externalRepositoryId,
+			ownerLogin,
+			name,
+			fullName,
+			sourceUrl,
+			sourceDefaultBranch,
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: startedAt ?? completedAt,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
 		})
 	}
 
@@ -538,6 +619,8 @@ export class RepositoriesService {
 				userId,
 			})
 
+		this.assertTesseraWritesAllowed(repository)
+
 		if (!repository.storagePath)
 			throw new RepositoryStoragePathMissingError({
 				repositoryId: repository.id,
@@ -614,6 +697,8 @@ export class RepositoriesService {
 				userId: keyOwnerUserId,
 			})
 
+		this.assertTesseraWritesAllowed(repository)
+
 		if (!repository.storagePath)
 			throw new RepositoryStoragePathMissingError({
 				repositoryId: repository.id,
@@ -665,6 +750,16 @@ export class RepositoriesService {
 				cleanupError instanceof Error ? cleanupError.stack : undefined
 			)
 		}
+	}
+
+	private assertTesseraWritesAllowed(repository: RepositoryWithOwnerEntity) {
+		if (repository.externalSource?.mirrorMode !== 'github_to_tessera') return
+
+		throw new RepositoryGitHubSourceOfTruthWriteForbiddenError({
+			repositoryId: repository.id,
+			provider: repository.externalSource.provider,
+			mirrorMode: repository.externalSource.mirrorMode,
+		})
 	}
 
 	private async getRepositoryTreeFromStorage(
