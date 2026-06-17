@@ -228,7 +228,7 @@ describe('Git smart HTTP e2e', () => {
 			fullName: 'http-mirror/http-mirror',
 			name: 'http-mirror',
 			ownerLogin: 'http-mirror',
-			repositoryId: repository.id as RepositoryId,
+			repositoryId: repository.id,
 		})
 		const token = await createGitAccessToken({
 			apiBaseUrl,
@@ -271,7 +271,7 @@ describe('Git smart HTTP e2e', () => {
 			fullName: 'ssh-mirror/ssh-mirror',
 			name: 'ssh-mirror',
 			ownerLogin: 'ssh-mirror',
-			repositoryId: repository.id as RepositoryId,
+			repositoryId: repository.id,
 		})
 		const key = await createSshKeyPair('ssh-mirror')
 		await createSshPublicKey({

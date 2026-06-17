@@ -34,9 +34,10 @@ export function createGitAuthorizationGrpcStatusException(
 	code: number,
 	message: string
 ) {
-	const error = new Error(message) as GrpcStatusException
-	error.code = code
-	error.details = message
+	const error: GrpcStatusException = Object.assign(new Error(message), {
+		code,
+		details: message,
+	})
 
 	return error
 }
