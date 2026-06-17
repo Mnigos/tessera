@@ -61,5 +61,4 @@ WHERE "status" = 'succeeded'
 	AND "repository_id" IS NOT NULL
 ORDER BY "repository_id", "completed_at" DESC NULLS LAST, "updated_at" DESC;--> statement-breakpoint
 CREATE INDEX "repository_external_sources_provider_external_id_idx" ON "repository_external_sources" USING btree ("provider","external_repository_id");--> statement-breakpoint
-CREATE INDEX "repository_external_sources_repository_id_idx" ON "repository_external_sources" USING btree ("repository_id");--> statement-breakpoint
 CREATE INDEX "repository_external_sources_provider_full_name_idx" ON "repository_external_sources" USING btree ("provider","full_name");
