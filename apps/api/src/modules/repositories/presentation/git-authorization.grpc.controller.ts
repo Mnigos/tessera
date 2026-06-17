@@ -13,16 +13,22 @@ import {
 	type GitAuthorizationServiceController,
 } from '@config/git-storage/generated/tessera/git/v1/git_authorization'
 import { status } from '@grpc/grpc-js'
-import { Controller, UseGuards } from '@nestjs/common'
-import { GrpcMethod, RpcException } from '@nestjs/microservices'
+import { Controller, UseFilters, UseGuards } from '@nestjs/common'
+import { GrpcMethod } from '@nestjs/microservices'
 import type { RepositorySlug } from '@repo/domain'
 import { DomainError } from '~/shared/errors/domain.error'
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
+import { GitAuthorizationGrpcExceptionFilter } from './git-authorization.grpc-exception.filter'
+import {
+	createGitAuthorizationRpcException,
+	isGitAuthorizationRpcException,
+} from './git-authorization.grpc-status'
 import { InternalGitAuthorizationGuard } from './internal-git-authorization.guard'
 
 @Controller()
 @UseGuards(InternalGitAuthorizationGuard)
+@UseFilters(GitAuthorizationGrpcExceptionFilter)
 export class GitAuthorizationGrpcController
 	implements GitAuthorizationServiceController
 {
@@ -103,12 +109,12 @@ export class GitAuthorizationGrpcController
 }
 
 function toGrpcException(error: unknown) {
-	if (error instanceof RpcException) return error
+	if (isGitAuthorizationRpcException(error)) return error
 
-	return new RpcException({
-		code: getGrpcStatus(error),
-		message: error instanceof Error ? error.message : 'Internal error',
-	})
+	return createGitAuthorizationRpcException(
+		getGrpcStatus(error),
+		error instanceof Error ? error.message : 'Internal error'
+	)
 }
 
 function getGrpcStatus(error: unknown) {
