@@ -1174,21 +1174,6 @@
           "method": "btree",
           "with": {}
         },
-        "repository_external_sources_repository_id_idx": {
-          "name": "repository_external_sources_repository_id_idx",
-          "columns": [
-            {
-              "expression": "repository_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "repository_external_sources_provider_full_name_idx": {
           "name": "repository_external_sources_provider_full_name_idx",
           "columns": [

@@ -78,9 +78,6 @@ export const repositoryExternalSources = pgTable(
 			table.provider,
 			table.externalRepositoryId
 		),
-		index('repository_external_sources_repository_id_idx').on(
-			table.repositoryId
-		),
 		index('repository_external_sources_provider_full_name_idx').on(
 			table.provider,
 			table.fullName
