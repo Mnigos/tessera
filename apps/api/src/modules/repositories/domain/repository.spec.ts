@@ -1,3 +1,4 @@
+import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
 	RepositoryId,
 	RepositoryName,
@@ -35,12 +36,67 @@ describe('repository domain mapper', () => {
 				visibility: 'private',
 				description: undefined,
 				defaultBranch: 'main',
+				externalSource: { mode: 'none' },
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
 			owner: {
 				username: 'marta',
 			},
+		})
+	})
+
+	test('maps safe external source metadata to API output', () => {
+		const repository: RepositoryWithOwner = {
+			id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
+			ownerUserId: '00000000-0000-4000-8000-000000000002' as UserId,
+			ownerOrganizationId: null,
+			ownerUser: { username: 'marta' },
+			slug: 'notes' as RepositorySlug,
+			name: 'Notes' as RepositoryName,
+			description: null,
+			visibility: 'private',
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:00:00Z'),
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
+				repositoryId: '00000000-0000-4000-8000-000000000001' as RepositoryId,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+				lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:01:00Z'),
+			},
+		}
+
+		expect(toRepositoryOutput(repository).repository.externalSource).toEqual({
+			mode: 'github_to_tessera',
+			provider: 'github',
+			externalRepositoryId: '123',
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+			lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:01:00Z'),
 		})
 	})
 

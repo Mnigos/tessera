@@ -70,13 +70,22 @@ export class GitHubImportProcessor extends WorkerHost {
 				defaultBranchHint: repositoryImport.sourceDefaultBranch,
 			})
 
+			const completedAt = new Date()
 			const repositoryWithStorage =
-				await this.repositoriesService.updateImportedRepositoryStorage({
+				await this.repositoriesService.completeImportedGitHubRepository({
 					repositoryId,
 					username,
 					storagePath: importResult.storagePath,
 					defaultBranch:
 						importResult.defaultBranch || repositoryImport.sourceDefaultBranch,
+					externalRepositoryId: repositoryImport.sourceGithubId,
+					ownerLogin: repositoryImport.sourceOwnerLogin,
+					name: repositoryImport.sourceName,
+					fullName: repositoryImport.sourceFullName,
+					sourceUrl: repositoryImport.sourceGithubUrl,
+					sourceDefaultBranch: repositoryImport.sourceDefaultBranch,
+					startedAt: repositoryImport.startedAt,
+					completedAt,
 				})
 
 			if (!repositoryWithStorage)

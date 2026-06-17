@@ -4,6 +4,7 @@ import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
 	RepositoryId,
 	RepositoryName,
@@ -20,6 +21,7 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
@@ -73,6 +75,9 @@ describe(RepositoriesService.name, () => {
 						list: vi.fn(),
 						find: vi.fn(),
 						updateStoragePath: vi.fn(),
+						updateImportStorage: vi.fn(),
+						completeImportedGitHubRepository: vi.fn(),
+						upsertGitHubExternalSource: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -236,6 +241,7 @@ describe(RepositoriesService.name, () => {
 				visibility: 'private',
 				description: 'Notes',
 				defaultBranch: 'main',
+				externalSource: { mode: 'none' },
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
@@ -453,6 +459,86 @@ describe(RepositoriesService.name, () => {
 			}),
 		])
 		expect(listSpy).toHaveBeenCalledWith({ userId: mockUserId })
+	})
+
+	test('initializes imported GitHub external source metadata', async () => {
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+		const startedAt = new Date('2026-05-12T00:00:00Z')
+		const upsertGitHubExternalSourceSpy = vi.spyOn(
+			repositoriesRepository,
+			'upsertGitHubExternalSource'
+		)
+
+		await repositoriesService.initializeImportedGitHubExternalSource({
+			repositoryId: repository.id,
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'tessera',
+			fullName: 'marta/tessera',
+			sourceUrl: 'https://github.com/marta/tessera',
+			sourceDefaultBranch: 'main',
+			startedAt,
+			completedAt,
+		})
+
+		expect(upsertGitHubExternalSourceSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'tessera',
+			fullName: 'marta/tessera',
+			sourceUrl: 'https://github.com/marta/tessera',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: startedAt,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
+	})
+
+	test('completes imported GitHub repository storage and external source metadata', async () => {
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+		const startedAt = new Date('2026-05-12T00:00:00Z')
+		const completeImportedGitHubRepositorySpy = vi
+			.spyOn(repositoriesRepository, 'completeImportedGitHubRepository')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesService.completeImportedGitHubRepository({
+				repositoryId: repository.id,
+				username: 'marta',
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				defaultBranch: 'trunk',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'tessera',
+				fullName: 'marta/tessera',
+				sourceUrl: 'https://github.com/marta/tessera',
+				sourceDefaultBranch: 'main',
+				startedAt,
+				completedAt,
+			})
+		).toBe(repository)
+		expect(completeImportedGitHubRepositorySpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			username: 'marta',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			defaultBranch: 'trunk',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'tessera',
+			fullName: 'marta/tessera',
+			sourceUrl: 'https://github.com/marta/tessera',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'imported',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: startedAt,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			syncFailureReason: undefined,
+		})
 	})
 
 	test('gets an owned repository by username and repository slug', async () => {
@@ -1741,6 +1827,83 @@ describe(RepositoriesService.name, () => {
 		})
 	})
 
+	test('allows git writes for imported-only GitHub repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'tessera',
+				fullName: 'marta/tessera',
+				sourceUrl: 'https://github.com/marta/tessera',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'imported',
+				syncStatus: 'succeeded',
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:01:00Z'),
+			},
+		})
+
+		expect(
+			await repositoriesService.authorizeGitRepositoryWrite({
+				rawToken: 'tes_git_raw-secret',
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: mockUserId,
+		})
+	})
+
+	test('denies git writes when GitHub is source of truth', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'tessera',
+				fullName: 'marta/tessera',
+				sourceUrl: 'https://github.com/marta/tessera',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:01:00Z'),
+			},
+		})
+		const promise = repositoriesService.authorizeGitRepositoryWrite({
+			rawToken: 'tes_git_raw-secret',
+			username: 'marta',
+			slug: repository.slug,
+		})
+
+		await expect(promise).rejects.toBeInstanceOf(
+			RepositoryGitHubSourceOfTruthWriteForbiddenError
+		)
+		await expect(promise).rejects.toMatchObject({
+			message:
+				'GitHub is the source of truth for this repository. Push to GitHub instead.',
+		})
+	})
+
 	test('forbids git writes for non-owners', async () => {
 		vi.spyOn(gitAccessTokensService, 'verify').mockResolvedValue({
 			userId: '00000000-0000-4000-8000-000000000099' as UserId,
@@ -1889,6 +2052,42 @@ describe(RepositoriesService.name, () => {
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			trustedUser: mockUserId,
+		})
+	})
+
+	test('denies ssh git writes when GitHub is source of truth', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'tessera',
+				fullName: 'marta/tessera',
+				sourceUrl: 'https://github.com/marta/tessera',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				syncFailureReason: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:01:00Z'),
+			},
+		})
+		const promise = repositoriesService.authorizeSshGitRepositoryWrite({
+			fingerprint: 'SHA256:abc',
+			username: 'marta',
+			slug: repository.slug,
+		})
+
+		await expect(promise).rejects.toMatchObject({
+			message:
+				'GitHub is the source of truth for this repository. Push to GitHub instead.',
 		})
 	})
 
