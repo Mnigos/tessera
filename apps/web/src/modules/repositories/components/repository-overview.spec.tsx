@@ -148,6 +148,13 @@ const README_HEADING_REGEX = /readme/i
 const README_TRUNCATED_REGEX = /README preview is truncated/i
 const syncGitHubMirrorMutateMock = vi.fn()
 
+type RepositoryExternalSourceWithSchedule = Exclude<
+	RepositoryExternalSource,
+	{ mode: 'none' }
+> & {
+	nextSyncAt?: Date | number | string
+}
+
 function getSummary(
 	overrides: Partial<RepositoryBrowserSummary> = {}
 ): RepositoryBrowserSummary {
@@ -166,10 +173,10 @@ function getSummary(
 }
 
 function getMirroredSummary(
-	overrides: Partial<Exclude<RepositoryExternalSource, { mode: 'none' }>> = {}
+	overrides: Partial<RepositoryExternalSourceWithSchedule> = {}
 ) {
 	const summary = getSummary()
-	const externalSource: Exclude<RepositoryExternalSource, { mode: 'none' }> = {
+	const externalSource: RepositoryExternalSourceWithSchedule = {
 		mode: 'github_to_tessera',
 		provider: 'github',
 		externalRepositoryId: '123456',
@@ -342,6 +349,28 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
 	})
 
+	test('shows the next scheduled GitHub mirror sync when present', () => {
+		const formatter = new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short',
+		})
+
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getMirroredSummary({
+					nextSyncAt: new Date('2026-06-16T10:00:00.000Z'),
+				})}
+			/>
+		)
+
+		expect(screen.getByText('Next scheduled')).toBeTruthy()
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-16T10:00:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
+	})
+
 	test('renders serialized GitHub mirror timestamps defensively', () => {
 		const formatter = new Intl.DateTimeFormat(undefined, {
 			dateStyle: 'medium',
@@ -421,6 +450,23 @@ describe('RepositoryOverview', () => {
 		expect(
 			screen.getByRole('button', { name: 'Sync now' }).hasAttribute('disabled')
 		).toBe(false)
+	})
+
+	test('does not show next scheduled sync for failed mirrors without nextSyncAt', () => {
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getMirroredSummary({
+					syncStatus: 'failed',
+					syncFailureReason: 'GitHub auth must be reconnected.',
+				})}
+			/>
+		)
+
+		expect(screen.getByText('Failed')).toBeTruthy()
+		expect(screen.getByText('GitHub auth must be reconnected.')).toBeTruthy()
+		expect(screen.queryByText('Next scheduled')).toBeNull()
+		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
 	})
 
 	test('shows manual GitHub mirror sync pending and success states', () => {
