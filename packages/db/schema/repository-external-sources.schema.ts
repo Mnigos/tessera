@@ -1,5 +1,5 @@
 import type { Brand, RepositoryId } from '@repo/domain'
-import { relations, sql } from 'drizzle-orm'
+import { and, eq, isNotNull, relations, type SQL } from 'drizzle-orm'
 import {
 	bigint,
 	index,
@@ -88,7 +88,11 @@ export const repositoryExternalSources = pgTable(
 		index('repository_external_sources_due_sync_idx')
 			.on(table.nextSyncAt)
 			.where(
-				sql`${table.provider} = 'github' and ${table.mirrorMode} = 'github_to_tessera' and ${table.nextSyncAt} is not null`
+				and(
+					eq(table.provider, 'github'),
+					eq(table.mirrorMode, 'github_to_tessera'),
+					isNotNull(table.nextSyncAt)
+				) as SQL
 			),
 	]
 )

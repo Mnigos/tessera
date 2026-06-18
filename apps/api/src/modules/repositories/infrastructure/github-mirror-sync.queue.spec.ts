@@ -5,6 +5,7 @@ import {
 	GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
 	GITHUB_MIRROR_SYNC_REPOSITORY_JOB,
 	GITHUB_MIRROR_SYNC_SCHEDULER_ID,
+	GitHubMirrorSyncJobQueue,
 	GitHubMirrorSyncQueue,
 } from './github-mirror-sync.queue'
 
@@ -28,7 +29,7 @@ describe(GitHubMirrorSyncQueue.name, () => {
 			providers: [
 				GitHubMirrorSyncQueue,
 				{
-					provide: 'BullQueue_github-mirror-sync',
+					provide: GitHubMirrorSyncJobQueue,
 					useValue: {
 						add: vi.fn(),
 						getJob: vi.fn(),
@@ -40,7 +41,7 @@ describe(GitHubMirrorSyncQueue.name, () => {
 			],
 		}).compile()
 
-		queue = moduleRef.get('BullQueue_github-mirror-sync')
+		queue = moduleRef.get(GitHubMirrorSyncJobQueue)
 		githubMirrorSyncQueue = moduleRef.get(GitHubMirrorSyncQueue)
 	})
 
@@ -156,11 +157,11 @@ describe(GitHubMirrorSyncQueue.name, () => {
 	})
 
 	test('registers dispatcher scheduler', async () => {
-		await githubMirrorSyncQueue.scheduleDispatcher('*/15 * * * *')
+		await githubMirrorSyncQueue.scheduleDispatcher('*/30 * * * *')
 
 		expect(queue.upsertJobScheduler).toHaveBeenCalledWith(
 			GITHUB_MIRROR_SYNC_SCHEDULER_ID,
-			{ pattern: '*/15 * * * *' },
+			{ pattern: '*/30 * * * *' },
 			{
 				name: GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
 				data: { type: 'dispatcher' },
@@ -172,13 +173,13 @@ describe(GitHubMirrorSyncQueue.name, () => {
 		queue.getJobScheduler.mockResolvedValue({
 			key: GITHUB_MIRROR_SYNC_SCHEDULER_ID,
 			name: GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
-			next: new Date('2026-05-12T00:15:00Z').getTime(),
+			next: new Date('2026-05-12T00:30:00Z').getTime(),
 		})
 
 		expect(await githubMirrorSyncQueue.getDispatcherSchedule()).toEqual({
 			key: GITHUB_MIRROR_SYNC_SCHEDULER_ID,
 			name: GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
-			next: new Date('2026-05-12T00:15:00Z').getTime(),
+			next: new Date('2026-05-12T00:30:00Z').getTime(),
 		})
 		expect(queue.getJobScheduler).toHaveBeenCalledWith(
 			GITHUB_MIRROR_SYNC_SCHEDULER_ID

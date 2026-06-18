@@ -1,7 +1,6 @@
-import { InjectQueue } from '@nestjs/bullmq'
 import { Injectable } from '@nestjs/common'
 import type { RepositoryImportId } from '@repo/db'
-import type { Queue } from 'bullmq'
+import { Queue } from 'bullmq'
 
 export const GITHUB_IMPORT_QUEUE_NAME = 'github-import'
 export const GITHUB_IMPORT_REPOSITORY_JOB = 'github-import.repository'
@@ -12,12 +11,11 @@ export interface GitHubImportRepositoryJobData {
 	importId: RepositoryImportId
 }
 
+export class GitHubImportJobQueue extends Queue<GitHubImportRepositoryJobData> {}
+
 @Injectable()
 export class GitHubImportQueue {
-	constructor(
-		@InjectQueue(GITHUB_IMPORT_QUEUE_NAME)
-		private readonly queue: Queue<GitHubImportRepositoryJobData>
-	) {}
+	constructor(private readonly queue: GitHubImportJobQueue) {}
 
 	async enqueueRepositoryImport(importId: RepositoryImportId): Promise<void> {
 		await this.queue.add(

@@ -14,13 +14,13 @@ export const envSchema = z.object({
 	BULL_BOARD_PATH: z.string().default('/admin/queues'),
 	BULL_BOARD_USERNAME: z.string().optional(),
 	BULL_BOARD_PASSWORD: z.string().optional(),
-	GITHUB_MIRROR_SYNC_CRONTIME: z.string().default('*/15 * * * *'),
+	GITHUB_MIRROR_SYNC_CRONTIME: z.string().default('*/30 * * * *'),
 	GITHUB_MIRROR_SYNC_BATCH_SIZE: z.coerce.number().int().positive().default(25),
 	GITHUB_MIRROR_SYNC_INTERVAL_MINUTES: z.coerce
 		.number()
 		.int()
 		.positive()
-		.default(15),
+		.default(60),
 	APP_URL: z.string().default('http://localhost:3000'),
 	API_URL: z.string().default('http://localhost:4000'),
 	API_GRPC_URL: z.string().default('localhost:50053'),

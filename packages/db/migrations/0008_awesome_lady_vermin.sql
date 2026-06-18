@@ -6,7 +6,7 @@ SET "next_sync_at" = greatest(
 	coalesce("last_sync_failed_at", 'epoch'::timestamp),
 	coalesce("updated_at", 'epoch'::timestamp),
 	coalesce("created_at", 'epoch'::timestamp)
-) + interval '15 minutes'
+) + interval '60 minutes'
 WHERE "provider" = 'github'
 	AND "mirror_mode" = 'github_to_tessera'
 	AND "next_sync_at" is null;--> statement-breakpoint

@@ -23,7 +23,7 @@ describe(GitHubMirrorSyncScheduler.name, () => {
 				{
 					provide: EnvService,
 					useValue: {
-						get: vi.fn().mockReturnValue('*/15 * * * *'),
+						get: vi.fn().mockReturnValue('*/30 * * * *'),
 					},
 				},
 			],
@@ -41,7 +41,7 @@ describe(GitHubMirrorSyncScheduler.name, () => {
 
 	test('registers dispatcher schedule on module init', async () => {
 		vi.spyOn(githubMirrorSyncQueue, 'getDispatcherSchedule').mockResolvedValue({
-			next: new Date('2026-05-12T00:15:00Z').getTime(),
+			next: new Date('2026-05-12T00:30:00Z').getTime(),
 		})
 		const loggerLogSpy = vi
 			.spyOn(Logger.prototype, 'log')
@@ -50,11 +50,11 @@ describe(GitHubMirrorSyncScheduler.name, () => {
 		await scheduler.onModuleInit()
 
 		expect(githubMirrorSyncQueue.scheduleDispatcher).toHaveBeenCalledWith(
-			'*/15 * * * *'
+			'*/30 * * * *'
 		)
 		expect(githubMirrorSyncQueue.getDispatcherSchedule).toHaveBeenCalled()
 		expect(loggerLogSpy).toHaveBeenCalledWith(
-			'GitHub mirror sync dispatcher cron will run at 2026-05-12T00:15:00.000Z'
+			'GitHub mirror sync dispatcher cron will run at 2026-05-12T00:30:00.000Z'
 		)
 	})
 })

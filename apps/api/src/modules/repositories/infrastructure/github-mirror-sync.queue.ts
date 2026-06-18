@@ -1,7 +1,6 @@
-import { InjectQueue } from '@nestjs/bullmq'
 import { Injectable } from '@nestjs/common'
 import type { RepositoryId, UserId } from '@repo/domain'
-import type { Queue } from 'bullmq'
+import { Queue } from 'bullmq'
 
 export const GITHUB_MIRROR_SYNC_QUEUE_NAME = 'github-mirror-sync'
 export const GITHUB_MIRROR_SYNC_REPOSITORY_JOB = 'github-mirror-sync.repository'
@@ -38,12 +37,11 @@ export class GitHubMirrorSyncJobAlreadyActiveError extends Error {
 	}
 }
 
+export class GitHubMirrorSyncJobQueue extends Queue<GitHubMirrorSyncJobData> {}
+
 @Injectable()
 export class GitHubMirrorSyncQueue {
-	constructor(
-		@InjectQueue(GITHUB_MIRROR_SYNC_QUEUE_NAME)
-		private readonly queue: Queue<GitHubMirrorSyncJobData>
-	) {}
+	constructor(private readonly queue: GitHubMirrorSyncJobQueue) {}
 
 	async enqueueRepositorySync({
 		repositoryId,

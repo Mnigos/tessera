@@ -3,6 +3,7 @@ import type { RepositoryImportId } from '@repo/db'
 import type { Queue } from 'bullmq'
 import {
 	GITHUB_IMPORT_REPOSITORY_JOB,
+	GitHubImportJobQueue,
 	GitHubImportQueue,
 } from './github-import.queue'
 
@@ -18,7 +19,7 @@ describe(GitHubImportQueue.name, () => {
 			providers: [
 				GitHubImportQueue,
 				{
-					provide: 'BullQueue_github-import',
+					provide: GitHubImportJobQueue,
 					useValue: {
 						add: vi.fn(),
 					},
@@ -26,7 +27,7 @@ describe(GitHubImportQueue.name, () => {
 			],
 		}).compile()
 
-		queue = moduleRef.get('BullQueue_github-import')
+		queue = moduleRef.get(GitHubImportJobQueue)
 		githubImportQueue = moduleRef.get(GitHubImportQueue)
 	})
 
