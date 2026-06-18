@@ -8,6 +8,10 @@ import {
 	eq,
 	inArray,
 	isNotNull,
+	isNull,
+	lt,
+	lte,
+	or,
 	repositories,
 	repositoryExternalSources,
 	sql,
@@ -64,6 +68,13 @@ interface RepositoryIdWithUserParams extends RepositoryIdParams {
 interface MarkGitHubMirrorSyncFailedParams extends RepositoryIdParams {
 	failedAt: Date
 	failureReason: string
+	nextSyncAt?: Date | null
+	syncFailureCount?: number
+}
+
+interface ClaimDueGitHubMirrorSyncRepositoriesParams {
+	limit: number
+	now: Date
 }
 
 interface UpdateStoragePathParams extends RepositoryIdParams {
@@ -96,8 +107,10 @@ export interface UpsertGitHubExternalSourceParams extends RepositoryIdParams {
 	syncStatus: 'pending' | 'running' | 'succeeded' | 'failed'
 	lastSyncStartedAt?: Date
 	lastSyncSucceededAt?: Date
-	lastSyncFailedAt?: Date
-	syncFailureReason?: string
+	lastSyncFailedAt?: Date | null
+	syncFailureReason?: string | null
+	nextSyncAt?: Date | null
+	syncFailureCount?: number
 }
 
 export interface GitHubAccountCredentials {
@@ -111,6 +124,7 @@ export interface MarkGitHubMirrorSyncPendingResult {
 
 export interface GitHubMirrorSyncRepository extends RepositoryWithOwner {
 	externalSource: NonNullable<RepositoryWithOwner['externalSource']>
+	ownerUserId: UserId
 	storagePath: string
 }
 
@@ -131,6 +145,8 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	lastSyncStartedAt: repositoryExternalSources.lastSyncStartedAt,
 	lastSyncSucceededAt: repositoryExternalSources.lastSyncSucceededAt,
 	lastSyncFailedAt: repositoryExternalSources.lastSyncFailedAt,
+	nextSyncAt: repositoryExternalSources.nextSyncAt,
+	syncFailureCount: repositoryExternalSources.syncFailureCount,
 	syncFailureReason: repositoryExternalSources.syncFailureReason,
 	createdAt: repositoryExternalSources.createdAt,
 	updatedAt: repositoryExternalSources.updatedAt,
@@ -369,6 +385,8 @@ export class RepositoriesRepository {
 					syncStatus: 'pending',
 					lastSyncStartedAt: null,
 					lastSyncFailedAt: null,
+					nextSyncAt: null,
+					syncFailureCount: 0,
 					syncFailureReason: null,
 				})
 				.where(
@@ -376,12 +394,25 @@ export class RepositoriesRepository {
 						eq(repositoryExternalSources.repositoryId, repositoryId),
 						eq(repositoryExternalSources.provider, 'github'),
 						sql`exists (
-							select 1
-							from ${repositories}
-							where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-								and ${repositories.ownerUserId} = ${userId}
-						)`,
-						sql`${repositoryExternalSources.syncStatus} <> ${'pending'} AND (${repositoryExternalSources.syncStatus} <> ${'running'} OR ${repositoryExternalSources.lastSyncStartedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute'))`
+								select 1
+								from ${repositories}
+								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+									and ${repositories.ownerUserId} = ${userId}
+							)`,
+						sql`(
+								${repositoryExternalSources.syncStatus} not in (${'pending'}, ${'running'})
+								or (
+									${repositoryExternalSources.syncStatus} = ${'pending'}
+									and ${repositoryExternalSources.updatedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute')
+								)
+								or (
+									${repositoryExternalSources.syncStatus} = ${'running'}
+									and (
+										${repositoryExternalSources.lastSyncStartedAt} is null
+										or ${repositoryExternalSources.lastSyncStartedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute')
+									)
+								)
+							)`
 					)
 				)
 				.returning({ id: repositoryExternalSources.id })
@@ -424,6 +455,91 @@ export class RepositoriesRepository {
 		return await this.findGitHubMirrorSyncRepository({ repositoryId })
 	}
 
+	async claimDueGitHubMirrorSyncRepositories({
+		limit,
+		now,
+	}: ClaimDueGitHubMirrorSyncRepositoriesParams): Promise<
+		GitHubMirrorSyncRepository[]
+	> {
+		return await this.db.transaction(async transaction => {
+			const staleBefore = new Date(
+				now.getTime() - GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES * 60_000
+			)
+			const dueSources = transaction.$with('due_sources').as(
+				transaction
+					.select({ id: repositoryExternalSources.id })
+					.from(repositoryExternalSources)
+					.innerJoin(
+						repositories,
+						eq(repositories.id, repositoryExternalSources.repositoryId)
+					)
+					.innerJoin(user, eq(user.id, repositories.ownerUserId))
+					.where(
+						and(
+							eq(repositoryExternalSources.provider, 'github'),
+							eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
+							lte(repositoryExternalSources.nextSyncAt, now),
+							isNotNull(repositories.storagePath),
+							isNotNull(repositories.ownerUserId),
+							or(
+								inArray(repositoryExternalSources.syncStatus, [
+									'succeeded',
+									'failed',
+								]),
+								and(
+									eq(repositoryExternalSources.syncStatus, 'pending'),
+									lt(repositoryExternalSources.updatedAt, staleBefore)
+								),
+								and(
+									eq(repositoryExternalSources.syncStatus, 'running'),
+									or(
+										isNull(repositoryExternalSources.lastSyncStartedAt),
+										lt(repositoryExternalSources.lastSyncStartedAt, staleBefore)
+									)
+								)
+							)
+						)
+					)
+					.orderBy(asc(repositoryExternalSources.nextSyncAt))
+					.limit(limit)
+					.for('update', {
+						of: repositoryExternalSources,
+						skipLocked: true,
+					})
+			)
+			const claimedSources = await transaction
+				.with(dueSources)
+				.update(repositoryExternalSources)
+				.set({
+					syncStatus: 'pending',
+					lastSyncFailedAt: null,
+					syncFailureReason: null,
+					updatedAt: now,
+				})
+				.from(dueSources)
+				.where(eq(repositoryExternalSources.id, dueSources.id))
+				.returning({ repositoryId: repositoryExternalSources.repositoryId })
+			const claimedRepositoryIds = claimedSources.map(
+				({ repositoryId }) => repositoryId
+			)
+
+			if (claimedRepositoryIds.length === 0) return []
+
+			const rows = await transaction
+				.select(REPOSITORY_WITH_OWNER_COLUMNS)
+				.from(repositories)
+				.innerJoin(user, eq(repositories.ownerUserId, user.id))
+				.innerJoin(
+					repositoryExternalSources,
+					eq(repositoryExternalSources.repositoryId, repositories.id)
+				)
+				.where(inArray(repositories.id, claimedRepositoryIds))
+				.orderBy(asc(repositoryExternalSources.nextSyncAt))
+
+			return rows.flatMap(row => toGitHubMirrorSyncRepository(row) ?? [])
+		})
+	}
+
 	async markGitHubMirrorSyncSucceeded({
 		defaultBranch,
 		repositoryId,
@@ -455,13 +571,17 @@ export class RepositoriesRepository {
 	async markGitHubMirrorSyncFailed({
 		failedAt,
 		failureReason,
+		nextSyncAt,
 		repositoryId,
+		syncFailureCount,
 	}: MarkGitHubMirrorSyncFailedParams): Promise<void> {
 		await this.db
 			.update(repositoryExternalSources)
 			.set({
 				syncStatus: 'failed',
 				lastSyncFailedAt: failedAt,
+				nextSyncAt,
+				syncFailureCount,
 				syncFailureReason: failureReason,
 			})
 			.where(
@@ -572,10 +692,12 @@ export class RepositoriesRepository {
 			lastSyncSucceededAt,
 			mirrorMode,
 			name,
+			nextSyncAt,
 			ownerLogin,
 			repositoryId,
 			sourceDefaultBranch,
 			sourceUrl,
+			syncFailureCount,
 			syncFailureReason,
 			syncStatus,
 		}: UpsertGitHubExternalSourceParams
@@ -596,6 +718,8 @@ export class RepositoriesRepository {
 				lastSyncStartedAt,
 				lastSyncSucceededAt,
 				lastSyncFailedAt,
+				nextSyncAt,
+				syncFailureCount,
 				syncFailureReason,
 			})
 			.onConflictDoUpdate({
@@ -612,6 +736,8 @@ export class RepositoriesRepository {
 					lastSyncStartedAt,
 					lastSyncSucceededAt,
 					lastSyncFailedAt,
+					nextSyncAt,
+					syncFailureCount,
 					syncFailureReason,
 				},
 			})
@@ -661,10 +787,19 @@ function toGitHubMirrorSyncRepository(
 ): GitHubMirrorSyncRepository | undefined {
 	const repository = toRepositoryWithOwner(toRepositoryRow(row))
 
-	if (!(repository?.storagePath && repository.externalSource)) return undefined
+	if (
+		!(
+			repository?.ownerUserId &&
+			repository.storagePath &&
+			repository.externalSource
+		)
+	)
+		return undefined
+	const ownerUserId = repository.ownerUserId
 
 	return {
 		...repository,
+		ownerUserId,
 		storagePath: repository.storagePath,
 		externalSource: repository.externalSource,
 	}

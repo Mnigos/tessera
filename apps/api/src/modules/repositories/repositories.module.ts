@@ -36,6 +36,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		InternalGitAuthorizationGuard,
 		RepositoryOwnerGuard,
 	],
-	exports: [RepositoriesService, RepositoriesRepository],
+	exports: [RepositoriesService, RepositoriesRepository, GitHubMirrorSyncQueue],
 })
 export class RepositoriesModule {}

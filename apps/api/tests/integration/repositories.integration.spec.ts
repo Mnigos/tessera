@@ -10,12 +10,19 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { eq, sql } from '@repo/db'
 import { db } from '@repo/db/client'
-import { repositories, session, user } from '@repo/db/schema'
+import {
+	repositories,
+	repositoryExternalSources,
+	session,
+	user,
+} from '@repo/db/schema'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { ExternalServiceError } from '~/shared/errors'
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
+import { RepositoriesRepository } from '../../src/modules/repositories/infrastructure/repositories.repository'
 
 const MIGRATIONS_FOLDER = fileURLToPath(
 	new URL('../../../../packages/db/migrations', import.meta.url)
@@ -167,6 +174,7 @@ describe('Repositories integration', () => {
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
 	let gitStorageListRepositoryCommits: ReturnType<typeof vi.fn>
+	let repositoriesRepository: RepositoriesRepository
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -258,6 +266,7 @@ describe('Repositories integration', () => {
 			})
 			.compile()
 
+		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		adapter = new HonoAdapter()
 		app = moduleRef.createNestApplication(adapter)
 
@@ -387,6 +396,136 @@ describe('Repositories integration', () => {
 		expect(gitStorageCreateRepository).toHaveBeenCalledWith({
 			repositoryId: body.repository.id,
 		})
+	})
+
+	test('claims due GitHub mirror sync repositories from the database', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await db.query.repositories.findFirst({
+			where: sql`${repositories.slug} = ${'notes'}`,
+		})
+
+		if (!repository) throw new Error('Failed to create repository')
+
+		await db.insert(repositoryExternalSources).values({
+			repositoryId: repository.id,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+			nextSyncAt: new Date('2026-05-12T00:15:00Z'),
+			syncFailureCount: 2,
+		})
+
+		const claimed =
+			await repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
+				limit: 1,
+				now: new Date('2026-05-12T00:16:00Z'),
+			})
+		const externalSource = await db.query.repositoryExternalSources.findFirst({
+			where: eq(repositoryExternalSources.repositoryId, repository.id),
+		})
+
+		expect(claimed).toEqual([
+			expect.objectContaining({
+				id: repository.id,
+				ownerUserId: repository.ownerUserId,
+				storagePath: repository.storagePath,
+				externalSource: expect.objectContaining({
+					syncStatus: 'pending',
+					syncFailureCount: 2,
+				}),
+			}),
+		])
+		expect(externalSource).toEqual(
+			expect.objectContaining({
+				syncStatus: 'pending',
+				syncFailureCount: 2,
+				syncFailureReason: null,
+			})
+		)
+	})
+
+	test('claims stale pending GitHub mirror sync repositories once', async () => {
+		const firstHeaders = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, firstHeaders)
+		const firstRepository = await db.query.repositories.findFirst({
+			where: sql`${repositories.slug} = ${'notes'}`,
+		})
+		const secondHeaders = await createIntegrationSessionHeaders({
+			username: 'marek',
+			email: 'marek@example.com',
+		})
+		await createRepository({ name: 'Docs', slug: 'docs' }, secondHeaders)
+		const secondRepository = await db.query.repositories.findFirst({
+			where: sql`${repositories.slug} = ${'docs'}`,
+		})
+
+		if (!(firstRepository && secondRepository))
+			throw new Error('Failed to create repositories')
+
+		await db.insert(repositoryExternalSources).values([
+			{
+				repositoryId: firstRepository.id,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'pending',
+				nextSyncAt: new Date('2026-05-12T00:15:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+			{
+				repositoryId: secondRepository.id,
+				provider: 'github',
+				externalRepositoryId: 456n,
+				ownerLogin: 'marek',
+				name: 'docs',
+				fullName: 'marek/docs',
+				sourceUrl: 'https://github.com/marek/docs',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				nextSyncAt: new Date('2026-05-12T00:15:00Z'),
+			},
+		])
+
+		const [firstClaim, secondClaim] = await Promise.all([
+			repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
+				limit: 1,
+				now: new Date('2026-05-12T00:31:00Z'),
+			}),
+			repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
+				limit: 1,
+				now: new Date('2026-05-12T00:31:00Z'),
+			}),
+		])
+		const claimedRepositoryIds = [...firstClaim, ...secondClaim].map(
+			repository => repository.id
+		)
+
+		expect(firstClaim).toHaveLength(1)
+		expect(secondClaim).toHaveLength(1)
+		expect(new Set(claimedRepositoryIds)).toEqual(
+			new Set([firstRepository.id, secondRepository.id])
+		)
 	})
 
 	test('rejects invalid create input before creating git storage', async () => {

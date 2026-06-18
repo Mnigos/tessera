@@ -1,11 +1,21 @@
+import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
 import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryExternalSourceId } from '@repo/db'
-import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
+import type {
+	RepositoryId,
+	RepositoryName,
+	RepositorySlug,
+	UserId,
+} from '@repo/domain'
 import type { Job } from 'bullmq'
 import { mockUserId } from '~/shared/test-utils'
 import type { GitHubMirrorSyncRepositoryJobData } from '../infrastructure/github-mirror-sync.queue'
+import {
+	GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
+	GitHubMirrorSyncQueue,
+} from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { GitHubMirrorSyncProcessor } from './github-mirror-sync.processor'
 
@@ -41,6 +51,8 @@ const repository = {
 		lastSyncStartedAt: startedAt,
 		lastSyncSucceededAt: null,
 		lastSyncFailedAt: null,
+		nextSyncAt: new Date('2026-05-12T00:15:00Z'),
+		syncFailureCount: 0,
 		syncFailureReason: null,
 		createdAt: new Date('2026-05-12T00:00:00Z'),
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
@@ -59,6 +71,7 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 	let gitStorageClient: GitStorageClient & {
 		importRepository: ReturnType<typeof vi.fn>
 	}
+	let githubMirrorSyncQueue: GitHubMirrorSyncQueue
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -71,6 +84,7 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 						findGitHubAccount: vi.fn(),
 						markGitHubMirrorSyncSucceeded: vi.fn(),
 						markGitHubMirrorSyncFailed: vi.fn(),
+						claimDueGitHubMirrorSyncRepositories: vi.fn(),
 					},
 				},
 				{
@@ -79,12 +93,30 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 						importRepository: vi.fn(),
 					},
 				},
+				{
+					provide: GitHubMirrorSyncQueue,
+					useValue: {
+						enqueueRepositorySync: vi.fn(),
+					},
+				},
+				{
+					provide: EnvService,
+					useValue: {
+						get: vi.fn((key: string) => {
+							if (key === 'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES') return 15
+							if (key === 'GITHUB_MIRROR_SYNC_BATCH_SIZE') return 25
+
+							return undefined
+						}),
+					},
+				},
 			],
 		}).compile()
 
 		processor = moduleRef.get(GitHubMirrorSyncProcessor)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		gitStorageClient = moduleRef.get(GitStorageClient)
+		githubMirrorSyncQueue = moduleRef.get(GitHubMirrorSyncQueue)
 	})
 
 	afterEach(async () => {
@@ -135,12 +167,14 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 			syncStatus: 'succeeded',
 			lastSyncStartedAt: startedAt,
 			lastSyncSucceededAt: expect.any(Date),
-			lastSyncFailedAt: undefined,
-			syncFailureReason: undefined,
+			lastSyncFailedAt: null,
+			nextSyncAt: expect.any(Date),
+			syncFailureCount: 0,
+			syncFailureReason: null,
 		})
 	})
 
-	test('marks sync failed when requester GitHub token is missing', async () => {
+	test('marks sync auth-blocked when requester GitHub token is missing', async () => {
 		vi.spyOn(
 			repositoriesRepository,
 			'markGitHubMirrorSyncRunning'
@@ -154,15 +188,14 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 		)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 
-		await expect(processor.process(job)).rejects.toThrow(
-			'missing GitHub access token'
-		)
+		await processor.process(job)
 
 		expect(gitStorageClient.importRepository).not.toHaveBeenCalled()
 		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
 			repositoryId,
 			failedAt: expect.any(Date),
 			failureReason: 'missing GitHub access token',
+			nextSyncAt: null,
 		})
 	})
 
@@ -195,6 +228,8 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 			repositoryId,
 			failedAt: expect.any(Date),
 			failureReason: 'missing GitHub mirror sync start time',
+			nextSyncAt: expect.any(Date),
+			syncFailureCount: 1,
 		})
 	})
 
@@ -255,6 +290,8 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 			repositoryId,
 			failedAt: expect.any(Date),
 			failureReason: 'fetch failed',
+			nextSyncAt: expect.any(Date),
+			syncFailureCount: 1,
 		})
 	})
 
@@ -268,5 +305,60 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 
 		expect(repositoriesRepository.findGitHubAccount).not.toHaveBeenCalled()
 		expect(gitStorageClient.importRepository).not.toHaveBeenCalled()
+	})
+
+	test('dispatches due repository syncs and continues when one enqueue fails', async () => {
+		const otherRepositoryId =
+			'00000000-0000-4000-8000-000000000031' as RepositoryId
+		vi.spyOn(
+			repositoriesRepository,
+			'claimDueGitHubMirrorSyncRepositories'
+		).mockResolvedValue([
+			repository,
+			{
+				...repository,
+				id: otherRepositoryId,
+				ownerUserId: '00000000-0000-4000-8000-000000000032' as UserId,
+			},
+		])
+		vi.spyOn(
+			githubMirrorSyncQueue,
+			'enqueueRepositorySync'
+		).mockRejectedValueOnce(new Error('redis unavailable'))
+		const markGitHubMirrorSyncFailedSpy = vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncFailed'
+		)
+		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+		await processor.process({
+			name: GITHUB_MIRROR_SYNC_DISPATCHER_JOB,
+			data: { type: 'dispatcher' },
+			attemptsMade: 0,
+			opts: {},
+		} as Job)
+
+		expect(
+			repositoriesRepository.claimDueGitHubMirrorSyncRepositories
+		).toHaveBeenCalledWith({
+			limit: 25,
+			now: expect.any(Date),
+		})
+		expect(githubMirrorSyncQueue.enqueueRepositorySync).toHaveBeenCalledWith({
+			repositoryId,
+			requesterUserId: mockUserId,
+		})
+		expect(githubMirrorSyncQueue.enqueueRepositorySync).toHaveBeenCalledWith({
+			repositoryId: otherRepositoryId,
+			requesterUserId: '00000000-0000-4000-8000-000000000032',
+		})
+		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
+			repositoryId,
+			failedAt: expect.any(Date),
+			failureReason:
+				'Scheduled GitHub mirror sync could not be queued. Please retry.',
+			nextSyncAt: expect.any(Date),
+			syncFailureCount: 1,
+		})
 	})
 })
