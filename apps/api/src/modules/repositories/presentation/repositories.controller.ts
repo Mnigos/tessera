@@ -54,4 +54,20 @@ export class RepositoriesController {
 				)
 		)
 	}
+
+	@UseGuards(RepositoryOwnerGuard)
+	@Implement(contract.repositories.cutoverGitHubMirror)
+	cutoverGitHubMirror(
+		@Session() session: UserSession,
+		@TargetUserId() targetUserId: UserId
+	) {
+		return implement(contract.repositories.cutoverGitHubMirror).handler(
+			({ input }) =>
+				this.repositoriesService.cutoverGitHubMirror(
+					session.user.id,
+					targetUserId,
+					input
+				)
+		)
+	}
 }

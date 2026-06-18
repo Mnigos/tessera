@@ -613,9 +613,7 @@ describe(RepositoriesRepository.name, () => {
 			})
 		)
 		expect(transactionMock).toHaveBeenCalledOnce()
-		expect(valuesMock).toHaveBeenCalledWith({
-			repositoryId,
-			provider: 'github',
+		expect(setMock).toHaveBeenCalledWith({
 			externalRepositoryId: 123n,
 			ownerLogin: 'marta',
 			name: 'notes',
@@ -651,6 +649,51 @@ describe(RepositoriesRepository.name, () => {
 			syncFailureCount: undefined,
 			syncFailureReason: 'clone failed',
 		})
+	})
+
+	test('cuts over a GitHub mirror to Tessera source', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const cutoverAt = new Date('2026-05-12T00:02:00Z')
+
+		expect(
+			await repositoriesRepository.cutoverGitHubMirror({
+				repositoryId,
+				userId: mockUserId,
+				actorUserId: mockUserId,
+				cutoverAt,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			mirrorMode: 'tessera_source',
+			nextSyncAt: null,
+			cutoverActorUserId: mockUserId,
+			cutoverAt,
+			cutoverFromMirrorMode: 'github_to_tessera',
+		})
+		expect(updateReturningMock).toHaveBeenCalledWith({
+			id: repositoryExternalSources.id,
+		})
+	})
+
+	test('returns undefined when GitHub mirror cutover update is not eligible', async () => {
+		updateReturningMock.mockResolvedValue([])
+
+		expect(
+			await repositoriesRepository.cutoverGitHubMirror({
+				repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+				userId: mockUserId,
+				actorUserId: mockUserId,
+				cutoverAt: new Date('2026-05-12T00:02:00Z'),
+			})
+		).toBeUndefined()
+		expect(limitMock).not.toHaveBeenCalled()
 	})
 
 	test('claims due GitHub mirror sync repositories', async () => {

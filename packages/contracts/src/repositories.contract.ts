@@ -20,6 +20,7 @@ export type RepositoryExternalSourceProvider = z.infer<
 export const repositoryMirrorModeSchema = z.enum([
 	'imported',
 	'github_to_tessera',
+	'tessera_source',
 ])
 export type RepositoryMirrorMode = z.infer<typeof repositoryMirrorModeSchema>
 
@@ -52,6 +53,9 @@ export const repositoryExternalSourceSchema = z.discriminatedUnion('mode', [
 		lastSyncFailedAt: z.coerce.date().optional(),
 		nextSyncAt: z.coerce.date().optional(),
 		syncFailureReason: z.string().optional(),
+		cutoverActorUserId: z.uuid().brand<'user_id'>().optional(),
+		cutoverAt: z.coerce.date().optional(),
+		cutoverFromMirrorMode: z.literal('github_to_tessera').optional(),
 		createdAt: z.coerce.date(),
 		updatedAt: z.coerce.date(),
 	}),
@@ -103,6 +107,14 @@ export const getRepositoryInputSchema = z.object({
 })
 export type GetRepositoryInput = z.input<typeof getRepositoryInputSchema>
 export type ParsedGetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
+
+export const cutoverGitHubMirrorInputSchema = getRepositoryInputSchema
+export type CutoverGitHubMirrorInput = z.input<
+	typeof cutoverGitHubMirrorInputSchema
+>
+export type ParsedCutoverGitHubMirrorInput = z.infer<
+	typeof cutoverGitHubMirrorInputSchema
+>
 
 export const getRepositoryBrowserSummaryInputSchema =
 	getRepositoryInputSchema.extend({
@@ -336,6 +348,13 @@ export const repositoriesContract = {
 			path: '/repositories/{username}/{slug}/sync',
 		})
 		.input(getRepositoryInputSchema)
+		.output(repositoryWithOwnerSchema),
+	cutoverGitHubMirror: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/cutover',
+		})
+		.input(cutoverGitHubMirrorInputSchema)
 		.output(repositoryWithOwnerSchema),
 	getBrowserSummary: oc
 		.route({

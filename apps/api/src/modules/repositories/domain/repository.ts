@@ -69,6 +69,12 @@ function toRepositoryExternalSourceOutput(
 		lastSyncFailedAt: externalSource.lastSyncFailedAt ?? undefined,
 		nextSyncAt: externalSource.nextSyncAt ?? undefined,
 		syncFailureReason: externalSource.syncFailureReason ?? undefined,
+		cutoverActorUserId: externalSource.cutoverActorUserId ?? undefined,
+		cutoverAt: externalSource.cutoverAt ?? undefined,
+		cutoverFromMirrorMode:
+			externalSource.cutoverFromMirrorMode === 'github_to_tessera'
+				? externalSource.cutoverFromMirrorMode
+				: undefined,
 		createdAt: externalSource.createdAt,
 		updatedAt: externalSource.updatedAt,
 	}

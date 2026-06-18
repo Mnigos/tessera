@@ -19,6 +19,7 @@ import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
+	ParsedCutoverGitHubMirrorInput,
 	ParsedGetRepositoryBlobInput,
 	ParsedGetRepositoryBrowserSummaryInput,
 	ParsedGetRepositoryCommitHistoryInput,
@@ -50,6 +51,8 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubMirrorCutoverSyncInProgressError,
+	RepositoryGitHubMirrorCutoverUnavailableError,
 	RepositoryGitHubMirrorSyncUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
@@ -340,7 +343,10 @@ export class RepositoriesService {
 			throw new RepositoryStoragePathMissingError({
 				repositoryId: repository.id,
 			})
-		if (repository.externalSource?.provider !== 'github')
+		if (
+			repository.externalSource?.provider !== 'github' ||
+			repository.externalSource.mirrorMode === 'tessera_source'
+		)
 			throw new RepositoryGitHubMirrorSyncUnavailableError({
 				repositoryId: repository.id,
 				provider: repository.externalSource?.provider,
@@ -384,6 +390,61 @@ export class RepositoriesService {
 			}
 
 		return toRepositoryOutput(pendingRepository.repository)
+	}
+
+	async cutoverGitHubMirror(
+		actorUserId: UserId,
+		targetUserId: UserId,
+		{ slug, username }: ParsedCutoverGitHubMirrorInput
+	): Promise<RepositoryWithOwner> {
+		const repository = await this.repositoriesRepository.find({
+			userId: targetUserId,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+		if (
+			repository.externalSource?.provider !== 'github' ||
+			repository.externalSource.mirrorMode !== 'github_to_tessera'
+		)
+			throw new RepositoryGitHubMirrorCutoverUnavailableError({
+				repositoryId: repository.id,
+				provider: repository.externalSource?.provider,
+				mirrorMode: repository.externalSource?.mirrorMode,
+			})
+		if (
+			repository.externalSource.syncStatus === 'pending' ||
+			repository.externalSource.syncStatus === 'running'
+		)
+			throw new RepositoryGitHubMirrorCutoverSyncInProgressError({
+				repositoryId: repository.id,
+				syncStatus: repository.externalSource.syncStatus,
+			})
+		if (repository.externalSource.syncStatus !== 'succeeded')
+			throw new RepositoryGitHubMirrorCutoverUnavailableError({
+				repositoryId: repository.id,
+				provider: repository.externalSource.provider,
+				mirrorMode: repository.externalSource.mirrorMode,
+				syncStatus: repository.externalSource.syncStatus,
+			})
+
+		const cutoverRepository =
+			await this.repositoriesRepository.cutoverGitHubMirror({
+				repositoryId: repository.id,
+				userId: targetUserId,
+				actorUserId,
+				cutoverAt: new Date(),
+			})
+
+		if (!cutoverRepository)
+			throw new RepositoryGitHubMirrorCutoverUnavailableError({
+				repositoryId: repository.id,
+				provider: repository.externalSource.provider,
+				mirrorMode: repository.externalSource.mirrorMode,
+				syncStatus: repository.externalSource.syncStatus,
+			})
+
+		return toRepositoryOutput(cutoverRepository)
 	}
 
 	async getBrowserSummary(

@@ -1,4 +1,4 @@
-import type { Brand, RepositoryId } from '@repo/domain'
+import type { Brand, RepositoryId, UserId } from '@repo/domain'
 import { and, eq, isNotNull, relations, type SQL } from 'drizzle-orm'
 import {
 	bigint,
@@ -11,6 +11,7 @@ import {
 	unique,
 	uuid,
 } from 'drizzle-orm/pg-core'
+import { user } from './auth.schema'
 import { repositories } from './repositories.schema'
 
 export type RepositoryExternalSourceId = Brand<
@@ -25,7 +26,7 @@ export const repositoryExternalSourceProviderEnum = pgEnum(
 
 export const repositoryExternalSourceMirrorModeEnum = pgEnum(
 	'repository_external_source_mirror_mode',
-	['imported', 'github_to_tessera']
+	['imported', 'github_to_tessera', 'tessera_source']
 )
 
 export const repositoryExternalSourceSyncStatusEnum = pgEnum(
@@ -67,6 +68,13 @@ export const repositoryExternalSources = pgTable(
 		nextSyncAt: timestamp('next_sync_at'),
 		syncFailureCount: integer('sync_failure_count').default(0).notNull(),
 		syncFailureReason: text('sync_failure_reason'),
+		cutoverActorUserId: uuid('cutover_actor_user_id')
+			.$type<UserId>()
+			.references(() => user.id, { onDelete: 'set null' }),
+		cutoverAt: timestamp('cutover_at'),
+		cutoverFromMirrorMode: repositoryExternalSourceMirrorModeEnum(
+			'cutover_from_mirror_mode'
+		),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
