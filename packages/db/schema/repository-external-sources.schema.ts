@@ -1,8 +1,9 @@
 import type { Brand, RepositoryId } from '@repo/domain'
-import { relations } from 'drizzle-orm'
+import { relations, sql } from 'drizzle-orm'
 import {
 	bigint,
 	index,
+	integer,
 	pgEnum,
 	pgTable,
 	text,
@@ -63,6 +64,8 @@ export const repositoryExternalSources = pgTable(
 		lastSyncStartedAt: timestamp('last_sync_started_at'),
 		lastSyncSucceededAt: timestamp('last_sync_succeeded_at'),
 		lastSyncFailedAt: timestamp('last_sync_failed_at'),
+		nextSyncAt: timestamp('next_sync_at'),
+		syncFailureCount: integer('sync_failure_count').default(0).notNull(),
 		syncFailureReason: text('sync_failure_reason'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
@@ -82,6 +85,11 @@ export const repositoryExternalSources = pgTable(
 			table.provider,
 			table.fullName
 		),
+		index('repository_external_sources_due_sync_idx')
+			.on(table.nextSyncAt)
+			.where(
+				sql`${table.provider} = 'github' and ${table.mirrorMode} = 'github_to_tessera' and ${table.nextSyncAt} is not null`
+			),
 	]
 )
 

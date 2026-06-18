@@ -57,6 +57,13 @@
       "when": 1781337854685,
       "tag": "0007_add_repository_external_sources",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1781720307892,
+      "tag": "0008_awesome_lady_vermin",
+      "breakpoints": true
     }
   ]
 }

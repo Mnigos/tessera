@@ -67,6 +67,7 @@ function toRepositoryExternalSourceOutput(
 		lastSyncStartedAt: externalSource.lastSyncStartedAt ?? undefined,
 		lastSyncSucceededAt: externalSource.lastSyncSucceededAt ?? undefined,
 		lastSyncFailedAt: externalSource.lastSyncFailedAt ?? undefined,
+		nextSyncAt: externalSource.nextSyncAt ?? undefined,
 		syncFailureReason: externalSource.syncFailureReason ?? undefined,
 		createdAt: externalSource.createdAt,
 		updatedAt: externalSource.updatedAt,
