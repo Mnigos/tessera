@@ -872,6 +872,15 @@ async function createIntegrationExternalSource({
 	mirrorMode,
 	repositoryId,
 }: CreateIntegrationExternalSourceOptions) {
+	const cutoverState =
+		mirrorMode === 'tessera_source'
+			? {
+					cutoverActorUserId: ownerUserId,
+					cutoverAt: new Date('2026-05-12T00:02:00Z'),
+					cutoverFromMirrorMode: 'github_to_tessera' as const,
+				}
+			: {}
+
 	await db.insert(repositoryExternalSources).values({
 		id: externalSourceId,
 		repositoryId,
@@ -883,6 +892,7 @@ async function createIntegrationExternalSource({
 		sourceDefaultBranch: 'main',
 		mirrorMode,
 		syncStatus: 'succeeded',
+		...cutoverState,
 	})
 }
 
