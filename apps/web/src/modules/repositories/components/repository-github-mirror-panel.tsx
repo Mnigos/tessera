@@ -99,7 +99,17 @@ export function RepositoryGitHubMirrorPanel({
 					</Button>
 				)}
 			</div>
-			<div className="grid gap-3 text-sm sm:grid-cols-3">
+			<div
+				className={`grid gap-3 text-sm ${
+					externalSource.nextSyncAt ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
+				}`}
+			>
+				{externalSource.nextSyncAt && (
+					<MirrorTimestamp
+						label="Next scheduled"
+						value={externalSource.nextSyncAt}
+					/>
+				)}
 				<MirrorTimestamp
 					label="Last started"
 					value={externalSource.lastSyncStartedAt}
