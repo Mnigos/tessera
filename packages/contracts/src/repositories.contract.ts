@@ -50,6 +50,7 @@ export const repositoryExternalSourceSchema = z.discriminatedUnion('mode', [
 		lastSyncStartedAt: z.coerce.date().optional(),
 		lastSyncSucceededAt: z.coerce.date().optional(),
 		lastSyncFailedAt: z.coerce.date().optional(),
+		nextSyncAt: z.coerce.date().optional(),
 		syncFailureReason: z.string().optional(),
 		createdAt: z.coerce.date(),
 		updatedAt: z.coerce.date(),
