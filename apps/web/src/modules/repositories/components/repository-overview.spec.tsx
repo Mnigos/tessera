@@ -4,7 +4,13 @@ import type {
 } from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { render, screen, waitFor, within } from '@testing-library/react'
+import {
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+	within,
+} from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import {
@@ -614,7 +620,7 @@ describe('RepositoryOverview', () => {
 				.hasAttribute('disabled')
 		).toBe(true)
 
-		await user.click(screen.getByRole('button', { name: 'Confirm checklist' }))
+		fireEvent.click(screen.getByRole('checkbox'))
 		await waitFor(() =>
 			expect(
 				screen
@@ -639,7 +645,7 @@ describe('RepositoryOverview', () => {
 		)
 
 		await user.click(screen.getByRole('button', { name: 'Review cutover' }))
-		await user.click(screen.getByRole('button', { name: 'Confirm checklist' }))
+		fireEvent.click(screen.getByRole('checkbox'))
 
 		rerender(
 			<RepositoryOverview
