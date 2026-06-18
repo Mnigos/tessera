@@ -324,16 +324,6 @@ function GitHubMirrorCutoverSection({
 					</label>
 					<div className="flex flex-col gap-2 sm:flex-row">
 						<Button
-							disabled={
-								isCutoverConfirmed || isSyncLocked || cutoverMutation.isPending
-							}
-							onClick={() => setIsCutoverConfirmed(true)}
-							size="sm"
-							variant="secondary"
-						>
-							Confirm checklist
-						</Button>
-						<Button
 							disabled={isCutoverDisabled}
 							onClick={handleCutover}
 							size="sm"
