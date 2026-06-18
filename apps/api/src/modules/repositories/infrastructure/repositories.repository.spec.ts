@@ -53,6 +53,9 @@ describe(RepositoriesRepository.name, () => {
 	const returningMock = vi.fn()
 	const updateReturningMock = vi.fn()
 	const transactionMock = vi.fn()
+	const withBuilderMock = vi.fn()
+	const withAsMock = vi.fn()
+	const withMock = vi.fn()
 
 	beforeEach(async () => {
 		const databaseMock = {
@@ -69,10 +72,13 @@ describe(RepositoriesRepository.name, () => {
 			update: updateMock,
 			delete: deleteMock,
 			select: selectMock,
+			$with: withBuilderMock,
+			with: withMock,
 			transaction: transactionMock,
 		}
 
 		transactionMock.mockImplementation(async callback => callback(databaseMock))
+		withBuilderMock.mockReturnValue({ as: withAsMock })
 		returningMock.mockResolvedValue([
 			{
 				id: '00000000-0000-4000-8000-000000000002',
@@ -377,6 +383,8 @@ describe(RepositoriesRepository.name, () => {
 			lastSyncStartedAt: undefined,
 			lastSyncSucceededAt: completedAt,
 			lastSyncFailedAt: undefined,
+			nextSyncAt: undefined,
+			syncFailureCount: undefined,
 			syncFailureReason: undefined,
 		})
 		expect(onConflictDoUpdateMock).toHaveBeenCalledWith({
@@ -435,6 +443,8 @@ describe(RepositoriesRepository.name, () => {
 			lastSyncStartedAt: undefined,
 			lastSyncSucceededAt: completedAt,
 			lastSyncFailedAt: undefined,
+			nextSyncAt: undefined,
+			syncFailureCount: undefined,
 			syncFailureReason: undefined,
 		})
 	})
@@ -469,6 +479,8 @@ describe(RepositoriesRepository.name, () => {
 			syncStatus: 'pending',
 			lastSyncStartedAt: null,
 			lastSyncFailedAt: null,
+			nextSyncAt: null,
+			syncFailureCount: 0,
 			syncFailureReason: null,
 		})
 		expect(updateReturningMock).toHaveBeenCalledWith({
@@ -496,6 +508,8 @@ describe(RepositoriesRepository.name, () => {
 					lastSyncStartedAt: null,
 					lastSyncSucceededAt: null,
 					lastSyncFailedAt: null,
+					nextSyncAt: null,
+					syncFailureCount: 0,
 					syncFailureReason: null,
 					createdAt: new Date('2026-05-12T00:00:00Z'),
 					updatedAt: new Date('2026-05-12T00:00:00Z'),
@@ -566,6 +580,8 @@ describe(RepositoriesRepository.name, () => {
 			lastSyncStartedAt: undefined,
 			lastSyncSucceededAt: completedAt,
 			lastSyncFailedAt: undefined,
+			nextSyncAt: undefined,
+			syncFailureCount: undefined,
 			syncFailureReason: undefined,
 		})
 	})
@@ -584,7 +600,85 @@ describe(RepositoriesRepository.name, () => {
 		expect(setMock).toHaveBeenCalledWith({
 			syncStatus: 'failed',
 			lastSyncFailedAt: failedAt,
+			nextSyncAt: undefined,
+			syncFailureCount: undefined,
 			syncFailureReason: 'clone failed',
+		})
+	})
+
+	test('claims due GitHub mirror sync repositories', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const dueForMock = vi.fn()
+		const dueLimitMock = vi.fn().mockReturnValue({ for: dueForMock })
+		const dueOrderByMock = vi.fn().mockReturnValue({ limit: dueLimitMock })
+		const dueWhereMock = vi.fn().mockReturnValue({ orderBy: dueOrderByMock })
+		const dueSecondInnerJoinMock = vi
+			.fn()
+			.mockReturnValue({ where: dueWhereMock })
+		const dueFirstInnerJoinMock = vi.fn().mockReturnValue({
+			innerJoin: dueSecondInnerJoinMock,
+		})
+		const dueFromMock = vi.fn().mockReturnValue({
+			innerJoin: dueFirstInnerJoinMock,
+		})
+		const claimReturningMock = vi.fn().mockResolvedValue([{ repositoryId }])
+		const claimWhereMock = vi.fn().mockReturnValue({
+			returning: claimReturningMock,
+		})
+		const claimFromMock = vi.fn().mockReturnValue({ where: claimWhereMock })
+		const claimSetMock = vi.fn().mockReturnValue({ from: claimFromMock })
+
+		selectMock.mockReturnValueOnce({ from: dueFromMock })
+		withAsMock.mockReturnValue({ id: repositoryExternalSources.id })
+		withMock.mockReturnValue({
+			update: vi.fn().mockReturnValue({ set: claimSetMock }),
+		})
+		orderByMock.mockResolvedValueOnce([
+			{
+				...repositoryRow,
+				externalSource: {
+					id: '00000000-0000-4000-8000-000000000092',
+					repositoryId,
+					provider: 'github',
+					externalRepositoryId: 123n,
+					ownerLogin: 'marta',
+					name: 'notes',
+					fullName: 'marta/notes',
+					sourceUrl: 'https://github.com/marta/notes',
+					sourceDefaultBranch: 'main',
+					mirrorMode: 'github_to_tessera',
+					syncStatus: 'pending',
+					lastSyncStartedAt: null,
+					lastSyncSucceededAt: null,
+					lastSyncFailedAt: null,
+					nextSyncAt: new Date('2026-05-12T00:00:00Z'),
+					syncFailureCount: 0,
+					syncFailureReason: null,
+					createdAt: new Date('2026-05-12T00:00:00Z'),
+					updatedAt: new Date('2026-05-12T00:00:00Z'),
+				},
+			},
+		])
+
+		expect(
+			await repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
+				limit: 25,
+				now: new Date('2026-05-12T00:15:00Z'),
+			})
+		).toEqual([
+			expect.objectContaining({
+				id: repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				ownerUser: { username: 'marta' },
+			}),
+		])
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(dueForMock).toHaveBeenCalledWith('update', {
+			of: repositoryExternalSources,
+			skipLocked: true,
+		})
+		expect(claimReturningMock).toHaveBeenCalledWith({
+			repositoryId: repositoryExternalSources.repositoryId,
 		})
 	})
 })
