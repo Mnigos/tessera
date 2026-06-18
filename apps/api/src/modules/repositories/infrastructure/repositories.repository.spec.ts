@@ -396,6 +396,53 @@ describe(RepositoriesRepository.name, () => {
 		})
 	})
 
+	test('upserts GitHub mirror scheduling metadata', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const completedAt = new Date('2026-05-12T00:01:00Z')
+		const nextSyncAt = new Date('2026-05-12T00:16:00Z')
+
+		await repositoriesRepository.upsertGitHubExternalSource({
+			repositoryId,
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncSucceededAt: completedAt,
+			nextSyncAt,
+			syncFailureCount: 2,
+		})
+
+		expect(valuesMock).toHaveBeenCalledWith({
+			repositoryId,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: undefined,
+			lastSyncSucceededAt: completedAt,
+			lastSyncFailedAt: undefined,
+			nextSyncAt,
+			syncFailureCount: 2,
+			syncFailureReason: undefined,
+		})
+		expect(onConflictDoUpdateMock).toHaveBeenCalledWith({
+			target: repositoryExternalSources.repositoryId,
+			set: expect.objectContaining({
+				nextSyncAt,
+				syncFailureCount: 2,
+			}),
+		})
+	})
+
 	test('completes imported GitHub repository storage and external source metadata in one transaction', async () => {
 		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 		const completedAt = new Date('2026-05-12T00:01:00Z')
