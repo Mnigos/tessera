@@ -1424,7 +1424,12 @@
         }
       },
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "repository_external_sources_cutover_state_check": {
+          "name": "repository_external_sources_cutover_state_check",
+          "value": "((\"repository_external_sources\".\"mirror_mode\"::text = 'tessera_source' and \"repository_external_sources\".\"cutover_at\" is not null and \"repository_external_sources\".\"cutover_from_mirror_mode\"::text = 'github_to_tessera') or (\"repository_external_sources\".\"mirror_mode\"::text <> 'tessera_source' and \"repository_external_sources\".\"cutover_actor_user_id\" is null and \"repository_external_sources\".\"cutover_at\" is null and \"repository_external_sources\".\"cutover_from_mirror_mode\" is null))"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.repository_imports": {
