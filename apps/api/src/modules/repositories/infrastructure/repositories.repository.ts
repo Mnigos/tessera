@@ -65,6 +65,11 @@ interface RepositoryIdWithUserParams extends RepositoryIdParams {
 	userId: UserId
 }
 
+interface CutoverGitHubMirrorParams extends RepositoryIdWithUserParams {
+	actorUserId: UserId
+	cutoverAt: Date
+}
+
 interface MarkGitHubMirrorSyncFailedParams extends RepositoryIdParams {
 	failedAt: Date
 	failureReason: string
@@ -148,6 +153,9 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	nextSyncAt: repositoryExternalSources.nextSyncAt,
 	syncFailureCount: repositoryExternalSources.syncFailureCount,
 	syncFailureReason: repositoryExternalSources.syncFailureReason,
+	cutoverActorUserId: repositoryExternalSources.cutoverActorUserId,
+	cutoverAt: repositoryExternalSources.cutoverAt,
+	cutoverFromMirrorMode: repositoryExternalSources.cutoverFromMirrorMode,
 	createdAt: repositoryExternalSources.createdAt,
 	updatedAt: repositoryExternalSources.updatedAt,
 }
@@ -393,6 +401,10 @@ export class RepositoriesRepository {
 					and(
 						eq(repositoryExternalSources.repositoryId, repositoryId),
 						eq(repositoryExternalSources.provider, 'github'),
+						inArray(repositoryExternalSources.mirrorMode, [
+							'imported',
+							'github_to_tessera',
+						]),
 						sql`exists (
 								select 1
 								from ${repositories}
@@ -445,6 +457,7 @@ export class RepositoriesRepository {
 				and(
 					eq(repositoryExternalSources.repositoryId, repositoryId),
 					eq(repositoryExternalSources.provider, 'github'),
+					eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
 					inArray(repositoryExternalSources.syncStatus, ['pending', 'running'])
 				)
 			)
@@ -550,6 +563,23 @@ export class RepositoriesRepository {
 		RepositoryWithOwner | undefined
 	> {
 		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					...externalSourceParams,
+					nextSyncAt: externalSourceParams.nextSyncAt,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!updatedExternalSource) return undefined
+
 			const repository = await this.updateImportStorageWithClient(transaction, {
 				repositoryId,
 				storagePath,
@@ -558,11 +588,6 @@ export class RepositoriesRepository {
 			})
 
 			if (!repository) return undefined
-
-			await this.upsertGitHubExternalSourceWithClient(transaction, {
-				repositoryId,
-				...externalSourceParams,
-			})
 
 			return repository
 		})
@@ -587,9 +612,51 @@ export class RepositoriesRepository {
 			.where(
 				and(
 					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(repositoryExternalSources.provider, 'github')
+					eq(repositoryExternalSources.provider, 'github'),
+					eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
 				)
 			)
+	}
+
+	async cutoverGitHubMirror({
+		actorUserId,
+		cutoverAt,
+		repositoryId,
+		userId,
+	}: CutoverGitHubMirrorParams): Promise<RepositoryWithOwner | undefined> {
+		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					mirrorMode: 'tessera_source',
+					nextSyncAt: null,
+					cutoverActorUserId: actorUserId,
+					cutoverAt,
+					cutoverFromMirrorMode: 'github_to_tessera',
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
+						eq(repositoryExternalSources.syncStatus, 'succeeded'),
+						sql`exists (
+								select 1
+								from ${repositories}
+								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+									and ${repositories.ownerUserId} = ${userId}
+							)`
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!updatedExternalSource) return undefined
+
+			return await this.findWithClient(transaction, {
+				userId,
+				repositoryId,
+			})
+		})
 	}
 
 	async upsertGitHubExternalSource({

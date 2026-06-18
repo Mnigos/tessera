@@ -18,6 +18,7 @@ import {
 	session,
 	user,
 } from '@repo/db/schema'
+import type { RepositoryId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { ExternalServiceError } from '~/shared/errors'
@@ -55,7 +56,28 @@ interface RepositoryResponseBody {
 		description?: string
 		defaultBranch: string
 		externalSource: {
-			mode: 'none' | 'imported' | 'github_to_tessera'
+			mode: 'none' | 'imported' | 'github_to_tessera' | 'tessera_source'
+			provider?: 'github'
+			externalRepositoryId?: string
+			ownerLogin?: string
+			name?: string
+			fullName?: string
+			sourceUrl?: string
+			sourceDefaultBranch?: string
+			syncStatus?: 'pending' | 'running' | 'succeeded' | 'failed'
+			lastSyncStartedAt?: string
+			lastSyncSucceededAt?: string
+			lastSyncFailedAt?: string
+			nextSyncAt?: string
+			syncFailureReason?: string
+			cutoverActorUserId?: string
+			cutoverAt?: string
+			cutoverFromMirrorMode?:
+				| 'imported'
+				| 'github_to_tessera'
+				| 'tessera_source'
+			createdAt?: string
+			updatedAt?: string
 		}
 		createdAt: string
 		updatedAt: string
@@ -161,6 +183,13 @@ interface CreateIntegrationUserOptions {
 	username: string
 	email: string
 	name?: string
+}
+
+interface CreateIntegrationExternalSourceOptions {
+	repositoryId: RepositoryId
+	mirrorMode?: 'imported' | 'github_to_tessera' | 'tessera_source'
+	syncStatus?: 'pending' | 'running' | 'succeeded' | 'failed'
+	nextSyncAt?: Date | null
 }
 
 describe('Repositories integration', () => {
@@ -526,6 +555,152 @@ describe('Repositories integration', () => {
 		expect(new Set(claimedRepositoryIds)).toEqual(
 			new Set([firstRepository.id, secondRepository.id])
 		)
+	})
+
+	test('cuts over a succeeded GitHub mirror to Tessera source and preserves GitHub metadata', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+		const actor = await getUserRow('marta')
+
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			nextSyncAt: new Date('2026-05-12T00:15:00Z'),
+		})
+
+		const response = await cutoverGitHubMirror('marta', 'notes', headers)
+		const body = (await response.json()) as RepositoryResponseBody
+		const externalSource = await db.query.repositoryExternalSources.findFirst({
+			where: eq(repositoryExternalSources.repositoryId, repository.id),
+		})
+
+		expect(response.status).toBe(200)
+		expect(body.repository.externalSource).toMatchObject({
+			mode: 'tessera_source',
+			provider: 'github',
+			externalRepositoryId: '123',
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			syncStatus: 'succeeded',
+			cutoverActorUserId: actor.id,
+			cutoverFromMirrorMode: 'github_to_tessera',
+		})
+		expect(
+			Date.parse(body.repository.externalSource.cutoverAt ?? '')
+		).not.toBeNaN()
+		expect(externalSource).toEqual(
+			expect.objectContaining({
+				mirrorMode: 'tessera_source',
+				nextSyncAt: null,
+				cutoverActorUserId: actor.id,
+				cutoverAt: expect.any(Date),
+				cutoverFromMirrorMode: 'github_to_tessera',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+			})
+		)
+	})
+
+	test('rejects unauthenticated GitHub mirror cutover requests', async () => {
+		const response = await cutoverGitHubMirror('marta', 'notes')
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(401)
+		expect(body).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: 'Unauthorized',
+		})
+	})
+
+	test('hides another username when cutting over GitHub mirrors', async () => {
+		const renHeaders = await createIntegrationSessionHeaders({
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, renHeaders)
+		const repository = await getRepositoryRow('notes')
+		await createIntegrationExternalSource({ repositoryId: repository.id })
+
+		const response = await cutoverGitHubMirror('ren', 'notes', headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body).toMatchObject({
+			code: 'NOT_FOUND',
+			message: 'repository not found',
+		})
+	})
+
+	test('rejects cutover for non-mirrored repositories', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+
+		const response = await cutoverGitHubMirror('marta', 'notes', headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
+	})
+
+	test('rejects cutover while GitHub mirror sync is running', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'running',
+		})
+
+		const response = await cutoverGitHubMirror('marta', 'notes', headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(409)
+		expect(body.code).toBe('CONFLICT')
+	})
+
+	test('rejects cutover when latest GitHub mirror sync failed', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'failed',
+		})
+
+		const response = await cutoverGitHubMirror('marta', 'notes', headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body.code).toBe('BAD_REQUEST')
 	})
 
 	test('rejects invalid create input before creating git storage', async () => {
@@ -1401,9 +1576,57 @@ describe('Repositories integration', () => {
 	}
 
 	async function resetIntegrationDatabase() {
+		await db.delete(repositoryExternalSources)
 		await db.delete(repositories)
 		await db.delete(session)
 		await db.delete(user)
+	}
+
+	async function getRepositoryRow(slug: string) {
+		const repository = await db.query.repositories.findFirst({
+			where: sql`${repositories.slug} = ${slug}`,
+		})
+
+		if (!repository) throw new Error('Failed to create repository')
+
+		return repository
+	}
+
+	async function getUserRow(username: string) {
+		const createdUser = await db.query.user.findFirst({
+			where: sql`${user.username} = ${username}`,
+		})
+
+		if (!createdUser) throw new Error('Failed to create integration user')
+
+		return createdUser
+	}
+
+	async function createIntegrationExternalSource({
+		mirrorMode = 'github_to_tessera',
+		nextSyncAt,
+		repositoryId,
+		syncStatus = 'succeeded',
+	}: CreateIntegrationExternalSourceOptions) {
+		await db.insert(repositoryExternalSources).values({
+			repositoryId,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode,
+			syncStatus,
+			nextSyncAt,
+			lastSyncSucceededAt:
+				syncStatus === 'succeeded'
+					? new Date('2026-05-12T00:01:00Z')
+					: undefined,
+			lastSyncStartedAt:
+				syncStatus === 'running' ? new Date('2026-05-12T00:01:00Z') : undefined,
+		})
 	}
 
 	function createRepository(input: object, headers?: Headers) {
@@ -1427,6 +1650,17 @@ describe('Repositories integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}`,
 			{ headers }
+		)
+	}
+
+	function cutoverGitHubMirror(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/cutover`,
+			{ method: 'POST', headers }
 		)
 	}
 

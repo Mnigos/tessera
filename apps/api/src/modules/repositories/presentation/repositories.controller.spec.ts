@@ -52,6 +52,7 @@ describe(RepositoriesController.name, () => {
 						list: vi.fn(),
 						get: vi.fn(),
 						syncGitHubMirror: vi.fn(),
+						cutoverGitHubMirror: vi.fn(),
 						getBrowserSummary: vi.fn(),
 						getRefs: vi.fn(),
 						getTree: vi.fn(),
@@ -190,6 +191,36 @@ describe(RepositoriesController.name, () => {
 			username: 'marta',
 			slug: repository.repository.slug,
 		})
+	})
+
+	test('delegates GitHub mirror cutover requests to the repositories service', async () => {
+		const cutoverGitHubMirrorSpy = vi
+			.spyOn(repositoriesService, 'cutoverGitHubMirror')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesController
+				.cutoverGitHubMirror(session, mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'cutoverGitHubMirror'],
+					procedure: repositoriesController.cutoverGitHubMirror(
+						session,
+						mockUserId
+					),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(repository)
+		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith(
+			mockUserId,
+			mockUserId,
+			{
+				username: 'marta',
+				slug: repository.repository.slug,
+			}
+		)
 	})
 
 	test('delegates browser summary requests with an optional viewer', async () => {

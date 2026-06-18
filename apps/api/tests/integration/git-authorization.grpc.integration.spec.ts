@@ -320,6 +320,40 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
+	test('authorizes write requests after GitHub mirror cutover to Tessera source', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'tessera_source',
+		})
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: ownerUserId,
+			permissions: {
+				repository: ['write'],
+			},
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeWrite(createWriteRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
+		})
+	})
+
 	test('rejects write requests with an invalid git access token', async () => {
 		vi.mocked(gitAccessTokensService.verify).mockRejectedValue(
 			new InvalidGitAccessTokenError({ reason: 'invalid_token' })
@@ -630,6 +664,39 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
+	test('authorizes ssh write requests after GitHub mirror cutover to Tessera source', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: ownerSshPublicKeyId,
+			ownerUserId,
+			fingerprint: ownerFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: privateRepositoryId,
+			mirrorMode: 'tessera_source',
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshWrite(createSshWriteRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: ownerUserId,
+		})
+	})
+
 	test('rejects ssh write requests for non-owners', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
@@ -798,7 +865,7 @@ async function createIntegrationRepository({
 
 interface CreateIntegrationExternalSourceOptions {
 	repositoryId: RepositoryId
-	mirrorMode: 'imported' | 'github_to_tessera'
+	mirrorMode: 'imported' | 'github_to_tessera' | 'tessera_source'
 }
 
 async function createIntegrationExternalSource({

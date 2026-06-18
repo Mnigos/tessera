@@ -21,6 +21,8 @@ import {
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
+	RepositoryGitHubMirrorCutoverSyncInProgressError,
+	RepositoryGitHubMirrorCutoverUnavailableError,
 	RepositoryGitHubMirrorSyncUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
@@ -83,6 +85,7 @@ describe(RepositoriesService.name, () => {
 						upsertGitHubExternalSource: vi.fn(),
 						markGitHubMirrorSyncPending: vi.fn(),
 						markGitHubMirrorSyncFailed: vi.fn(),
+						cutoverGitHubMirror: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -607,6 +610,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -674,6 +680,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -701,6 +710,237 @@ describe(RepositoriesService.name, () => {
 		expect(enqueueRepositorySyncSpy).not.toHaveBeenCalled()
 	})
 
+	test('rejects GitHub mirror sync after cutover', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'tessera_source' as const,
+				syncStatus: 'succeeded' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				nextSyncAt: null,
+				syncFailureCount: 0,
+				syncFailureReason: null,
+				cutoverActorUserId: mockUserId,
+				cutoverAt: new Date('2026-05-12T00:02:00Z'),
+				cutoverFromMirrorMode: 'github_to_tessera' as const,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		})
+
+		await expect(
+			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
+		expect(
+			repositoriesRepository.markGitHubMirrorSyncPending
+		).not.toHaveBeenCalled()
+	})
+
+	test('cuts over a succeeded GitHub mirror to Tessera source', async () => {
+		const cutoverAt = new Date('2026-05-12T00:02:00Z')
+		const mirroredRepository = {
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'succeeded' as const,
+				lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				nextSyncAt: new Date('2026-05-12T01:01:00Z'),
+				syncFailureCount: 0,
+				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredRepository
+		)
+		const cutoverGitHubMirrorSpy = vi
+			.spyOn(repositoriesRepository, 'cutoverGitHubMirror')
+			.mockResolvedValue({
+				...mirroredRepository,
+				externalSource: {
+					...mirroredRepository.externalSource,
+					mirrorMode: 'tessera_source',
+					nextSyncAt: null,
+					cutoverActorUserId: mockUserId,
+					cutoverAt,
+					cutoverFromMirrorMode: 'github_to_tessera',
+				},
+			})
+
+		expect(
+			await repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({
+					externalSource: expect.objectContaining({
+						mode: 'tessera_source',
+						nextSyncAt: undefined,
+						cutoverActorUserId: mockUserId,
+						cutoverAt,
+						cutoverFromMirrorMode: 'github_to_tessera',
+					}),
+				}),
+			})
+		)
+		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			userId: mockUserId,
+			actorUserId: mockUserId,
+			cutoverAt: expect.any(Date),
+		})
+	})
+
+	test('rejects cutover while GitHub mirror sync is running', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'running' as const,
+				lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+				lastSyncSucceededAt: null,
+				lastSyncFailedAt: null,
+				nextSyncAt: null,
+				syncFailureCount: 0,
+				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		})
+
+		await expect(
+			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverSyncInProgressError)
+		expect(repositoriesRepository.cutoverGitHubMirror).not.toHaveBeenCalled()
+	})
+
+	test('rejects cutover when latest GitHub mirror sync failed', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera' as const,
+				syncStatus: 'failed' as const,
+				lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: new Date('2026-05-12T00:02:00Z'),
+				nextSyncAt: null,
+				syncFailureCount: 1,
+				syncFailureReason: 'clone failed',
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		})
+
+		await expect(
+			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverUnavailableError)
+		expect(repositoriesRepository.cutoverGitHubMirror).not.toHaveBeenCalled()
+	})
+
+	test('rejects cutover for imported GitHub repositories', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: {
+				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+				repositoryId: repository.id,
+				provider: 'github' as const,
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'imported' as const,
+				syncStatus: 'succeeded' as const,
+				lastSyncStartedAt: null,
+				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+				lastSyncFailedAt: null,
+				nextSyncAt: null,
+				syncFailureCount: 0,
+				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
+				createdAt: new Date('2026-05-12T00:00:00Z'),
+				updatedAt: new Date('2026-05-12T00:00:00Z'),
+			},
+		})
+
+		await expect(
+			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverUnavailableError)
+		expect(repositoriesRepository.cutoverGitHubMirror).not.toHaveBeenCalled()
+	})
+
 	test('marks GitHub mirror sync failed when enqueue fails', async () => {
 		const pendingRepository = {
 			...repository,
@@ -723,6 +963,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -787,6 +1030,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -2129,6 +2375,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},
@@ -2169,6 +2418,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},
@@ -2361,6 +2613,9 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},

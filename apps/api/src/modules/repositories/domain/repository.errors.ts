@@ -107,3 +107,15 @@ export class RepositoryGitHubMirrorSyncUnavailableError extends BadRequestError 
 		super('repository github mirror sync', context)
 	}
 }
+
+export class RepositoryGitHubMirrorCutoverUnavailableError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository github mirror cutover', context)
+	}
+}
+
+export class RepositoryGitHubMirrorCutoverSyncInProgressError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository github mirror cutover', context)
+	}
+}
