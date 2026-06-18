@@ -59,10 +59,27 @@ export class GitHubMirrorSyncQueue {
 			const removedJobCount = await this.queue.remove(repositoryId, {
 				removeChildren: true,
 			})
-			if (removedJobCount === 0)
-				throw new GitHubMirrorSyncJobAlreadyActiveError(repositoryId)
+			if (removedJobCount === 0) {
+				const latestJob = await this.queue.getJob(repositoryId)
+				if (!latestJob) {
+					await this.enqueueNewRepositorySync({ repositoryId, requesterUserId })
+					return
+				}
+
+				const latestState = await latestJob.getState()
+				if (REUSABLE_REPOSITORY_JOB_STATES.has(latestState)) return
+				if (latestState === 'active')
+					throw new GitHubMirrorSyncJobAlreadyActiveError(repositoryId)
+			}
 		}
 
+		await this.enqueueNewRepositorySync({ repositoryId, requesterUserId })
+	}
+
+	private async enqueueNewRepositorySync({
+		repositoryId,
+		requesterUserId,
+	}: GitHubMirrorSyncRepositoryJobData): Promise<void> {
 		await this.queue.add(
 			GITHUB_MIRROR_SYNC_REPOSITORY_JOB,
 			{ repositoryId, requesterUserId },

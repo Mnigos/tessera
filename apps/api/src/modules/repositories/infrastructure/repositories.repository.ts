@@ -600,10 +600,12 @@ export class RepositoriesRepository {
 		lastSyncSucceededAt,
 		mirrorMode,
 		name,
+		nextSyncAt,
 		ownerLogin,
 		repositoryId,
 		sourceDefaultBranch,
 		sourceUrl,
+		syncFailureCount,
 		syncFailureReason,
 		syncStatus,
 	}: UpsertGitHubExternalSourceParams): Promise<void> {
@@ -620,6 +622,8 @@ export class RepositoriesRepository {
 			lastSyncStartedAt,
 			lastSyncSucceededAt,
 			lastSyncFailedAt,
+			nextSyncAt,
+			syncFailureCount,
 			syncFailureReason,
 		})
 	}

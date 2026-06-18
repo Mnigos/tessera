@@ -132,6 +132,29 @@ describe(GitHubMirrorSyncQueue.name, () => {
 		)
 	})
 
+	test('re-enqueues when a stale repository sync disappears before removal', async () => {
+		queue.getJob
+			.mockResolvedValueOnce({
+				getState: vi.fn().mockResolvedValue('failed'),
+			})
+			.mockResolvedValueOnce(null)
+		queue.remove.mockResolvedValue(0)
+
+		await githubMirrorSyncQueue.enqueueRepositorySync({
+			repositoryId,
+			requesterUserId: mockUserId,
+		})
+
+		expect(queue.remove).toHaveBeenCalledWith(repositoryId, {
+			removeChildren: true,
+		})
+		expect(queue.add).toHaveBeenCalledWith(
+			GITHUB_MIRROR_SYNC_REPOSITORY_JOB,
+			{ repositoryId, requesterUserId: mockUserId },
+			expect.objectContaining({ jobId: repositoryId })
+		)
+	})
+
 	test('registers dispatcher scheduler', async () => {
 		await githubMirrorSyncQueue.scheduleDispatcher('*/15 * * * *')
 
