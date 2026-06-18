@@ -1,5 +1,5 @@
 import type { Brand, RepositoryId, RepositorySlug, UserId } from '@repo/domain'
-import { relations, sql } from 'drizzle-orm'
+import { ne, relations } from 'drizzle-orm'
 import {
 	bigint,
 	index,
@@ -73,10 +73,10 @@ export const repositoryImports = pgTable(
 		index('repository_imports_status_idx').on(table.status),
 		uniqueIndex('repository_imports_active_source_unique')
 			.on(table.ownerUserId, table.sourceGithubId)
-			.where(sql`${table.status} != 'failed'`),
+			.where(ne(table.status, 'failed')),
 		uniqueIndex('repository_imports_active_target_slug_unique')
 			.on(table.ownerUserId, table.targetSlug)
-			.where(sql`${table.status} != 'failed'`),
+			.where(ne(table.status, 'failed')),
 	]
 )
 

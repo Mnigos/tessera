@@ -103,7 +103,7 @@ describe(GitHubMirrorSyncProcessor.name, () => {
 					provide: EnvService,
 					useValue: {
 						get: vi.fn((key: string) => {
-							if (key === 'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES') return 15
+							if (key === 'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES') return 60
 							if (key === 'GITHUB_MIRROR_SYNC_BATCH_SIZE') return 25
 
 							return undefined
