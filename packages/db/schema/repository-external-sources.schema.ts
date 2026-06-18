@@ -1,7 +1,8 @@
 import type { Brand, RepositoryId, UserId } from '@repo/domain'
-import { and, eq, isNotNull, relations, type SQL } from 'drizzle-orm'
+import { and, eq, isNotNull, relations, type SQL, sql } from 'drizzle-orm'
 import {
 	bigint,
+	check,
 	index,
 	integer,
 	pgEnum,
@@ -102,6 +103,10 @@ export const repositoryExternalSources = pgTable(
 					isNotNull(table.nextSyncAt)
 				) as SQL
 			),
+		check(
+			'repository_external_sources_cutover_state_check',
+			sql`((${table.mirrorMode}::text = 'tessera_source' and ${table.cutoverAt} is not null and ${table.cutoverFromMirrorMode}::text = 'github_to_tessera') or (${table.mirrorMode}::text <> 'tessera_source' and ${table.cutoverActorUserId} is null and ${table.cutoverAt} is null and ${table.cutoverFromMirrorMode} is null))`
+		),
 	]
 )
 
@@ -116,6 +121,10 @@ export const repositoryExternalSourceRelations = relations(
 		repository: one(repositories, {
 			fields: [repositoryExternalSources.repositoryId],
 			references: [repositories.id],
+		}),
+		cutoverActorUser: one(user, {
+			fields: [repositoryExternalSources.cutoverActorUserId],
+			references: [user.id],
 		}),
 	})
 )

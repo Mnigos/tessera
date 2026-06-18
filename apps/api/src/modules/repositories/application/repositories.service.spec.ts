@@ -752,9 +752,12 @@ describe(RepositoriesService.name, () => {
 	})
 
 	test('cuts over a succeeded GitHub mirror to Tessera source', async () => {
+		const actorUserId = '00000000-0000-4000-8000-000000000101' as UserId
+		const targetUserId = '00000000-0000-4000-8000-000000000102' as UserId
 		const cutoverAt = new Date('2026-05-12T00:02:00Z')
 		const mirroredRepository = {
 			...repository,
+			ownerUserId: targetUserId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			externalSource: {
 				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
@@ -792,14 +795,14 @@ describe(RepositoriesService.name, () => {
 					...mirroredRepository.externalSource,
 					mirrorMode: 'tessera_source',
 					nextSyncAt: null,
-					cutoverActorUserId: mockUserId,
+					cutoverActorUserId: actorUserId,
 					cutoverAt,
 					cutoverFromMirrorMode: 'github_to_tessera',
 				},
 			})
 
 		expect(
-			await repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			await repositoriesService.cutoverGitHubMirror(actorUserId, targetUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -809,17 +812,21 @@ describe(RepositoriesService.name, () => {
 					externalSource: expect.objectContaining({
 						mode: 'tessera_source',
 						nextSyncAt: undefined,
-						cutoverActorUserId: mockUserId,
+						cutoverActorUserId: actorUserId,
 						cutoverAt,
 						cutoverFromMirrorMode: 'github_to_tessera',
 					}),
 				}),
 			})
 		)
+		expect(repositoriesRepository.find).toHaveBeenCalledWith({
+			userId: targetUserId,
+			slug: repository.slug,
+		})
 		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
-			userId: mockUserId,
-			actorUserId: mockUserId,
+			userId: targetUserId,
+			actorUserId,
 			cutoverAt: expect.any(Date),
 		})
 	})
