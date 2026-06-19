@@ -22,7 +22,8 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Put params/props interfaces immediately above the component that uses them.
 - Use `Readonly<ComponentNameProps>` for component props.
 - Use CVA for meaningful variants and export the variants helper when consumers need it.
-- Use `cn()` for class merging.
+- Use `cn()` for class merging and dynamic or conditional `className`; do not compose `className` strings with template literals.
+- Keep hand-authored UI component files at 300 lines or fewer; generated or vendor-derived shadcn primitives may exceed this when preserving upstream shape.
 - Prefer `size-*` over paired `h-* w-*`.
 - Prefer design tokens and Tailwind utilities over arbitrary values.
 - Prefer Tailwind's named utilities and variant shorthands over arbitrary syntax. For boolean data attributes, use `data-ending-style:opacity-0` instead of `data-[ending-style]:opacity-0`; reserve arbitrary values/selectors for cases Tailwind cannot express clearly.
