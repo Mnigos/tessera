@@ -464,7 +464,9 @@ export class RepositoriesService {
 		})
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
 		this.assertGitHubPushBackAvailable(repository)
+
 		this.assertGitHubPushBackNotRunning(repository)
 
 		const enabledRepository =
@@ -493,7 +495,9 @@ export class RepositoriesService {
 		})
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
 		this.assertGitHubPushBackAvailable(repository)
+
 		this.assertGitHubPushBackNotRunning(repository)
 
 		const disabledRepository =
@@ -522,15 +526,19 @@ export class RepositoriesService {
 		})
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
 		this.assertGitHubPushBackAvailable(repository)
+
 		if (!repository.storagePath)
 			throw new RepositoryStoragePathMissingError({
 				repositoryId: repository.id,
 			})
+
 		if (!repository.externalSource?.githubPushBackEnabled)
 			throw new RepositoryGitHubPushBackDisabledError({
 				repositoryId: repository.id,
 			})
+
 		this.assertGitHubPushBackNotRunning(repository)
 
 		const account = await this.repositoriesRepository.findGitHubAccount({
