@@ -162,7 +162,7 @@ impl RepositoryStorage {
         target_url: &str,
         access_token: Option<&str>,
     ) -> Result<(), RepositoryError> {
-        if target_url.trim().is_empty() {
+        if target_url.trim().is_empty() || target_url.trim_start().starts_with('-') {
             return Err(RepositoryError::InvalidRepositoryPath);
         }
 

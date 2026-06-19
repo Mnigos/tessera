@@ -968,6 +968,81 @@ describe('RepositoryOverview', () => {
 		expect(pushGitHubPushBackMirrorMutateMock).not.toHaveBeenCalled()
 	})
 
+	test('locks GitHub backup mirror controls while any mutation is pending', async () => {
+		const user = userEvent.setup()
+
+		usePushGitHubPushBackMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: true,
+			isSuccess: false,
+			mutate: pushGitHubPushBackMirrorMutateMock,
+		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
+
+		const { rerender } = render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'succeeded',
+				})}
+			/>
+		)
+
+		expect(
+			screen
+				.getByRole('button', { name: 'Disable backup' })
+				.hasAttribute('disabled')
+		).toBe(true)
+		expect(
+			screen
+				.getByRole('button', { name: 'Pushing...' })
+				.hasAttribute('disabled')
+		).toBe(true)
+
+		await user.click(screen.getByRole('button', { name: 'Disable backup' }))
+
+		expect(disableGitHubPushBackMutateMock).not.toHaveBeenCalled()
+
+		useDisableGitHubPushBackMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: true,
+			isSuccess: false,
+			mutate: disableGitHubPushBackMutateMock,
+		} as unknown as ReturnType<typeof useDisableGitHubPushBackMutation>)
+		usePushGitHubPushBackMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: false,
+			mutate: pushGitHubPushBackMirrorMutateMock,
+		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
+
+		rerender(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'succeeded',
+				})}
+			/>
+		)
+
+		expect(
+			screen
+				.getByRole('button', { name: 'Disabling...' })
+				.hasAttribute('disabled')
+		).toBe(true)
+		expect(
+			screen.getByRole('button', { name: 'Push now' }).hasAttribute('disabled')
+		).toBe(true)
+
+		await user.click(screen.getByRole('button', { name: 'Push now' }))
+
+		expect(pushGitHubPushBackMirrorMutateMock).not.toHaveBeenCalled()
+	})
+
 	test('shows GitHub backup mirror mutation feedback', () => {
 		useEnableGitHubPushBackMutationMock.mockReturnValue({
 			error: null,
