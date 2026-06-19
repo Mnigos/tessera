@@ -501,17 +501,32 @@ describe('RepositoryOverview', () => {
 			error: null,
 			isError: false,
 			isPending: true,
-			isSuccess: true,
+			isSuccess: false,
 			mutate: syncGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		const { rerender } = render(
+			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+		)
 
 		expect(
 			screen
 				.getByRole('button', { name: 'Syncing...' })
 				.hasAttribute('disabled')
 		).toBe(true)
+
+		useSyncGitHubMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			mutate: syncGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
+
+		rerender(
+			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+		)
+
 		expect(screen.getByText('Sync queued.')).toBeTruthy()
 	})
 
@@ -669,15 +684,17 @@ describe('RepositoryOverview', () => {
 
 	test('shows GitHub mirror cutover loading, success, and error states', async () => {
 		useCutoverGitHubMirrorMutationMock.mockReturnValue({
-			error: new Error('cutover unavailable'),
-			isError: true,
+			error: null,
+			isError: false,
 			isPending: true,
-			isSuccess: true,
+			isSuccess: false,
 			mutate: cutoverGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		const { rerender } = render(
+			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+		)
 
 		await user.click(screen.getByRole('button', { name: 'Review cutover' }))
 
@@ -686,9 +703,35 @@ describe('RepositoryOverview', () => {
 				.getByRole('button', { name: 'Cutting over...' })
 				.hasAttribute('disabled')
 		).toBe(true)
+
+		useCutoverGitHubMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			mutate: cutoverGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
+
+		rerender(
+			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+		)
+
 		expect(
 			screen.getByText('Cutover complete. Tessera is source of truth.')
 		).toBeTruthy()
+
+		useCutoverGitHubMirrorMutationMock.mockReturnValue({
+			error: new Error('cutover unavailable'),
+			isError: true,
+			isPending: false,
+			isSuccess: false,
+			mutate: cutoverGitHubMirrorMutateMock,
+		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
+
+		rerender(
+			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+		)
+
 		expect(
 			screen.getByText('GitHub mirror cutover could not be completed.')
 		).toBeTruthy()
