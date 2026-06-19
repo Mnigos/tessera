@@ -1,4 +1,5 @@
 import type { RepositorySignature } from '@repo/contracts'
+import { cn } from '@repo/ui/utils'
 import { BadgeAlert, BadgeCheck, BadgeQuestionMark, BadgeX } from 'lucide-react'
 
 interface RepositorySignatureBadgeProps {
@@ -13,7 +14,10 @@ export function RepositorySignatureBadge({
 
 	return (
 		<span
-			className={`inline-flex h-6 w-fit shrink-0 items-center gap-1 rounded-md border px-1.5 font-medium text-[11px] leading-none ${display.className}`}
+			className={cn(
+				'inline-flex h-6 w-fit shrink-0 items-center gap-1 rounded-md border px-1.5 font-medium text-[11px] leading-none',
+				display.className
+			)}
 			data-signature-state={signature?.state ?? 'unsigned'}
 			title={display.title}
 		>

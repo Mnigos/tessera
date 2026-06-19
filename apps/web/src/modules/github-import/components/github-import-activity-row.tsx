@@ -1,5 +1,6 @@
 import type { GitHubRepositoryImport } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
+import { cn } from '@repo/ui/utils'
 import { Link } from '@tanstack/react-router'
 import { RotateCcw } from 'lucide-react'
 import { getGitHubImportErrorMessage } from '../helpers/get-github-import-error-message'
@@ -96,7 +97,10 @@ function GitHubImportStatusBadge({
 
 	return (
 		<span
-			className={`inline-flex rounded-md border px-2 py-0.5 font-medium text-xs ${className}`}
+			className={cn(
+				'inline-flex rounded-md border px-2 py-0.5 font-medium text-xs',
+				className
+			)}
 		>
 			{status}
 		</span>
