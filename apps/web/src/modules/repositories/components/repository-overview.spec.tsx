@@ -3,7 +3,6 @@ import type {
 	RepositoryExternalSource,
 } from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
 	fireEvent,
 	render,
@@ -22,6 +21,7 @@ import {
 	getSelectedRepositoryQualifiedRef,
 	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
+import { useCutoverGitHubMirrorMutation } from '../hooks/use-cutover-github-mirror.mutation'
 import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
 import { RepositoryOverview } from './repository-overview'
 
@@ -64,14 +64,13 @@ vi.mock('@repo/ui/components/sonner', async importOriginal => {
 	}
 })
 
-vi.mock('@tanstack/react-query', () => ({
-	useMutation: vi.fn(),
-	useQueryClient: vi.fn(),
-}))
-
 vi.mock('../helpers/get-repository-clone-url', () => ({
 	getRepositoryHttpCloneUrl: vi.fn(),
 	getRepositorySshCloneUrl: vi.fn(),
+}))
+
+vi.mock('../hooks/use-cutover-github-mirror.mutation', () => ({
+	useCutoverGitHubMirrorMutation: vi.fn(),
 }))
 
 vi.mock('../hooks/use-sync-github-mirror.mutation', () => ({
@@ -80,9 +79,10 @@ vi.mock('../hooks/use-sync-github-mirror.mutation', () => ({
 
 const getRepositoryHttpCloneUrlMock = vi.mocked(getRepositoryHttpCloneUrl)
 const getRepositorySshCloneUrlMock = vi.mocked(getRepositorySshCloneUrl)
+const useCutoverGitHubMirrorMutationMock = vi.mocked(
+	useCutoverGitHubMirrorMutation
+)
 const useSyncGitHubMirrorMutationMock = vi.mocked(useSyncGitHubMirrorMutation)
-const useMutationMock = vi.mocked(useMutation)
-const useQueryClientMock = vi.mocked(useQueryClient)
 
 const baseSummary = {
 	repository: {
@@ -228,16 +228,13 @@ describe('RepositoryOverview', () => {
 	beforeEach(() => {
 		getRepositoryHttpCloneUrlMock.mockReturnValue(expectedCloneUrl)
 		getRepositorySshCloneUrlMock.mockReturnValue(expectedSshCloneUrl)
-		useQueryClientMock.mockReturnValue({
-			invalidateQueries: vi.fn(),
-		} as unknown as ReturnType<typeof useQueryClient>)
-		useMutationMock.mockReturnValue({
+		useCutoverGitHubMirrorMutationMock.mockReturnValue({
 			error: null,
 			isError: false,
 			isPending: false,
 			isSuccess: false,
 			mutate: cutoverGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useMutation>)
+		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
 		useSyncGitHubMirrorMutationMock.mockReturnValue({
 			error: null,
 			isError: false,
@@ -671,13 +668,13 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('shows GitHub mirror cutover loading, success, and error states', async () => {
-		useMutationMock.mockReturnValue({
+		useCutoverGitHubMirrorMutationMock.mockReturnValue({
 			error: new Error('cutover unavailable'),
 			isError: true,
 			isPending: true,
 			isSuccess: true,
 			mutate: cutoverGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useMutation>)
+		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
 		const user = userEvent.setup()
 
 		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
