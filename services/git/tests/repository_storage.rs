@@ -466,6 +466,25 @@ async fn push_repository_mirror_pushes_heads_and_tags_to_target() {
 }
 
 #[tokio::test]
+async fn push_repository_mirror_rejects_option_like_target_url() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+
+    let error = storage
+        .push_repository_mirror(
+            &repository_id(),
+            &repository.storage_path,
+            "--upload-pack=/tmp/unsafe",
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::InvalidRepositoryPath));
+}
+
+#[tokio::test]
 async fn push_repository_mirror_rejects_non_fast_forward_target() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path().join("storage").as_path(), "git");

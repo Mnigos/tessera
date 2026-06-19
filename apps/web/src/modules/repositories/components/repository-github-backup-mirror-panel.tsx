@@ -30,9 +30,12 @@ export function RepositoryGitHubBackupMirrorPanel({
 	const isEnabled = externalSource.githubPushBackEnabled === true
 	const status = externalSource.githubPushBackStatus ?? 'idle'
 	const isRunning = status === 'running'
-	const isUpdating = enableMutation.isPending || disableMutation.isPending
-	const isSettingsDisabled = isUpdating || isRunning
-	const isPushDisabled = !isEnabled || isRunning || pushMutation.isPending
+	const isAnyPending =
+		enableMutation.isPending ||
+		disableMutation.isPending ||
+		pushMutation.isPending
+	const isSettingsDisabled = isAnyPending || isRunning
+	const isPushDisabled = !isEnabled || isRunning || isAnyPending
 	const actionInput = {
 		slug: repository.slug,
 		username: owner.username,

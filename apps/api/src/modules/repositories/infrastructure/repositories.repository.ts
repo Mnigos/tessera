@@ -11,6 +11,7 @@ import {
 	isNull,
 	lt,
 	lte,
+	ne,
 	or,
 	repositories,
 	repositoryExternalSources,
@@ -700,7 +701,7 @@ export class RepositoriesRepository {
 						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
 						or(
 							isNull(repositoryExternalSources.githubPushBackStatus),
-							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+							ne(repositoryExternalSources.githubPushBackStatus, 'running')
 						),
 						sql`exists (
 									select 1
@@ -739,7 +740,7 @@ export class RepositoriesRepository {
 						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
 						or(
 							isNull(repositoryExternalSources.githubPushBackStatus),
-							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+							ne(repositoryExternalSources.githubPushBackStatus, 'running')
 						),
 						sql`exists (
 									select 1
@@ -781,7 +782,7 @@ export class RepositoriesRepository {
 						eq(repositoryExternalSources.githubPushBackEnabled, true),
 						or(
 							isNull(repositoryExternalSources.githubPushBackStatus),
-							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+							ne(repositoryExternalSources.githubPushBackStatus, 'running')
 						),
 						sql`exists (
 									select 1
