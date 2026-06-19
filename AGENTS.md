@@ -41,6 +41,9 @@
 - Destructure params or input objects when only their fields are used.
 - Use app aliases and package imports; avoid cross-app relative imports.
 - Do not create frontend barrel files in `apps/web`.
+- Keep hand-authored React component files at 300 lines or fewer; generated or vendor-derived UI primitives are exempt.
+- Put React hooks in separate `hooks/` files; component files should import hooks instead of declaring `use*` functions inline.
+- Use `cn()` for dynamic or conditional class names; do not build `className` with template literals.
 - Use kebab-case file names.
 - Use descriptive names; avoid cryptic single-letter callback variables.
 - Use interfaces for object shapes.

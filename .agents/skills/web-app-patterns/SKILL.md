@@ -29,6 +29,7 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - Mutations that queue or start background work must produce visible feedback: show mutation errors, clear or update selection on success, and expose queued/running/succeeded/failed status when the API provides it.
 - Use contract input/output types by their original exported names. Do not add local type aliases that only rename contract types; local interfaces are fine when adapting route params or other boundary shapes.
 - Name hooks that only wrap a query as `useThingQuery` in `use-thing.query.ts`; reserve broader names like `useThing` for hooks that coordinate more than a single query.
+- Keep feature hooks in `hooks/` files. Component files should import hooks instead of declaring `use*` functions inline.
 - Feature hooks should accept contract-owned input shapes from `@repo/contracts` directly, or parse raw route strings through the matching contract schema before passing them to oRPC.
 - Keep query controls such as `enabled` separate from contract input objects, for example `useThingQuery(input, enabled)`.
 - Use `enabled` for query preconditions.
@@ -36,9 +37,10 @@ Use those files as the source of truth. Prefer live repo patterns over examples 
 - In child loaders, prefer root auth context (`context.user`, `context.session`) over refetching session.
 - Components use named props interfaces immediately above the component and `Readonly<ComponentNameProps>`.
 - Keep feature UI composed from small, named components. Split large route panels, dialogs, lists, and repeated state blocks into local `components/`, move reusable feature logic into `hooks/`, and move pure transformations/parsers into `helpers/`.
+- Use `cn()` for dynamic or conditional `className`; do not compose `className` strings with template literals.
 - Use `flex flex-col gap-*` for vertical stack spacing in app UI. Do not use Tailwind `space-y-*`.
 - Use shared layout primitives like `Card` for standard bordered/padded panels instead of hand-rolled `border border-border p-*` wrappers.
-- Keeping several related components in one file is fine while the file stays under roughly 200 lines. Once a file exceeds 200 lines and mixes data orchestration, layout shell, several visual states, row/item rendering, or formatting helpers, split those pieces into focused files.
+- Keep app feature component files at 300 lines or fewer. Split large route panels, dialogs, lists, repeated states, and formatting helpers into focused adjacent files before they exceed that limit.
 - Do not create frontend barrel files in `apps/web`; import concrete files directly.
 - Use direct imports from `@repo/ui`, local `@/` paths, and existing module boundaries.
 - Avoid manual memoization; React Compiler handles ordinary component optimization. Do not add `useCallback` or `useMemo` unless a library API explicitly requires referential stability, and prefer a smaller component or plain function first.
