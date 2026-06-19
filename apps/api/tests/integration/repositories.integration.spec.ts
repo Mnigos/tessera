@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
@@ -13,12 +14,13 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { eq, sql } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
+	account,
 	repositories,
 	repositoryExternalSources,
 	session,
 	user,
 } from '@repo/db/schema'
-import type { RepositoryId } from '@repo/domain'
+import type { RepositoryId, UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { ExternalServiceError } from '~/shared/errors'
@@ -76,6 +78,12 @@ interface RepositoryResponseBody {
 				| 'imported'
 				| 'github_to_tessera'
 				| 'tessera_source'
+			githubPushBackEnabled?: boolean
+			githubPushBackStatus?: 'idle' | 'running' | 'succeeded' | 'failed'
+			githubPushBackStartedAt?: string
+			githubPushBackSucceededAt?: string
+			githubPushBackFailedAt?: string
+			githubPushBackFailureReason?: string
 			createdAt?: string
 			updatedAt?: string
 		}
@@ -190,6 +198,8 @@ interface CreateIntegrationExternalSourceOptions {
 	mirrorMode?: 'imported' | 'github_to_tessera' | 'tessera_source'
 	syncStatus?: 'pending' | 'running' | 'succeeded' | 'failed'
 	nextSyncAt?: Date | null
+	githubPushBackEnabled?: boolean
+	githubPushBackStatus?: 'idle' | 'running' | 'succeeded' | 'failed'
 }
 
 describe('Repositories integration', () => {
@@ -203,6 +213,7 @@ describe('Repositories integration', () => {
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
 	let gitStorageListRepositoryCommits: ReturnType<typeof vi.fn>
+	let gitStoragePushRepositoryMirror: ReturnType<typeof vi.fn>
 	let repositoriesRepository: RepositoriesRepository
 
 	beforeAll(async () => {
@@ -279,6 +290,7 @@ describe('Repositories integration', () => {
 		gitStorageListRepositoryCommits = vi.fn().mockResolvedValue({
 			commits: [mockRepositoryCommit],
 		})
+		gitStoragePushRepositoryMirror = vi.fn().mockResolvedValue(undefined)
 
 		moduleRef = await Test.createTestingModule({
 			imports: [RepositoriesIntegrationTestModule],
@@ -292,6 +304,7 @@ describe('Repositories integration', () => {
 				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				getRepositoryRawBlob: gitStorageGetRepositoryRawBlob,
 				listRepositoryCommits: gitStorageListRepositoryCommits,
+				pushRepositoryMirror: gitStoragePushRepositoryMirror,
 			})
 			.compile()
 
@@ -311,6 +324,7 @@ describe('Repositories integration', () => {
 		gitStorageGetRepositoryBlob.mockReset()
 		gitStorageGetRepositoryRawBlob.mockReset()
 		gitStorageListRepositoryCommits.mockReset()
+		gitStoragePushRepositoryMirror.mockReset()
 		gitStorageCreateRepository.mockImplementation(({ repositoryId }) =>
 			Promise.resolve({
 				storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
@@ -377,6 +391,7 @@ describe('Repositories integration', () => {
 		gitStorageListRepositoryCommits.mockResolvedValue({
 			commits: [mockRepositoryCommit],
 		})
+		gitStoragePushRepositoryMirror.mockResolvedValue(undefined)
 	})
 
 	afterAll(async () => {
@@ -701,6 +716,138 @@ describe('Repositories integration', () => {
 
 		expect(response.status).toBe(400)
 		expect(body.code).toBe('BAD_REQUEST')
+	})
+
+	test('enables GitHub push-back only after cutover', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+		})
+
+		const rejectedResponse = await enableGitHubPushBack(
+			'marta',
+			'notes',
+			headers
+		)
+		const rejectedBody = (await rejectedResponse.json()) as ErrorResponseBody
+
+		expect(rejectedResponse.status).toBe(400)
+		expect(rejectedBody.code).toBe('BAD_REQUEST')
+
+		await cutoverGitHubMirror('marta', 'notes', headers)
+		const response = await enableGitHubPushBack('marta', 'notes', headers)
+		const body = (await response.json()) as RepositoryResponseBody
+		const externalSource = await db.query.repositoryExternalSources.findFirst({
+			where: eq(repositoryExternalSources.repositoryId, repository.id),
+		})
+
+		expect(response.status).toBe(200)
+		expect(body.repository.externalSource).toMatchObject({
+			mode: 'tessera_source',
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'idle',
+		})
+		expect(externalSource).toMatchObject({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'idle',
+		})
+	})
+
+	test('pushes GitHub push-back mirrors with the connected GitHub token', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+		const owner = await getUserRow('marta')
+		await createGitHubAccount({
+			userId: owner.id,
+			accessToken: 'github-token',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+		})
+		await cutoverGitHubMirror('marta', 'notes', headers)
+		await enableGitHubPushBack('marta', 'notes', headers)
+
+		const response = await pushGitHubPushBackMirror('marta', 'notes', headers)
+		const body = (await response.json()) as RepositoryResponseBody
+		const externalSource = await db.query.repositoryExternalSources.findFirst({
+			where: eq(repositoryExternalSources.repositoryId, repository.id),
+		})
+
+		expect(response.status).toBe(200)
+		expect(gitStoragePushRepositoryMirror).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: `/var/lib/tessera/repositories/${repository.id}.git`,
+			targetUrl: 'https://github.com/marta/notes',
+			accessToken: 'github-token',
+		})
+		expect(body.repository.externalSource).toMatchObject({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'succeeded',
+		})
+		expect(externalSource).toMatchObject({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'succeeded',
+			githubPushBackStartedAt: expect.any(Date),
+			githubPushBackSucceededAt: expect.any(Date),
+			githubPushBackFailedAt: null,
+			githubPushBackFailureReason: null,
+		})
+	})
+
+	test('persists GitHub push-back failures', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+		const owner = await getUserRow('marta')
+		await createGitHubAccount({
+			userId: owner.id,
+			accessToken: 'github-token',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+		})
+		await cutoverGitHubMirror('marta', 'notes', headers)
+		await enableGitHubPushBack('marta', 'notes', headers)
+		gitStoragePushRepositoryMirror.mockRejectedValueOnce(
+			new ExternalServiceError('git storage', {
+				reason: 'non_fast_forward',
+			})
+		)
+
+		const response = await pushGitHubPushBackMirror('marta', 'notes', headers)
+		const body = (await response.json()) as ErrorResponseBody
+		const externalSource = await db.query.repositoryExternalSources.findFirst({
+			where: eq(repositoryExternalSources.repositoryId, repository.id),
+		})
+
+		expect(response.status).toBe(502)
+		expect(body.code).toBe('BAD_GATEWAY')
+		expect(externalSource).toMatchObject({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'failed',
+			githubPushBackStartedAt: expect.any(Date),
+			githubPushBackSucceededAt: null,
+			githubPushBackFailedAt: expect.any(Date),
+		})
+		expect(externalSource?.githubPushBackFailureReason).toContain('git storage')
 	})
 
 	test('rejects invalid create input before creating git storage', async () => {
@@ -1579,6 +1726,7 @@ describe('Repositories integration', () => {
 		await db.delete(repositoryExternalSources)
 		await db.delete(repositories)
 		await db.delete(session)
+		await db.delete(account)
 		await db.delete(user)
 	}
 
@@ -1600,6 +1748,22 @@ describe('Repositories integration', () => {
 		if (!createdUser) throw new Error('Failed to create integration user')
 
 		return createdUser
+	}
+
+	async function createGitHubAccount({
+		accessToken,
+		userId,
+	}: {
+		accessToken: string
+		userId: UserId
+	}) {
+		await db.insert(account).values({
+			accountId: randomUUID(),
+			providerId: 'github',
+			userId,
+			accessToken,
+			scope: 'repo',
+		})
 	}
 
 	async function createIntegrationExternalSource({
@@ -1660,6 +1824,28 @@ describe('Repositories integration', () => {
 	) {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}/cutover`,
+			{ method: 'POST', headers }
+		)
+	}
+
+	function enableGitHubPushBack(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/github-push-back/enable`,
+			{ method: 'POST', headers }
+		)
+	}
+
+	function pushGitHubPushBackMirror(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/github-push-back/push`,
 			{ method: 'POST', headers }
 		)
 	}

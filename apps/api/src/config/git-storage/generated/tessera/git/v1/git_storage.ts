@@ -77,6 +77,17 @@ export interface ImportRepositoryResponse {
   storagePath: string;
 }
 
+export interface PushRepositoryMirrorRequest {
+  repositoryId: string;
+  storagePath: string;
+  targetUrl: string;
+  accessToken?: string | undefined;
+}
+
+export interface PushRepositoryMirrorResponse {
+  success: boolean;
+}
+
 export interface ListRepositoryRefsRequest {
   repositoryId: string;
   storagePath: string;
@@ -462,6 +473,113 @@ export const ImportRepositoryResponse: MessageFns<ImportRepositoryResponse> = {
           }
 
           message.storagePath = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBasePushRepositoryMirrorRequest(): PushRepositoryMirrorRequest {
+  return { repositoryId: "", storagePath: "", targetUrl: "" };
+}
+
+export const PushRepositoryMirrorRequest: MessageFns<PushRepositoryMirrorRequest> = {
+  encode(message: PushRepositoryMirrorRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.targetUrl !== "") {
+      writer.uint32(26).string(message.targetUrl);
+    }
+    if (message.accessToken !== undefined) {
+      writer.uint32(34).string(message.accessToken);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PushRepositoryMirrorRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePushRepositoryMirrorRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.targetUrl = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.accessToken = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBasePushRepositoryMirrorResponse(): PushRepositoryMirrorResponse {
+  return { success: false };
+}
+
+export const PushRepositoryMirrorResponse: MessageFns<PushRepositoryMirrorResponse> = {
+  encode(message: PushRepositoryMirrorResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.success !== false) {
+      writer.uint32(8).bool(message.success);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PushRepositoryMirrorResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePushRepositoryMirrorResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.success = reader.bool();
           continue;
         }
       }
@@ -1767,6 +1885,11 @@ export interface GitStorageServiceClient {
 
   importRepository(request: ImportRepositoryRequest, metadata?: Metadata): Observable<ImportRepositoryResponse>;
 
+  pushRepositoryMirror(
+    request: PushRepositoryMirrorRequest,
+    metadata?: Metadata,
+  ): Observable<PushRepositoryMirrorResponse>;
+
   listRepositoryRefs(request: ListRepositoryRefsRequest, metadata?: Metadata): Observable<ListRepositoryRefsResponse>;
 
   getRepositoryBrowserSummary(
@@ -1804,6 +1927,11 @@ export interface GitStorageServiceController {
     request: ImportRepositoryRequest,
     metadata?: Metadata,
   ): Promise<ImportRepositoryResponse> | Observable<ImportRepositoryResponse> | ImportRepositoryResponse;
+
+  pushRepositoryMirror(
+    request: PushRepositoryMirrorRequest,
+    metadata?: Metadata,
+  ): Promise<PushRepositoryMirrorResponse> | Observable<PushRepositoryMirrorResponse> | PushRepositoryMirrorResponse;
 
   listRepositoryRefs(
     request: ListRepositoryRefsRequest,
@@ -1845,6 +1973,7 @@ export function GitStorageServiceControllerMethods() {
       "health",
       "createRepository",
       "importRepository",
+      "pushRepositoryMirror",
       "listRepositoryRefs",
       "getRepositoryBrowserSummary",
       "getRepositoryTree",
@@ -1898,6 +2027,17 @@ export const GitStorageServiceService = {
     responseSerialize: (value: ImportRepositoryResponse): Buffer =>
       Buffer.from(ImportRepositoryResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ImportRepositoryResponse => ImportRepositoryResponse.decode(value),
+  },
+  pushRepositoryMirror: {
+    path: "/tessera.git.v1.GitStorageService/PushRepositoryMirror" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: PushRepositoryMirrorRequest): Buffer =>
+      Buffer.from(PushRepositoryMirrorRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): PushRepositoryMirrorRequest => PushRepositoryMirrorRequest.decode(value),
+    responseSerialize: (value: PushRepositoryMirrorResponse): Buffer =>
+      Buffer.from(PushRepositoryMirrorResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): PushRepositoryMirrorResponse => PushRepositoryMirrorResponse.decode(value),
   },
   listRepositoryRefs: {
     path: "/tessera.git.v1.GitStorageService/ListRepositoryRefs" as const,
@@ -1973,6 +2113,7 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   health: handleUnaryCall<HealthRequest, HealthResponse>;
   createRepository: handleUnaryCall<CreateRepositoryRequest, CreateRepositoryResponse>;
   importRepository: handleUnaryCall<ImportRepositoryRequest, ImportRepositoryResponse>;
+  pushRepositoryMirror: handleUnaryCall<PushRepositoryMirrorRequest, PushRepositoryMirrorResponse>;
   listRepositoryRefs: handleUnaryCall<ListRepositoryRefsRequest, ListRepositoryRefsResponse>;
   getRepositoryBrowserSummary: handleUnaryCall<GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse>;
   getRepositoryTree: handleUnaryCall<GetRepositoryTreeRequest, GetRepositoryTreeResponse>;

@@ -1,27 +1,40 @@
 import type { Repository } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 
+type GitHubMirrorStatus = Exclude<
+	Repository['externalSource'],
+	{ mode: 'none' }
+>['syncStatus']
+type GitHubPushBackStatus = NonNullable<
+	Exclude<
+		Repository['externalSource'],
+		{ mode: 'none' }
+	>['githubPushBackStatus']
+>
+
 const DATE_FORMATTER = new Intl.DateTimeFormat(undefined, {
 	dateStyle: 'medium',
 	timeStyle: 'short',
 })
 
 const SYNC_STATUS_LABELS = {
+	idle: 'Idle',
 	pending: 'Pending',
 	running: 'Running',
 	succeeded: 'Succeeded',
 	failed: 'Failed',
-} satisfies Record<string, string>
+} satisfies Record<GitHubMirrorStatus | GitHubPushBackStatus, string>
 
 const SYNC_STATUS_CLASS_NAMES = {
+	idle: 'border-border bg-secondary text-muted-foreground',
 	pending: 'border-amber-500/30 bg-amber-500/10 text-amber-700',
 	running: 'border-blue-500/30 bg-blue-500/10 text-blue-700',
 	succeeded: 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700',
 	failed: 'border-destructive/40 bg-destructive/10 text-destructive',
-} satisfies Record<string, string>
+} satisfies Record<GitHubMirrorStatus | GitHubPushBackStatus, string>
 
 interface GitHubMirrorStatusBadgeProps {
-	status: Exclude<Repository['externalSource'], { mode: 'none' }>['syncStatus']
+	status: GitHubMirrorStatus | GitHubPushBackStatus
 }
 
 export function GitHubMirrorStatusBadge({

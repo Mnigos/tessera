@@ -26,6 +26,7 @@ import {
 	type ImportRepositoryResponse,
 	type ListRepositoryCommitsResponse,
 	type ListRepositoryRefsResponse,
+	type PushRepositoryMirrorResponse,
 	type TrustedGpgKey,
 } from './generated/tessera/git/v1/git_storage'
 import {
@@ -58,6 +59,13 @@ export interface GitStorageImportRepositoryParams {
 export interface GitStorageImportRepositoryResult {
 	defaultBranch: string
 	storagePath: string
+}
+
+export interface GitStoragePushRepositoryMirrorParams {
+	accessToken?: string
+	repositoryId: RepositoryId
+	storagePath: string
+	targetUrl: string
 }
 
 export interface GitStorageGetRepositoryBrowserSummaryParams {
@@ -289,6 +297,33 @@ export class GitStorageClient implements OnModuleInit {
 			defaultBranch: response.defaultBranch,
 			storagePath: response.storagePath,
 		}
+	}
+
+	async pushRepositoryMirror({
+		accessToken,
+		repositoryId,
+		storagePath,
+		targetUrl,
+	}: GitStoragePushRepositoryMirrorParams): Promise<void> {
+		const response = await firstValueFrom(
+			this.service
+				.pushRepositoryMirror(
+					{
+						repositoryId,
+						storagePath,
+						targetUrl,
+						accessToken,
+					},
+					this.createAuthorizationMetadata()
+				)
+				.pipe(mapGitStorageErrors<PushRepositoryMirrorResponse>())
+		)
+
+		if (!response.success)
+			throw new ExternalServiceError('git storage', {
+				repositoryId,
+				reason: 'push_repository_mirror_failed',
+			})
 	}
 
 	async getRepositoryBrowserSummary({

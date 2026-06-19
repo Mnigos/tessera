@@ -34,6 +34,16 @@ export type RepositoryExternalSourceSyncStatus = z.infer<
 	typeof repositoryExternalSourceSyncStatusSchema
 >
 
+export const repositoryGitHubPushBackStatusSchema = z.enum([
+	'idle',
+	'running',
+	'succeeded',
+	'failed',
+])
+export type RepositoryGitHubPushBackStatus = z.infer<
+	typeof repositoryGitHubPushBackStatusSchema
+>
+
 export const repositoryExternalSourceSchema = z.discriminatedUnion('mode', [
 	z.object({
 		mode: z.literal('none'),
@@ -56,6 +66,12 @@ export const repositoryExternalSourceSchema = z.discriminatedUnion('mode', [
 		cutoverActorUserId: z.uuid().brand<'user_id'>().optional(),
 		cutoverAt: z.coerce.date().optional(),
 		cutoverFromMirrorMode: z.literal('github_to_tessera').optional(),
+		githubPushBackEnabled: z.boolean().optional(),
+		githubPushBackStatus: repositoryGitHubPushBackStatusSchema.optional(),
+		githubPushBackStartedAt: z.coerce.date().optional(),
+		githubPushBackSucceededAt: z.coerce.date().optional(),
+		githubPushBackFailedAt: z.coerce.date().optional(),
+		githubPushBackFailureReason: z.string().optional(),
 		createdAt: z.coerce.date(),
 		updatedAt: z.coerce.date(),
 	}),
@@ -114,6 +130,30 @@ export type CutoverGitHubMirrorInput = z.input<
 >
 export type ParsedCutoverGitHubMirrorInput = z.infer<
 	typeof cutoverGitHubMirrorInputSchema
+>
+
+export const enableGitHubPushBackInputSchema = getRepositoryInputSchema
+export type EnableGitHubPushBackInput = z.input<
+	typeof enableGitHubPushBackInputSchema
+>
+export type ParsedEnableGitHubPushBackInput = z.infer<
+	typeof enableGitHubPushBackInputSchema
+>
+
+export const disableGitHubPushBackInputSchema = getRepositoryInputSchema
+export type DisableGitHubPushBackInput = z.input<
+	typeof disableGitHubPushBackInputSchema
+>
+export type ParsedDisableGitHubPushBackInput = z.infer<
+	typeof disableGitHubPushBackInputSchema
+>
+
+export const pushGitHubPushBackMirrorInputSchema = getRepositoryInputSchema
+export type PushGitHubPushBackMirrorInput = z.input<
+	typeof pushGitHubPushBackMirrorInputSchema
+>
+export type ParsedPushGitHubPushBackMirrorInput = z.infer<
+	typeof pushGitHubPushBackMirrorInputSchema
 >
 
 export const getRepositoryBrowserSummaryInputSchema =
@@ -355,6 +395,27 @@ export const repositoriesContract = {
 			path: '/repositories/{username}/{slug}/cutover',
 		})
 		.input(cutoverGitHubMirrorInputSchema)
+		.output(repositoryWithOwnerSchema),
+	enableGitHubPushBack: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/github-push-back/enable',
+		})
+		.input(enableGitHubPushBackInputSchema)
+		.output(repositoryWithOwnerSchema),
+	disableGitHubPushBack: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/github-push-back/disable',
+		})
+		.input(disableGitHubPushBackInputSchema)
+		.output(repositoryWithOwnerSchema),
+	pushGitHubPushBackMirror: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/github-push-back/push',
+		})
+		.input(pushGitHubPushBackMirrorInputSchema)
 		.output(repositoryWithOwnerSchema),
 	getBrowserSummary: oc
 		.route({

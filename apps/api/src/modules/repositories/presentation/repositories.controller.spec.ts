@@ -53,6 +53,9 @@ describe(RepositoriesController.name, () => {
 						get: vi.fn(),
 						syncGitHubMirror: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
+						enableGitHubPushBack: vi.fn(),
+						disableGitHubPushBack: vi.fn(),
+						pushGitHubPushBackMirror: vi.fn(),
 						getBrowserSummary: vi.fn(),
 						getRefs: vi.fn(),
 						getTree: vi.fn(),
@@ -221,6 +224,76 @@ describe(RepositoriesController.name, () => {
 				slug: repository.repository.slug,
 			}
 		)
+	})
+
+	test('delegates GitHub push-back enable requests to the repositories service', async () => {
+		const enableGitHubPushBackSpy = vi
+			.spyOn(repositoriesService, 'enableGitHubPushBack')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesController
+				.enableGitHubPushBack(mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'enableGitHubPushBack'],
+					procedure: repositoriesController.enableGitHubPushBack(mockUserId),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(repository)
+		expect(enableGitHubPushBackSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
+	})
+
+	test('delegates GitHub push-back disable requests to the repositories service', async () => {
+		const disableGitHubPushBackSpy = vi
+			.spyOn(repositoriesService, 'disableGitHubPushBack')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesController
+				.disableGitHubPushBack(mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'disableGitHubPushBack'],
+					procedure: repositoriesController.disableGitHubPushBack(mockUserId),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(repository)
+		expect(disableGitHubPushBackSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
+	})
+
+	test('delegates GitHub push-back push requests to the repositories service', async () => {
+		const pushGitHubPushBackMirrorSpy = vi
+			.spyOn(repositoriesService, 'pushGitHubPushBackMirror')
+			.mockResolvedValue(repository)
+
+		expect(
+			await repositoriesController
+				.pushGitHubPushBackMirror(mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'pushGitHubPushBackMirror'],
+					procedure:
+						repositoriesController.pushGitHubPushBackMirror(mockUserId),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual(repository)
+		expect(pushGitHubPushBackMirrorSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
 	})
 
 	test('delegates browser summary requests with an optional viewer', async () => {

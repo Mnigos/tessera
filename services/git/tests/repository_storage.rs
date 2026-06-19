@@ -421,6 +421,136 @@ async fn import_repository_passes_access_token_as_basic_auth_header() {
 }
 
 #[tokio::test]
+async fn push_repository_mirror_pushes_heads_and_tags_to_target() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let target_repository_path = temp_dir.path().join("target.git");
+    create_bare_repository(&target_repository_path, "main");
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "develop",
+        &[("README.md", "develop\n")],
+    );
+    git(&repository.path, ["tag", "v1.0.0", "main"]);
+
+    storage
+        .push_repository_mirror(
+            &repository_id(),
+            &repository.storage_path,
+            target_repository_path.to_str().unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        git_stdout(&target_repository_path, ["rev-parse", "refs/heads/main"]),
+        git_stdout(&repository.path, ["rev-parse", "refs/heads/main"])
+    );
+    assert_eq!(
+        git_stdout(&target_repository_path, ["rev-parse", "refs/heads/develop"]),
+        git_stdout(&repository.path, ["rev-parse", "refs/heads/develop"])
+    );
+    assert_eq!(
+        git_stdout(&target_repository_path, ["rev-parse", "refs/tags/v1.0.0"]),
+        git_stdout(&repository.path, ["rev-parse", "refs/tags/v1.0.0"])
+    );
+}
+
+#[tokio::test]
+async fn push_repository_mirror_rejects_non_fast_forward_target() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let target_repository_path = temp_dir.path().join("target.git");
+    create_bare_repository(&target_repository_path, "main");
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "source\n")],
+    );
+    storage
+        .push_repository_mirror(
+            &repository_id(),
+            &repository.storage_path,
+            target_repository_path.to_str().unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+    append_commit(
+        temp_dir.path(),
+        &target_repository_path,
+        "main",
+        &[("README.md", "target\n")],
+        "target-only commit",
+    );
+    let target_commit = git_stdout(&target_repository_path, ["rev-parse", "refs/heads/main"]);
+
+    let error = storage
+        .push_repository_mirror(
+            &repository_id(),
+            &repository.storage_path,
+            target_repository_path.to_str().unwrap(),
+            None,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::InvalidRepositoryRef));
+    assert_eq!(
+        git_stdout(&target_repository_path, ["rev-parse", "refs/heads/main"]),
+        target_commit
+    );
+}
+
+#[tokio::test]
+async fn push_repository_mirror_does_not_delete_target_only_refs() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path().join("storage").as_path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let target_repository_path = temp_dir.path().join("target.git");
+    create_bare_repository(&target_repository_path, "main");
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "source\n")],
+    );
+    push_commit(
+        temp_dir.path(),
+        &target_repository_path,
+        "stale",
+        &[("README.md", "stale\n")],
+    );
+    let stale_commit = git_stdout(&target_repository_path, ["rev-parse", "refs/heads/stale"]);
+
+    storage
+        .push_repository_mirror(
+            &repository_id(),
+            &repository.storage_path,
+            target_repository_path.to_str().unwrap(),
+            None,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(
+        git_stdout(&target_repository_path, ["rev-parse", "refs/heads/stale"]),
+        stale_commit
+    );
+}
+
+#[tokio::test]
 async fn import_repository_rejects_storage_path_mismatch() {
     let temp_dir = TempDir::new().unwrap();
     let source_repository_path = temp_dir.path().join("source.git");

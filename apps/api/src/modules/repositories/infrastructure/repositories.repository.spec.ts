@@ -8,9 +8,16 @@ import {
 	repositoryExternalSources,
 } from '@repo/db'
 import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
 import { RepositoriesRepository } from './repositories.repository'
+
+const NULLABLE_PUSH_BACK_STATUS_SQL =
+	'("repository_external_sources"."github_push_back_status" is null or "repository_external_sources"."github_push_back_status" <>'
+
+const pgDialect = new PgDialect()
 
 const repositoryRow = {
 	id: '00000000-0000-4000-8000-000000000002',
@@ -26,6 +33,10 @@ const repositoryRow = {
 	updatedAt: new Date('2026-05-12T00:00:00Z'),
 	ownerUsername: 'marta',
 	externalSource: null,
+}
+
+function renderWhereQuery(condition: SQL) {
+	return pgDialect.sqlToQuery(condition)
 }
 
 describe(RepositoriesRepository.name, () => {
@@ -56,6 +67,16 @@ describe(RepositoriesRepository.name, () => {
 	const withBuilderMock = vi.fn()
 	const withAsMock = vi.fn()
 	const withMock = vi.fn()
+
+	function firstWhereCondition(): SQL {
+		const firstCall = whereMock.mock.calls[0]
+		if (!firstCall) throw new Error('Expected where to be called')
+
+		const condition = firstCall[0]
+		if (!condition) throw new Error('Expected where condition')
+
+		return condition
+	}
 
 	beforeEach(async () => {
 		const databaseMock = {
@@ -582,6 +603,117 @@ describe(RepositoriesRepository.name, () => {
 			lastSyncFailedAt: null,
 			syncFailureReason: null,
 		})
+	})
+
+	test('enables GitHub push-back and returns refreshed repository', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		expect(
+			await repositoriesRepository.enableGitHubPushBack({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(transactionMock).toHaveBeenCalledOnce()
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'idle',
+			githubPushBackFailedAt: null,
+			githubPushBackFailureReason: null,
+		})
+		expect(updateReturningMock).toHaveBeenCalledWith({
+			id: repositoryExternalSources.id,
+		})
+		const whereQuery = renderWhereQuery(firstWhereCondition())
+		expect(whereQuery.sql).toContain(NULLABLE_PUSH_BACK_STATUS_SQL)
+		expect(whereQuery.params).toContain('running')
+	})
+
+	test('returns undefined when GitHub push-back settings are not claimable', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		updateReturningMock.mockResolvedValue([])
+
+		expect(
+			await repositoriesRepository.enableGitHubPushBack({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toBeUndefined()
+		expect(
+			await repositoriesRepository.disableGitHubPushBack({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toBeUndefined()
+		expect(limitMock).not.toHaveBeenCalled()
+	})
+
+	test('uses nullable status guard when disabling GitHub push-back', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		expect(
+			await repositoriesRepository.disableGitHubPushBack({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			})
+		)
+		const whereQuery = renderWhereQuery(firstWhereCondition())
+		expect(whereQuery.sql).toContain(NULLABLE_PUSH_BACK_STATUS_SQL)
+		expect(whereQuery.params).toContain('running')
+	})
+
+	test('marks GitHub push-back running', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const startedAt = new Date('2026-05-12T00:02:00Z')
+
+		expect(
+			await repositoriesRepository.markGitHubPushBackRunning({
+				repositoryId,
+				userId: mockUserId,
+				startedAt,
+			})
+		).toEqual(
+			expect.objectContaining({
+				id: repositoryId,
+				ownerUser: { username: 'marta' },
+			})
+		)
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({
+			githubPushBackStatus: 'running',
+			githubPushBackStartedAt: startedAt,
+			githubPushBackFailedAt: null,
+			githubPushBackFailureReason: null,
+		})
+		const whereQuery = renderWhereQuery(firstWhereCondition())
+		expect(whereQuery.sql).toContain(NULLABLE_PUSH_BACK_STATUS_SQL)
+		expect(whereQuery.params).toContain('running')
+	})
+
+	test('does not mark GitHub push-back running when no row is claimable', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		updateReturningMock.mockResolvedValue([])
+
+		expect(
+			await repositoriesRepository.markGitHubPushBackRunning({
+				repositoryId,
+				userId: mockUserId,
+				startedAt: new Date('2026-05-12T00:02:00Z'),
+			})
+		).toBeUndefined()
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(limitMock).not.toHaveBeenCalled()
 	})
 
 	test('marks GitHub mirror sync succeeded with mirror mode preserved', async () => {

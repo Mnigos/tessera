@@ -2,6 +2,7 @@ import type { Brand, RepositoryId, UserId } from '@repo/domain'
 import { and, eq, isNotNull, relations, type SQL, sql } from 'drizzle-orm'
 import {
 	bigint,
+	boolean,
 	check,
 	index,
 	integer,
@@ -33,6 +34,11 @@ export const repositoryExternalSourceMirrorModeEnum = pgEnum(
 export const repositoryExternalSourceSyncStatusEnum = pgEnum(
 	'repository_external_source_sync_status',
 	['pending', 'running', 'succeeded', 'failed']
+)
+
+export const repositoryExternalSourceGitHubPushBackStatusEnum = pgEnum(
+	'repository_external_source_github_push_back_status',
+	['idle', 'running', 'succeeded', 'failed']
 )
 
 export const repositoryExternalSources = pgTable(
@@ -76,6 +82,18 @@ export const repositoryExternalSources = pgTable(
 		cutoverFromMirrorMode: repositoryExternalSourceMirrorModeEnum(
 			'cutover_from_mirror_mode'
 		),
+		githubPushBackEnabled: boolean('github_push_back_enabled')
+			.default(false)
+			.notNull(),
+		githubPushBackStatus: repositoryExternalSourceGitHubPushBackStatusEnum(
+			'github_push_back_status'
+		)
+			.default('idle')
+			.notNull(),
+		githubPushBackStartedAt: timestamp('github_push_back_started_at'),
+		githubPushBackSucceededAt: timestamp('github_push_back_succeeded_at'),
+		githubPushBackFailedAt: timestamp('github_push_back_failed_at'),
+		githubPushBackFailureReason: text('github_push_back_failure_reason'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -106,6 +124,10 @@ export const repositoryExternalSources = pgTable(
 		check(
 			'repository_external_sources_cutover_state_check',
 			sql`((${table.mirrorMode}::text = 'tessera_source' and ${table.cutoverAt} is not null and ${table.cutoverFromMirrorMode}::text = 'github_to_tessera') or (${table.mirrorMode}::text <> 'tessera_source' and ${table.cutoverActorUserId} is null and ${table.cutoverAt} is null and ${table.cutoverFromMirrorMode} is null))`
+		),
+		check(
+			'repository_external_sources_github_push_back_enabled_check',
+			sql`(${table.githubPushBackEnabled} = false or (${table.provider}::text = 'github' and ${table.mirrorMode}::text = 'tessera_source'))`
 		),
 	]
 )

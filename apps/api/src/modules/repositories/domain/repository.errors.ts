@@ -123,3 +123,39 @@ export class RepositoryGitHubMirrorCutoverSyncInProgressError extends ConflictEr
 		)
 	}
 }
+
+export class RepositoryGitHubPushBackUnavailableError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository github push-back mirror', context)
+	}
+}
+
+export class RepositoryGitHubPushBackDisabledError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository github push-back mirror',
+			context,
+			'GitHub push-back mirror is disabled for this repository.'
+		)
+	}
+}
+
+export class RepositoryGitHubPushBackInProgressError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository github push-back mirror',
+			context,
+			'GitHub push-back mirror is already running for this repository.'
+		)
+	}
+}
+
+export class RepositoryGitHubPushBackTokenMissingError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository github push-back mirror',
+			context,
+			'GitHub access token is required to push this mirror.'
+		)
+	}
+}

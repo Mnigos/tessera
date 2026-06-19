@@ -22,6 +22,9 @@ import {
 	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
 import { useCutoverGitHubMirrorMutation } from '../hooks/use-cutover-github-mirror.mutation'
+import { useDisableGitHubPushBackMutation } from '../hooks/use-disable-github-push-back.mutation'
+import { useEnableGitHubPushBackMutation } from '../hooks/use-enable-github-push-back.mutation'
+import { usePushGitHubPushBackMirrorMutation } from '../hooks/use-push-github-push-back-mirror.mutation'
 import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
 import { RepositoryOverview } from './repository-overview'
 
@@ -73,6 +76,18 @@ vi.mock('../hooks/use-cutover-github-mirror.mutation', () => ({
 	useCutoverGitHubMirrorMutation: vi.fn(),
 }))
 
+vi.mock('../hooks/use-disable-github-push-back.mutation', () => ({
+	useDisableGitHubPushBackMutation: vi.fn(),
+}))
+
+vi.mock('../hooks/use-enable-github-push-back.mutation', () => ({
+	useEnableGitHubPushBackMutation: vi.fn(),
+}))
+
+vi.mock('../hooks/use-push-github-push-back-mirror.mutation', () => ({
+	usePushGitHubPushBackMirrorMutation: vi.fn(),
+}))
+
 vi.mock('../hooks/use-sync-github-mirror.mutation', () => ({
 	useSyncGitHubMirrorMutation: vi.fn(),
 }))
@@ -81,6 +96,15 @@ const getRepositoryHttpCloneUrlMock = vi.mocked(getRepositoryHttpCloneUrl)
 const getRepositorySshCloneUrlMock = vi.mocked(getRepositorySshCloneUrl)
 const useCutoverGitHubMirrorMutationMock = vi.mocked(
 	useCutoverGitHubMirrorMutation
+)
+const useDisableGitHubPushBackMutationMock = vi.mocked(
+	useDisableGitHubPushBackMutation
+)
+const useEnableGitHubPushBackMutationMock = vi.mocked(
+	useEnableGitHubPushBackMutation
+)
+const usePushGitHubPushBackMirrorMutationMock = vi.mocked(
+	usePushGitHubPushBackMirrorMutation
 )
 const useSyncGitHubMirrorMutationMock = vi.mocked(useSyncGitHubMirrorMutation)
 
@@ -161,6 +185,9 @@ const expectedSshCloneUrl = 'ssh://git@localhost:2222/mnigos/tessera-notes.git'
 const README_HEADING_REGEX = /readme/i
 const README_TRUNCATED_REGEX = /README preview is truncated/i
 const cutoverGitHubMirrorMutateMock = vi.fn()
+const disableGitHubPushBackMutateMock = vi.fn()
+const enableGitHubPushBackMutateMock = vi.fn()
+const pushGitHubPushBackMirrorMutateMock = vi.fn()
 const syncGitHubMirrorMutateMock = vi.fn()
 
 type RepositoryExternalSourceWithSchedule = Exclude<
@@ -218,10 +245,26 @@ function getMirroredSummary(
 	}
 }
 
+function getTesseraSourceSummary(
+	overrides: Partial<RepositoryExternalSourceWithSchedule> = {}
+) {
+	return getMirroredSummary({
+		cutoverAt: new Date('2026-06-17T12:00:00.000Z'),
+		cutoverFromMirrorMode: 'github_to_tessera',
+		githubPushBackEnabled: false,
+		githubPushBackStatus: 'idle',
+		mode: 'tessera_source',
+		...overrides,
+	})
+}
+
 describe('RepositoryOverview', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
 		cutoverGitHubMirrorMutateMock.mockClear()
+		disableGitHubPushBackMutateMock.mockClear()
+		enableGitHubPushBackMutateMock.mockClear()
+		pushGitHubPushBackMirrorMutateMock.mockClear()
 		syncGitHubMirrorMutateMock.mockClear()
 	})
 
@@ -235,6 +278,27 @@ describe('RepositoryOverview', () => {
 			isSuccess: false,
 			mutate: cutoverGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
+		useDisableGitHubPushBackMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: false,
+			mutate: disableGitHubPushBackMutateMock,
+		} as unknown as ReturnType<typeof useDisableGitHubPushBackMutation>)
+		useEnableGitHubPushBackMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: false,
+			mutate: enableGitHubPushBackMutateMock,
+		} as unknown as ReturnType<typeof useEnableGitHubPushBackMutation>)
+		usePushGitHubPushBackMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: false,
+			mutate: pushGitHubPushBackMirrorMutateMock,
+		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
 		useSyncGitHubMirrorMutationMock.mockReturnValue({
 			error: null,
 			isError: false,
@@ -754,11 +818,7 @@ describe('RepositoryOverview', () => {
 		rerender(
 			<RepositoryOverview
 				isCurrentOwner
-				summary={getMirroredSummary({
-					cutoverAt,
-					cutoverFromMirrorMode: 'github_to_tessera',
-					mode: 'tessera_source',
-				})}
+				summary={getTesseraSourceSummary({ cutoverAt })}
 			/>
 		)
 
@@ -774,6 +834,192 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByText(formatter.format(cutoverAt))).toBeTruthy()
 		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Review cutover' })).toBeNull()
+	})
+
+	test('shows separate Tessera source and GitHub backup mirror panels after cutover', () => {
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'succeeded',
+					githubPushBackStartedAt: new Date('2026-06-18T10:00:00.000Z'),
+					githubPushBackSucceededAt: new Date('2026-06-18T10:01:00.000Z'),
+				})}
+			/>
+		)
+
+		expect(
+			screen.getByRole('heading', { name: 'Repository source' })
+		).toBeTruthy()
+		expect(
+			screen.getByRole('heading', { name: 'GitHub backup mirror' })
+		).toBeTruthy()
+		expect(
+			screen.getByText('Optional backup copy. Tessera remains source of truth.')
+		).toBeTruthy()
+		expect(screen.getByText('Backup target')).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Disable backup' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Push now' })).toBeTruthy()
+		expect(screen.queryByRole('heading', { name: 'GitHub mirror' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
+	})
+
+	test('enables GitHub backup mirror for the current owner', async () => {
+		const user = userEvent.setup()
+
+		render(
+			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Enable backup' }))
+
+		expect(enableGitHubPushBackMutateMock).toHaveBeenCalledWith({
+			username: 'mnigos',
+			slug: 'tessera-notes',
+		})
+	})
+
+	test('disables and pushes GitHub backup mirror for the current owner', async () => {
+		const user = userEvent.setup()
+
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'succeeded',
+				})}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Disable backup' }))
+		await user.click(screen.getByRole('button', { name: 'Push now' }))
+
+		expect(disableGitHubPushBackMutateMock).toHaveBeenCalledWith({
+			username: 'mnigos',
+			slug: 'tessera-notes',
+		})
+		expect(pushGitHubPushBackMirrorMutateMock).toHaveBeenCalledWith({
+			username: 'mnigos',
+			slug: 'tessera-notes',
+		})
+	})
+
+	test('shows GitHub backup mirror read-only status for non-owner users', () => {
+		const formatter = new Intl.DateTimeFormat(undefined, {
+			dateStyle: 'medium',
+			timeStyle: 'short',
+		})
+
+		render(
+			<RepositoryOverview
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackFailedAt: new Date('2026-06-18T11:00:00.000Z'),
+					githubPushBackFailureReason: 'GitHub backup remote rejected push.',
+					githubPushBackStatus: 'failed',
+				})}
+			/>
+		)
+
+		expect(
+			screen.getByRole('heading', { name: 'GitHub backup mirror' })
+		).toBeTruthy()
+		expect(screen.getByText('Failed')).toBeTruthy()
+		expect(screen.getByText('Last failure')).toBeTruthy()
+		expect(
+			screen.getByText(formatter.format(new Date('2026-06-18T11:00:00.000Z')))
+		).toBeTruthy()
+		expect(screen.getByText('GitHub backup remote rejected push.')).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Enable backup' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Disable backup' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Push now' })).toBeNull()
+	})
+
+	test('locks GitHub backup mirror push while running', async () => {
+		const user = userEvent.setup()
+
+		render(
+			<RepositoryOverview
+				isCurrentOwner
+				summary={getTesseraSourceSummary({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'running',
+				})}
+			/>
+		)
+
+		expect(screen.getByText('Running')).toBeTruthy()
+		expect(screen.getByText('Backup push is running.')).toBeTruthy()
+		expect(
+			screen
+				.getByRole('button', { name: 'Disable backup' })
+				.hasAttribute('disabled')
+		).toBe(true)
+		expect(
+			screen.getByRole('button', { name: 'Push now' }).hasAttribute('disabled')
+		).toBe(true)
+
+		await user.click(screen.getByRole('button', { name: 'Disable backup' }))
+		await user.click(screen.getByRole('button', { name: 'Push now' }))
+
+		expect(disableGitHubPushBackMutateMock).not.toHaveBeenCalled()
+		expect(pushGitHubPushBackMirrorMutateMock).not.toHaveBeenCalled()
+	})
+
+	test('shows GitHub backup mirror mutation feedback', () => {
+		useEnableGitHubPushBackMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: true,
+			isSuccess: false,
+			mutate: enableGitHubPushBackMutateMock,
+		} as unknown as ReturnType<typeof useEnableGitHubPushBackMutation>)
+		usePushGitHubPushBackMirrorMutationMock.mockReturnValue({
+			error: null,
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			mutate: pushGitHubPushBackMirrorMutateMock,
+		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
+
+		const { rerender } = render(
+			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
+		)
+
+		expect(
+			screen
+				.getByRole('button', { name: 'Enabling...' })
+				.hasAttribute('disabled')
+		).toBe(true)
+		expect(screen.getByText('Backup push completed.')).toBeTruthy()
+
+		useEnableGitHubPushBackMutationMock.mockReturnValue({
+			error: new Error('settings unavailable'),
+			isError: true,
+			isPending: false,
+			isSuccess: false,
+			mutate: enableGitHubPushBackMutateMock,
+		} as unknown as ReturnType<typeof useEnableGitHubPushBackMutation>)
+		usePushGitHubPushBackMirrorMutationMock.mockReturnValue({
+			error: new Error('push unavailable'),
+			isError: true,
+			isPending: false,
+			isSuccess: false,
+			mutate: pushGitHubPushBackMirrorMutateMock,
+		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
+
+		rerender(
+			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
+		)
+
+		expect(
+			screen.getByText('Backup mirror settings could not be updated.')
+		).toBeTruthy()
+		expect(
+			screen.getByText('Backup mirror push could not be completed.')
+		).toBeTruthy()
 	})
 
 	test('shows a non-mirrored fallback', () => {

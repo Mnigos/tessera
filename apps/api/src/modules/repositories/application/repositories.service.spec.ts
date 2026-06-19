@@ -24,6 +24,10 @@ import {
 	RepositoryGitHubMirrorCutoverSyncInProgressError,
 	RepositoryGitHubMirrorCutoverUnavailableError,
 	RepositoryGitHubMirrorSyncUnavailableError,
+	RepositoryGitHubPushBackDisabledError,
+	RepositoryGitHubPushBackInProgressError,
+	RepositoryGitHubPushBackTokenMissingError,
+	RepositoryGitHubPushBackUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
@@ -86,6 +90,12 @@ describe(RepositoriesService.name, () => {
 						markGitHubMirrorSyncPending: vi.fn(),
 						markGitHubMirrorSyncFailed: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
+						enableGitHubPushBack: vi.fn(),
+						disableGitHubPushBack: vi.fn(),
+						markGitHubPushBackRunning: vi.fn(),
+						markGitHubPushBackSucceeded: vi.fn(),
+						markGitHubPushBackFailed: vi.fn(),
+						findGitHubAccount: vi.fn(),
 						delete: vi.fn(),
 					},
 				},
@@ -169,6 +179,7 @@ describe(RepositoriesService.name, () => {
 						listRepositoryCommits: vi.fn().mockResolvedValue({
 							commits: [mockRepositoryCommit],
 						}),
+						pushRepositoryMirror: vi.fn(),
 					},
 				},
 				{
@@ -610,9 +621,15 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
+				cutoverActorUserId: mockUserId,
+				cutoverAt: new Date('2026-05-12T00:02:00Z'),
+				cutoverFromMirrorMode: 'github_to_tessera' as const,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -683,6 +700,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -732,9 +755,15 @@ describe(RepositoriesService.name, () => {
 				nextSyncAt: null,
 				syncFailureCount: 0,
 				syncFailureReason: null,
-				cutoverActorUserId: mockUserId,
-				cutoverAt: new Date('2026-05-12T00:02:00Z'),
-				cutoverFromMirrorMode: 'github_to_tessera' as const,
+				cutoverActorUserId: null,
+				cutoverAt: null,
+				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -780,6 +809,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -814,7 +849,8 @@ describe(RepositoriesService.name, () => {
 						nextSyncAt: undefined,
 						cutoverActorUserId: actorUserId,
 						cutoverAt,
-						cutoverFromMirrorMode: 'github_to_tessera',
+						githubPushBackEnabled: false,
+						githubPushBackStatus: 'idle',
 					}),
 				}),
 			})
@@ -856,6 +892,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -895,6 +937,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -934,6 +982,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -973,6 +1027,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -1040,6 +1100,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:00:00Z'),
 			},
@@ -1104,6 +1170,232 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 			})
 		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
+	})
+
+	test('enables GitHub push-back for cutover repositories', async () => {
+		const cutoverRepository = createCutoverGitHubRepository({
+			githubPushBackEnabled: false,
+		})
+		const enabledRepository = createCutoverGitHubRepository({
+			githubPushBackEnabled: true,
+		})
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			cutoverRepository
+		)
+		const enableGitHubPushBackSpy = vi
+			.spyOn(repositoriesRepository, 'enableGitHubPushBack')
+			.mockResolvedValue(enabledRepository)
+
+		expect(
+			await repositoriesService.enableGitHubPushBack(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({
+					externalSource: expect.objectContaining({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'idle',
+					}),
+				}),
+			})
+		)
+		expect(enableGitHubPushBackSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			userId: mockUserId,
+		})
+	})
+
+	test('rejects enabling GitHub push-back before cutover', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: createGitHubExternalSource({
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+			}),
+		})
+
+		await expect(
+			repositoriesService.enableGitHubPushBack(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackUnavailableError)
+		expect(repositoriesRepository.enableGitHubPushBack).not.toHaveBeenCalled()
+	})
+
+	test('rejects GitHub push-back setting changes while already running', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			createCutoverGitHubRepository({
+				githubPushBackEnabled: true,
+				githubPushBackStatus: 'running',
+			})
+		)
+
+		await expect(
+			repositoriesService.enableGitHubPushBack(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
+		await expect(
+			repositoriesService.disableGitHubPushBack(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
+		expect(repositoriesRepository.enableGitHubPushBack).not.toHaveBeenCalled()
+		expect(repositoriesRepository.disableGitHubPushBack).not.toHaveBeenCalled()
+	})
+
+	test('pushes enabled GitHub push-back mirrors and persists success', async () => {
+		const cutoverRepository = createCutoverGitHubRepository({
+			githubPushBackEnabled: true,
+		})
+		const succeededRepository = createCutoverGitHubRepository({
+			githubPushBackEnabled: true,
+			githubPushBackStatus: 'succeeded',
+			githubPushBackSucceededAt: new Date('2026-05-12T00:02:00Z'),
+		})
+		vi.spyOn(repositoriesRepository, 'find')
+			.mockResolvedValueOnce(cutoverRepository)
+			.mockResolvedValueOnce(succeededRepository)
+		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubPushBackRunning'
+		).mockResolvedValue(
+			createCutoverGitHubRepository({
+				githubPushBackEnabled: true,
+				githubPushBackStatus: 'running',
+			})
+		)
+		const pushRepositoryMirrorSpy = vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'pushRepositoryMirror'
+		)
+		const markGitHubPushBackSucceededSpy = vi.spyOn(
+			repositoriesRepository,
+			'markGitHubPushBackSucceeded'
+		)
+
+		expect(
+			await repositoriesService.pushGitHubPushBackMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				repository: expect.objectContaining({
+					externalSource: expect.objectContaining({
+						githubPushBackStatus: 'succeeded',
+					}),
+				}),
+			})
+		)
+		expect(pushRepositoryMirrorSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			targetUrl: 'https://github.com/marta/notes',
+			accessToken: 'github-token',
+		})
+		expect(markGitHubPushBackSucceededSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			succeededAt: expect.any(Date),
+		})
+	})
+
+	test('rejects push-back when disabled', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			createCutoverGitHubRepository({ githubPushBackEnabled: false })
+		)
+
+		await expect(
+			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackDisabledError)
+		expect(repositoriesRepository.findGitHubAccount).not.toHaveBeenCalled()
+	})
+
+	test('rejects push-back while already running', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			createCutoverGitHubRepository({
+				githubPushBackEnabled: true,
+				githubPushBackStatus: 'running',
+			})
+		)
+
+		await expect(
+			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
+		expect(repositoriesRepository.findGitHubAccount).not.toHaveBeenCalled()
+		expect(
+			repositoriesRepository.markGitHubPushBackRunning
+		).not.toHaveBeenCalled()
+	})
+
+	test('rejects push-back when GitHub token is missing', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			createCutoverGitHubRepository({ githubPushBackEnabled: true })
+		)
+		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: null,
+		})
+
+		await expect(
+			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubPushBackTokenMissingError)
+		expect(
+			repositoriesRepository.markGitHubPushBackRunning
+		).not.toHaveBeenCalled()
+	})
+
+	test('marks push-back failed when storage push fails', async () => {
+		const cutoverRepository = createCutoverGitHubRepository({
+			githubPushBackEnabled: true,
+		})
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			cutoverRepository
+		)
+		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
+			accessToken: 'github-token',
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'markGitHubPushBackRunning'
+		).mockResolvedValue(cutoverRepository)
+		vi.spyOn(
+			moduleRef.get(GitStorageClient),
+			'pushRepositoryMirror'
+		).mockRejectedValue(new Error('non-fast-forward'))
+		const markGitHubPushBackFailedSpy = vi.spyOn(
+			repositoriesRepository,
+			'markGitHubPushBackFailed'
+		)
+
+		await expect(
+			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toThrow('non-fast-forward')
+		expect(markGitHubPushBackFailedSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			failedAt: expect.any(Date),
+			failureReason: 'non-fast-forward',
+		})
 	})
 
 	test('throws when a readable repository is unknown', async () => {
@@ -2385,6 +2677,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},
@@ -2428,6 +2726,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},
@@ -2623,6 +2927,12 @@ describe(RepositoriesService.name, () => {
 				cutoverActorUserId: null,
 				cutoverAt: null,
 				cutoverFromMirrorMode: null,
+				githubPushBackEnabled: false,
+				githubPushBackStatus: 'idle' as const,
+				githubPushBackStartedAt: null,
+				githubPushBackSucceededAt: null,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
 				createdAt: new Date('2026-05-12T00:00:00Z'),
 				updatedAt: new Date('2026-05-12T00:01:00Z'),
 			},
@@ -2657,3 +2967,47 @@ describe(RepositoriesService.name, () => {
 		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
 	})
 })
+
+function createGitHubExternalSource(overrides = {}) {
+	return {
+		id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+		repositoryId: repository.id,
+		provider: 'github' as const,
+		externalRepositoryId: 123n,
+		ownerLogin: 'marta',
+		name: 'notes',
+		fullName: 'marta/notes',
+		sourceUrl: 'https://github.com/marta/notes',
+		sourceDefaultBranch: 'main',
+		mirrorMode: 'tessera_source' as const,
+		syncStatus: 'succeeded' as const,
+		lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+		lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+		lastSyncFailedAt: null,
+		nextSyncAt: null,
+		syncFailureCount: 0,
+		syncFailureReason: null,
+		cutoverActorUserId: mockUserId,
+		cutoverAt: new Date('2026-05-12T00:01:00Z'),
+		cutoverFromMirrorMode: 'github_to_tessera' as const,
+		githubPushBackEnabled: false,
+		githubPushBackStatus: 'idle' as const,
+		githubPushBackStartedAt: null,
+		githubPushBackSucceededAt: null,
+		githubPushBackFailedAt: null,
+		githubPushBackFailureReason: null,
+		createdAt: new Date('2026-05-12T00:00:00Z'),
+		updatedAt: new Date('2026-05-12T00:00:00Z'),
+		...overrides,
+	}
+}
+
+function createCutoverGitHubRepository(
+	externalSourceOverrides = {}
+): RepositoryWithOwner {
+	return {
+		...repository,
+		storagePath: '/var/lib/tessera/repositories/repo.git',
+		externalSource: createGitHubExternalSource(externalSourceOverrides),
+	}
+}

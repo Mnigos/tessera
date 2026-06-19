@@ -49,6 +49,20 @@ impl GitStorageApplication {
             .await
     }
 
+    pub async fn push_repository_mirror(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        target_url: &str,
+        access_token: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        let repository_id = RepositoryId::parse(repository_id)?;
+
+        self.storage
+            .push_repository_mirror(&repository_id, storage_path, target_url, access_token)
+            .await
+    }
+
     pub async fn get_repository_browser_summary(
         &self,
         repository_id: &str,
