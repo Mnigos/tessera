@@ -6,6 +6,7 @@ service GitStorageService {
   rpc Health(HealthRequest) returns (HealthResponse);
   rpc CreateRepository(CreateRepositoryRequest) returns (CreateRepositoryResponse);
   rpc ImportRepository(ImportRepositoryRequest) returns (ImportRepositoryResponse);
+  rpc PushRepositoryMirror(PushRepositoryMirrorRequest) returns (PushRepositoryMirrorResponse);
   rpc ListRepositoryRefs(ListRepositoryRefsRequest) returns (ListRepositoryRefsResponse);
   rpc GetRepositoryBrowserSummary(GetRepositoryBrowserSummaryRequest) returns (GetRepositoryBrowserSummaryResponse);
   rpc GetRepositoryTree(GetRepositoryTreeRequest) returns (GetRepositoryTreeResponse);
@@ -39,6 +40,17 @@ message ImportRepositoryRequest {
 message ImportRepositoryResponse {
   string default_branch = 1;
   string storage_path = 2;
+}
+
+message PushRepositoryMirrorRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string target_url = 3;
+  optional string access_token = 4;
+}
+
+message PushRepositoryMirrorResponse {
+  bool success = 1;
 }
 
 message ListRepositoryRefsRequest {

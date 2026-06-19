@@ -155,6 +155,46 @@ impl RepositoryStorage {
         })
     }
 
+    pub async fn push_repository_mirror(
+        &self,
+        repository_id: &RepositoryId,
+        storage_path: &str,
+        target_url: &str,
+        access_token: Option<&str>,
+    ) -> Result<(), RepositoryError> {
+        if target_url.trim().is_empty() {
+            return Err(RepositoryError::InvalidRepositoryPath);
+        }
+
+        let repository_id = repository_id.to_string();
+        let repository_path = self
+            .existing_bare_repository_path(&repository_id, storage_path)
+            .await?;
+        let mut command = Command::new(&self.git_binary);
+        add_access_token_config(&mut command, access_token);
+        let output = timeout(
+            Duration::from_secs(120),
+            command
+                .arg("--git-dir")
+                .arg(&repository_path)
+                .arg("push")
+                .arg("--atomic")
+                .arg(target_url)
+                .arg("refs/heads/*:refs/heads/*")
+                .arg("refs/tags/*:refs/tags/*")
+                .output(),
+        )
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?
+        .map_err(RepositoryError::GitProcessIo)?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::InvalidRepositoryRef);
+        }
+
+        Ok(())
+    }
+
     pub async fn existing_bare_repository_path(
         &self,
         repository_id: &str,

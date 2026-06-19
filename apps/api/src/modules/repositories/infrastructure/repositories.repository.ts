@@ -70,6 +70,19 @@ interface CutoverGitHubMirrorParams extends RepositoryIdWithUserParams {
 	cutoverAt: Date
 }
 
+interface MarkGitHubPushBackRunningParams extends RepositoryIdWithUserParams {
+	startedAt: Date
+}
+
+interface MarkGitHubPushBackFailedParams extends RepositoryIdParams {
+	failedAt: Date
+	failureReason: string
+}
+
+interface MarkGitHubPushBackSucceededParams extends RepositoryIdParams {
+	succeededAt: Date
+}
+
 interface MarkGitHubMirrorSyncFailedParams extends RepositoryIdParams {
 	failedAt: Date
 	failureReason: string
@@ -156,6 +169,14 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	cutoverActorUserId: repositoryExternalSources.cutoverActorUserId,
 	cutoverAt: repositoryExternalSources.cutoverAt,
 	cutoverFromMirrorMode: repositoryExternalSources.cutoverFromMirrorMode,
+	githubPushBackEnabled: repositoryExternalSources.githubPushBackEnabled,
+	githubPushBackStatus: repositoryExternalSources.githubPushBackStatus,
+	githubPushBackStartedAt: repositoryExternalSources.githubPushBackStartedAt,
+	githubPushBackSucceededAt:
+		repositoryExternalSources.githubPushBackSucceededAt,
+	githubPushBackFailedAt: repositoryExternalSources.githubPushBackFailedAt,
+	githubPushBackFailureReason:
+		repositoryExternalSources.githubPushBackFailureReason,
 	createdAt: repositoryExternalSources.createdAt,
 	updatedAt: repositoryExternalSources.updatedAt,
 }
@@ -657,6 +678,167 @@ export class RepositoriesRepository {
 				repositoryId,
 			})
 		})
+	}
+
+	async enableGitHubPushBack({
+		repositoryId,
+		userId,
+	}: RepositoryIdWithUserParams): Promise<RepositoryWithOwner | undefined> {
+		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					githubPushBackEnabled: true,
+					githubPushBackStatus: 'idle',
+					githubPushBackFailedAt: null,
+					githubPushBackFailureReason: null,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
+						or(
+							isNull(repositoryExternalSources.githubPushBackStatus),
+							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+						),
+						sql`exists (
+									select 1
+									from ${repositories}
+								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+									and ${repositories.ownerUserId} = ${userId}
+							)`
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!updatedExternalSource) return undefined
+
+			return await this.findWithClient(transaction, { userId, repositoryId })
+		})
+	}
+
+	async disableGitHubPushBack({
+		repositoryId,
+		userId,
+	}: RepositoryIdWithUserParams): Promise<RepositoryWithOwner | undefined> {
+		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					githubPushBackEnabled: false,
+					githubPushBackStatus: 'idle',
+					githubPushBackStartedAt: null,
+					githubPushBackFailedAt: null,
+					githubPushBackFailureReason: null,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
+						or(
+							isNull(repositoryExternalSources.githubPushBackStatus),
+							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+						),
+						sql`exists (
+									select 1
+									from ${repositories}
+								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+									and ${repositories.ownerUserId} = ${userId}
+							)`
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!updatedExternalSource) return undefined
+
+			return await this.findWithClient(transaction, { userId, repositoryId })
+		})
+	}
+
+	async markGitHubPushBackRunning({
+		repositoryId,
+		startedAt,
+		userId,
+	}: MarkGitHubPushBackRunningParams): Promise<
+		RepositoryWithOwner | undefined
+	> {
+		return await this.db.transaction(async transaction => {
+			const [updatedExternalSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					githubPushBackStatus: 'running',
+					githubPushBackStartedAt: startedAt,
+					githubPushBackFailedAt: null,
+					githubPushBackFailureReason: null,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
+						eq(repositoryExternalSources.githubPushBackEnabled, true),
+						or(
+							isNull(repositoryExternalSources.githubPushBackStatus),
+							sql`${repositoryExternalSources.githubPushBackStatus} <> ${'running'}`
+						),
+						sql`exists (
+									select 1
+									from ${repositories}
+								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+									and ${repositories.ownerUserId} = ${userId}
+							)`
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!updatedExternalSource) return undefined
+
+			return await this.findWithClient(transaction, { userId, repositoryId })
+		})
+	}
+
+	async markGitHubPushBackSucceeded({
+		repositoryId,
+		succeededAt,
+	}: MarkGitHubPushBackSucceededParams): Promise<void> {
+		await this.db
+			.update(repositoryExternalSources)
+			.set({
+				githubPushBackStatus: 'succeeded',
+				githubPushBackSucceededAt: succeededAt,
+				githubPushBackFailedAt: null,
+				githubPushBackFailureReason: null,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github'),
+					eq(repositoryExternalSources.mirrorMode, 'tessera_source')
+				)
+			)
+	}
+
+	async markGitHubPushBackFailed({
+		failedAt,
+		failureReason,
+		repositoryId,
+	}: MarkGitHubPushBackFailedParams): Promise<void> {
+		await this.db
+			.update(repositoryExternalSources)
+			.set({
+				githubPushBackStatus: 'failed',
+				githubPushBackFailedAt: failedAt,
+				githubPushBackFailureReason: failureReason,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github'),
+					eq(repositoryExternalSources.mirrorMode, 'tessera_source')
+				)
+			)
 	}
 
 	async upsertGitHubExternalSource({

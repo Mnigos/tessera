@@ -42,6 +42,7 @@ describe(GitStorageClient.name, () => {
 		health: ReturnType<typeof vi.fn>
 		createRepository: ReturnType<typeof vi.fn>
 		importRepository: ReturnType<typeof vi.fn>
+		pushRepositoryMirror: ReturnType<typeof vi.fn>
 		getRepositoryBrowserSummary: ReturnType<typeof vi.fn>
 		getRepositoryTree: ReturnType<typeof vi.fn>
 		getRepositoryBlob: ReturnType<typeof vi.fn>
@@ -64,6 +65,7 @@ describe(GitStorageClient.name, () => {
 					defaultBranch: 'trunk',
 				})
 			),
+			pushRepositoryMirror: vi.fn(() => of({ success: true })),
 			getRepositoryBrowserSummary: vi.fn(() =>
 				of({
 					isEmpty: false,
@@ -254,6 +256,28 @@ describe(GitStorageClient.name, () => {
 		)
 		expect(
 			getGitStorageAuthorization(gitStorageService.importRepository)
+		).toEqual(['Bearer test-internal-token'])
+	})
+
+	test('pushes repository mirrors with target metadata', async () => {
+		await client.pushRepositoryMirror({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			targetUrl: 'https://github.com/marta/tessera',
+			accessToken: 'github-token',
+		})
+
+		expect(gitStorageService.pushRepositoryMirror).toHaveBeenLastCalledWith(
+			{
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				targetUrl: 'https://github.com/marta/tessera',
+				accessToken: 'github-token',
+			},
+			expect.any(Metadata)
+		)
+		expect(
+			getGitStorageAuthorization(gitStorageService.pushRepositoryMirror)
 		).toEqual(['Bearer test-internal-token'])
 	})
 

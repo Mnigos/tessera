@@ -13,6 +13,7 @@ use crate::proto::{
     GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
     ImportRepositoryRequest, ImportRepositoryResponse, ListRepositoryCommitsRequest,
     ListRepositoryCommitsResponse, ListRepositoryRefsRequest, ListRepositoryRefsResponse,
+    PushRepositoryMirrorRequest, PushRepositoryMirrorResponse,
     RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryCommit,
     RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
     RepositoryRefKind as ProtoRepositoryRefKind, RepositorySignature,
@@ -84,6 +85,26 @@ impl GitStorageService for GitStorageGrpcService {
         Ok(Response::new(ImportRepositoryResponse {
             default_branch: import.default_branch,
             storage_path: import.storage_path,
+        }))
+    }
+
+    async fn push_repository_mirror(
+        &self,
+        request: Request<PushRepositoryMirrorRequest>,
+    ) -> Result<Response<PushRepositoryMirrorResponse>, Status> {
+        let request = request.into_inner();
+        self.application
+            .push_repository_mirror(
+                &request.repository_id,
+                &request.storage_path,
+                &request.target_url,
+                request.access_token.as_deref(),
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(PushRepositoryMirrorResponse {
+            success: true,
         }))
     }
 

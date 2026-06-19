@@ -4,6 +4,7 @@ import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { RefreshCw } from 'lucide-react'
 import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
+import { RepositoryGitHubBackupMirrorPanel } from './repository-github-backup-mirror-panel'
 import { GitHubMirrorCutoverSection } from './repository-github-mirror-cutover-section'
 import {
 	GitHubMirrorStatusBadge,
@@ -28,7 +29,17 @@ export function RepositoryGitHubMirrorPanel({
 	if (externalSource.mode === 'none') return <NoGitHubMirrorPanel />
 
 	if (externalSource.mode === 'tessera_source')
-		return <RepositoryTesseraSourcePanel externalSource={externalSource} />
+		return (
+			<>
+				<RepositoryTesseraSourcePanel externalSource={externalSource} />
+				<RepositoryGitHubBackupMirrorPanel
+					externalSource={externalSource}
+					isCurrentOwner={isCurrentOwner}
+					owner={owner}
+					repository={repository}
+				/>
+			</>
+		)
 
 	const mirrorActions = getGitHubMirrorActions({
 		externalSource,

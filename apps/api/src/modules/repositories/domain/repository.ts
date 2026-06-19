@@ -1,11 +1,32 @@
 import type { RepositoryWithOwner as RepositoryWithOwnerOutput } from '@repo/contracts'
 import type { Repository, RepositoryExternalSource } from '@repo/db'
 
+type RepositoryExternalSourceReadModel = Omit<
+	RepositoryExternalSource,
+	| 'githubPushBackEnabled'
+	| 'githubPushBackStatus'
+	| 'githubPushBackStartedAt'
+	| 'githubPushBackSucceededAt'
+	| 'githubPushBackFailedAt'
+	| 'githubPushBackFailureReason'
+> &
+	Partial<
+		Pick<
+			RepositoryExternalSource,
+			| 'githubPushBackEnabled'
+			| 'githubPushBackStatus'
+			| 'githubPushBackStartedAt'
+			| 'githubPushBackSucceededAt'
+			| 'githubPushBackFailedAt'
+			| 'githubPushBackFailureReason'
+		>
+	>
+
 export interface RepositoryWithOwner extends Repository {
 	ownerUser: {
 		username: string
 	}
-	externalSource?: RepositoryExternalSource
+	externalSource?: RepositoryExternalSourceReadModel
 }
 
 export interface RepositoryOwnerRow extends Repository {
@@ -50,7 +71,7 @@ export function toRepositoryOutput(
 }
 
 function toRepositoryExternalSourceOutput(
-	externalSource: RepositoryExternalSource | null | undefined
+	externalSource: RepositoryExternalSourceReadModel | null | undefined
 ): RepositoryWithOwnerOutput['repository']['externalSource'] {
 	if (!externalSource) return { mode: 'none' }
 
@@ -75,6 +96,15 @@ function toRepositoryExternalSourceOutput(
 			externalSource.cutoverFromMirrorMode === 'github_to_tessera'
 				? externalSource.cutoverFromMirrorMode
 				: undefined,
+		githubPushBackEnabled: externalSource.githubPushBackEnabled ?? false,
+		githubPushBackStatus: externalSource.githubPushBackStatus ?? 'idle',
+		githubPushBackStartedAt:
+			externalSource.githubPushBackStartedAt ?? undefined,
+		githubPushBackSucceededAt:
+			externalSource.githubPushBackSucceededAt ?? undefined,
+		githubPushBackFailedAt: externalSource.githubPushBackFailedAt ?? undefined,
+		githubPushBackFailureReason:
+			externalSource.githubPushBackFailureReason ?? undefined,
 		createdAt: externalSource.createdAt,
 		updatedAt: externalSource.updatedAt,
 	}
