@@ -1,109 +1,92 @@
 import { Button } from '@repo/ui/components/button'
-import {
-	Card,
-	CardContent,
-	CardDescription,
-	CardHeader,
-	CardTitle,
-} from '@repo/ui/components/card'
 import { createFileRoute, Link } from '@tanstack/react-router'
-import { Code2, GitPullRequest, Plug, ShieldCheck } from 'lucide-react'
+import { Code2 } from 'lucide-react'
 import { FaGithub } from 'react-icons/fa'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { HomeCapabilities } from '@/modules/home/components/home-capabilities'
+import { HomeDialFigure } from '@/modules/home/components/home-dial-figure'
+import { HomeMigrationTrack } from '@/modules/home/components/home-migration-track'
+import { HomeOpenSource } from '@/modules/home/components/home-open-source'
 
 export const Route = createFileRoute('/')({
 	component: HomeRoute,
 })
 
 function HomeRoute() {
+	return (
+		<main className="min-h-full bg-background text-foreground">
+			<section className="mx-auto grid max-w-6xl items-center gap-6 px-6 pt-8 pb-6 md:grid-cols-[7fr_5fr] md:gap-16 md:pt-24 md:pb-12">
+				<div>
+					<span className="font-mono text-muted-foreground text-xs uppercase tracking-[0.12em]">
+						Open source Git collaboration
+					</span>
+					<h1 className="mt-5 max-w-xl font-semibold text-5xl leading-[1.05] tracking-tight md:text-6xl">
+						Your repositories, held{' '}
+						<em className="text-primary not-italic">exactly</em> in position.
+					</h1>
+					<p className="mt-6 max-w-lg text-lg text-muted-foreground">
+						detent is a Git platform built like an instrument: precise
+						repository hosting, code browsing you can read for hours, and
+						reviews that measure change instead of decorating it. Self-host it,
+						or let us run it.
+					</p>
+					<HeroActions />
+				</div>
+				<HomeDialFigure />
+			</section>
+			<div className="mx-auto max-w-6xl px-6 pb-2">
+				<a
+					className="flex items-center gap-3 font-mono text-muted-foreground text-xs uppercase tracking-[0.12em] transition-colors duration-150 hover:text-foreground"
+					href="#migration"
+				>
+					<span aria-hidden="true">↓</span>
+					Migration in three detents
+					<span aria-hidden="true" className="h-px flex-1 bg-border/60" />
+				</a>
+			</div>
+			<HomeMigrationTrack />
+			<HomeCapabilities />
+			<HomeOpenSource />
+		</main>
+	)
+}
+
+function HeroActions() {
 	const { isAuthenticated, isLoading, signIn } = useAuth()
 
 	return (
-		<main className="min-h-full bg-background text-foreground">
-			<section className="mx-auto grid min-h-full max-w-6xl gap-10 px-6 py-12 md:grid-cols-[1.1fr_0.9fr] md:items-center">
-				<div className="w-full min-w-0 space-y-8">
-					<div className="space-y-4">
-						<div className="inline-flex items-center gap-2 rounded-md border border-primary/20 bg-primary/10 px-3 py-1.5 text-primary text-sm">
-							<ShieldCheck className="size-4" />
-							Open source Git collaboration
-						</div>
-						<div className="space-y-3">
-							<h1 className="max-w-2xl font-semibold text-5xl tracking-normal">
-								A focused home for code review, repositories, and extensible
-								workflows.
-							</h1>
-							<p className="max-w-xl text-lg text-muted-foreground">
-								Tessera starts with trustworthy Git hosting foundations and a
-								clean collaboration surface, then grows into CI, issue, and AI
-								integrations without owning every adjacent tool.
-							</p>
-						</div>
-					</div>
-
-					<div className="flex flex-wrap items-center gap-3">
-						{isAuthenticated ? (
-							<>
-								<Button
-									nativeButton={false}
-									render={<Link to="/profile" />}
-									size="lg"
-								>
-									<Code2 className="size-5" />
-									Open profile
-								</Button>
-								<Button
-									nativeButton={false}
-									render={<Link to="/import/github" />}
-									size="lg"
-									variant="outline"
-								>
-									<FaGithub className="size-5" />
-									Import from GitHub
-								</Button>
-							</>
-						) : (
-							<Button disabled={isLoading} onClick={signIn} size="lg">
-								<FaGithub className="size-5" />
-								Sign in with GitHub
-							</Button>
-						)}
-					</div>
-				</div>
-
-				<Card className="gap-5 bg-muted/60 p-5">
-					<div className="flex items-center gap-3">
-						<div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/15 text-primary">
-							<GitPullRequest className="size-5" />
-						</div>
-						<CardHeader className="gap-1 p-0">
-							<CardTitle className="font-medium text-base">MVP Core</CardTitle>
-							<CardDescription>
-								Ready for the first repo workflow
-							</CardDescription>
-						</CardHeader>
-					</div>
-
-					<CardContent className="space-y-3 p-0">
-						{[
-							['GitHub auth', 'scaffolded'],
-							['Organizations', 'planned'],
-							['Repository browser', 'planned'],
-							['Integrations', 'later'],
-						].map(([item, status]) => (
-							<div
-								className="flex items-center justify-between border border-border px-3 py-2 text-sm"
-								key={item}
-							>
-								<span className="inline-flex items-center gap-2">
-									{item === 'Integrations' && <Plug className="size-4" />}
-									{item}
-								</span>
-								<span className="text-muted-foreground">{status}</span>
-							</div>
-						))}
-					</CardContent>
-				</Card>
-			</section>
-		</main>
+		<div className="mt-9 flex flex-wrap items-center gap-3.5">
+			{isAuthenticated ? (
+				<>
+					<Button
+						nativeButton={false}
+						render={<Link to="/profile" />}
+						size="lg"
+					>
+						<Code2 className="size-5" />
+						Open profile
+					</Button>
+					<Button
+						nativeButton={false}
+						render={<Link to="/import/github" />}
+						size="lg"
+						variant="outline"
+					>
+						<FaGithub className="size-5" />
+						Import from GitHub
+					</Button>
+				</>
+			) : (
+				<>
+					<Button disabled={isLoading} onClick={signIn} size="lg">
+						<FaGithub className="size-5" />
+						Sign in with GitHub
+					</Button>
+					<span className="font-mono text-muted-foreground text-sm">
+						docker compose up
+					</span>
+				</>
+			)}
+		</div>
 	)
 }
