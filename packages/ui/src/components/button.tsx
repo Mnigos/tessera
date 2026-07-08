@@ -3,22 +3,22 @@ import { cn } from '@repo/ui/utils'
 import { cva, type VariantProps } from 'class-variance-authority'
 
 const buttonVariants = cva(
-	'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm transition-all duration-300 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:scale-95 disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
+	'inline-flex cursor-pointer items-center justify-center gap-2 whitespace-nowrap rounded-md font-medium text-sm transition-all duration-150 ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0',
 	{
 		variants: {
 			variant: {
 				primary:
-					'bg-primary text-primary-foreground shadow-sm hover:bg-primary/80 hover:text-primary-foreground hover:shadow-primary/20 hover:shadow-xl active:bg-primary/80 active:text-primary-foreground active:shadow-primary/20 active:shadow-xl',
+					'bg-primary text-primary-foreground shadow-xs hover:bg-primary/90 active:bg-primary/85',
 				accent:
-					'bg-accent text-accent-foreground shadow-sm hover:bg-accent/80 hover:text-accent-foreground hover:shadow-accent/20 hover:shadow-xl active:bg-accent/80 active:text-accent-foreground active:shadow-accent/20 active:shadow-xl',
+					'bg-accent text-accent-foreground shadow-xs hover:bg-accent/80 active:bg-accent/70',
 				secondary:
-					'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80 hover:shadow-secondary/20 hover:shadow-xl active:bg-secondary/80 active:text-secondary-foreground active:shadow-secondary/20 active:shadow-xl',
+					'bg-secondary text-secondary-foreground shadow-xs hover:bg-secondary/80 active:bg-secondary/70',
 				outline:
-					'relative isolate overflow-hidden border border-border bg-transparent text-foreground shadow-xs before:absolute before:inset-0 before:-z-10 before:-translate-x-full before:bg-secondary before:transition-transform before:duration-300 hover:text-secondary-foreground hover:before:w-full hover:before:translate-x-0 active:bg-secondary active:text-secondary-foreground active:shadow-secondary/20 active:shadow-xl',
-				link: 'relative overflow-hidden bg-transparent text-foreground shadow-xs before:absolute before:right-0 before:bottom-0 before:left-0 before:-z-10 before:h-px before:-translate-x-full before:bg-primary before:transition-transform before:duration-300 hover:shadow-primary/40 hover:shadow-sm hover:before:w-full hover:before:translate-x-0',
-				ghost: 'hover:bg-muted hover:text-foreground hover:shadow-xl',
+					'border border-input bg-transparent text-foreground shadow-xs hover:border-muted-foreground/50 hover:bg-secondary/40 active:bg-secondary/60',
+				link: 'bg-transparent text-foreground underline-offset-4 hover:text-primary hover:underline',
+				ghost: 'hover:bg-muted hover:text-foreground',
 				destructive:
-					'bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/80 hover:text-destructive-foreground hover:shadow-destructive/30 hover:shadow-xl',
+					'bg-destructive text-destructive-foreground shadow-xs hover:bg-destructive/90 active:bg-destructive/85',
 			},
 			size: {
 				default: 'h-9 px-4 py-2',
@@ -59,7 +59,7 @@ export function Button({
 		<ButtonPrimitive
 			className={cn(
 				buttonVariants({ variant, size, className }),
-				isActive && 'shadow-primary/40'
+				isActive && 'text-primary'
 			)}
 			data-slot="button"
 			{...props}

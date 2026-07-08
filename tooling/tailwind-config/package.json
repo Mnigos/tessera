@@ -15,8 +15,8 @@
     "typecheck": "echo \"No TypeScript files to check in tailwind-config\""
   },
   "dependencies": {
-    "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@fontsource-variable/source-sans-3": "^5.2.8",
+    "@fontsource-variable/geist-mono": "^5.2.8",
+    "@fontsource-variable/hanken-grotesk": "^5.2.8",
     "@tailwindcss/postcss": "catalog:",
     "postcss": "catalog:",
     "tailwindcss": "catalog:"
