@@ -23,7 +23,7 @@ export const Route = createFileRoute('/$username/$slug/tree/$ref/$')({
 	head: ({ params: { username, slug, ref, _splat = '' } }) => ({
 		meta: [
 			{
-				title: `${username}/${slug} at ${ref}${_splat ? `/${_splat}` : ''} · Tessera`,
+				title: `${username}/${slug} at ${ref}${_splat ? `/${_splat}` : ''} · detent`,
 			},
 		],
 	}),

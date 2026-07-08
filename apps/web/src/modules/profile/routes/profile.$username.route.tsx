@@ -52,12 +52,12 @@ export const Route = createFileRoute('/profile/$username')({
 	},
 	head: ({ loaderData }) => ({
 		meta: [
-			{ title: loaderData ? `${loaderData.displayName} · Tessera` : 'Tessera' },
+			{ title: loaderData ? `${loaderData.displayName} · detent` : 'detent' },
 			{
 				name: 'description',
 				content: loaderData
-					? `${loaderData.displayName}'s Tessera profile.`
-					: 'Tessera profile.',
+					? `${loaderData.displayName}'s detent profile.`
+					: 'detent profile.',
 			},
 		],
 	}),

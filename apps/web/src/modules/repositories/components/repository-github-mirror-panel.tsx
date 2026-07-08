@@ -4,13 +4,13 @@ import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { RefreshCw } from 'lucide-react'
 import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
+import { RepositoryDetentSourcePanel } from './repository-detent-source-panel'
 import { RepositoryGitHubBackupMirrorPanel } from './repository-github-backup-mirror-panel'
 import { GitHubMirrorCutoverSection } from './repository-github-mirror-cutover-section'
 import {
 	GitHubMirrorStatusBadge,
 	MirrorTimestamp,
 } from './repository-github-mirror-fields'
-import { RepositoryTesseraSourcePanel } from './repository-tessera-source-panel'
 
 interface RepositoryGitHubMirrorPanelProps {
 	isCurrentOwner: boolean
@@ -31,7 +31,7 @@ export function RepositoryGitHubMirrorPanel({
 	if (externalSource.mode === 'tessera_source')
 		return (
 			<>
-				<RepositoryTesseraSourcePanel externalSource={externalSource} />
+				<RepositoryDetentSourcePanel externalSource={externalSource} />
 				<RepositoryGitHubBackupMirrorPanel
 					externalSource={externalSource}
 					isCurrentOwner={isCurrentOwner}

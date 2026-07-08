@@ -41,14 +41,14 @@ export const Route = createFileRoute('/$username/$slug')({
 		meta: [
 			{
 				title: loaderData
-					? `${loaderData.username}/${loaderData.slug} · Tessera`
-					: 'Repository · Tessera',
+					? `${loaderData.username}/${loaderData.slug} · detent`
+					: 'Repository · detent',
 			},
 			{
 				name: 'description',
 				content: loaderData
-					? `${loaderData.name} repository on Tessera.`
-					: 'Repository on Tessera.',
+					? `${loaderData.name} repository on detent.`
+					: 'Repository on detent.',
 			},
 		],
 	}),

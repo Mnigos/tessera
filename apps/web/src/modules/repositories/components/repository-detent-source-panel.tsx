@@ -2,13 +2,13 @@ import type { Repository } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { MirrorTimestamp, SourceField } from './repository-github-mirror-fields'
 
-interface RepositoryTesseraSourcePanelProps {
+interface RepositoryDetentSourcePanelProps {
 	externalSource: Exclude<Repository['externalSource'], { mode: 'none' }>
 }
 
-export function RepositoryTesseraSourcePanel({
+export function RepositoryDetentSourcePanel({
 	externalSource,
-}: Readonly<RepositoryTesseraSourcePanelProps>) {
+}: Readonly<RepositoryDetentSourcePanelProps>) {
 	return (
 		<Card className="gap-4 p-4">
 			<div className="flex flex-col gap-1">
@@ -17,12 +17,11 @@ export function RepositoryTesseraSourcePanel({
 						Repository source
 					</h2>
 					<span className="inline-flex rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2 py-0.5 font-medium text-emerald-700 text-xs">
-						Tessera source of truth
+						detent source of truth
 					</span>
 				</div>
 				<p className="text-muted-foreground text-sm">
-					GitHub mirror controls are hidden because writes now belong in
-					Tessera.
+					GitHub mirror controls are hidden because writes now belong in detent.
 				</p>
 			</div>
 			<div className="grid gap-3 text-sm sm:grid-cols-3">

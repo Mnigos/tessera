@@ -22,10 +22,10 @@ export const Route = createFileRoute('/import/github')({
 	}),
 	head: () => ({
 		meta: [
-			{ title: 'Import from GitHub · Tessera' },
+			{ title: 'Import from GitHub · detent' },
 			{
 				name: 'description',
-				content: 'Choose a GitHub repository to import into Tessera.',
+				content: 'Choose a GitHub repository to import into detent.',
 			},
 		],
 	}),
@@ -128,7 +128,7 @@ function GitHubImportRoute() {
 					Choose a source repository
 				</h1>
 				<p className="text-muted-foreground">
-					Select one or more GitHub repositories. Tessera will queue each import
+					Select one or more GitHub repositories. detent will queue each import
 					when you continue.
 				</p>
 			</div>

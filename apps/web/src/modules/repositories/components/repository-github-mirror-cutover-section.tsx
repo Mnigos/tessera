@@ -60,11 +60,11 @@ export function GitHubMirrorCutoverSection({
 					<ShieldAlert className="mt-0.5 size-4 shrink-0 text-amber-700" />
 					<div className="flex flex-col gap-1">
 						<h3 className="font-semibold text-sm tracking-normal">
-							Cut over writes to Tessera
+							Cut over writes to detent
 						</h3>
 						<p className="text-muted-foreground text-sm">
-							After confirmation, Tessera becomes the source of truth for{' '}
-							{externalSource.fullName}. Pushes should target Tessera remotes,
+							After confirmation, detent becomes the source of truth for{' '}
+							{externalSource.fullName}. Pushes should target detent remotes,
 							not GitHub.
 						</p>
 					</div>
@@ -96,7 +96,7 @@ export function GitHubMirrorCutoverSection({
 			</div>
 			<ul className="grid gap-2 text-sm">
 				<CutoverChecklistItem>
-					Update local remotes to Tessera.
+					Update local remotes to detent.
 				</CutoverChecklistItem>
 				<CutoverChecklistItem>
 					Run fetch verification after switching remotes.
@@ -134,7 +134,7 @@ export function GitHubMirrorCutoverSection({
 						>
 							{cutoverMutation.isPending
 								? 'Cutting over...'
-								: 'Cut over to Tessera'}
+								: 'Cut over to detent'}
 						</Button>
 						<Button
 							disabled={cutoverMutation.isPending}
@@ -160,7 +160,7 @@ export function GitHubMirrorCutoverSection({
 			)}
 			{cutoverMutation.isSuccess && (
 				<p className="text-emerald-700 text-sm">
-					Cutover complete. Tessera is source of truth.
+					Cutover complete. detent is source of truth.
 				</p>
 			)}
 			{cutoverMutation.isError && (

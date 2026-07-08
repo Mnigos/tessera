@@ -537,7 +537,7 @@ describe('RepositoryOverview', () => {
 		expect(
 			screen.getByRole('button', { name: 'Sync now' }).hasAttribute('disabled')
 		).toBe(false)
-		expect(screen.queryByText('Cut over writes to Tessera')).toBeNull()
+		expect(screen.queryByText('Cut over writes to detent')).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Review cutover' })).toBeNull()
 	})
 
@@ -556,7 +556,7 @@ describe('RepositoryOverview', () => {
 		expect(screen.getByText('GitHub auth must be reconnected.')).toBeTruthy()
 		expect(screen.queryByText('Next scheduled')).toBeNull()
 		expect(screen.getByRole('button', { name: 'Sync now' })).toBeTruthy()
-		expect(screen.queryByText('Cut over writes to Tessera')).toBeNull()
+		expect(screen.queryByText('Cut over writes to detent')).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Review cutover' })).toBeNull()
 	})
 
@@ -618,10 +618,10 @@ describe('RepositoryOverview', () => {
 
 		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
 
-		expect(screen.getByText('Cut over writes to Tessera')).toBeTruthy()
+		expect(screen.getByText('Cut over writes to detent')).toBeTruthy()
 		expect(
 			screen.getByText(
-				'After confirmation, Tessera becomes the source of truth for mnigos/upstream-notes. Pushes should target Tessera remotes, not GitHub.'
+				'After confirmation, detent becomes the source of truth for mnigos/upstream-notes. Pushes should target detent remotes, not GitHub.'
 			)
 		).toBeTruthy()
 		expect(
@@ -632,7 +632,7 @@ describe('RepositoryOverview', () => {
 		).toBeNull()
 		expect(screen.getAllByText('GitHub source')).toBeTruthy()
 		expect(screen.getByText('Default branch')).toBeTruthy()
-		expect(screen.getByText('Update local remotes to Tessera.')).toBeTruthy()
+		expect(screen.getByText('Update local remotes to detent.')).toBeTruthy()
 		expect(
 			screen.getByText('Run fetch verification after switching remotes.')
 		).toBeTruthy()
@@ -692,7 +692,7 @@ describe('RepositoryOverview', () => {
 
 		expect(
 			screen
-				.getByRole('button', { name: 'Cut over to Tessera' })
+				.getByRole('button', { name: 'Cut over to detent' })
 				.hasAttribute('disabled')
 		).toBe(true)
 
@@ -700,13 +700,11 @@ describe('RepositoryOverview', () => {
 		await waitFor(() =>
 			expect(
 				screen
-					.getByRole('button', { name: 'Cut over to Tessera' })
+					.getByRole('button', { name: 'Cut over to detent' })
 					.hasAttribute('disabled')
 			).toBe(false)
 		)
-		await user.click(
-			screen.getByRole('button', { name: 'Cut over to Tessera' })
-		)
+		await user.click(screen.getByRole('button', { name: 'Cut over to detent' }))
 
 		expect(cutoverGitHubMirrorMutateMock).toHaveBeenCalledWith({
 			username: 'mnigos',
@@ -735,13 +733,11 @@ describe('RepositoryOverview', () => {
 		).toBeTruthy()
 		expect(
 			screen
-				.getByRole('button', { name: 'Cut over to Tessera' })
+				.getByRole('button', { name: 'Cut over to detent' })
 				.hasAttribute('disabled')
 		).toBe(true)
 
-		await user.click(
-			screen.getByRole('button', { name: 'Cut over to Tessera' })
-		)
+		await user.click(screen.getByRole('button', { name: 'Cut over to detent' }))
 
 		expect(cutoverGitHubMirrorMutateMock).not.toHaveBeenCalled()
 	})
@@ -781,7 +777,7 @@ describe('RepositoryOverview', () => {
 		)
 
 		expect(
-			screen.getByText('Cutover complete. Tessera is source of truth.')
+			screen.getByText('Cutover complete. detent is source of truth.')
 		).toBeTruthy()
 
 		useCutoverGitHubMirrorMutationMock.mockReturnValue({
@@ -812,7 +808,7 @@ describe('RepositoryOverview', () => {
 			<RepositoryOverview summary={getMirroredSummary()} />
 		)
 
-		expect(screen.queryByText('Cut over writes to Tessera')).toBeNull()
+		expect(screen.queryByText('Cut over writes to detent')).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Review cutover' })).toBeNull()
 
 		rerender(
@@ -825,10 +821,10 @@ describe('RepositoryOverview', () => {
 		expect(
 			screen.getByRole('heading', { name: 'Repository source' })
 		).toBeTruthy()
-		expect(screen.getByText('Tessera source of truth')).toBeTruthy()
+		expect(screen.getByText('detent source of truth')).toBeTruthy()
 		expect(
 			screen.getByText(
-				'GitHub mirror controls are hidden because writes now belong in Tessera.'
+				'GitHub mirror controls are hidden because writes now belong in detent.'
 			)
 		).toBeTruthy()
 		expect(screen.getByText(formatter.format(cutoverAt))).toBeTruthy()
@@ -856,7 +852,7 @@ describe('RepositoryOverview', () => {
 			screen.getByRole('heading', { name: 'GitHub backup mirror' })
 		).toBeTruthy()
 		expect(
-			screen.getByText('Optional backup copy. Tessera remains source of truth.')
+			screen.getByText('Optional backup copy. detent remains source of truth.')
 		).toBeTruthy()
 		expect(screen.getByText('Backup target')).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Disable backup' })).toBeTruthy()
