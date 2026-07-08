@@ -28,7 +28,7 @@ function HomeRoute() {
 						detent is a Git platform built like an instrument: precise
 						repository hosting, code browsing you can read for hours, and
 						reviews that measure change instead of decorating it. Self-host it,
-						or let us run it.
+						or use the managed cloud.
 					</p>
 					<HeroActions />
 				</div>

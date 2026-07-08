@@ -14,7 +14,7 @@ An open-source Git collaboration platform: excellent repository hosting, code br
 
 ## Brand Personality
 
-Calm, technical, trustworthy. A serious developer tool with quiet confidence: dense where density serves reading code, restrained everywhere else. It should evoke the feeling of well-maintained infrastructure — something you'd trust with your source code precisely because it doesn't perform for you. Never playful-startup, never enterprise-beige.
+Calm, technical, trustworthy. A serious developer tool with quiet confidence: dense where density serves reading code, restrained everywhere else. It should evoke the feeling of well-maintained infrastructure: something you'd trust with your source code precisely because it doesn't perform for you. Never playful-startup, never enterprise-beige.
 
 ## Anti-references
 
