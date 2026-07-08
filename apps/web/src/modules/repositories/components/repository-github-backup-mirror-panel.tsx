@@ -70,7 +70,7 @@ export function RepositoryGitHubBackupMirrorPanel({
 						<GitHubMirrorStatusBadge status={status} />
 					</div>
 					<p className="text-muted-foreground text-sm">
-						Optional backup copy. Tessera remains source of truth.
+						Optional backup copy. detent remains source of truth.
 					</p>
 				</div>
 				<RepositoryGitHubBackupMirrorActions

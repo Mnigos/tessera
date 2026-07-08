@@ -22,7 +22,7 @@ export const Route = createFileRoute('/$username/$slug/commits/$ref')({
 	head: ({ params }) => ({
 		meta: [
 			{
-				title: `${params.username}/${params.slug} commits at ${params.ref} · Tessera`,
+				title: `${params.username}/${params.slug} commits at ${params.ref} · detent`,
 			},
 		],
 	}),
