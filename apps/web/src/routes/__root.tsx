@@ -7,10 +7,11 @@ import {
 	Outlet,
 	Scripts,
 } from '@tanstack/react-router'
-import { GitBranch, LogOut } from 'lucide-react'
+import { LogOut } from 'lucide-react'
 import type { PropsWithChildren } from 'react'
 import { FaGithub } from 'react-icons/fa'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { DetentMark } from '@/shared/components/detent-mark'
 import type { RouterContext } from '../router'
 import appCss from '../styles.css?url'
 
@@ -36,16 +37,18 @@ export const Route = createRootRouteWithContext<RouterContext>()({
 		meta: [
 			{ charSet: 'utf-8' },
 			{ name: 'viewport', content: 'width=device-width, initial-scale=1' },
-			{ title: 'Tessera' },
+			{ title: 'detent' },
 			{
 				name: 'description',
-				content: 'Open source Git collaboration for focused teams.',
+				content:
+					'Open source Git collaboration that holds its position: repository hosting, code browsing, and reviews.',
 			},
-			{ name: 'theme-color', content: '#171717' },
+			{ name: 'theme-color', content: '#1a1815' },
 		],
 		links: [
 			{ rel: 'preload', href: appCss, as: 'style' },
 			{ rel: 'stylesheet', href: appCss },
+			{ rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' },
 		],
 	}),
 	component: RootComponent,
@@ -83,9 +86,12 @@ function Navbar() {
 	return (
 		<header className="border-border border-b bg-background/95">
 			<div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6">
-				<Link className="flex items-center gap-2 font-semibold" to="/">
-					<GitBranch className="size-5 text-primary" />
-					Tessera
+				<Link
+					className="flex items-center gap-2.5 font-semibold tracking-tight"
+					to="/"
+				>
+					<DetentMark />
+					detent
 				</Link>
 				<nav className="flex items-center gap-3">
 					{isAuthenticated && (
