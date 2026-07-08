@@ -4,7 +4,7 @@ interface DetentMarkProps {
 	className?: string
 }
 
-export function DetentMark({ className }: DetentMarkProps) {
+export function DetentMark({ className }: Readonly<DetentMarkProps>) {
 	return (
 		<svg
 			aria-hidden="true"

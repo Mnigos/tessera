@@ -65,7 +65,9 @@ interface MigrationPositionRowProps {
 	position: MigrationPosition
 }
 
-function MigrationPositionRow({ position }: MigrationPositionRowProps) {
+function MigrationPositionRow({
+	position,
+}: Readonly<MigrationPositionRowProps>) {
 	const { number, name, label, body, reached } = position
 
 	return (
