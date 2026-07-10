@@ -35,7 +35,9 @@ export function assertPullRequestEditable(
 	})
 }
 
-export function assertPullRequestClosable(pullRequest: PullRequest) {
+export function assertPullRequestClosable(
+	pullRequest: PullRequest
+): asserts pullRequest is PullRequest & { state: 'open' } {
 	if (pullRequest.state === 'open') return
 
 	throw new PullRequestStateConflictError({
@@ -45,7 +47,9 @@ export function assertPullRequestClosable(pullRequest: PullRequest) {
 	})
 }
 
-export function assertPullRequestReopenable(pullRequest: PullRequest) {
+export function assertPullRequestReopenable(
+	pullRequest: PullRequest
+): asserts pullRequest is PullRequest & { state: 'closed' } {
 	if (pullRequest.state === 'closed') return
 
 	throw new PullRequestStateConflictError({

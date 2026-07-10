@@ -1,11 +1,16 @@
 import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import {
+	asc,
 	pullRequestEvents,
 	pullRequests,
 	repositoryPullRequestCounters,
 } from '@repo/db'
-import type { PullRequestId, RepositoryId } from '@repo/domain'
+import type {
+	PullRequestEventId,
+	PullRequestId,
+	RepositoryId,
+} from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import { PullRequestsRepository } from './pull-requests.repository'
 
@@ -31,6 +36,13 @@ const pullRequest = {
 	closedAt: null,
 	mergedAt: null,
 }
+const event = {
+	id: '00000000-0000-4000-8000-000000000045' as PullRequestEventId,
+	pullRequestId,
+	actorUserId: mockUserId,
+	type: 'opened' as const,
+	createdAt,
+}
 
 describe(PullRequestsRepository.name, () => {
 	let moduleRef: TestingModule
@@ -49,9 +61,12 @@ describe(PullRequestsRepository.name, () => {
 	const pullRequestValuesMock = vi.fn()
 	const pullRequestReturningMock = vi.fn()
 	const eventValuesMock = vi.fn()
-	const updateSetMock = vi.fn()
-	const updateWhereMock = vi.fn()
-	const updateReturningMock = vi.fn()
+	const counterUpdateSetMock = vi.fn()
+	const counterUpdateWhereMock = vi.fn()
+	const counterUpdateReturningMock = vi.fn()
+	const pullRequestUpdateSetMock = vi.fn()
+	const pullRequestUpdateWhereMock = vi.fn()
+	const pullRequestUpdateReturningMock = vi.fn()
 
 	beforeEach(async () => {
 		selectOrderByMock.mockResolvedValue([pullRequest])
@@ -80,10 +95,24 @@ describe(PullRequestsRepository.name, () => {
 			return { values: eventValuesMock }
 		})
 
-		updateReturningMock.mockResolvedValue([{ nextNumber: 2 }])
-		updateWhereMock.mockReturnValue({ returning: updateReturningMock })
-		updateSetMock.mockReturnValue({ where: updateWhereMock })
-		updateMock.mockReturnValue({ set: updateSetMock })
+		counterUpdateReturningMock.mockResolvedValue([{ nextNumber: 2 }])
+		counterUpdateWhereMock.mockReturnValue({
+			returning: counterUpdateReturningMock,
+		})
+		counterUpdateSetMock.mockReturnValue({ where: counterUpdateWhereMock })
+		pullRequestUpdateReturningMock.mockResolvedValue([pullRequest])
+		pullRequestUpdateWhereMock.mockReturnValue({
+			returning: pullRequestUpdateReturningMock,
+		})
+		pullRequestUpdateSetMock.mockReturnValue({
+			where: pullRequestUpdateWhereMock,
+		})
+		updateMock.mockImplementation(table => {
+			if (table === repositoryPullRequestCounters)
+				return { set: counterUpdateSetMock }
+
+			return { set: pullRequestUpdateSetMock }
+		})
 		const tx = { insert: insertMock, update: updateMock }
 		transactionMock.mockImplementation(callback => callback(tx))
 
@@ -149,7 +178,7 @@ describe(PullRequestsRepository.name, () => {
 	})
 
 	test('returns undefined when the counter repository is missing', async () => {
-		updateReturningMock.mockResolvedValue([])
+		counterUpdateReturningMock.mockResolvedValue([])
 
 		expect(
 			await repository.create({
@@ -164,5 +193,114 @@ describe(PullRequestsRepository.name, () => {
 			})
 		).toBeUndefined()
 		expect(pullRequestValuesMock).not.toHaveBeenCalled()
+	})
+
+	test('returns lifecycle events in ascending creation order', async () => {
+		selectOrderByMock.mockResolvedValue([event])
+
+		expect(await repository.listEvents({ pullRequestId })).toEqual([event])
+		expect(selectOrderByMock).toHaveBeenCalledWith(
+			asc(pullRequestEvents.createdAt)
+		)
+	})
+
+	test('edits a pull request and records an edited event', async () => {
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{ ...pullRequest, title: 'Updated' },
+		])
+
+		expect(
+			await repository.edit({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				expectedState: 'open',
+				title: 'Updated',
+			})
+		).toEqual({ ...pullRequest, title: 'Updated' })
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
+			title: 'Updated',
+			body: undefined,
+		})
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'edited',
+		})
+	})
+
+	test('skips empty edits before opening a transaction', async () => {
+		expect(
+			await repository.edit({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				expectedState: 'open',
+			})
+		).toBeUndefined()
+		expect(transactionMock).not.toHaveBeenCalled()
+	})
+
+	test('returns undefined when edit state no longer matches', async () => {
+		pullRequestUpdateReturningMock.mockResolvedValue([])
+
+		expect(
+			await repository.edit({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				expectedState: 'open',
+				title: 'Updated',
+			})
+		).toBeUndefined()
+		expect(eventValuesMock).not.toHaveBeenCalled()
+	})
+
+	test('closes an open pull request and records a closed event', async () => {
+		const changedAt = new Date('2026-07-11T00:01:00Z')
+		const closedPullRequest = {
+			...pullRequest,
+			state: 'closed' as const,
+			closedAt: changedAt,
+		}
+		pullRequestUpdateReturningMock.mockResolvedValue([closedPullRequest])
+
+		expect(
+			await repository.close({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				changedAt,
+			})
+		).toEqual(closedPullRequest)
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
+			state: 'closed',
+			closedAt: changedAt,
+		})
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'closed',
+		})
+	})
+
+	test('reopens a closed pull request and clears the closed timestamp', async () => {
+		expect(
+			await repository.reopen({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				changedAt: new Date('2026-07-11T00:02:00Z'),
+			})
+		).toEqual(pullRequest)
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
+			state: 'open',
+			closedAt: null,
+		})
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'reopened',
+		})
 	})
 })

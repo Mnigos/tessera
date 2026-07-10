@@ -294,6 +294,28 @@ describe(PullRequestsService.name, () => {
 		).rejects.toBeInstanceOf(PullRequestEditRequiredError)
 	})
 
+	test('rejects edits on merged pull requests', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			closedAt: createdAt,
+			mergedAt: createdAt,
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+		})
+		const editSpy = vi.spyOn(repository, 'edit')
+
+		await expect(
+			service.edit(mockUserId, {
+				...repositoryInput,
+				number: 1,
+				title: 'Updated',
+				body: undefined,
+			})
+		).rejects.toBeInstanceOf(PullRequestStateConflictError)
+		expect(editSpy).not.toHaveBeenCalled()
+	})
+
 	test('closes and reopens through state-checked repository mutations', async () => {
 		const findSpy = vi.spyOn(repository, 'find')
 		findSpy.mockResolvedValueOnce(pullRequest).mockResolvedValueOnce({
@@ -323,5 +345,21 @@ describe(PullRequestsService.name, () => {
 		await expect(
 			service.close(mockUserId, { ...repositoryInput, number: 1 })
 		).rejects.toBeInstanceOf(PullRequestStateConflictError)
+	})
+
+	test('maps reopen branch pair uniqueness to a conflict', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			state: 'closed',
+			closedAt: createdAt,
+		})
+		vi.spyOn(repository, 'reopen').mockRejectedValue({
+			code: '23505',
+			constraint: 'pull_requests_open_branch_pair_unique',
+		})
+
+		await expect(
+			service.reopen(mockUserId, { ...repositoryInput, number: 1 })
+		).rejects.toBeInstanceOf(PullRequestAlreadyOpenError)
 	})
 })
