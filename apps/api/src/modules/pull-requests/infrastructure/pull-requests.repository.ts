@@ -183,6 +183,8 @@ export class PullRequestsRepository {
 		repositoryId,
 		title,
 	}: EditParams): Promise<PullRequest | undefined> {
+		if (title === undefined && body === undefined) return undefined
+
 		return await this.db.transaction(async tx => {
 			const [pullRequest] = await tx
 				.update(pullRequests)
