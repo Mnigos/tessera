@@ -118,8 +118,8 @@ interface CompleteImportedGitHubRepositoryInput
 	extends UpdateImportedRepositoryStorageParams,
 		InitializeGitHubExternalSourceInput {}
 
-interface ReadableRepositoryContext {
-	repository: RepositoryWithOwnerEntity
+export interface RepositoryAccessContext {
+	repositoryId: RepositoryId
 	storagePath: string
 }
 
@@ -218,6 +218,41 @@ export class RepositoriesService {
 		const repositories = await this.repositoriesRepository.list({ userId })
 
 		return repositories.map(toRepositoryOutput)
+	}
+
+	async getReadableRepositoryContext(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryAccessContext> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			viewerUserId,
+			input
+		)
+
+		return {
+			repositoryId: repository.id,
+			storagePath,
+		}
+	}
+
+	async getWritableRepositoryContext(
+		userId: UserId,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryAccessContext> {
+		const { repository, storagePath } = await this.findReadableRepository(
+			userId,
+			input
+		)
+
+		if (repository.ownerUserId !== userId)
+			throw new RepositoryGitWriteForbiddenError({
+				repositoryId: repository.id,
+				userId,
+			})
+
+		this.assertTesseraWritesAllowed(repository)
+
+		return { repositoryId: repository.id, storagePath }
 	}
 
 	async createImportedRepositoryMetadata({
@@ -1186,7 +1221,10 @@ export class RepositoriesService {
 	private async findReadableRepository(
 		viewerUserId: UserId | undefined,
 		{ slug, username }: ParsedGetRepositoryInput
-	): Promise<ReadableRepositoryContext> {
+	): Promise<{
+		repository: RepositoryWithOwnerEntity
+		storagePath: string
+	}> {
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
