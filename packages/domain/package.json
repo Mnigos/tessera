@@ -8,6 +8,7 @@
     "./shared/*": "./src/shared/*.ts",
     "./users/*": "./src/users/*.ts",
     "./organizations/*": "./src/organizations/*.ts",
+    "./pull-requests/*": "./src/pull-requests/*.ts",
     "./repositories/*": "./src/repositories/*.ts"
   },
   "license": "MIT",
