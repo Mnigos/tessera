@@ -1,6 +1,7 @@
 export * from './auth.schema'
 export * from './gpg-public-keys.schema'
 export * from './organizations.schema'
+export * from './pull-requests.schema'
 export * from './repositories.schema'
 export * from './repository-external-sources.schema'
 export * from './repository-imports.schema'
