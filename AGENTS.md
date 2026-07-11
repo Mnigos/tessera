@@ -10,10 +10,17 @@
 - Prefer concrete file paths, commands, and outcomes over broad narration.
 - When adding or requiring an environment variable, explicitly tell the user and provide either a safe example value or instructions for obtaining the value.
 
+## Subagents
+
+- The main agent owns research, investigation, implementation, tests, and guideline maintenance.
+- Use `review_gate` as final read-only defect review after non-trivial changes.
+- Do not spawn other subagents.
+
 ## Before Editing
 
-- Before creating or editing non-trivial files, read matching skill(s), similar files, and uncertain imported dependency implementations or types.
+- Before creating or editing any file, read matching skill(s), at least 3 similar files, and uncertain imported dependency implementations or types.
 - Live repo patterns beat examples and assumptions.
+- Similar-file review never replaces skill usage.
 - When adding Tessera code, heavily inspect `/Users/mnigos/Documents/repositories/personal-apps/game-notes` and `/Users/mnigos/Documents/repositories/rigtch/rigtch-fm` first.
 - Use `game-notes` as the primary reference for DDD module structure, API layering, contracts, auth proxying, and code style.
 - Use `rigtch-fm` as the primary reference for production infrastructure such as queues, storage, billing, CI, Sentry, editor settings, and deployment polish.
@@ -78,6 +85,12 @@
 
 - Use `useQuery` with explicit loading, error, empty, and success states.
 - Pass all options inside `queryOptions()`.
+
+## UI Workflow
+
+- Always use `claude -p` for any UI change, especially when designing new UI.
+- Prefer `claude -p --model fable` by default.
+- Use `claude -p --model opus` for smaller, tightly defined UI tasks when appropriate.
 
 ## Quality
 
