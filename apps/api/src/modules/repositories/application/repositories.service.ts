@@ -13,7 +13,6 @@ import {
 	type GitStorageRepositoryTree,
 	type GitStorageTrustedGpgKey,
 } from '@config/git-storage'
-import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
@@ -49,6 +48,12 @@ import {
 	toRepositoryOutput,
 } from '../domain/repository'
 import {
+	assertGitHubPushBackAvailable,
+	assertGitHubPushBackNotRunning,
+	assertRepositoryHasStoragePath,
+	assertTesseraWritesAllowed,
+} from '../domain/repository.assertions'
+import {
 	DuplicateRepositorySlugError,
 	PrivateRepositoryGitReadForbiddenError,
 	RepositoryBrowserInvalidRequestError,
@@ -61,10 +66,7 @@ import {
 	RepositoryGitHubPushBackInProgressError,
 	RepositoryGitHubPushBackTokenMissingError,
 	RepositoryGitHubPushBackUnavailableError,
-	RepositoryGitHubSourceOfTruthWriteForbiddenError,
-	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
-	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
 import {
 	normalizeGeneratedRepositorySlug,
@@ -128,12 +130,6 @@ export interface AuthorizeGitRepositoryReadInput {
 	username: string
 }
 
-export interface AuthorizeGitRepositoryWriteInput {
-	rawToken: string | undefined
-	slug: RepositorySlug
-	username: string
-}
-
 export interface AuthorizeSshGitRepositoryInput {
 	fingerprint: string
 	slug: RepositorySlug
@@ -145,10 +141,31 @@ export interface AuthenticateSshKeyInput {
 	username: string
 }
 
+export interface AuthenticateSshKeyResult {
+	trustedUser: UserId
+}
+
 export interface GitRepositoryAuthorization {
 	repositoryId: RepositoryId
 	storagePath: string
 	trustedUser: string
+}
+
+export interface GitRepositoryWriteExternalSource {
+	mirrorMode: string
+	provider: string
+}
+
+export interface GitRepositoryWriteTarget {
+	id: RepositoryId
+	ownerUserId: UserId | null
+	storagePath: string | null
+	externalSource?: GitRepositoryWriteExternalSource
+}
+
+interface ReadableRepositoryContext {
+	repository: RepositoryWithOwnerEntity
+	storagePath: string
 }
 
 export interface CreateImportedRepositoryMetadataInput {
@@ -166,7 +183,6 @@ export class RepositoriesService {
 	constructor(
 		private readonly repositoriesRepository: RepositoriesRepository,
 		private readonly gitStorageClient: GitStorageClient,
-		private readonly gitAccessTokensService: GitAccessTokensService,
 		private readonly gpgPublicKeysService: GpgPublicKeysService,
 		private readonly sshPublicKeysService: SshPublicKeysService,
 		private readonly githubMirrorSyncQueue: GitHubMirrorSyncQueue
@@ -236,23 +252,16 @@ export class RepositoriesService {
 	}
 
 	async getWritableRepositoryContext(
-		userId: UserId,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryAccessContext> {
-		const { repository, storagePath } = await this.findReadableRepository(
-			userId,
-			input
-		)
+		const repository = await this.findRepository(input)
+		assertRepositoryHasStoragePath(repository)
+		assertTesseraWritesAllowed(repository)
 
-		if (repository.ownerUserId !== userId)
-			throw new RepositoryGitWriteForbiddenError({
-				repositoryId: repository.id,
-				userId,
-			})
-
-		this.assertTesseraWritesAllowed(repository)
-
-		return { repositoryId: repository.id, storagePath }
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+		}
 	}
 
 	async createImportedRepositoryMetadata({
@@ -381,10 +390,7 @@ export class RepositoriesService {
 		})
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+		assertRepositoryHasStoragePath(repository)
 		if (
 			repository.externalSource?.provider !== 'github' ||
 			repository.externalSource.mirrorMode === 'tessera_source'
@@ -500,9 +506,9 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		this.assertGitHubPushBackAvailable(repository)
+		assertGitHubPushBackAvailable(repository)
 
-		this.assertGitHubPushBackNotRunning(repository)
+		assertGitHubPushBackNotRunning(repository)
 
 		const enabledRepository =
 			await this.repositoriesRepository.enableGitHubPushBack({
@@ -531,9 +537,9 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		this.assertGitHubPushBackAvailable(repository)
+		assertGitHubPushBackAvailable(repository)
 
-		this.assertGitHubPushBackNotRunning(repository)
+		assertGitHubPushBackNotRunning(repository)
 
 		const disabledRepository =
 			await this.repositoriesRepository.disableGitHubPushBack({
@@ -562,19 +568,16 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		this.assertGitHubPushBackAvailable(repository)
+		assertGitHubPushBackAvailable(repository)
 
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+		assertRepositoryHasStoragePath(repository)
 
 		if (!repository.externalSource?.githubPushBackEnabled)
 			throw new RepositoryGitHubPushBackDisabledError({
 				repositoryId: repository.id,
 			})
 
-		this.assertGitHubPushBackNotRunning(repository)
+		assertGitHubPushBackNotRunning(repository)
 
 		const account = await this.repositoriesRepository.findGitHubAccount({
 			userId: targetUserId,
@@ -890,10 +893,7 @@ export class RepositoriesService {
 				repositoryId: repository.id,
 			})
 
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+		assertRepositoryHasStoragePath(repository)
 
 		return {
 			repositoryId: repository.id,
@@ -902,15 +902,10 @@ export class RepositoriesService {
 		}
 	}
 
-	async authorizeGitRepositoryWrite({
-		rawToken,
+	async getGitRepositoryWriteTarget({
 		slug,
 		username,
-	}: AuthorizeGitRepositoryWriteInput): Promise<GitRepositoryAuthorization> {
-		const { userId } = await this.gitAccessTokensService.verify({
-			rawToken,
-			requiredPermission: 'git:write',
-		})
+	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryWriteTarget> {
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
@@ -918,23 +913,30 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		if (repository.ownerUserId !== userId)
-			throw new RepositoryGitWriteForbiddenError({
-				repositoryId: repository.id,
-				userId,
-			})
+		return {
+			id: repository.id,
+			ownerUserId: repository.ownerUserId,
+			storagePath: repository.storagePath,
+			externalSource: repository.externalSource
+				? {
+						provider: repository.externalSource.provider,
+						mirrorMode: repository.externalSource.mirrorMode,
+					}
+				: undefined,
+		}
+	}
 
-		this.assertTesseraWritesAllowed(repository)
-
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+	completeGitRepositoryWriteAuthorization(
+		target: GitRepositoryWriteTarget,
+		trustedUserId: UserId
+	): GitRepositoryAuthorization {
+		assertTesseraWritesAllowed(target)
+		assertRepositoryHasStoragePath(target)
 
 		return {
-			repositoryId: repository.id,
-			storagePath: repository.storagePath,
-			trustedUser: userId,
+			repositoryId: target.id,
+			storagePath: target.storagePath,
+			trustedUser: trustedUserId,
 		}
 	}
 
@@ -961,10 +963,7 @@ export class RepositoriesService {
 				userId: keyOwnerUserId,
 			})
 
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+		assertRepositoryHasStoragePath(repository)
 
 		return {
 			repositoryId: repository.id,
@@ -975,45 +974,11 @@ export class RepositoriesService {
 
 	async authenticateSshKey({
 		fingerprint,
-	}: AuthenticateSshKeyInput): Promise<{ trustedUser: UserId }> {
+	}: AuthenticateSshKeyInput): Promise<AuthenticateSshKeyResult> {
 		const keyOwnerUserId =
 			await this.sshPublicKeysService.authenticateByFingerprint(fingerprint)
 
 		return { trustedUser: keyOwnerUserId }
-	}
-
-	async authorizeSshGitRepositoryWrite({
-		fingerprint,
-		slug,
-		username,
-	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
-		const keyOwnerUserId =
-			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprint)
-		const repository = await this.repositoriesRepository.find({
-			username,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		if (repository.ownerUserId !== keyOwnerUserId)
-			throw new RepositoryGitWriteForbiddenError({
-				repositoryId: repository.id,
-				userId: keyOwnerUserId,
-			})
-
-		this.assertTesseraWritesAllowed(repository)
-
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
-
-		return {
-			repositoryId: repository.id,
-			storagePath: repository.storagePath,
-			trustedUser: keyOwnerUserId,
-		}
 	}
 
 	private async createRepositoryMetadata({
@@ -1055,40 +1020,6 @@ export class RepositoriesService {
 				cleanupError instanceof Error ? cleanupError.stack : undefined
 			)
 		}
-	}
-
-	private assertTesseraWritesAllowed(repository: RepositoryWithOwnerEntity) {
-		if (repository.externalSource?.mirrorMode !== 'github_to_tessera') return
-
-		throw new RepositoryGitHubSourceOfTruthWriteForbiddenError({
-			repositoryId: repository.id,
-			provider: repository.externalSource.provider,
-			mirrorMode: repository.externalSource.mirrorMode,
-		})
-	}
-
-	private assertGitHubPushBackAvailable(repository: RepositoryWithOwnerEntity) {
-		if (
-			repository.externalSource?.provider === 'github' &&
-			repository.externalSource.mirrorMode === 'tessera_source'
-		)
-			return
-
-		throw new RepositoryGitHubPushBackUnavailableError({
-			repositoryId: repository.id,
-			provider: repository.externalSource?.provider,
-			mirrorMode: repository.externalSource?.mirrorMode,
-		})
-	}
-
-	private assertGitHubPushBackNotRunning(
-		repository: RepositoryWithOwnerEntity
-	) {
-		if (repository.externalSource?.githubPushBackStatus !== 'running') return
-
-		throw new RepositoryGitHubPushBackInProgressError({
-			repositoryId: repository.id,
-		})
 	}
 
 	private async markGitHubPushBackFailed(
@@ -1221,16 +1152,8 @@ export class RepositoriesService {
 	private async findReadableRepository(
 		viewerUserId: UserId | undefined,
 		{ slug, username }: ParsedGetRepositoryInput
-	): Promise<{
-		repository: RepositoryWithOwnerEntity
-		storagePath: string
-	}> {
-		const repository = await this.repositoriesRepository.find({
-			username,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+	): Promise<ReadableRepositoryContext> {
+		const repository = await this.findRepository({ slug, username })
 
 		if (
 			repository.visibility === 'private' &&
@@ -1238,15 +1161,26 @@ export class RepositoriesService {
 		)
 			throw new RepositoryNotFoundError({ slug, username })
 
-		if (!repository.storagePath)
-			throw new RepositoryStoragePathMissingError({
-				repositoryId: repository.id,
-			})
+		assertRepositoryHasStoragePath(repository)
 
 		return {
 			repository,
 			storagePath: repository.storagePath,
 		}
+	}
+
+	private async findRepository({
+		slug,
+		username,
+	}: ParsedGetRepositoryInput): Promise<RepositoryWithOwnerEntity> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		return repository
 	}
 
 	private async listRepositoryOwnerTrustedGpgKeys(

@@ -11,7 +11,6 @@ import type {
 import { mockUserId } from '~/shared/test-utils'
 import {
 	PullRequestAlreadyOpenError,
-	PullRequestEditRequiredError,
 	PullRequestInvalidBranchesError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
@@ -158,19 +157,6 @@ describe(PullRequestsService.name, () => {
 		})
 	})
 
-	test('rejects identical source and target branches before storage reads', async () => {
-		await expect(
-			service.create(mockUserId, {
-				...repositoryInput,
-				sourceBranch: 'main',
-				targetBranch: 'main',
-				title: 'Invalid',
-				body: undefined,
-			})
-		).rejects.toBeInstanceOf(PullRequestInvalidBranchesError)
-		expect(gitStorageClient.listRepositoryRefs).not.toHaveBeenCalled()
-	})
-
 	test('rejects missing branches', async () => {
 		await expect(
 			service.create(mockUserId, {
@@ -281,17 +267,6 @@ describe(PullRequestsService.name, () => {
 				expectedState: 'open',
 			})
 		)
-	})
-
-	test('rejects empty edits', async () => {
-		await expect(
-			service.edit(mockUserId, {
-				...repositoryInput,
-				number: 1,
-				title: undefined,
-				body: undefined,
-			})
-		).rejects.toBeInstanceOf(PullRequestEditRequiredError)
 	})
 
 	test('rejects edits on merged pull requests', async () => {

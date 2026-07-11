@@ -1,3 +1,5 @@
+import { RepositoryWriteGuard } from '@modules/repositories'
+import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { PullRequest } from '@repo/contracts'
 import type { PullRequestId, RepositoryId } from '@repo/domain'
@@ -37,6 +39,14 @@ describe(PullRequestsController.name, () => {
 		moduleRef = await Test.createTestingModule({
 			controllers: [PullRequestsController],
 			providers: [
+				{
+					provide: RepositoryWriteGuard,
+					useValue: { canActivate: vi.fn() },
+				},
+				{
+					provide: UserService,
+					useValue: { findUserId: vi.fn() },
+				},
 				{
 					provide: PullRequestsService,
 					useValue: {

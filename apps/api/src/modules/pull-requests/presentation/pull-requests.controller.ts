@@ -1,6 +1,7 @@
 import { contract } from '@config/rpc'
 import { RequireAuth, Session, type UserSession } from '@modules/auth'
-import { Controller } from '@nestjs/common'
+import { RepositoryWriteGuard } from '@modules/repositories'
+import { Controller, UseGuards } from '@nestjs/common'
 import { Implement, implement } from '@orpc/nest'
 import { PullRequestsService } from '../application/pull-requests.service'
 
@@ -9,6 +10,7 @@ export class PullRequestsController {
 	constructor(private readonly pullRequestsService: PullRequestsService) {}
 
 	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.create)
 	create(@Session() session: UserSession) {
 		return implement(contract.pullRequests.create).handler(({ input }) =>
@@ -34,6 +36,7 @@ export class PullRequestsController {
 	}
 
 	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.edit)
 	edit(@Session() session: UserSession) {
 		return implement(contract.pullRequests.edit).handler(({ input }) =>
@@ -42,6 +45,7 @@ export class PullRequestsController {
 	}
 
 	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.close)
 	close(@Session() session: UserSession) {
 		return implement(contract.pullRequests.close).handler(({ input }) =>
@@ -50,6 +54,7 @@ export class PullRequestsController {
 	}
 
 	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.reopen)
 	reopen(@Session() session: UserSession) {
 		return implement(contract.pullRequests.reopen).handler(({ input }) =>

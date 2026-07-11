@@ -41,13 +41,3 @@ export class PullRequestStateConflictError extends ConflictError {
 		)
 	}
 }
-
-export class PullRequestEditRequiredError extends BadRequestError {
-	constructor(context?: Record<string, unknown>) {
-		super(
-			'pull request edit',
-			context,
-			'At least one editable field is required.'
-		)
-	}
-}

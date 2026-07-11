@@ -19,6 +19,7 @@ import { RepositoriesService } from '@modules/repositories/application/repositor
 import { GitHubMirrorSyncQueue } from '@modules/repositories/infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
+import { GitRepositoryWriteGuard } from '@modules/repositories/presentation/git-repository-write.guard'
 import { InternalGitAuthorizationGuard } from '@modules/repositories/presentation/internal-git-authorization.guard'
 import { SshPublicKeysService } from '@modules/ssh-public-keys/application/ssh-public-keys.service'
 import { SshPublicKeysRepository } from '@modules/ssh-public-keys/infrastructure/ssh-public-keys.repository'
@@ -110,6 +111,7 @@ describe('Git authorization gRPC integration', () => {
 				RepositoriesRepository,
 				SshPublicKeysService,
 				SshPublicKeysRepository,
+				GitRepositoryWriteGuard,
 				InternalGitAuthorizationGuard,
 				{
 					provide: GitStorageClient,

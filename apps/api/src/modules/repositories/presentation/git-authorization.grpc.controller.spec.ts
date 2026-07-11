@@ -1,10 +1,11 @@
 import { EnvService } from '@config/env'
 import { status } from '@grpc/grpc-js'
+import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { RpcException } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, RepositorySlug, UserId } from '@repo/domain'
 import {
-	ForbiddenError,
 	InternalError,
 	NotFoundError,
 	UnauthorizedError,
@@ -12,6 +13,7 @@ import {
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
 import { GitAuthorizationGrpcController } from './git-authorization.grpc.controller'
+import { setGitRepositoryWriteAuthorization } from './git-repository-write-authorization.context'
 
 describe(GitAuthorizationGrpcController.name, () => {
 	let moduleRef: TestingModule
@@ -27,10 +29,18 @@ describe(GitAuthorizationGrpcController.name, () => {
 					useValue: {
 						authenticateSshKey: vi.fn(),
 						authorizeGitRepositoryRead: vi.fn(),
-						authorizeGitRepositoryWrite: vi.fn(),
 						authorizeSshGitRepositoryRead: vi.fn(),
-						authorizeSshGitRepositoryWrite: vi.fn(),
+						getGitRepositoryWriteTarget: vi.fn(),
+						completeGitRepositoryWriteAuthorization: vi.fn(),
 					},
+				},
+				{
+					provide: GitAccessTokensService,
+					useValue: { verify: vi.fn() },
+				},
+				{
+					provide: SshPublicKeysService,
+					useValue: { findOwnerByFingerprint: vi.fn() },
 				},
 				{
 					provide: EnvService,
@@ -98,29 +108,23 @@ describe(GitAuthorizationGrpcController.name, () => {
 		})
 	})
 
-	test('delegates authorize write requests to the repositories service', async () => {
-		const authorizeGitRepositoryWriteSpy = vi
-			.spyOn(repositoriesService, 'authorizeGitRepositoryWrite')
-			.mockResolvedValue({
-				repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
-				storagePath: '/var/lib/tessera/repositories/repo.git',
-				trustedUser: '00000000-0000-4000-8000-000000000001',
-			})
-
-		await controller.authorizeWrite({
+	test('returns guard-resolved HTTP write authorization', async () => {
+		const request = {
 			ownerUsername: 'marta',
 			repositorySlug: 'notes',
 			service: 'git-receive-pack',
 			action: 'write',
 			basicUsername: 'marta',
 			token: 'tes_git_raw-secret',
-		})
+		}
+		const authorization = {
+			repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: '00000000-0000-4000-8000-000000000001',
+		}
+		setGitRepositoryWriteAuthorization(request, authorization)
 
-		expect(authorizeGitRepositoryWriteSpy).toHaveBeenCalledWith({
-			username: 'marta',
-			slug: 'notes' as RepositorySlug,
-			rawToken: 'tes_git_raw-secret',
-		})
+		expect(await controller.authorizeWrite(request)).toBe(authorization)
 	})
 
 	test('delegates authorize ssh read requests to the repositories service', async () => {
@@ -152,28 +156,22 @@ describe(GitAuthorizationGrpcController.name, () => {
 		})
 	})
 
-	test('delegates authorize ssh write requests to the repositories service', async () => {
-		const authorizeSshGitRepositoryWriteSpy = vi
-			.spyOn(repositoriesService, 'authorizeSshGitRepositoryWrite')
-			.mockResolvedValue({
-				repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
-				storagePath: '/var/lib/tessera/repositories/repo.git',
-				trustedUser: '00000000-0000-4000-8000-000000000001',
-			})
-
-		await controller.authorizeSshWrite({
+	test('returns guard-resolved SSH write authorization', async () => {
+		const request = {
 			ownerUsername: 'marta',
 			repositorySlug: 'notes',
 			service: 'git-receive-pack',
 			action: 'receive_pack',
 			fingerprint: 'SHA256:abc',
-		})
+		}
+		const authorization = {
+			repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedUser: '00000000-0000-4000-8000-000000000001',
+		}
+		setGitRepositoryWriteAuthorization(request, authorization)
 
-		expect(authorizeSshGitRepositoryWriteSpy).toHaveBeenCalledWith({
-			username: 'marta',
-			slug: 'notes' as RepositorySlug,
-			fingerprint: 'SHA256:abc',
-		})
+		expect(await controller.authorizeSshWrite(request)).toBe(authorization)
 	})
 
 	test('maps authentication errors to unauthenticated grpc status', async () => {
@@ -191,26 +189,6 @@ describe(GitAuthorizationGrpcController.name, () => {
 			})
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.UNAUTHENTICATED }),
-		})
-	})
-
-	test('maps domain errors to grpc statuses', async () => {
-		vi.spyOn(
-			repositoriesService,
-			'authorizeGitRepositoryWrite'
-		).mockRejectedValue(new ForbiddenError('repository git write'))
-
-		await expect(
-			controller.authorizeWrite({
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-receive-pack',
-				action: 'write',
-				basicUsername: 'marta',
-				token: 'tes_git_raw-secret',
-			})
-		).rejects.toMatchObject({
-			error: expect.objectContaining({ code: status.PERMISSION_DENIED }),
 		})
 	})
 
@@ -233,23 +211,23 @@ describe(GitAuthorizationGrpcController.name, () => {
 	})
 
 	test('maps failed preconditions and unknown errors to grpc statuses', async () => {
-		vi.spyOn(repositoriesService, 'authorizeGitRepositoryWrite')
+		vi.spyOn(repositoriesService, 'authorizeGitRepositoryRead')
 			.mockRejectedValueOnce(new RepositoryStoragePathMissingError())
 			.mockRejectedValueOnce(new Error('boom'))
 			.mockRejectedValueOnce(new InternalError('repository create'))
 
 		await expect(
-			controller.authorizeWrite(createWriteRequest())
+			controller.authorizeRead(createReadRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.FAILED_PRECONDITION }),
 		})
 		await expect(
-			controller.authorizeWrite(createWriteRequest())
+			controller.authorizeRead(createReadRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.INTERNAL }),
 		})
 		await expect(
-			controller.authorizeWrite(createWriteRequest())
+			controller.authorizeRead(createReadRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.INTERNAL }),
 		})
@@ -297,13 +275,11 @@ describe(GitAuthorizationGrpcController.name, () => {
 	})
 })
 
-function createWriteRequest() {
+function createReadRequest() {
 	return {
 		ownerUsername: 'marta',
 		repositorySlug: 'notes',
-		service: 'git-receive-pack',
-		action: 'write',
-		basicUsername: 'marta',
-		token: 'tes_git_raw-secret',
+		service: 'git-upload-pack',
+		action: 'read',
 	}
 }
