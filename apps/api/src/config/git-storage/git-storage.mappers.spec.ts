@@ -1,6 +1,8 @@
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryChangedFileStatus,
+	RepositoryDiffLineKind,
 	RepositoryRefKind,
 	RepositorySignatureState,
 	RepositoryTreeEntryKind,
@@ -9,6 +11,8 @@ import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
 	toRepositoryCommitHistory,
+	toRepositoryComparison,
+	toRepositoryFileDiff,
 	toRepositoryRawBlob,
 	toRepositoryRefs,
 	toRepositoryTree,
@@ -344,5 +348,52 @@ describe('git storage mappers', () => {
 			branches: [],
 			tags: [],
 		})
+	})
+
+	test('maps comparison metadata and structured file hunks', () => {
+		expect(
+			toRepositoryComparison({
+				baseSha: 'base',
+				headSha: 'head',
+				mergeBaseSha: 'merge-base',
+				files: [
+					{
+						status:
+							RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_RENAMED,
+						oldPath: 'old.ts',
+						newPath: 'new.ts',
+						additions: 2,
+						deletions: 1,
+						isBinary: false,
+					},
+				],
+				commits: [],
+				isTruncated: false,
+				commitsTruncated: false,
+				commitLimit: 500,
+				fileLimit: 300,
+			})
+		).toMatchObject({ files: [{ status: 'renamed' }] })
+		expect(
+			toRepositoryFileDiff({
+				file: {},
+				hunks: [
+					{
+						header: '@@ -1 +1 @@',
+						lines: [
+							{
+								kind: RepositoryDiffLineKind.REPOSITORY_DIFF_LINE_KIND_DELETION,
+								content: 'old',
+								oldLine: 1,
+							},
+						],
+					},
+				],
+			})
+		).toMatchObject({ hunks: [{ lines: [{ kind: 'deletion' }] }] })
+	})
+
+	test('rejects a file diff without its required file entry', () => {
+		expect(() => toRepositoryFileDiff({})).toThrow('git storage request failed')
 	})
 })

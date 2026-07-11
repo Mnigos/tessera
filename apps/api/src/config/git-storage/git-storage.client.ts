@@ -15,9 +15,11 @@ import {
 	ServiceUnavailableError,
 } from '~/shared/errors'
 import {
+	type CompareRepositoryRefsResponse,
 	type CreateRepositoryResponse,
 	type GetRepositoryBlobResponse,
 	type GetRepositoryBrowserSummaryResponse,
+	type GetRepositoryFileDiffResponse,
 	type GetRepositoryRawBlobResponse,
 	type GetRepositoryTreeResponse,
 	GIT_STORAGE_SERVICE_NAME,
@@ -26,6 +28,7 @@ import {
 	type ImportRepositoryResponse,
 	type ListRepositoryCommitsResponse,
 	type ListRepositoryRefsResponse,
+	type MergeRepositoryRefsResponse,
 	type PushRepositoryMirrorResponse,
 	type TrustedGpgKey,
 } from './generated/tessera/git/v1/git_storage'
@@ -33,6 +36,8 @@ import {
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
 	toRepositoryCommitHistory,
+	toRepositoryComparison,
+	toRepositoryFileDiff,
 	toRepositoryRawBlob,
 	toRepositoryRefs,
 	toRepositoryTree,
@@ -106,6 +111,28 @@ export interface GitStorageListRepositoryCommitsParams {
 	repositoryId: RepositoryId
 	storagePath: string
 	trustedGpgKeys: GitStorageTrustedGpgKey[]
+}
+
+export interface GitStorageCompareRepositoryRefsParams {
+	baseRef: string
+	headRef: string
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
+export interface GitStorageGetRepositoryFileDiffParams
+	extends GitStorageCompareRepositoryRefsParams {
+	path: string
+}
+
+export interface GitStorageMergeRepositoryRefsParams
+	extends GitStorageCompareRepositoryRefsParams {
+	authorEmail: string
+	authorName: string
+	expectedBaseSha: string
+	expectedHeadSha: string
+	message: string
+	operationId: string
 }
 
 export type GitStorageTrustedGpgKey = TrustedGpgKey
@@ -215,6 +242,69 @@ export interface GitStorageRepositoryCommit {
 
 export interface GitStorageRepositoryCommitHistory {
 	commits: GitStorageRepositoryCommit[]
+}
+
+export interface GitStorageRepositoryComparisonCommit {
+	author: GitStorageRepositoryCommitIdentity | undefined
+	sha: string
+	shortSha: string
+	summary: string
+}
+
+export type GitStorageRepositoryChangedFileStatus =
+	| 'added'
+	| 'deleted'
+	| 'modified'
+	| 'renamed'
+
+export interface GitStorageRepositoryChangedFile {
+	additions: number
+	baseBlobId?: string
+	deletions: number
+	headBlobId?: string
+	isBinary: boolean
+	newPath: string
+	oldPath: string
+	status: GitStorageRepositoryChangedFileStatus
+}
+
+export interface GitStorageRepositoryComparison {
+	baseSha: string
+	commitLimit: number
+	commits: GitStorageRepositoryComparisonCommit[]
+	commitsTruncated: boolean
+	fileLimit: number
+	files: GitStorageRepositoryChangedFile[]
+	headSha: string
+	isTruncated: boolean
+	mergeBaseSha: string
+}
+
+export type GitStorageRepositoryDiffLineKind =
+	| 'addition'
+	| 'context'
+	| 'deletion'
+
+export interface GitStorageRepositoryDiffLine {
+	content: string
+	kind: GitStorageRepositoryDiffLineKind
+	newLine?: number
+	oldLine?: number
+}
+
+export interface GitStorageRepositoryDiffHunk {
+	header: string
+	lines: GitStorageRepositoryDiffLine[]
+}
+
+export interface GitStorageRepositoryFileDiff {
+	baseSha: string
+	file: GitStorageRepositoryChangedFile
+	headSha: string
+	hunks: GitStorageRepositoryDiffHunk[]
+	isTruncated: boolean
+	mergeBaseSha: string
+	patchLimitBytes: number
 }
 
 @Injectable()
@@ -460,6 +550,84 @@ export class GitStorageClient implements OnModuleInit {
 		return toRepositoryCommitHistory(response)
 	}
 
+	async compareRepositoryRefs({
+		baseRef,
+		headRef,
+		repositoryId,
+		storagePath,
+	}: GitStorageCompareRepositoryRefsParams): Promise<GitStorageRepositoryComparison> {
+		const response = await firstValueFrom(
+			this.service
+				.compareRepositoryRefs(
+					{ repositoryId, storagePath, baseRef, headRef },
+					this.createAuthorizationMetadata()
+				)
+				.pipe(mapGitStorageErrors<CompareRepositoryRefsResponse>())
+		)
+
+		return toRepositoryComparison(response)
+	}
+
+	async getRepositoryFileDiff({
+		baseRef,
+		headRef,
+		path,
+		repositoryId,
+		storagePath,
+	}: GitStorageGetRepositoryFileDiffParams): Promise<GitStorageRepositoryFileDiff> {
+		const response = await firstValueFrom(
+			this.service
+				.getRepositoryFileDiff(
+					{ repositoryId, storagePath, baseRef, headRef, path },
+					this.createAuthorizationMetadata()
+				)
+				.pipe(mapGitStorageErrors<GetRepositoryFileDiffResponse>())
+		)
+
+		return toRepositoryFileDiff(response)
+	}
+
+	async mergeRepositoryRefs({
+		authorEmail,
+		authorName,
+		baseRef,
+		expectedBaseSha,
+		expectedHeadSha,
+		headRef,
+		message,
+		operationId,
+		repositoryId,
+		storagePath,
+	}: GitStorageMergeRepositoryRefsParams): Promise<string> {
+		const response = await firstValueFrom(
+			this.service
+				.mergeRepositoryRefs(
+					{
+						repositoryId,
+						storagePath,
+						baseRef,
+						headRef,
+						expectedBaseSha,
+						expectedHeadSha,
+						authorName,
+						authorEmail,
+						message,
+						operationId,
+					},
+					this.createAuthorizationMetadata()
+				)
+				.pipe(mapGitStorageErrors<MergeRepositoryRefsResponse>())
+		)
+
+		if (!response.mergeCommitSha)
+			throw new ExternalServiceError('git storage', {
+				repositoryId,
+				reason: 'missing_merge_commit_sha',
+			})
+
+		return response.mergeCommitSha
+	}
+
 	private createAuthorizationMetadata() {
 		const token = this.envService.get('INTERNAL_API_TOKEN')
 
@@ -483,20 +651,43 @@ function toGitStorageError(error: unknown) {
 	if (error instanceof ExternalServiceError) return error
 
 	const grpcCode = getGrpcCode(error)
+	const grpcDetails = getGrpcDetails(error)
 
 	if (grpcCode === status.DEADLINE_EXCEEDED)
-		return new GatewayTimeoutError('git storage', { grpcCode }, undefined, {
-			cause: error,
-		})
+		return new GatewayTimeoutError(
+			'git storage',
+			{ grpcCode, grpcDetails },
+			undefined,
+			{
+				cause: error,
+			}
+		)
 
 	if (grpcCode === status.UNAVAILABLE)
-		return new ServiceUnavailableError('git storage', { grpcCode }, undefined, {
-			cause: error,
-		})
+		return new ServiceUnavailableError(
+			'git storage',
+			{ grpcCode, grpcDetails },
+			undefined,
+			{
+				cause: error,
+			}
+		)
 
-	return new ExternalServiceError('git storage', { grpcCode }, undefined, {
-		cause: error,
-	})
+	return new ExternalServiceError(
+		'git storage',
+		{ grpcCode, grpcDetails },
+		undefined,
+		{
+			cause: error,
+		}
+	)
+}
+
+function getGrpcDetails(error: unknown) {
+	if (!error || typeof error !== 'object' || !('details' in error))
+		return undefined
+
+	return typeof error.details === 'string' ? error.details : undefined
 }
 
 function getGrpcCode(error: unknown) {

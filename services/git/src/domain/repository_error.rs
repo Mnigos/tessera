@@ -16,6 +16,9 @@ pub enum RepositoryError {
     StorageIo(std::io::Error),
     GitProcessIo(std::io::Error),
     GitProcessFailed,
+    ComparisonFileNotFound,
+    MergeConflict,
+    StaleRepositoryRef,
 }
 
 impl fmt::Display for RepositoryError {
@@ -44,6 +47,9 @@ impl fmt::Display for RepositoryError {
             Self::StorageIo(error) => write!(formatter, "storage I/O failed: {error}"),
             Self::GitProcessIo(error) => write!(formatter, "git process I/O failed: {error}"),
             Self::GitProcessFailed => write!(formatter, "git process failed"),
+            Self::ComparisonFileNotFound => write!(formatter, "comparison file was not found"),
+            Self::MergeConflict => write!(formatter, "repository refs cannot be merged cleanly"),
+            Self::StaleRepositoryRef => write!(formatter, "repository ref moved"),
         }
     }
 }

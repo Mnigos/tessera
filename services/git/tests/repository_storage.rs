@@ -9,9 +9,9 @@ use tessera_git::proto::{
 };
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
-    Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryError, RepositoryId,
-    RepositoryRawBlob, RepositoryRefKind, RepositorySignatureState, RepositoryTreeEntryKind,
-    TrustedGpgKey,
+    Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryChangedFileStatus,
+    RepositoryDiffLineKind, RepositoryError, RepositoryId, RepositoryRawBlob, RepositoryRefKind,
+    RepositorySignatureState, RepositoryTreeEntryKind, TrustedGpgKey,
 };
 use tonic::{Code, Request};
 
@@ -1467,7 +1467,7 @@ async fn repository_blob_returns_text_preview() {
             object_id,
             text: "hello\n".to_string(),
             size_bytes: 6,
-            preview_limit_bytes: 512 * 1024,
+            preview_limit_bytes: 1024 * 1024,
         }
     );
 }
@@ -1495,7 +1495,7 @@ async fn repository_blob_detects_binary_preview() {
         RepositoryBlobPreview::Binary {
             object_id,
             size_bytes: 4,
-            preview_limit_bytes: 512 * 1024,
+            preview_limit_bytes: 1024 * 1024,
         }
     );
 }
@@ -1505,7 +1505,7 @@ async fn repository_blob_detects_oversized_preview() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");
     let repository = storage.create_repository(&repository_id()).await.unwrap();
-    let content = vec![b'a'; 512 * 1024 + 1];
+    let content = vec![b'a'; 1024 * 1024 + 1];
     push_commit_bytes(
         temp_dir.path(),
         &repository.path,
@@ -1523,8 +1523,8 @@ async fn repository_blob_detects_oversized_preview() {
         blob,
         RepositoryBlobPreview::TooLarge {
             object_id,
-            size_bytes: 512 * 1024 + 1,
-            preview_limit_bytes: 512 * 1024,
+            size_bytes: 1024 * 1024 + 1,
+            preview_limit_bytes: 1024 * 1024,
         }
     );
 }
@@ -1945,6 +1945,381 @@ async fn repository_commits_grpc_maps_response_and_invalid_ref() {
         tessera_git::proto::RepositorySignatureState::Unsigned as i32
     );
     assert_eq!(invalid.code(), Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn repository_comparison_returns_commits_files_hunks_renames_and_binary_state() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n"), ("old.txt", "rename me\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    let worktree = clone_branch(temp_dir.path(), &repository.path, "feature");
+    fs::write(worktree.path().join("README.md"), "base\nfeature\n").unwrap();
+    fs::rename(
+        worktree.path().join("old.txt"),
+        worktree.path().join("new.txt"),
+    )
+    .unwrap();
+    fs::write(worktree.path().join("image.bin"), [0, 1, 2, 3]).unwrap();
+    command(worktree.path(), ["git", "add", "-A"]);
+    command(worktree.path(), ["git", "commit", "-m", "feature change"]);
+    command(worktree.path(), ["git", "push", "origin", "feature"]);
+
+    let comparison = storage
+        .compare_repository_refs(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert_eq!(comparison.commits.len(), 1);
+    assert_eq!(comparison.commits[0].summary, "feature change");
+    assert_eq!(comparison.base_sha, comparison.merge_base_sha);
+    assert_eq!(comparison.files.len(), 3);
+    assert!(comparison.files.iter().any(|file| {
+        file.status == RepositoryChangedFileStatus::Renamed
+            && file.old_path == "old.txt"
+            && file.new_path == "new.txt"
+    }));
+    assert!(comparison.files.iter().any(|file| {
+        file.status == RepositoryChangedFileStatus::Added
+            && file.new_path == "image.bin"
+            && file.is_binary
+    }));
+
+    let diff = storage
+        .get_repository_file_diff(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            "README.md",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(diff.hunks.len(), 1);
+    assert!(diff.hunks[0].lines.iter().any(|line| {
+        line.kind == RepositoryDiffLineKind::Addition
+            && line.content == "feature"
+            && line.new_line == Some(2)
+    }));
+
+    let rename_diff = storage
+        .get_repository_file_diff(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            "new.txt",
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        rename_diff.file.status,
+        RepositoryChangedFileStatus::Renamed
+    );
+    assert_eq!(rename_diff.file.old_path, "old.txt");
+    assert_eq!(rename_diff.file.new_path, "new.txt");
+}
+
+#[tokio::test]
+async fn repository_comparison_rejects_unsafe_refs_and_truncates_large_file_lists() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+
+    let error = storage
+        .compare_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "../main",
+            "feature",
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, RepositoryError::InvalidRepositoryRef));
+
+    let worktree = clone_branch(temp_dir.path(), &repository.path, "feature");
+    for index in 0..301 {
+        fs::write(
+            worktree.path().join(format!("file-{index}.txt")),
+            "content\n",
+        )
+        .unwrap();
+    }
+    command(worktree.path(), ["git", "add", "."]);
+    command(worktree.path(), ["git", "commit", "-m", "many files"]);
+    command(worktree.path(), ["git", "push", "origin", "feature"]);
+
+    let comparison = storage
+        .compare_repository_refs(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert!(comparison.is_truncated);
+    assert_eq!(comparison.file_limit, 300);
+    assert_eq!(comparison.files.len(), 300);
+}
+
+#[tokio::test]
+async fn repository_file_diff_streams_and_truncates_oversized_patches() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("large.txt", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    let worktree = clone_branch(temp_dir.path(), &repository.path, "feature");
+    fs::write(
+        worktree.path().join("large.txt"),
+        "feature line\n".repeat(180_000),
+    )
+    .unwrap();
+    command(worktree.path(), ["git", "add", "large.txt"]);
+    command(worktree.path(), ["git", "commit", "-m", "large patch"]);
+    command(worktree.path(), ["git", "push", "origin", "feature"]);
+
+    let diff = storage
+        .get_repository_file_diff(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            "large.txt",
+        )
+        .await
+        .unwrap();
+
+    assert!(diff.is_truncated);
+    assert_eq!(diff.patch_limit_bytes, 2 * 1024 * 1024);
+    assert!(!diff.hunks.is_empty());
+}
+
+#[tokio::test]
+async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let head_sha = git_stdout(&repository.path, ["rev-parse", "feature"])
+        .trim()
+        .to_string();
+
+    let merged = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &base_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap();
+    let retried = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &base_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(merged, retried);
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        merged.merge_commit_sha
+    );
+    let parents = git_stdout(
+        &repository.path,
+        ["show", "-s", "--format=%P", &merged.merge_commit_sha],
+    );
+    assert_eq!(parents.split_whitespace().count(), 2);
+    assert!(parents.contains(&base_sha));
+    assert!(parents.contains(&head_sha));
+    assert_eq!(
+        git_stdout(
+            &repository.path,
+            ["show", "-s", "--format=%an <%ae>", &merged.merge_commit_sha],
+        )
+        .trim(),
+        "Ada <ada@example.com>"
+    );
+
+    let comparison = storage
+        .compare_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            &format!("{}^1", merged.merge_commit_sha),
+            &format!("{}^2", merged.merge_commit_sha),
+        )
+        .await
+        .unwrap();
+    assert_eq!(comparison.commits.len(), 1);
+    assert_eq!(comparison.files.len(), 1);
+
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("after.txt", "after\n")],
+        "advance target after merge",
+    );
+    let recovered = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &base_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap();
+    assert_eq!(recovered, merged);
+}
+
+#[tokio::test]
+async fn repository_merge_rejects_stale_refs_and_conflicting_trees() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+        "main change",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("README.md", "feature\n")],
+        "feature change",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let head_sha = git_stdout(&repository.path, ["rev-parse", "feature"])
+        .trim()
+        .to_string();
+
+    let stale = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &"0".repeat(40),
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(stale, RepositoryError::StaleRepositoryRef));
+
+    let conflict = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &base_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(conflict, RepositoryError::MergeConflict));
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        base_sha
+    );
+}
+
+fn clone_branch<'a>(temp_root: &'a Path, bare_repository_path: &Path, branch: &str) -> TempDir {
+    let worktree = TempDir::new_in(temp_root).unwrap();
+    command(
+        worktree.path(),
+        [
+            "git",
+            "clone",
+            "--branch",
+            branch,
+            bare_repository_path.to_str().unwrap(),
+            ".",
+        ],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.name", "Tessera Test"],
+    );
+    command(
+        worktree.path(),
+        ["git", "config", "user.email", "test@example.com"],
+    );
+    worktree
 }
 
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {

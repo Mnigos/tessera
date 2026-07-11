@@ -1,6 +1,6 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { History } from 'lucide-react'
+import { GitPullRequest, History } from 'lucide-react'
 import {
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptions,
@@ -77,6 +77,14 @@ export function RepositoryOverview({
 					>
 						<History className="size-4" />
 						Commits
+					</Link>
+					<Link
+						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+						params={{ username: owner.username, slug: repository.slug }}
+						to="/$username/$slug/pulls"
+					>
+						<GitPullRequest className="size-4" />
+						Pull requests
 					</Link>
 				</div>
 				{repository.description && (

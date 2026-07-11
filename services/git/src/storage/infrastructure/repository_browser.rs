@@ -18,7 +18,7 @@ use crate::storage::infrastructure::repository_commits::{
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
-const BLOB_PREVIEW_MAX_BYTES: usize = 512 * 1024;
+const BLOB_PREVIEW_MAX_BYTES: usize = 1024 * 1024;
 const RAW_BLOB_MAX_BYTES: u64 = 10 * 1024 * 1024;
 const README_MAX_BYTES: usize = 256 * 1024;
 const README_FILENAMES: [&str; 6] = [

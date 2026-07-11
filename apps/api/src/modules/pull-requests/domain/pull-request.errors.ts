@@ -41,3 +41,23 @@ export class PullRequestStateConflictError extends ConflictError {
 		)
 	}
 }
+
+export class PullRequestStaleComparisonError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'pull request comparison',
+			context,
+			'The source or target branch changed. Refresh the pull request and try again.'
+		)
+	}
+}
+
+export class PullRequestMergeConflictError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'pull request merge',
+			context,
+			'The pull request cannot be merged cleanly.'
+		)
+	}
+}

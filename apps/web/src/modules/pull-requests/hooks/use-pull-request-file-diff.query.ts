@@ -1,0 +1,15 @@
+import type { GetPullRequestFileDiffInput } from '@repo/contracts'
+import { useQuery } from '@tanstack/react-query'
+import { orpcQuery } from '@/lib/orpc/query'
+
+export function usePullRequestFileDiffQuery(
+	input: GetPullRequestFileDiffInput,
+	enabled: boolean
+) {
+	return useQuery(
+		orpcQuery.pullRequests.fileDiff.queryOptions({
+			input,
+			enabled,
+		})
+	)
+}

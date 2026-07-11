@@ -1,24 +1,31 @@
 use crate::config::Config;
 use crate::domain::{
-    RepositoryBlobPreview, RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
-    RepositoryError, RepositoryRefKind, RepositorySignature as DomainRepositorySignature,
+    RepositoryBlobPreview, RepositoryChangedFile as DomainRepositoryChangedFile,
+    RepositoryChangedFileStatus as DomainRepositoryChangedFileStatus,
+    RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
+    RepositoryDiffHunk as DomainRepositoryDiffHunk, RepositoryDiffLine as DomainRepositoryDiffLine,
+    RepositoryDiffLineKind as DomainRepositoryDiffLineKind, RepositoryError, RepositoryRefKind,
+    RepositorySignature as DomainRepositorySignature,
     RepositorySignatureState as DomainRepositorySignatureState, RepositoryTreeEntryKind,
     TrustedGpgKey as DomainTrustedGpgKey,
 };
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
-    CreateRepositoryRequest, CreateRepositoryResponse, GetRepositoryBlobRequest,
-    GetRepositoryBlobResponse, GetRepositoryBrowserSummaryRequest,
-    GetRepositoryBrowserSummaryResponse, GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse,
-    GetRepositoryTreeRequest, GetRepositoryTreeResponse, HealthRequest, HealthResponse,
-    ImportRepositoryRequest, ImportRepositoryResponse, ListRepositoryCommitsRequest,
-    ListRepositoryCommitsResponse, ListRepositoryRefsRequest, ListRepositoryRefsResponse,
+    CompareRepositoryRefsRequest, CompareRepositoryRefsResponse, CreateRepositoryRequest,
+    CreateRepositoryResponse, GetRepositoryBlobRequest, GetRepositoryBlobResponse,
+    GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse,
+    GetRepositoryFileDiffRequest, GetRepositoryFileDiffResponse, GetRepositoryRawBlobRequest,
+    GetRepositoryRawBlobResponse, GetRepositoryTreeRequest, GetRepositoryTreeResponse,
+    HealthRequest, HealthResponse, ImportRepositoryRequest, ImportRepositoryResponse,
+    ListRepositoryCommitsRequest, ListRepositoryCommitsResponse, ListRepositoryRefsRequest,
+    ListRepositoryRefsResponse, MergeRepositoryRefsRequest, MergeRepositoryRefsResponse,
     PushRepositoryMirrorRequest, PushRepositoryMirrorResponse,
-    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryCommit,
-    RepositoryCommitIdentity, RepositoryReadme, RepositoryRef,
-    RepositoryRefKind as ProtoRepositoryRefKind, RepositorySignature,
-    RepositorySignatureState as ProtoRepositorySignatureState, RepositoryTreeEntry,
-    RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind, TrustedGpgKey,
+    RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryChangedFile,
+    RepositoryChangedFileStatus, RepositoryCommit, RepositoryCommitIdentity,
+    RepositoryComparisonCommit, RepositoryDiffHunk, RepositoryDiffLine, RepositoryDiffLineKind,
+    RepositoryReadme, RepositoryRef, RepositoryRefKind as ProtoRepositoryRefKind,
+    RepositorySignature, RepositorySignatureState as ProtoRepositorySignatureState,
+    RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind, TrustedGpgKey,
 };
 use crate::storage::application::GitStorageApplication;
 use crate::storage::infrastructure::RepositoryStorage;
@@ -287,6 +294,103 @@ impl GitStorageService for GitStorageGrpcService {
                 .collect(),
         }))
     }
+
+    async fn compare_repository_refs(
+        &self,
+        request: Request<CompareRepositoryRefsRequest>,
+    ) -> Result<Response<CompareRepositoryRefsResponse>, Status> {
+        let request = request.into_inner();
+        let comparison = self
+            .application
+            .compare_repository_refs(
+                &request.repository_id,
+                &request.storage_path,
+                &request.base_ref,
+                &request.head_ref,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(CompareRepositoryRefsResponse {
+            base_sha: comparison.base_sha,
+            head_sha: comparison.head_sha,
+            merge_base_sha: comparison.merge_base_sha,
+            commits: comparison
+                .commits
+                .into_iter()
+                .map(|commit| RepositoryComparisonCommit {
+                    sha: commit.sha,
+                    short_sha: commit.short_sha,
+                    summary: commit.summary,
+                    author: Some(proto_commit_identity(commit.author)),
+                })
+                .collect(),
+            files: comparison
+                .files
+                .into_iter()
+                .map(proto_changed_file)
+                .collect(),
+            is_truncated: comparison.is_truncated,
+            file_limit: comparison.file_limit,
+            commits_truncated: comparison.commits_truncated,
+            commit_limit: comparison.commit_limit,
+        }))
+    }
+
+    async fn get_repository_file_diff(
+        &self,
+        request: Request<GetRepositoryFileDiffRequest>,
+    ) -> Result<Response<GetRepositoryFileDiffResponse>, Status> {
+        let request = request.into_inner();
+        let diff = self
+            .application
+            .get_repository_file_diff(
+                &request.repository_id,
+                &request.storage_path,
+                &request.base_ref,
+                &request.head_ref,
+                &request.path,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(GetRepositoryFileDiffResponse {
+            base_sha: diff.base_sha,
+            head_sha: diff.head_sha,
+            merge_base_sha: diff.merge_base_sha,
+            file: Some(proto_changed_file(diff.file)),
+            hunks: diff.hunks.into_iter().map(proto_diff_hunk).collect(),
+            is_truncated: diff.is_truncated,
+            patch_limit_bytes: diff.patch_limit_bytes,
+        }))
+    }
+
+    async fn merge_repository_refs(
+        &self,
+        request: Request<MergeRepositoryRefsRequest>,
+    ) -> Result<Response<MergeRepositoryRefsResponse>, Status> {
+        let request = request.into_inner();
+        let merge = self
+            .application
+            .merge_repository_refs(
+                &request.repository_id,
+                &request.storage_path,
+                &request.base_ref,
+                &request.head_ref,
+                &request.expected_base_sha,
+                &request.expected_head_sha,
+                &request.author_name,
+                &request.author_email,
+                &request.message,
+                &request.operation_id,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(MergeRepositoryRefsResponse {
+            merge_commit_sha: merge.merge_commit_sha,
+        }))
+    }
 }
 
 fn repository_error_to_status(error: RepositoryError) -> Status {
@@ -306,6 +410,13 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         RepositoryError::RepositoryObjectNotFound => {
             Status::not_found("repository object was not found")
         }
+        RepositoryError::ComparisonFileNotFound => {
+            Status::not_found("comparison file was not found")
+        }
+        RepositoryError::MergeConflict => {
+            Status::failed_precondition("repository refs cannot be merged cleanly")
+        }
+        RepositoryError::StaleRepositoryRef => Status::aborted("repository ref moved"),
         RepositoryError::WrongObjectKind => {
             Status::failed_precondition("repository object has the wrong kind")
         }
@@ -321,6 +432,46 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         RepositoryError::StorageIo(_)
         | RepositoryError::GitProcessIo(_)
         | RepositoryError::GitProcessFailed => Status::internal("repository git operation failed"),
+    }
+}
+
+fn proto_changed_file(file: DomainRepositoryChangedFile) -> RepositoryChangedFile {
+    RepositoryChangedFile {
+        status: match file.status {
+            DomainRepositoryChangedFileStatus::Added => RepositoryChangedFileStatus::Added,
+            DomainRepositoryChangedFileStatus::Modified => RepositoryChangedFileStatus::Modified,
+            DomainRepositoryChangedFileStatus::Deleted => RepositoryChangedFileStatus::Deleted,
+            DomainRepositoryChangedFileStatus::Renamed => RepositoryChangedFileStatus::Renamed,
+        }
+        .into(),
+        old_path: file.old_path,
+        new_path: file.new_path,
+        base_blob_id: file.base_blob_id,
+        head_blob_id: file.head_blob_id,
+        additions: file.additions,
+        deletions: file.deletions,
+        is_binary: file.is_binary,
+    }
+}
+
+fn proto_diff_hunk(hunk: DomainRepositoryDiffHunk) -> RepositoryDiffHunk {
+    RepositoryDiffHunk {
+        header: hunk.header,
+        lines: hunk.lines.into_iter().map(proto_diff_line).collect(),
+    }
+}
+
+fn proto_diff_line(line: DomainRepositoryDiffLine) -> RepositoryDiffLine {
+    RepositoryDiffLine {
+        kind: match line.kind {
+            DomainRepositoryDiffLineKind::Context => RepositoryDiffLineKind::Context,
+            DomainRepositoryDiffLineKind::Addition => RepositoryDiffLineKind::Addition,
+            DomainRepositoryDiffLineKind::Deletion => RepositoryDiffLineKind::Deletion,
+        }
+        .into(),
+        content: line.content,
+        old_line: line.old_line,
+        new_line: line.new_line,
     }
 }
 

@@ -25,4 +25,16 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug/commits/$ref',
 		'modules/repositories/routes/repository.$username.$slug.commits.$ref.route.tsx'
 	),
+	route(
+		'/$username/$slug/pulls',
+		'modules/pull-requests/routes/repository.$username.$slug.pulls.route.tsx'
+	),
+	route(
+		'/$username/$slug/pulls/new',
+		'modules/pull-requests/routes/repository.$username.$slug.pulls.new.route.tsx'
+	),
+	route(
+		'/$username/$slug/pulls/$number',
+		'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.route.tsx'
+	),
 ])

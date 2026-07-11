@@ -222,6 +222,9 @@ fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
         | RepositoryError::RepositoryObjectNotFound
         | RepositoryError::WrongObjectKind
         | RepositoryError::BlobTooLarge
+        | RepositoryError::ComparisonFileNotFound
+        | RepositoryError::MergeConflict
+        | RepositoryError::StaleRepositoryRef
         | RepositoryError::StorageIo(_)
         | RepositoryError::InvalidGitOutput => SmartHttpError::RepositoryUnavailable,
         RepositoryError::GitProcessIo(_) | RepositoryError::GitProcessFailed => {

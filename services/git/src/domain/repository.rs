@@ -151,3 +151,81 @@ pub struct RepositoryRawBlob {
     pub content: Vec<u8>,
     pub size_bytes: u64,
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryComparison {
+    pub base_sha: String,
+    pub head_sha: String,
+    pub merge_base_sha: String,
+    pub commits: Vec<RepositoryComparisonCommit>,
+    pub files: Vec<RepositoryChangedFile>,
+    pub is_truncated: bool,
+    pub file_limit: u32,
+    pub commits_truncated: bool,
+    pub commit_limit: u32,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryComparisonCommit {
+    pub sha: String,
+    pub short_sha: String,
+    pub summary: String,
+    pub author: RepositoryCommitIdentity,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct RepositoryChangedFile {
+    pub status: RepositoryChangedFileStatus,
+    pub old_path: String,
+    pub new_path: String,
+    pub base_blob_id: String,
+    pub head_blob_id: String,
+    pub additions: u32,
+    pub deletions: u32,
+    pub is_binary: bool,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RepositoryChangedFileStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryFileDiff {
+    pub base_sha: String,
+    pub head_sha: String,
+    pub merge_base_sha: String,
+    pub file: RepositoryChangedFile,
+    pub hunks: Vec<RepositoryDiffHunk>,
+    pub is_truncated: bool,
+    pub patch_limit_bytes: u64,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryDiffHunk {
+    pub header: String,
+    pub lines: Vec<RepositoryDiffLine>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryDiffLine {
+    pub kind: RepositoryDiffLineKind,
+    pub content: String,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum RepositoryDiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryMerge {
+    pub merge_commit_sha: String,
+}

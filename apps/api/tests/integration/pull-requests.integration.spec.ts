@@ -48,6 +48,7 @@ interface PullRequestResponseBody {
 	repositoryId: string
 	number: number
 	authorUserId: string
+	authorUsername: string
 	sourceBranch: string
 	targetBranch: string
 	openingBaseSha: string
@@ -74,6 +75,10 @@ describe('Pull requests integration', () => {
 	let adapter: HonoAdapter
 	let gitStorageCreateRepository: ReturnType<typeof vi.fn>
 	let gitStorageListRepositoryRefs: ReturnType<typeof vi.fn>
+	let gitStorageCompareRepositoryRefs: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryFileDiff: ReturnType<typeof vi.fn>
+	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
+	let gitStorageMergeRepositoryRefs: ReturnType<typeof vi.fn>
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -89,6 +94,10 @@ describe('Pull requests integration', () => {
 			})
 		)
 		gitStorageListRepositoryRefs = vi.fn()
+		gitStorageCompareRepositoryRefs = vi.fn()
+		gitStorageGetRepositoryFileDiff = vi.fn()
+		gitStorageGetRepositoryBlob = vi.fn()
+		gitStorageMergeRepositoryRefs = vi.fn()
 
 		moduleRef = await Test.createTestingModule({
 			imports: [PullRequestsIntegrationTestModule],
@@ -97,6 +106,10 @@ describe('Pull requests integration', () => {
 			.useValue({
 				createRepository: gitStorageCreateRepository,
 				listRepositoryRefs: gitStorageListRepositoryRefs,
+				compareRepositoryRefs: gitStorageCompareRepositoryRefs,
+				getRepositoryFileDiff: gitStorageGetRepositoryFileDiff,
+				getRepositoryBlob: gitStorageGetRepositoryBlob,
+				mergeRepositoryRefs: gitStorageMergeRepositoryRefs,
 			})
 			.compile()
 
@@ -109,6 +122,10 @@ describe('Pull requests integration', () => {
 		await resetIntegrationDatabase()
 		gitStorageCreateRepository.mockClear()
 		gitStorageListRepositoryRefs.mockReset()
+		gitStorageCompareRepositoryRefs.mockReset()
+		gitStorageGetRepositoryFileDiff.mockReset()
+		gitStorageGetRepositoryBlob.mockReset()
+		gitStorageMergeRepositoryRefs.mockReset()
 		gitStorageListRepositoryRefs.mockResolvedValue({
 			branches: [
 				{
@@ -132,6 +149,159 @@ describe('Pull requests integration', () => {
 			],
 			tags: [],
 		})
+	})
+
+	test('compares, diffs, and merges a pull request through the HTTP API', async () => {
+		const baseSha = 'a'.repeat(40)
+		const headSha = 'b'.repeat(40)
+		const mergeCommitSha = 'c'.repeat(40)
+		gitStorageListRepositoryRefs.mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'main',
+					qualifiedName: 'refs/heads/main',
+					target: baseSha,
+				},
+				{
+					type: 'branch',
+					name: 'feature',
+					qualifiedName: 'refs/heads/feature',
+					target: headSha,
+				},
+			],
+			tags: [],
+		})
+		gitStorageCompareRepositoryRefs.mockResolvedValue({
+			baseSha,
+			headSha,
+			mergeBaseSha: baseSha,
+			commits: [
+				{
+					sha: headSha,
+					shortSha: headSha.slice(0, 7),
+					summary: 'Add feature',
+					author: {
+						name: 'Marta',
+						email: 'marta@example.com',
+						date: '2026-07-11T10:00:00.000Z',
+					},
+				},
+			],
+			files: [
+				{
+					status: 'modified',
+					oldPath: 'src/index.ts',
+					newPath: 'src/index.ts',
+					baseBlobId: 'base-blob',
+					headBlobId: 'head-blob',
+					additions: 1,
+					deletions: 1,
+					isBinary: false,
+				},
+			],
+			isTruncated: false,
+			commitsTruncated: false,
+			commitLimit: 500,
+			fileLimit: 300,
+		})
+		gitStorageGetRepositoryFileDiff.mockResolvedValue({
+			baseSha,
+			headSha,
+			mergeBaseSha: baseSha,
+			file: {
+				status: 'modified',
+				oldPath: 'src/index.ts',
+				newPath: 'src/index.ts',
+				baseBlobId: 'base-blob',
+				headBlobId: 'head-blob',
+				additions: 1,
+				deletions: 1,
+				isBinary: false,
+			},
+			hunks: [
+				{
+					header: '@@ -1 +1 @@',
+					lines: [
+						{ kind: 'deletion', content: 'const oldValue = 1', oldLine: 1 },
+						{ kind: 'addition', content: 'const newValue = 2', newLine: 1 },
+					],
+				},
+			],
+			isTruncated: false,
+			patchLimitBytes: 2_097_152,
+		})
+		gitStorageGetRepositoryBlob.mockImplementation(({ objectId }) =>
+			Promise.resolve({
+				objectId,
+				sizeBytes: 18,
+				preview: {
+					type: 'text',
+					content:
+						objectId === 'base-blob'
+							? 'const oldValue = 1'
+							: 'const newValue = 2',
+				},
+			})
+		)
+		gitStorageMergeRepositoryRefs.mockResolvedValue(mergeCommitSha)
+		const headers = await createUserAndRepository({ visibility: 'public' })
+		await createPullRequest(
+			'marta',
+			'notes',
+			{
+				sourceBranch: 'feature',
+				targetBranch: 'main',
+				title: 'Add feature',
+			},
+			headers
+		)
+
+		const comparisonResponse = await getPullRequestComparison(
+			'marta',
+			'notes',
+			1
+		)
+		expect(comparisonResponse.status).toBe(200)
+		expect(await comparisonResponse.json()).toMatchObject({
+			baseSha,
+			headSha,
+			commits: [{ summary: 'Add feature' }],
+			files: [{ newPath: 'src/index.ts' }],
+		})
+
+		const diffResponse = await getPullRequestFileDiff(
+			'marta',
+			'notes',
+			1,
+			'src/index.ts',
+			baseSha,
+			headSha
+		)
+		expect(diffResponse.status).toBe(200)
+		expect(await diffResponse.json()).toMatchObject({
+			language: 'typescript',
+			hunks: [{ lines: [{ old: { line: 1 } }, { new: { line: 1 } }] }],
+		})
+
+		const mergeResponse = await mergePullRequest(
+			'marta',
+			'notes',
+			1,
+			{ expectedBaseSha: baseSha, expectedHeadSha: headSha },
+			headers
+		)
+		expect(mergeResponse.status).toBe(200)
+		expect(await mergeResponse.json()).toMatchObject({
+			state: 'merged',
+			mergeCommitSha,
+		})
+		expect(gitStorageMergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedBaseSha: baseSha,
+				expectedHeadSha: headSha,
+			})
+		)
 	})
 
 	afterAll(async () => {
@@ -536,6 +706,35 @@ describe('Pull requests integration', () => {
 		)
 	}
 
+	function getPullRequestComparison(
+		username: string,
+		slug: string,
+		number: number
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/pulls/${number}/comparison`
+		)
+	}
+
+	function getPullRequestFileDiff(
+		username: string,
+		slug: string,
+		number: number,
+		path: string,
+		expectedBaseSha: string,
+		expectedHeadSha: string
+	) {
+		const searchParams = new URLSearchParams({
+			path,
+			expectedBaseSha,
+			expectedHeadSha,
+		})
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/pulls/${number}/files?${searchParams}`
+		)
+	}
+
 	function editPullRequest(
 		username: string,
 		slug: string,
@@ -561,6 +760,21 @@ describe('Pull requests integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}/pulls/${number}/${action}`,
 			{ method: 'POST', headers }
+		)
+	}
+
+	function mergePullRequest(
+		username: string,
+		slug: string,
+		number: number,
+		input: object,
+		headers: Headers
+	) {
+		return request(
+			`http://localhost/repositories/${username}/${slug}/pulls/${number}/merge`,
+			'POST',
+			headers,
+			input
 		)
 	}
 

@@ -12,6 +12,23 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum RepositoryChangedFileStatus {
+  REPOSITORY_CHANGED_FILE_STATUS_UNSPECIFIED = 0,
+  REPOSITORY_CHANGED_FILE_STATUS_ADDED = 1,
+  REPOSITORY_CHANGED_FILE_STATUS_MODIFIED = 2,
+  REPOSITORY_CHANGED_FILE_STATUS_DELETED = 3,
+  REPOSITORY_CHANGED_FILE_STATUS_RENAMED = 4,
+  UNRECOGNIZED = -1,
+}
+
+export enum RepositoryDiffLineKind {
+  REPOSITORY_DIFF_LINE_KIND_UNSPECIFIED = 0,
+  REPOSITORY_DIFF_LINE_KIND_CONTEXT = 1,
+  REPOSITORY_DIFF_LINE_KIND_ADDITION = 2,
+  REPOSITORY_DIFF_LINE_KIND_DELETION = 3,
+  UNRECOGNIZED = -1,
+}
+
 export enum RepositorySignatureState {
   REPOSITORY_SIGNATURE_STATE_UNSPECIFIED = 0,
   REPOSITORY_SIGNATURE_STATE_UNSIGNED = 1,
@@ -161,6 +178,90 @@ export interface ListRepositoryCommitsRequest {
 
 export interface ListRepositoryCommitsResponse {
   commits: RepositoryCommit[];
+}
+
+export interface CompareRepositoryRefsRequest {
+  repositoryId: string;
+  storagePath: string;
+  baseRef: string;
+  headRef: string;
+}
+
+export interface CompareRepositoryRefsResponse {
+  baseSha: string;
+  headSha: string;
+  mergeBaseSha: string;
+  commits: RepositoryComparisonCommit[];
+  files: RepositoryChangedFile[];
+  isTruncated: boolean;
+  fileLimit: number;
+  commitsTruncated: boolean;
+  commitLimit: number;
+}
+
+export interface GetRepositoryFileDiffRequest {
+  repositoryId: string;
+  storagePath: string;
+  baseRef: string;
+  headRef: string;
+  path: string;
+}
+
+export interface GetRepositoryFileDiffResponse {
+  baseSha: string;
+  headSha: string;
+  mergeBaseSha: string;
+  file: RepositoryChangedFile | undefined;
+  hunks: RepositoryDiffHunk[];
+  isTruncated: boolean;
+  patchLimitBytes: number;
+}
+
+export interface MergeRepositoryRefsRequest {
+  repositoryId: string;
+  storagePath: string;
+  baseRef: string;
+  headRef: string;
+  expectedBaseSha: string;
+  expectedHeadSha: string;
+  authorName: string;
+  authorEmail: string;
+  message: string;
+  operationId: string;
+}
+
+export interface MergeRepositoryRefsResponse {
+  mergeCommitSha: string;
+}
+
+export interface RepositoryComparisonCommit {
+  sha: string;
+  shortSha: string;
+  summary: string;
+  author: RepositoryCommitIdentity | undefined;
+}
+
+export interface RepositoryChangedFile {
+  status: RepositoryChangedFileStatus;
+  oldPath: string;
+  newPath: string;
+  baseBlobId: string;
+  headBlobId: string;
+  additions: number;
+  deletions: number;
+  isBinary: boolean;
+}
+
+export interface RepositoryDiffHunk {
+  header: string;
+  lines: RepositoryDiffLine[];
+}
+
+export interface RepositoryDiffLine {
+  kind: RepositoryDiffLineKind;
+  content: string;
+  oldLine?: number | undefined;
+  newLine?: number | undefined;
 }
 
 export interface RepositoryCommit {
@@ -1333,6 +1434,898 @@ export const ListRepositoryCommitsResponse: MessageFns<ListRepositoryCommitsResp
   },
 };
 
+function createBaseCompareRepositoryRefsRequest(): CompareRepositoryRefsRequest {
+  return { repositoryId: "", storagePath: "", baseRef: "", headRef: "" };
+}
+
+export const CompareRepositoryRefsRequest: MessageFns<CompareRepositoryRefsRequest> = {
+  encode(message: CompareRepositoryRefsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.baseRef !== "") {
+      writer.uint32(26).string(message.baseRef);
+    }
+    if (message.headRef !== "") {
+      writer.uint32(34).string(message.headRef);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CompareRepositoryRefsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCompareRepositoryRefsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.baseRef = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.headRef = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseCompareRepositoryRefsResponse(): CompareRepositoryRefsResponse {
+  return {
+    baseSha: "",
+    headSha: "",
+    mergeBaseSha: "",
+    commits: [],
+    files: [],
+    isTruncated: false,
+    fileLimit: 0,
+    commitsTruncated: false,
+    commitLimit: 0,
+  };
+}
+
+export const CompareRepositoryRefsResponse: MessageFns<CompareRepositoryRefsResponse> = {
+  encode(message: CompareRepositoryRefsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.baseSha !== "") {
+      writer.uint32(10).string(message.baseSha);
+    }
+    if (message.headSha !== "") {
+      writer.uint32(18).string(message.headSha);
+    }
+    if (message.mergeBaseSha !== "") {
+      writer.uint32(26).string(message.mergeBaseSha);
+    }
+    for (const v of message.commits) {
+      RepositoryComparisonCommit.encode(v!, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.files) {
+      RepositoryChangedFile.encode(v!, writer.uint32(42).fork()).join();
+    }
+    if (message.isTruncated !== false) {
+      writer.uint32(48).bool(message.isTruncated);
+    }
+    if (message.fileLimit !== 0) {
+      writer.uint32(56).uint32(message.fileLimit);
+    }
+    if (message.commitsTruncated !== false) {
+      writer.uint32(64).bool(message.commitsTruncated);
+    }
+    if (message.commitLimit !== 0) {
+      writer.uint32(72).uint32(message.commitLimit);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CompareRepositoryRefsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCompareRepositoryRefsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.baseSha = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.headSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.mergeBaseSha = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.commits.push(RepositoryComparisonCommit.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.files.push(RepositoryChangedFile.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.isTruncated = reader.bool();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.fileLimit = reader.uint32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.commitsTruncated = reader.bool();
+          continue;
+        }
+        case 9: {
+          if (tag !== 72) {
+            break;
+          }
+
+          message.commitLimit = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseGetRepositoryFileDiffRequest(): GetRepositoryFileDiffRequest {
+  return { repositoryId: "", storagePath: "", baseRef: "", headRef: "", path: "" };
+}
+
+export const GetRepositoryFileDiffRequest: MessageFns<GetRepositoryFileDiffRequest> = {
+  encode(message: GetRepositoryFileDiffRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.baseRef !== "") {
+      writer.uint32(26).string(message.baseRef);
+    }
+    if (message.headRef !== "") {
+      writer.uint32(34).string(message.headRef);
+    }
+    if (message.path !== "") {
+      writer.uint32(42).string(message.path);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryFileDiffRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryFileDiffRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.baseRef = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.headRef = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.path = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseGetRepositoryFileDiffResponse(): GetRepositoryFileDiffResponse {
+  return {
+    baseSha: "",
+    headSha: "",
+    mergeBaseSha: "",
+    file: undefined,
+    hunks: [],
+    isTruncated: false,
+    patchLimitBytes: 0,
+  };
+}
+
+export const GetRepositoryFileDiffResponse: MessageFns<GetRepositoryFileDiffResponse> = {
+  encode(message: GetRepositoryFileDiffResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.baseSha !== "") {
+      writer.uint32(10).string(message.baseSha);
+    }
+    if (message.headSha !== "") {
+      writer.uint32(18).string(message.headSha);
+    }
+    if (message.mergeBaseSha !== "") {
+      writer.uint32(26).string(message.mergeBaseSha);
+    }
+    if (message.file !== undefined) {
+      RepositoryChangedFile.encode(message.file, writer.uint32(34).fork()).join();
+    }
+    for (const v of message.hunks) {
+      RepositoryDiffHunk.encode(v!, writer.uint32(42).fork()).join();
+    }
+    if (message.isTruncated !== false) {
+      writer.uint32(48).bool(message.isTruncated);
+    }
+    if (message.patchLimitBytes !== 0) {
+      writer.uint32(56).uint64(message.patchLimitBytes);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): GetRepositoryFileDiffResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseGetRepositoryFileDiffResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.baseSha = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.headSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.mergeBaseSha = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.file = RepositoryChangedFile.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.hunks.push(RepositoryDiffHunk.decode(reader, reader.uint32()));
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.isTruncated = reader.bool();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.patchLimitBytes = longToNumber(reader.uint64());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseMergeRepositoryRefsRequest(): MergeRepositoryRefsRequest {
+  return {
+    repositoryId: "",
+    storagePath: "",
+    baseRef: "",
+    headRef: "",
+    expectedBaseSha: "",
+    expectedHeadSha: "",
+    authorName: "",
+    authorEmail: "",
+    message: "",
+    operationId: "",
+  };
+}
+
+export const MergeRepositoryRefsRequest: MessageFns<MergeRepositoryRefsRequest> = {
+  encode(message: MergeRepositoryRefsRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.baseRef !== "") {
+      writer.uint32(26).string(message.baseRef);
+    }
+    if (message.headRef !== "") {
+      writer.uint32(34).string(message.headRef);
+    }
+    if (message.expectedBaseSha !== "") {
+      writer.uint32(42).string(message.expectedBaseSha);
+    }
+    if (message.expectedHeadSha !== "") {
+      writer.uint32(50).string(message.expectedHeadSha);
+    }
+    if (message.authorName !== "") {
+      writer.uint32(58).string(message.authorName);
+    }
+    if (message.authorEmail !== "") {
+      writer.uint32(66).string(message.authorEmail);
+    }
+    if (message.message !== "") {
+      writer.uint32(74).string(message.message);
+    }
+    if (message.operationId !== "") {
+      writer.uint32(82).string(message.operationId);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MergeRepositoryRefsRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMergeRepositoryRefsRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.baseRef = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.headRef = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.expectedBaseSha = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.expectedHeadSha = reader.string();
+          continue;
+        }
+        case 7: {
+          if (tag !== 58) {
+            break;
+          }
+
+          message.authorName = reader.string();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.authorEmail = reader.string();
+          continue;
+        }
+        case 9: {
+          if (tag !== 74) {
+            break;
+          }
+
+          message.message = reader.string();
+          continue;
+        }
+        case 10: {
+          if (tag !== 82) {
+            break;
+          }
+
+          message.operationId = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseMergeRepositoryRefsResponse(): MergeRepositoryRefsResponse {
+  return { mergeCommitSha: "" };
+}
+
+export const MergeRepositoryRefsResponse: MessageFns<MergeRepositoryRefsResponse> = {
+  encode(message: MergeRepositoryRefsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.mergeCommitSha !== "") {
+      writer.uint32(10).string(message.mergeCommitSha);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): MergeRepositoryRefsResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseMergeRepositoryRefsResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.mergeCommitSha = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryComparisonCommit(): RepositoryComparisonCommit {
+  return { sha: "", shortSha: "", summary: "", author: undefined };
+}
+
+export const RepositoryComparisonCommit: MessageFns<RepositoryComparisonCommit> = {
+  encode(message: RepositoryComparisonCommit, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.sha !== "") {
+      writer.uint32(10).string(message.sha);
+    }
+    if (message.shortSha !== "") {
+      writer.uint32(18).string(message.shortSha);
+    }
+    if (message.summary !== "") {
+      writer.uint32(26).string(message.summary);
+    }
+    if (message.author !== undefined) {
+      RepositoryCommitIdentity.encode(message.author, writer.uint32(34).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryComparisonCommit {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryComparisonCommit();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.sha = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.shortSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.summary = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.author = RepositoryCommitIdentity.decode(reader, reader.uint32());
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryChangedFile(): RepositoryChangedFile {
+  return {
+    status: 0,
+    oldPath: "",
+    newPath: "",
+    baseBlobId: "",
+    headBlobId: "",
+    additions: 0,
+    deletions: 0,
+    isBinary: false,
+  };
+}
+
+export const RepositoryChangedFile: MessageFns<RepositoryChangedFile> = {
+  encode(message: RepositoryChangedFile, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.status !== 0) {
+      writer.uint32(8).int32(message.status);
+    }
+    if (message.oldPath !== "") {
+      writer.uint32(18).string(message.oldPath);
+    }
+    if (message.newPath !== "") {
+      writer.uint32(26).string(message.newPath);
+    }
+    if (message.baseBlobId !== "") {
+      writer.uint32(34).string(message.baseBlobId);
+    }
+    if (message.headBlobId !== "") {
+      writer.uint32(42).string(message.headBlobId);
+    }
+    if (message.additions !== 0) {
+      writer.uint32(48).uint32(message.additions);
+    }
+    if (message.deletions !== 0) {
+      writer.uint32(56).uint32(message.deletions);
+    }
+    if (message.isBinary !== false) {
+      writer.uint32(64).bool(message.isBinary);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryChangedFile {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryChangedFile();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.status = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.oldPath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.newPath = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.baseBlobId = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.headBlobId = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.additions = reader.uint32();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.deletions = reader.uint32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 64) {
+            break;
+          }
+
+          message.isBinary = reader.bool();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryDiffHunk(): RepositoryDiffHunk {
+  return { header: "", lines: [] };
+}
+
+export const RepositoryDiffHunk: MessageFns<RepositoryDiffHunk> = {
+  encode(message: RepositoryDiffHunk, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.header !== "") {
+      writer.uint32(10).string(message.header);
+    }
+    for (const v of message.lines) {
+      RepositoryDiffLine.encode(v!, writer.uint32(18).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryDiffHunk {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryDiffHunk();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.header = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.lines.push(RepositoryDiffLine.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryDiffLine(): RepositoryDiffLine {
+  return { kind: 0, content: "" };
+}
+
+export const RepositoryDiffLine: MessageFns<RepositoryDiffLine> = {
+  encode(message: RepositoryDiffLine, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.kind !== 0) {
+      writer.uint32(8).int32(message.kind);
+    }
+    if (message.content !== "") {
+      writer.uint32(18).string(message.content);
+    }
+    if (message.oldLine !== undefined) {
+      writer.uint32(24).uint32(message.oldLine);
+    }
+    if (message.newLine !== undefined) {
+      writer.uint32(32).uint32(message.newLine);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryDiffLine {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryDiffLine();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.content = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.oldLine = reader.uint32();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.newLine = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseRepositoryCommit(): RepositoryCommit {
   return { sha: "", shortSha: "", summary: "", author: undefined, committer: undefined, signature: undefined };
 }
@@ -1910,6 +2903,21 @@ export interface GitStorageServiceClient {
     request: ListRepositoryCommitsRequest,
     metadata?: Metadata,
   ): Observable<ListRepositoryCommitsResponse>;
+
+  compareRepositoryRefs(
+    request: CompareRepositoryRefsRequest,
+    metadata?: Metadata,
+  ): Observable<CompareRepositoryRefsResponse>;
+
+  getRepositoryFileDiff(
+    request: GetRepositoryFileDiffRequest,
+    metadata?: Metadata,
+  ): Observable<GetRepositoryFileDiffResponse>;
+
+  mergeRepositoryRefs(
+    request: MergeRepositoryRefsRequest,
+    metadata?: Metadata,
+  ): Observable<MergeRepositoryRefsResponse>;
 }
 
 export interface GitStorageServiceController {
@@ -1965,6 +2973,21 @@ export interface GitStorageServiceController {
     request: ListRepositoryCommitsRequest,
     metadata?: Metadata,
   ): Promise<ListRepositoryCommitsResponse> | Observable<ListRepositoryCommitsResponse> | ListRepositoryCommitsResponse;
+
+  compareRepositoryRefs(
+    request: CompareRepositoryRefsRequest,
+    metadata?: Metadata,
+  ): Promise<CompareRepositoryRefsResponse> | Observable<CompareRepositoryRefsResponse> | CompareRepositoryRefsResponse;
+
+  getRepositoryFileDiff(
+    request: GetRepositoryFileDiffRequest,
+    metadata?: Metadata,
+  ): Promise<GetRepositoryFileDiffResponse> | Observable<GetRepositoryFileDiffResponse> | GetRepositoryFileDiffResponse;
+
+  mergeRepositoryRefs(
+    request: MergeRepositoryRefsRequest,
+    metadata?: Metadata,
+  ): Promise<MergeRepositoryRefsResponse> | Observable<MergeRepositoryRefsResponse> | MergeRepositoryRefsResponse;
 }
 
 export function GitStorageServiceControllerMethods() {
@@ -1980,6 +3003,9 @@ export function GitStorageServiceControllerMethods() {
       "getRepositoryBlob",
       "getRepositoryRawBlob",
       "listRepositoryCommits",
+      "compareRepositoryRefs",
+      "getRepositoryFileDiff",
+      "mergeRepositoryRefs",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
@@ -2107,6 +3133,39 @@ export const GitStorageServiceService = {
       Buffer.from(ListRepositoryCommitsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): ListRepositoryCommitsResponse => ListRepositoryCommitsResponse.decode(value),
   },
+  compareRepositoryRefs: {
+    path: "/tessera.git.v1.GitStorageService/CompareRepositoryRefs" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: CompareRepositoryRefsRequest): Buffer =>
+      Buffer.from(CompareRepositoryRefsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): CompareRepositoryRefsRequest => CompareRepositoryRefsRequest.decode(value),
+    responseSerialize: (value: CompareRepositoryRefsResponse): Buffer =>
+      Buffer.from(CompareRepositoryRefsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): CompareRepositoryRefsResponse => CompareRepositoryRefsResponse.decode(value),
+  },
+  getRepositoryFileDiff: {
+    path: "/tessera.git.v1.GitStorageService/GetRepositoryFileDiff" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: GetRepositoryFileDiffRequest): Buffer =>
+      Buffer.from(GetRepositoryFileDiffRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): GetRepositoryFileDiffRequest => GetRepositoryFileDiffRequest.decode(value),
+    responseSerialize: (value: GetRepositoryFileDiffResponse): Buffer =>
+      Buffer.from(GetRepositoryFileDiffResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): GetRepositoryFileDiffResponse => GetRepositoryFileDiffResponse.decode(value),
+  },
+  mergeRepositoryRefs: {
+    path: "/tessera.git.v1.GitStorageService/MergeRepositoryRefs" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: MergeRepositoryRefsRequest): Buffer =>
+      Buffer.from(MergeRepositoryRefsRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): MergeRepositoryRefsRequest => MergeRepositoryRefsRequest.decode(value),
+    responseSerialize: (value: MergeRepositoryRefsResponse): Buffer =>
+      Buffer.from(MergeRepositoryRefsResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): MergeRepositoryRefsResponse => MergeRepositoryRefsResponse.decode(value),
+  },
 } as const;
 
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
@@ -2120,6 +3179,9 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   getRepositoryBlob: handleUnaryCall<GetRepositoryBlobRequest, GetRepositoryBlobResponse>;
   getRepositoryRawBlob: handleUnaryCall<GetRepositoryRawBlobRequest, GetRepositoryRawBlobResponse>;
   listRepositoryCommits: handleUnaryCall<ListRepositoryCommitsRequest, ListRepositoryCommitsResponse>;
+  compareRepositoryRefs: handleUnaryCall<CompareRepositoryRefsRequest, CompareRepositoryRefsResponse>;
+  getRepositoryFileDiff: handleUnaryCall<GetRepositoryFileDiffRequest, GetRepositoryFileDiffResponse>;
+  mergeRepositoryRefs: handleUnaryCall<MergeRepositoryRefsRequest, MergeRepositoryRefsResponse>;
 }
 
 function longToNumber(int64: { toString(): string }): number {

@@ -78,6 +78,7 @@ describe(PullRequestsService.name, () => {
 						edit: vi.fn(),
 						close: vi.fn(),
 						reopen: vi.fn(),
+						merge: vi.fn(),
 					},
 				},
 				{
@@ -89,7 +90,13 @@ describe(PullRequestsService.name, () => {
 				},
 				{
 					provide: GitStorageClient,
-					useValue: { listRepositoryRefs: vi.fn() },
+					useValue: {
+						listRepositoryRefs: vi.fn(),
+						compareRepositoryRefs: vi.fn(),
+						getRepositoryFileDiff: vi.fn(),
+						getRepositoryBlob: vi.fn(),
+						mergeRepositoryRefs: vi.fn(),
+					},
 				},
 			],
 		}).compile()
@@ -336,5 +343,195 @@ describe(PullRequestsService.name, () => {
 		await expect(
 			service.reopen(mockUserId, { ...repositoryInput, number: 1 })
 		).rejects.toBeInstanceOf(PullRequestAlreadyOpenError)
+	})
+
+	test('returns the current three-dot branch comparison', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const compareSpy = vi
+			.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValue({
+				baseSha: 'base-sha',
+				headSha: 'head-sha',
+				mergeBaseSha: 'merge-base-sha',
+				commits: [
+					{
+						sha: 'commit-sha',
+						shortSha: 'commit-',
+						summary: 'Feature',
+						author: {
+							name: 'Ada',
+							email: 'ada@example.com',
+							date: '2026-07-11T00:00:00Z',
+						},
+					},
+				],
+				files: [],
+				isTruncated: false,
+				commitsTruncated: false,
+				commitLimit: 500,
+				fileLimit: 300,
+			})
+
+		expect(
+			await service.comparison(undefined, {
+				...repositoryInput,
+				number: 1,
+			})
+		).toMatchObject({
+			commits: [{ author: { date: new Date('2026-07-11T00:00:00Z') } }],
+		})
+		expect(compareSpy).toHaveBeenCalledWith({
+			...repositoryContext,
+			baseRef: 'main',
+			headRef: 'feature',
+		})
+	})
+
+	test('uses the persisted merge commit parents for merged comparisons', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			mergeCommitSha: 'c'.repeat(40),
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		})
+		const compareSpy = vi
+			.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValue({
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+				mergeBaseSha: 'a'.repeat(40),
+				commits: [],
+				files: [],
+				isTruncated: false,
+				commitsTruncated: false,
+				commitLimit: 500,
+				fileLimit: 300,
+			})
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(compareSpy).toHaveBeenCalledWith({
+			...repositoryContext,
+			baseRef: `${'c'.repeat(40)}^1`,
+			headRef: `${'c'.repeat(40)}^2`,
+		})
+	})
+
+	test('pins lazy file diffs to the displayed comparison SHAs', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const fileDiffSpy = vi
+			.spyOn(gitStorageClient, 'getRepositoryFileDiff')
+			.mockResolvedValue({
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+				mergeBaseSha: 'a'.repeat(40),
+				file: {
+					status: 'modified',
+					oldPath: 'src/index.ts',
+					newPath: 'src/index.ts',
+					additions: 1,
+					deletions: 0,
+					isBinary: false,
+				},
+				hunks: [],
+				isTruncated: false,
+				patchLimitBytes: 2_097_152,
+			})
+
+		await service.fileDiff(undefined, {
+			...repositoryInput,
+			number: 1,
+			path: 'src/index.ts',
+			expectedBaseSha: 'a'.repeat(40),
+			expectedHeadSha: 'b'.repeat(40),
+		})
+
+		expect(fileDiffSpy).toHaveBeenCalledWith({
+			...repositoryContext,
+			baseRef: 'a'.repeat(40),
+			headRef: 'b'.repeat(40),
+			path: 'src/index.ts',
+		})
+	})
+
+	test('merges through Git before recording lifecycle persistence', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const mergeGitSpy = vi
+			.spyOn(gitStorageClient, 'mergeRepositoryRefs')
+			.mockResolvedValue('merge-sha')
+		const mergeRepositorySpy = vi
+			.spyOn(repository, 'merge')
+			.mockImplementation(async params => {
+				const mergeCommitSha = await params.createMergeCommit()
+
+				return {
+					...pullRequest,
+					state: 'merged',
+					mergeCommitSha,
+					mergeActorUserId: mockUserId,
+					mergedAt: createdAt,
+					closedAt: createdAt,
+				}
+			})
+
+		expect(
+			await service.merge(
+				{
+					id: mockUserId,
+					name: 'Ada',
+					email: 'ada@example.com',
+				},
+				{
+					...repositoryInput,
+					number: 1,
+					expectedBaseSha: 'a'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+				}
+			)
+		).toMatchObject({ state: 'merged', mergeCommitSha: 'merge-sha' })
+		expect(mergeGitSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				operationId: pullRequestId,
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+			})
+		)
+		expect(mergeRepositorySpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				createMergeCommit: expect.any(Function),
+			})
+		)
+	})
+
+	test('returns the concurrent persisted merge after Git idempotency wins', async () => {
+		const mergedPullRequest = {
+			...pullRequest,
+			state: 'merged' as const,
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		}
+		vi.spyOn(repository, 'find')
+			.mockResolvedValueOnce(pullRequest)
+			.mockResolvedValueOnce(mergedPullRequest)
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
+			'merge-sha'
+		)
+		vi.spyOn(repository, 'merge').mockResolvedValue(undefined)
+
+		expect(
+			await service.merge(
+				{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
+				{
+					...repositoryInput,
+					number: 1,
+					expectedBaseSha: 'a'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+				}
+			)
+		).toMatchObject({ state: 'merged', mergeCommitSha: 'merge-sha' })
 	})
 })

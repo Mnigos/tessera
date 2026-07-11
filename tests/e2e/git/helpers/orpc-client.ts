@@ -5,7 +5,7 @@ import { type Contract, contract } from '@repo/contracts'
 
 type GitE2EContract = Pick<
 	Contract,
-	'gitAccessTokens' | 'repositories' | 'sshPublicKeys'
+	'gitAccessTokens' | 'pullRequests' | 'repositories' | 'sshPublicKeys'
 >
 
 export function createGitE2EORPCClient(apiBaseUrl: string, headers?: Headers) {

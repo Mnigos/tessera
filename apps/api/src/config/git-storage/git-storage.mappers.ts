@@ -1,11 +1,18 @@
+import { ExternalServiceError } from '~/shared/errors'
 import type {
+	CompareRepositoryRefsResponse,
+	RepositoryChangedFile as GeneratedRepositoryChangedFile,
 	RepositoryCommit as GeneratedRepositoryCommit,
 	RepositoryCommitIdentity as GeneratedRepositoryCommitIdentity,
+	RepositoryComparisonCommit as GeneratedRepositoryComparisonCommit,
+	RepositoryDiffHunk as GeneratedRepositoryDiffHunk,
+	RepositoryDiffLine as GeneratedRepositoryDiffLine,
 	RepositoryRef as GeneratedRepositoryRef,
 	RepositorySignature as GeneratedRepositorySignature,
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
 	GetRepositoryBlobResponse,
 	GetRepositoryBrowserSummaryResponse,
+	GetRepositoryFileDiffResponse,
 	GetRepositoryRawBlobResponse,
 	GetRepositoryTreeResponse,
 	ListRepositoryCommitsResponse,
@@ -13,6 +20,8 @@ import type {
 } from './generated/tessera/git/v1/git_storage'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryChangedFileStatus,
+	RepositoryDiffLineKind,
 	RepositoryRefKind,
 	RepositorySignatureState,
 	RepositoryTreeEntryKind,
@@ -20,9 +29,15 @@ import {
 import type {
 	GitStorageRepositoryBlob,
 	GitStorageRepositoryBrowserSummary,
+	GitStorageRepositoryChangedFile,
 	GitStorageRepositoryCommit,
 	GitStorageRepositoryCommitHistory,
 	GitStorageRepositoryCommitIdentity,
+	GitStorageRepositoryComparison,
+	GitStorageRepositoryComparisonCommit,
+	GitStorageRepositoryDiffHunk,
+	GitStorageRepositoryDiffLine,
+	GitStorageRepositoryFileDiff,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryRefs,
 	GitStorageRepositorySignature,
@@ -45,6 +60,18 @@ interface RuntimeRepositoryTreeResponse
 type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 
 type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
+
+interface RuntimeRepositoryComparisonResponse
+	extends Omit<Partial<CompareRepositoryRefsResponse>, 'commits' | 'files'> {
+	commits?: RuntimeRepositoryComparisonCommit[]
+	files?: RuntimeRepositoryChangedFile[]
+}
+
+interface RuntimeRepositoryFileDiffResponse
+	extends Omit<Partial<GetRepositoryFileDiffResponse>, 'file' | 'hunks'> {
+	file?: RuntimeRepositoryChangedFile
+	hunks?: RuntimeRepositoryDiffHunk[]
+}
 
 interface RuntimeRepositoryCommitHistoryResponse
 	extends Omit<Partial<ListRepositoryCommitsResponse>, 'commits'> {
@@ -73,6 +100,20 @@ interface RuntimeRepositoryRef
 	extends Omit<Partial<GeneratedRepositoryRef>, 'signature'> {
 	signature?: RuntimeRepositoryCommitSignature
 }
+
+interface RuntimeRepositoryComparisonCommit
+	extends Omit<Partial<GeneratedRepositoryComparisonCommit>, 'author'> {
+	author?: RuntimeRepositoryCommitIdentity
+}
+
+type RuntimeRepositoryChangedFile = Partial<GeneratedRepositoryChangedFile>
+
+interface RuntimeRepositoryDiffHunk
+	extends Omit<Partial<GeneratedRepositoryDiffHunk>, 'lines'> {
+	lines?: RuntimeRepositoryDiffLine[]
+}
+
+type RuntimeRepositoryDiffLine = Partial<GeneratedRepositoryDiffLine>
 
 /**
  * Converts a browser summary gRPC payload into the repository browser model exposed by the API.
@@ -146,6 +187,61 @@ export function toRepositoryRawBlob({
 		objectId: objectId ?? '',
 		content: content ?? new Uint8Array(),
 		sizeBytes: toUint64Number(sizeBytes),
+	}
+}
+
+/**
+ * Converts a branch comparison gRPC payload into the API comparison model.
+ */
+export function toRepositoryComparison({
+	baseSha,
+	commitLimit,
+	commits,
+	commitsTruncated,
+	fileLimit,
+	files,
+	headSha,
+	isTruncated,
+	mergeBaseSha,
+}: RuntimeRepositoryComparisonResponse): GitStorageRepositoryComparison {
+	return {
+		baseSha: baseSha ?? '',
+		commitLimit: commitLimit ?? 0,
+		headSha: headSha ?? '',
+		mergeBaseSha: mergeBaseSha ?? '',
+		commits: (commits ?? []).map(toRepositoryComparisonCommit),
+		commitsTruncated: commitsTruncated ?? false,
+		files: (files ?? []).map(toRepositoryChangedFile),
+		isTruncated: isTruncated ?? false,
+		fileLimit: fileLimit ?? 0,
+	}
+}
+
+/**
+ * Converts a lazy file diff gRPC payload into structured diff hunks.
+ */
+export function toRepositoryFileDiff({
+	baseSha,
+	file,
+	headSha,
+	hunks,
+	isTruncated,
+	mergeBaseSha,
+	patchLimitBytes,
+}: RuntimeRepositoryFileDiffResponse): GitStorageRepositoryFileDiff {
+	if (!file)
+		throw new ExternalServiceError('git storage', {
+			reason: 'missing_file_diff_entry',
+		})
+
+	return {
+		baseSha: baseSha ?? '',
+		headSha: headSha ?? '',
+		mergeBaseSha: mergeBaseSha ?? '',
+		file: toRepositoryChangedFile(file),
+		hunks: (hunks ?? []).map(toRepositoryDiffHunk),
+		isTruncated: isTruncated ?? false,
+		patchLimitBytes: toUint64Number(patchLimitBytes),
 	}
 }
 
@@ -251,6 +347,98 @@ function toRepositoryCommit({
 		committer: toRepositoryCommitIdentity(committer),
 		signature: toRepositorySignature(signature),
 	}
+}
+
+function toRepositoryComparisonCommit({
+	author,
+	sha,
+	shortSha,
+	summary,
+}: RuntimeRepositoryComparisonCommit): GitStorageRepositoryComparisonCommit {
+	return {
+		author: toRepositoryCommitIdentity(author),
+		sha: sha ?? '',
+		shortSha: shortSha ?? '',
+		summary: summary ?? '',
+	}
+}
+
+function toRepositoryChangedFile({
+	additions,
+	baseBlobId,
+	deletions,
+	headBlobId,
+	isBinary,
+	newPath,
+	oldPath,
+	status,
+}: RuntimeRepositoryChangedFile): GitStorageRepositoryChangedFile {
+	return {
+		additions: additions ?? 0,
+		baseBlobId: baseBlobId || undefined,
+		deletions: deletions ?? 0,
+		headBlobId: headBlobId || undefined,
+		isBinary: isBinary ?? false,
+		newPath: newPath ?? '',
+		oldPath: oldPath ?? '',
+		status: toRepositoryChangedFileStatus(status),
+	}
+}
+
+function toRepositoryChangedFileStatus(
+	status: RepositoryChangedFileStatus | undefined
+): GitStorageRepositoryChangedFile['status'] {
+	if (
+		status === RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_ADDED
+	)
+		return 'added'
+	if (
+		status ===
+		RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_DELETED
+	)
+		return 'deleted'
+	if (
+		status ===
+		RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_RENAMED
+	)
+		return 'renamed'
+
+	return 'modified'
+}
+
+function toRepositoryDiffHunk({
+	header,
+	lines,
+}: RuntimeRepositoryDiffHunk): GitStorageRepositoryDiffHunk {
+	return {
+		header: header ?? '',
+		lines: (lines ?? []).map(toRepositoryDiffLine),
+	}
+}
+
+function toRepositoryDiffLine({
+	content,
+	kind,
+	newLine,
+	oldLine,
+}: RuntimeRepositoryDiffLine): GitStorageRepositoryDiffLine {
+	return {
+		content: content ?? '',
+		kind: toRepositoryDiffLineKind(kind),
+		newLine,
+		oldLine,
+	}
+}
+
+function toRepositoryDiffLineKind(
+	kind: RepositoryDiffLineKind | undefined
+): GitStorageRepositoryDiffLine['kind'] {
+	if (kind === RepositoryDiffLineKind.REPOSITORY_DIFF_LINE_KIND_ADDITION)
+		return 'addition'
+	if (kind === RepositoryDiffLineKind.REPOSITORY_DIFF_LINE_KIND_DELETION)
+		return 'deletion'
+
+	return 'context'
 }
 
 function toRepositorySignature(

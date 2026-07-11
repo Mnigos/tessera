@@ -32,8 +32,9 @@ const pullRequest: PullRequest = {
 
 describe('pull request domain', () => {
 	test('maps nullable persistence fields to optional output fields', () => {
-		expect(toPullRequestOutput(pullRequest)).toEqual({
+		expect(toPullRequestOutput(pullRequest, 'marta')).toEqual({
 			...pullRequest,
+			authorUsername: 'marta',
 			mergeCommitSha: undefined,
 			mergeActorUserId: undefined,
 			closedAt: undefined,

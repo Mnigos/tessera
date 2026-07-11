@@ -16,6 +16,9 @@ import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } fr
 import { Route as modulesGithubImportRoutesImportDotgithubDotrouteRouteImport } from './modules/github-import/routes/import.github.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
+import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.route'
+import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.new.route'
+import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.$number.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.commits.$ref.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.tree.$ref.$.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.blob.$ref.$.route'
@@ -64,6 +67,30 @@ const modulesAuthRoutesApiDotauthDotDotrouteRoute =
     path: '/api/auth/$',
     getParentRoute: () => rootRouteImport,
   } as any)
+const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute =
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/pulls',
+      path: '/$username/$slug/pulls',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute =
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/pulls/new',
+      path: '/$username/$slug/pulls/new',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute =
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/pulls/$number',
+      path: '/$username/$slug/pulls/$number',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute =
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport.update(
     {
@@ -96,8 +123,11 @@ export interface FileRoutesByFullPath {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
+  '/$username/$slug/pulls': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
+  '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
+  '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -108,8 +138,11 @@ export interface FileRoutesByTo {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
+  '/$username/$slug/pulls': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
+  '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
+  '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -121,8 +154,11 @@ export interface FileRoutesById {
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
   '/import/github': typeof modulesGithubImportRoutesImportDotgithubDotrouteRoute
   '/profile/$username': typeof modulesProfileRoutesProfileDotusernameDotrouteRoute
+  '/$username/$slug/pulls': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
   '/api/auth/$': typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
+  '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
+  '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -135,8 +171,11 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/import/github'
     | '/profile/$username'
+    | '/$username/$slug/pulls'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
+    | '/$username/$slug/pulls/$number'
+    | '/$username/$slug/pulls/new'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesByTo: FileRoutesByTo
@@ -147,8 +186,11 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/import/github'
     | '/profile/$username'
+    | '/$username/$slug/pulls'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
+    | '/$username/$slug/pulls/$number'
+    | '/$username/$slug/pulls/new'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   id:
@@ -159,8 +201,11 @@ export interface FileRouteTypes {
     | '/$username/$slug'
     | '/import/github'
     | '/profile/$username'
+    | '/$username/$slug/pulls'
     | '/api/auth/$'
     | '/$username/$slug/commits/$ref'
+    | '/$username/$slug/pulls/$number'
+    | '/$username/$slug/pulls/new'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesById: FileRoutesById
@@ -170,8 +215,11 @@ export interface RootRouteChildren {
   modulesGithubImportRoutesImportDotrouteRoute: typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
   modulesAuthRoutesApiDotauthDotDotrouteRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -225,6 +273,27 @@ declare module '@tanstack/react-router' {
       path: '/api/auth/$'
       fullPath: '/api/auth/$'
       preLoaderRoute: typeof modulesAuthRoutesApiDotauthDotDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/pulls': {
+      id: '/$username/$slug/pulls'
+      path: '/$username/$slug/pulls'
+      fullPath: '/$username/$slug/pulls'
+      preLoaderRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/pulls/new': {
+      id: '/$username/$slug/pulls/new'
+      path: '/$username/$slug/pulls/new'
+      fullPath: '/$username/$slug/pulls/new'
+      preLoaderRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/pulls/$number': {
+      id: '/$username/$slug/pulls/$number'
+      path: '/$username/$slug/pulls/$number'
+      fullPath: '/$username/$slug/pulls/$number'
+      preLoaderRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$username/$slug/commits/$ref': {
@@ -289,10 +358,16 @@ const rootRouteChildren: RootRouteChildren = {
     modulesProfileRoutesProfileDotrouteRouteWithChildren,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute,
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute:
+    modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute,
   modulesAuthRoutesApiDotauthDotDotrouteRoute:
     modulesAuthRoutesApiDotauthDotDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute,
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute:
+    modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute,
+  modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute:
+    modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute:
