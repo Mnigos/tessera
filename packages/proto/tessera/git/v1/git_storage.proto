@@ -13,6 +13,9 @@ service GitStorageService {
   rpc GetRepositoryBlob(GetRepositoryBlobRequest) returns (GetRepositoryBlobResponse);
   rpc GetRepositoryRawBlob(GetRepositoryRawBlobRequest) returns (GetRepositoryRawBlobResponse);
   rpc ListRepositoryCommits(ListRepositoryCommitsRequest) returns (ListRepositoryCommitsResponse);
+  rpc CompareRepositoryRefs(CompareRepositoryRefsRequest) returns (CompareRepositoryRefsResponse);
+  rpc GetRepositoryFileDiff(GetRepositoryFileDiffRequest) returns (GetRepositoryFileDiffResponse);
+  rpc MergeRepositoryRefs(MergeRepositoryRefsRequest) returns (MergeRepositoryRefsResponse);
 }
 
 message HealthRequest {}
@@ -126,6 +129,105 @@ message ListRepositoryCommitsRequest {
 
 message ListRepositoryCommitsResponse {
   repeated RepositoryCommit commits = 1;
+}
+
+message CompareRepositoryRefsRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string base_ref = 3;
+  string head_ref = 4;
+}
+
+message CompareRepositoryRefsResponse {
+  string base_sha = 1;
+  string head_sha = 2;
+  string merge_base_sha = 3;
+  repeated RepositoryComparisonCommit commits = 4;
+  repeated RepositoryChangedFile files = 5;
+  bool is_truncated = 6;
+  uint32 file_limit = 7;
+  bool commits_truncated = 8;
+  uint32 commit_limit = 9;
+}
+
+message GetRepositoryFileDiffRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string base_ref = 3;
+  string head_ref = 4;
+  string path = 5;
+}
+
+message GetRepositoryFileDiffResponse {
+  string base_sha = 1;
+  string head_sha = 2;
+  string merge_base_sha = 3;
+  RepositoryChangedFile file = 4;
+  repeated RepositoryDiffHunk hunks = 5;
+  bool is_truncated = 6;
+  uint64 patch_limit_bytes = 7;
+}
+
+message MergeRepositoryRefsRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string base_ref = 3;
+  string head_ref = 4;
+  string expected_base_sha = 5;
+  string expected_head_sha = 6;
+  string author_name = 7;
+  string author_email = 8;
+  string message = 9;
+  string operation_id = 10;
+}
+
+message MergeRepositoryRefsResponse {
+  string merge_commit_sha = 1;
+}
+
+message RepositoryComparisonCommit {
+  string sha = 1;
+  string short_sha = 2;
+  string summary = 3;
+  RepositoryCommitIdentity author = 4;
+}
+
+message RepositoryChangedFile {
+  RepositoryChangedFileStatus status = 1;
+  string old_path = 2;
+  string new_path = 3;
+  string base_blob_id = 4;
+  string head_blob_id = 5;
+  uint32 additions = 6;
+  uint32 deletions = 7;
+  bool is_binary = 8;
+}
+
+message RepositoryDiffHunk {
+  string header = 1;
+  repeated RepositoryDiffLine lines = 2;
+}
+
+message RepositoryDiffLine {
+  RepositoryDiffLineKind kind = 1;
+  string content = 2;
+  optional uint32 old_line = 3;
+  optional uint32 new_line = 4;
+}
+
+enum RepositoryChangedFileStatus {
+  REPOSITORY_CHANGED_FILE_STATUS_UNSPECIFIED = 0;
+  REPOSITORY_CHANGED_FILE_STATUS_ADDED = 1;
+  REPOSITORY_CHANGED_FILE_STATUS_MODIFIED = 2;
+  REPOSITORY_CHANGED_FILE_STATUS_DELETED = 3;
+  REPOSITORY_CHANGED_FILE_STATUS_RENAMED = 4;
+}
+
+enum RepositoryDiffLineKind {
+  REPOSITORY_DIFF_LINE_KIND_UNSPECIFIED = 0;
+  REPOSITORY_DIFF_LINE_KIND_CONTEXT = 1;
+  REPOSITORY_DIFF_LINE_KIND_ADDITION = 2;
+  REPOSITORY_DIFF_LINE_KIND_DELETION = 3;
 }
 
 message RepositoryCommit {

@@ -3,20 +3,25 @@ import { repositoryExternalSources } from '@repo/db/schema'
 import type { RepositoryId } from '@repo/domain'
 import { $, file } from 'bun'
 import {
+	comparePullRequest,
 	createGitAccessToken,
+	createPullRequest,
 	createRepository,
 	createSshPublicKey,
 	createTestSessionHeaders,
 	getBlobPreview,
 	getBrowserSummary,
+	mergePullRequest,
 } from './helpers/api'
 import { migrateGitE2EDatabase, resetGitE2EDatabase } from './helpers/database'
 import {
 	cloneRepository,
 	cloneRepositoryOverSsh,
+	createAndPushBranch,
 	createCommittedRepository,
 	fetchRepository,
 	fetchRepositoryOverSsh,
+	gitOutput,
 	lsRemote,
 	pushRepository,
 	pushRepositoryOverSsh,
@@ -133,7 +138,7 @@ describe('Git smart HTTP e2e', () => {
 		const token = await createGitAccessToken({
 			apiBaseUrl,
 			headers,
-			permissions: ['git:write'],
+			permissions: ['git:read', 'git:write'],
 		})
 		const localRepository = `${runDirectory}/public-source`
 		const cloneDirectory = `${runDirectory}/public-clone`
@@ -153,6 +158,100 @@ describe('Git smart HTTP e2e', () => {
 
 		expect(cloneResult.exitCode).toBe(0)
 		expect(fetchResult.exitCode, fetchResult.stderr).toBe(0)
+	})
+
+	test('merges a pull request into a real Git two-parent commit through the API', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'pull-request@example.com',
+			name: 'Pull Request Owner',
+			username: 'pull-request-owner',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'Pull Request Repository',
+			slug: 'pull-request-repository',
+			visibility: 'public',
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const localRepository = `${runDirectory}/pull-request-merge`
+		await createCommittedRepository(localRepository, 'README.md', '# Base\n')
+		await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, 'pull-request-owner', repository.slug, token)
+		)
+		const baseSha = await gitOutput(localRepository, ['rev-parse', 'main'])
+		await createAndPushBranch(
+			localRepository,
+			'feature',
+			'feature.txt',
+			'feature\n'
+		)
+		const headSha = await gitOutput(localRepository, ['rev-parse', 'feature'])
+		const pullRequest = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			username: 'pull-request-owner',
+		})
+
+		const merged = await mergePullRequest({
+			apiBaseUrl,
+			headers,
+			number: pullRequest.number,
+			slug: repository.slug,
+			username: 'pull-request-owner',
+		})
+		const mergedComparison = await comparePullRequest({
+			apiBaseUrl,
+			headers,
+			number: pullRequest.number,
+			slug: repository.slug,
+			username: 'pull-request-owner',
+		})
+		await gitOutput(localRepository, [
+			'remote',
+			'set-url',
+			'origin',
+			smartHttpUrl(ports.gitHttp, 'pull-request-owner', repository.slug),
+		])
+		const fetchResult = await fetchRepository(localRepository)
+		expect(fetchResult.exitCode, fetchResult.stderr).toBe(0)
+		const remoteMainRef = await gitOutput(localRepository, [
+			'ls-remote',
+			'origin',
+			'refs/heads/main',
+		])
+		const remoteMainSha = remoteMainRef.split('\t')[0]
+		if (!remoteMainSha) throw new Error('remote main ref was not returned')
+		const parents = await gitOutput(localRepository, [
+			'show',
+			'-s',
+			'--format=%P',
+			remoteMainSha,
+		])
+		const author = await gitOutput(localRepository, [
+			'show',
+			'-s',
+			'--format=%an <%ae>',
+			remoteMainSha,
+		])
+
+		expect(merged).toMatchObject({
+			state: 'merged',
+			mergeCommitSha: remoteMainSha,
+		})
+		expect(parents.split(' ')).toEqual([baseSha, headSha])
+		expect(author).toBe('Pull Request Owner <pull-request@example.com>')
+		expect(mergedComparison).toMatchObject({
+			commits: [{ sha: headSha }],
+			files: [{ newPath: 'feature.txt' }],
+		})
 	})
 
 	test('lets the owner push, clone, and fetch repositories over SSH', async () => {

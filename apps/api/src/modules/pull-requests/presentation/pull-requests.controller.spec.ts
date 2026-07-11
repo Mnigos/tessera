@@ -1,7 +1,11 @@
 import { RepositoryWriteGuard } from '@modules/repositories'
 import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { PullRequest } from '@repo/contracts'
+import type {
+	PullRequest,
+	PullRequestComparison,
+	PullRequestFileDiff,
+} from '@repo/contracts'
 import type { PullRequestId, RepositoryId } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { PullRequestsService } from '../application/pull-requests.service'
@@ -14,6 +18,7 @@ const pullRequest: PullRequest = {
 	repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
 	number: 1,
 	authorUserId: mockUserId,
+	authorUsername: 'marta',
 	sourceBranch: 'feature',
 	targetBranch: 'main',
 	openingBaseSha: 'base-sha',
@@ -53,9 +58,12 @@ describe(PullRequestsController.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						get: vi.fn(),
+						comparison: vi.fn(),
+						fileDiff: vi.fn(),
 						edit: vi.fn(),
 						close: vi.fn(),
 						reopen: vi.fn(),
+						merge: vi.fn(),
 					},
 				},
 			],
@@ -129,6 +137,77 @@ describe(PullRequestsController.name, () => {
 		expect(getSpy).toHaveBeenCalledWith(mockUserId, input)
 	})
 
+	test('delegates comparison requests with an optional viewer', async () => {
+		const input = { ...repositoryInput, number: 1 }
+		const output: PullRequestComparison = {
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+			mergeBaseSha: 'a'.repeat(40),
+			commits: [],
+			files: [],
+			isTruncated: false,
+			commitsTruncated: false,
+			commitLimit: 500,
+			fileLimit: 300,
+		}
+		const comparisonSpy = vi
+			.spyOn(service, 'comparison')
+			.mockResolvedValue(output)
+		const procedure = controller.comparison(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'comparison'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(output)
+		expect(comparisonSpy).toHaveBeenCalledWith(mockUserId, input)
+	})
+
+	test('delegates file diff requests with an optional viewer', async () => {
+		const input = {
+			...repositoryInput,
+			number: 1,
+			path: 'src/index.ts',
+			expectedBaseSha: 'a'.repeat(40),
+			expectedHeadSha: 'b'.repeat(40),
+		}
+		const output: PullRequestFileDiff = {
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+			mergeBaseSha: 'a'.repeat(40),
+			file: {
+				status: 'modified',
+				oldPath: input.path,
+				newPath: input.path,
+				additions: 1,
+				deletions: 1,
+				isBinary: false,
+			},
+			hunks: [],
+			isTruncated: false,
+			patchLimitBytes: 2_097_152,
+		}
+		const fileDiffSpy = vi.spyOn(service, 'fileDiff').mockResolvedValue(output)
+		const procedure = controller.fileDiff(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'fileDiff'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(output)
+		expect(fileDiffSpy).toHaveBeenCalledWith(mockUserId, input)
+	})
+
 	test.each([
 		'edit',
 		'close',
@@ -152,5 +231,35 @@ describe(PullRequestsController.name, () => {
 			})
 		).toEqual(pullRequest)
 		expect(actionSpy).toHaveBeenCalledWith(mockUserId, input)
+	})
+
+	test('delegates merge requests with the authenticated actor', async () => {
+		const input = {
+			...repositoryInput,
+			number: 1,
+			expectedBaseSha: 'a'.repeat(40),
+			expectedHeadSha: 'b'.repeat(40),
+		}
+		const mergeSpy = vi.spyOn(service, 'merge').mockResolvedValue(pullRequest)
+		const procedure = controller.merge(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'merge'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(pullRequest)
+		expect(mergeSpy).toHaveBeenCalledWith(
+			{
+				id: session.user.id,
+				name: session.user.name,
+				email: session.user.email,
+			},
+			input
+		)
 	})
 })

@@ -1,7 +1,7 @@
 use crate::domain::{
-    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryCreated,
-    RepositoryError, RepositoryId, RepositoryImported, RepositoryRawBlob, RepositoryRefList,
-    RepositoryTree, TrustedGpgKey,
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryComparison,
+    RepositoryCreated, RepositoryError, RepositoryFileDiff, RepositoryId, RepositoryImported,
+    RepositoryMerge, RepositoryRawBlob, RepositoryRefList, RepositoryTree, TrustedGpgKey,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -135,6 +135,61 @@ impl GitStorageApplication {
                 ref_name,
                 limit,
                 trusted_gpg_keys,
+            )
+            .await
+    }
+
+    pub async fn compare_repository_refs(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        base_ref: &str,
+        head_ref: &str,
+    ) -> Result<RepositoryComparison, RepositoryError> {
+        self.storage
+            .compare_repository_refs(repository_id, storage_path, base_ref, head_ref)
+            .await
+    }
+
+    pub async fn get_repository_file_diff(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        base_ref: &str,
+        head_ref: &str,
+        path: &str,
+    ) -> Result<RepositoryFileDiff, RepositoryError> {
+        self.storage
+            .get_repository_file_diff(repository_id, storage_path, base_ref, head_ref, path)
+            .await
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn merge_repository_refs(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        base_ref: &str,
+        head_ref: &str,
+        expected_base_sha: &str,
+        expected_head_sha: &str,
+        author_name: &str,
+        author_email: &str,
+        message: &str,
+        operation_id: &str,
+    ) -> Result<RepositoryMerge, RepositoryError> {
+        self.storage
+            .merge_repository_refs(
+                repository_id,
+                storage_path,
+                base_ref,
+                head_ref,
+                expected_base_sha,
+                expected_head_sha,
+                author_name,
+                author_email,
+                message,
+                operation_id,
             )
             .await
     }

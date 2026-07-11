@@ -53,6 +53,10 @@ interface LifecycleParams extends PullRequestMutationParams {
 	changedAt: Date
 }
 
+interface MergeParams extends LifecycleParams {
+	createMergeCommit: () => Promise<string>
+}
+
 type PullRequestDatabase = Database | DrizzleTransaction
 
 const PULL_REQUEST_COLUMNS = {
@@ -226,6 +230,58 @@ export class PullRequestsRepository {
 			nextState: 'open',
 			type: 'reopened',
 			closedAt: null,
+		})
+	}
+
+	async merge({
+		actorUserId,
+		changedAt,
+		createMergeCommit,
+		pullRequestId,
+		repositoryId,
+	}: MergeParams): Promise<PullRequest | undefined> {
+		return await this.db.transaction(async tx => {
+			const [lockedPullRequest] = await tx
+				.select(PULL_REQUEST_COLUMNS)
+				.from(pullRequests)
+				.where(
+					and(
+						eq(pullRequests.id, pullRequestId),
+						eq(pullRequests.repositoryId, repositoryId)
+					)
+				)
+				.for('update')
+
+			if (lockedPullRequest?.state !== 'open') return undefined
+
+			const mergeCommitSha = await createMergeCommit()
+			const [pullRequest] = await tx
+				.update(pullRequests)
+				.set({
+					state: 'merged',
+					mergeCommitSha,
+					mergeActorUserId: actorUserId,
+					mergedAt: changedAt,
+					closedAt: changedAt,
+				})
+				.where(
+					and(
+						eq(pullRequests.id, pullRequestId),
+						eq(pullRequests.repositoryId, repositoryId),
+						eq(pullRequests.state, 'open')
+					)
+				)
+				.returning(PULL_REQUEST_COLUMNS)
+
+			if (!pullRequest) return undefined
+
+			await this.createEvent(tx, {
+				pullRequestId,
+				actorUserId,
+				type: 'merged',
+			})
+
+			return pullRequest
 		})
 	}
 

@@ -1,12 +1,19 @@
-import { GitStorageClient } from '@config/git-storage'
+import {
+	GitStorageClient,
+	type GitStorageRepositoryBlob,
+} from '@config/git-storage'
 import { RepositoriesService } from '@modules/repositories'
 import { Injectable } from '@nestjs/common'
 import type {
 	ParsedCreatePullRequestInput,
 	ParsedEditPullRequestInput,
+	ParsedGetPullRequestFileDiffInput,
 	ParsedGetPullRequestInput,
 	ParsedListPullRequestsInput,
+	ParsedMergePullRequestInput,
 	PullRequest,
+	PullRequestComparison,
+	PullRequestFileDiff,
 } from '@repo/contracts'
 import type { PullRequest as PullRequestEntity } from '@repo/db'
 import type { RepositoryId, UserId } from '@repo/domain'
@@ -25,11 +32,19 @@ import {
 	PullRequestNotFoundError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
+import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
 
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
 	'pull_requests_open_branch_pair_unique',
 ])
+
+export interface PullRequestMergeActor {
+	email: string
+	id: UserId
+	name: string
+}
 
 @Injectable()
 export class PullRequestsService {
@@ -96,7 +111,7 @@ export class PullRequestsService {
 					repositoryId,
 				})
 
-			return toPullRequestOutput(pullRequest)
+			return toPullRequestOutput(pullRequest, username)
 		} catch (error) {
 			if (isUniqueViolation(error, OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT))
 				throw new PullRequestAlreadyOpenError({
@@ -126,7 +141,9 @@ export class PullRequestsService {
 			state,
 		})
 
-		return pullRequests.map(toPullRequestOutput)
+		return pullRequests.map(pullRequest =>
+			toPullRequestOutput(pullRequest, username)
+		)
 	}
 
 	async get(
@@ -147,9 +164,71 @@ export class PullRequestsService {
 		})
 
 		return {
-			pullRequest: toPullRequestOutput(pullRequest),
+			pullRequest: toPullRequestOutput(pullRequest, username),
 			events: events.map(toPullRequestEventOutput),
 		}
+	}
+
+	async comparison(
+		viewerUserId: UserId | undefined,
+		{ number, slug, username }: ParsedGetPullRequestInput
+	): Promise<PullRequestComparison> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+		const { baseRef, headRef } = this.getComparisonRefs(pullRequest)
+
+		const comparison = await this.gitStorageClient.compareRepositoryRefs({
+			repositoryId,
+			storagePath,
+			baseRef,
+			headRef,
+		})
+
+		return {
+			...comparison,
+			commits: comparison.commits.map(commit => ({
+				...commit,
+				author: commit.author
+					? { ...commit.author, date: new Date(commit.author.date) }
+					: undefined,
+			})),
+		}
+	}
+
+	async fileDiff(
+		viewerUserId: UserId | undefined,
+		{
+			expectedBaseSha,
+			expectedHeadSha,
+			number,
+			path,
+			slug,
+			username,
+		}: ParsedGetPullRequestFileDiffInput
+	): Promise<PullRequestFileDiff> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		await this.findPullRequest(repositoryId, number)
+		const diff = await this.gitStorageClient.getRepositoryFileDiff({
+			repositoryId,
+			storagePath,
+			baseRef: expectedBaseSha,
+			headRef: expectedHeadSha,
+			path,
+		})
+		const [baseBlob, headBlob] = await Promise.all([
+			this.getDiffBlob(repositoryId, storagePath, diff.file.baseBlobId),
+			this.getDiffBlob(repositoryId, storagePath, diff.file.headBlobId),
+		])
+
+		return await highlightPullRequestDiff({ diff, baseBlob, headBlob })
 	}
 
 	async edit(
@@ -174,7 +253,8 @@ export class PullRequestsService {
 		})
 
 		return toPullRequestOutput(
-			this.requireUpdatedPullRequest(updatedPullRequest, pullRequest, 'edit')
+			this.requireUpdatedPullRequest(updatedPullRequest, pullRequest, 'edit'),
+			username
 		)
 	}
 
@@ -198,7 +278,8 @@ export class PullRequestsService {
 		})
 
 		return toPullRequestOutput(
-			this.requireUpdatedPullRequest(closedPullRequest, pullRequest, 'close')
+			this.requireUpdatedPullRequest(closedPullRequest, pullRequest, 'close'),
+			username
 		)
 	}
 
@@ -227,7 +308,8 @@ export class PullRequestsService {
 					reopenedPullRequest,
 					pullRequest,
 					'reopen'
-				)
+				),
+				username
 			)
 		} catch (error) {
 			if (isUniqueViolation(error, OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT))
@@ -238,6 +320,98 @@ export class PullRequestsService {
 				})
 
 			throw error
+		}
+	}
+
+	async merge(
+		actor: PullRequestMergeActor,
+		{
+			expectedBaseSha,
+			expectedHeadSha,
+			number,
+			slug,
+			username,
+		}: ParsedMergePullRequestInput
+	): Promise<PullRequest> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getWritableRepositoryContext({
+				username,
+				slug,
+			})
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+
+		if (pullRequest.state === 'merged' && pullRequest.mergeCommitSha)
+			return toPullRequestOutput(pullRequest, username)
+
+		if (pullRequest.state !== 'open')
+			throw new PullRequestStateConflictError({
+				pullRequestId: pullRequest.id,
+				state: pullRequest.state,
+				action: 'merge',
+			})
+
+		let mergedPullRequest: PullRequestEntity | undefined
+		try {
+			mergedPullRequest = await this.pullRequestsRepository.merge({
+				repositoryId,
+				pullRequestId: pullRequest.id,
+				actorUserId: actor.id,
+				changedAt: new Date(),
+				createMergeCommit: async () =>
+					await this.gitStorageClient.mergeRepositoryRefs({
+						repositoryId,
+						storagePath,
+						baseRef: pullRequest.targetBranch,
+						headRef: pullRequest.sourceBranch,
+						expectedBaseSha,
+						expectedHeadSha,
+						authorName: actor.name,
+						authorEmail: actor.email,
+						message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
+						operationId: pullRequest.id,
+					}),
+			})
+		} catch (error) {
+			throw toPullRequestStorageError(error, { repositoryId, number })
+		}
+
+		if (mergedPullRequest)
+			return toPullRequestOutput(mergedPullRequest, username)
+
+		const currentPullRequest = await this.findPullRequest(repositoryId, number)
+		if (currentPullRequest.state === 'merged')
+			return toPullRequestOutput(currentPullRequest, username)
+
+		return toPullRequestOutput(
+			this.requireUpdatedPullRequest(mergedPullRequest, pullRequest, 'merge'),
+			username
+		)
+	}
+
+	private async getDiffBlob(
+		repositoryId: RepositoryId,
+		storagePath: string,
+		objectId: string | undefined
+	): Promise<GitStorageRepositoryBlob | undefined> {
+		if (!objectId) return undefined
+
+		return await this.gitStorageClient.getRepositoryBlob({
+			repositoryId,
+			storagePath,
+			objectId,
+		})
+	}
+
+	private getComparisonRefs(pullRequest: PullRequestEntity) {
+		if (pullRequest.state === 'merged' && pullRequest.mergeCommitSha)
+			return {
+				baseRef: `${pullRequest.mergeCommitSha}^1`,
+				headRef: `${pullRequest.mergeCommitSha}^2`,
+			}
+
+		return {
+			baseRef: pullRequest.targetBranch,
+			headRef: pullRequest.sourceBranch,
 		}
 	}
 

@@ -12,6 +12,8 @@ import {
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
 	RepositoryBlobPreviewState,
+	RepositoryChangedFileStatus,
+	RepositoryDiffLineKind,
 	RepositoryRefKind,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
@@ -49,6 +51,9 @@ describe(GitStorageClient.name, () => {
 		getRepositoryRawBlob: ReturnType<typeof vi.fn>
 		listRepositoryRefs: ReturnType<typeof vi.fn>
 		listRepositoryCommits: ReturnType<typeof vi.fn>
+		compareRepositoryRefs: ReturnType<typeof vi.fn>
+		getRepositoryFileDiff: ReturnType<typeof vi.fn>
+		mergeRepositoryRefs: ReturnType<typeof vi.fn>
 	}
 
 	beforeEach(async () => {
@@ -153,6 +158,62 @@ describe(GitStorageClient.name, () => {
 					commits: [mockRepositoryCommit],
 				})
 			),
+			compareRepositoryRefs: vi.fn(() =>
+				of({
+					baseSha: 'base-sha',
+					headSha: 'head-sha',
+					mergeBaseSha: 'merge-base-sha',
+					commits: [],
+					files: [
+						{
+							status:
+								RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_MODIFIED,
+							oldPath: 'src/index.ts',
+							newPath: 'src/index.ts',
+							baseBlobId: 'base-blob',
+							headBlobId: 'head-blob',
+							additions: 1,
+							deletions: 0,
+							isBinary: false,
+						},
+					],
+					isTruncated: false,
+					commitsTruncated: false,
+					commitLimit: 500,
+					fileLimit: 300,
+				})
+			),
+			getRepositoryFileDiff: vi.fn(() =>
+				of({
+					baseSha: 'base-sha',
+					headSha: 'head-sha',
+					mergeBaseSha: 'merge-base-sha',
+					file: {
+						status:
+							RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_MODIFIED,
+						oldPath: 'src/index.ts',
+						newPath: 'src/index.ts',
+						additions: 1,
+						deletions: 0,
+						isBinary: false,
+					},
+					hunks: [
+						{
+							header: '@@ -1 +1 @@',
+							lines: [
+								{
+									kind: RepositoryDiffLineKind.REPOSITORY_DIFF_LINE_KIND_ADDITION,
+									content: 'new',
+									newLine: 1,
+								},
+							],
+						},
+					],
+					isTruncated: false,
+					patchLimitBytes: 1024,
+				})
+			),
+			mergeRepositoryRefs: vi.fn(() => of({ mergeCommitSha: 'merge-sha' })),
 		}
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
@@ -769,6 +830,40 @@ describe(GitStorageClient.name, () => {
 		await expect(
 			client.createRepository({ repositoryId })
 		).rejects.toBeInstanceOf(GatewayTimeoutError)
+	})
+
+	test('maps comparison, file diff, and merge operations', async () => {
+		expect(
+			await client.compareRepositoryRefs({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+			})
+		).toMatchObject({ files: [{ status: 'modified' }] })
+		expect(
+			await client.getRepositoryFileDiff({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+				path: 'src/index.ts',
+			})
+		).toMatchObject({ hunks: [{ lines: [{ kind: 'addition' }] }] })
+		expect(
+			await client.mergeRepositoryRefs({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+				expectedBaseSha: 'base-sha',
+				expectedHeadSha: 'head-sha',
+				authorName: 'Ada',
+				authorEmail: 'ada@example.com',
+				message: 'Merge',
+				operationId: 'pr-1',
+			})
+		).toBe('merge-sha')
 	})
 })
 

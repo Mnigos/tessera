@@ -10,10 +10,12 @@ pub mod proto {
 
 pub use config::Config;
 pub use domain::{
-    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommit, RepositoryCommitIdentity,
-    RepositoryCommitList, RepositoryCreated, RepositoryError, RepositoryId, RepositoryRawBlob,
-    RepositoryReadme, RepositoryRef, RepositoryRefKind, RepositoryRefList, RepositorySignature,
-    RepositorySignatureState, RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind,
-    TrustedGpgKey,
+    RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryChangedFile,
+    RepositoryChangedFileStatus, RepositoryCommit, RepositoryCommitIdentity, RepositoryCommitList,
+    RepositoryComparison, RepositoryComparisonCommit, RepositoryCreated, RepositoryDiffHunk,
+    RepositoryDiffLine, RepositoryDiffLineKind, RepositoryError, RepositoryFileDiff, RepositoryId,
+    RepositoryMerge, RepositoryRawBlob, RepositoryReadme, RepositoryRef, RepositoryRefKind,
+    RepositoryRefList, RepositorySignature, RepositorySignatureState, RepositoryTree,
+    RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
 };
 pub use storage::{GitStorageApplication, GitStorageGrpcService, RepositoryStorage};

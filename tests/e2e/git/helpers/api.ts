@@ -32,6 +32,14 @@ interface CreateSshPublicKeyOptions {
 	title: string
 }
 
+interface PullRequestRepositoryOptions {
+	apiBaseUrl: string
+	headers?: Headers
+	number?: number
+	slug: string
+	username: string
+}
+
 export async function createTestSessionHeaders({
 	apiBaseUrl,
 	email,
@@ -135,4 +143,56 @@ export async function getBrowserSummary(
 	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
 
 	return await orpc.repositories.getBrowserSummary({ slug, username })
+}
+
+export async function createPullRequest({
+	apiBaseUrl,
+	headers,
+	slug,
+	username,
+}: PullRequestRepositoryOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.pullRequests.create({
+		username,
+		slug,
+		sourceBranch: 'feature',
+		targetBranch: 'main',
+		title: 'Merge feature',
+	})
+}
+
+export async function comparePullRequest({
+	apiBaseUrl,
+	number = 1,
+	headers,
+	slug,
+	username,
+}: PullRequestRepositoryOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.pullRequests.comparison({ username, slug, number })
+}
+
+export async function mergePullRequest({
+	apiBaseUrl,
+	number = 1,
+	headers,
+	slug,
+	username,
+}: PullRequestRepositoryOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+	const comparison = await orpc.pullRequests.comparison({
+		username,
+		slug,
+		number,
+	})
+
+	return await orpc.pullRequests.merge({
+		username,
+		slug,
+		number,
+		expectedBaseSha: comparison.baseSha,
+		expectedHeadSha: comparison.headSha,
+	})
 }

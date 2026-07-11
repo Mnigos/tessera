@@ -63,6 +63,25 @@ export async function fetchRepository(directory: string) {
 	})
 }
 
+export async function createAndPushBranch(
+	directory: string,
+	branch: string,
+	filename: string,
+	content: string
+) {
+	await runGit(['checkout', '-b', branch], directory)
+	await write(`${directory}/${filename}`, content)
+	await runGit(['add', filename], directory)
+	await runGit(['commit', '-m', `Add ${filename}`], directory)
+	await runGit(['push', '-u', 'origin', branch], directory)
+}
+
+export async function gitOutput(directory: string, args: string[]) {
+	const result = await runGit(args, directory)
+
+	return result.stdout.trim()
+}
+
 export async function fetchRepositoryOverSsh(
 	directory: string,
 	privateKeyPath: string

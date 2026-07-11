@@ -54,6 +54,7 @@ describe(PullRequestsRepository.name, () => {
 	const selectWhereMock = vi.fn()
 	const selectOrderByMock = vi.fn()
 	const selectLimitMock = vi.fn()
+	const selectForMock = vi.fn()
 	const insertMock = vi.fn()
 	const updateMock = vi.fn()
 	const counterValuesMock = vi.fn()
@@ -71,9 +72,11 @@ describe(PullRequestsRepository.name, () => {
 	beforeEach(async () => {
 		selectOrderByMock.mockResolvedValue([pullRequest])
 		selectLimitMock.mockResolvedValue([pullRequest])
+		selectForMock.mockResolvedValue([pullRequest])
 		selectWhereMock.mockReturnValue({
 			orderBy: selectOrderByMock,
 			limit: selectLimitMock,
+			for: selectForMock,
 		})
 		selectFromMock.mockReturnValue({ where: selectWhereMock })
 		selectMock.mockReturnValue({ from: selectFromMock })
@@ -113,7 +116,7 @@ describe(PullRequestsRepository.name, () => {
 
 			return { set: pullRequestUpdateSetMock }
 		})
-		const tx = { insert: insertMock, update: updateMock }
+		const tx = { insert: insertMock, select: selectMock, update: updateMock }
 		transactionMock.mockImplementation(callback => callback(tx))
 
 		moduleRef = await Test.createTestingModule({
@@ -302,5 +305,59 @@ describe(PullRequestsRepository.name, () => {
 			actorUserId: mockUserId,
 			type: 'reopened',
 		})
+	})
+
+	test('marks an open pull request merged and records the actor event', async () => {
+		const changedAt = new Date('2026-07-11T00:03:00Z')
+		const mergedPullRequest = {
+			...pullRequest,
+			state: 'merged' as const,
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: changedAt,
+			closedAt: changedAt,
+		}
+		pullRequestUpdateReturningMock.mockResolvedValue([mergedPullRequest])
+		const createMergeCommit = vi.fn().mockResolvedValue('merge-sha')
+
+		expect(
+			await repository.merge({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				changedAt,
+				createMergeCommit,
+			})
+		).toEqual(mergedPullRequest)
+		expect(createMergeCommit).toHaveBeenCalledOnce()
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
+			state: 'merged',
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: changedAt,
+			closedAt: changedAt,
+		})
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'merged',
+		})
+	})
+
+	test('does not run Git when a concurrent close wins the row lock', async () => {
+		const changedAt = new Date('2026-07-11T00:04:00Z')
+		selectForMock.mockResolvedValue([{ ...pullRequest, state: 'closed' }])
+		const createMergeCommit = vi.fn().mockResolvedValue('merge-sha')
+
+		expect(
+			await repository.merge({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				changedAt,
+				createMergeCommit,
+			})
+		).toBeUndefined()
+		expect(createMergeCommit).not.toHaveBeenCalled()
 	})
 })

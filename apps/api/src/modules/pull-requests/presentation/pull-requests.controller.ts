@@ -35,6 +35,20 @@ export class PullRequestsController {
 		)
 	}
 
+	@Implement(contract.pullRequests.comparison)
+	comparison(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.comparison).handler(({ input }) =>
+			this.pullRequestsService.comparison(session?.user.id, input)
+		)
+	}
+
+	@Implement(contract.pullRequests.fileDiff)
+	fileDiff(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.fileDiff).handler(({ input }) =>
+			this.pullRequestsService.fileDiff(session?.user.id, input)
+		)
+	}
+
 	@RequireAuth()
 	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.edit)
@@ -59,6 +73,22 @@ export class PullRequestsController {
 	reopen(@Session() session: UserSession) {
 		return implement(contract.pullRequests.reopen).handler(({ input }) =>
 			this.pullRequestsService.reopen(session.user.id, input)
+		)
+	}
+
+	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
+	@Implement(contract.pullRequests.merge)
+	merge(@Session() session: UserSession) {
+		return implement(contract.pullRequests.merge).handler(({ input }) =>
+			this.pullRequestsService.merge(
+				{
+					id: session.user.id,
+					name: session.user.name,
+					email: session.user.email,
+				},
+				input
+			)
 		)
 	}
 }
