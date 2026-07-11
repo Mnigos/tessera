@@ -1,6 +1,5 @@
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
-import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -29,7 +28,6 @@ import {
 	RepositoryGitHubPushBackTokenMissingError,
 	RepositoryGitHubPushBackUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
-	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
@@ -68,7 +66,6 @@ describe(RepositoriesService.name, () => {
 	let moduleRef: TestingModule
 	let repositoriesService: RepositoriesService
 	let repositoriesRepository: RepositoriesRepository
-	let gitAccessTokensService: GitAccessTokensService
 	let gpgPublicKeysService: GpgPublicKeysService
 	let sshPublicKeysService: SshPublicKeysService
 	let githubMirrorSyncQueue: GitHubMirrorSyncQueue
@@ -183,15 +180,6 @@ describe(RepositoriesService.name, () => {
 					},
 				},
 				{
-					provide: GitAccessTokensService,
-					useValue: {
-						verify: vi.fn().mockResolvedValue({
-							userId: mockUserId,
-							permissions: { git: ['read', 'write'] },
-						}),
-					},
-				},
-				{
 					provide: GpgPublicKeysService,
 					useValue: {
 						list: vi.fn().mockResolvedValue([
@@ -230,7 +218,6 @@ describe(RepositoriesService.name, () => {
 
 		repositoriesService = moduleRef.get(RepositoriesService)
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
-		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
 		gpgPublicKeysService = moduleRef.get(GpgPublicKeysService)
 		sshPublicKeysService = moduleRef.get(SshPublicKeysService)
 		githubMirrorSyncQueue = moduleRef.get(GitHubMirrorSyncQueue)
@@ -2624,27 +2611,22 @@ describe(RepositoriesService.name, () => {
 		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
 	})
 
-	test('authorizes git writes for repository owners with storage metadata', async () => {
+	test('loads git repository write targets without authorizing them', async () => {
 		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
 			...repository,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 		})
-		const verifySpy = vi.spyOn(gitAccessTokensService, 'verify')
 
 		expect(
-			await repositoriesService.authorizeGitRepositoryWrite({
-				rawToken: 'tes_git_raw-secret',
+			await repositoriesService.getGitRepositoryWriteTarget({
 				username: 'marta',
 				slug: repository.slug,
 			})
 		).toEqual({
-			repositoryId: repository.id,
+			id: repository.id,
+			ownerUserId: mockUserId,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
-			trustedUser: mockUserId,
-		})
-		expect(verifySpy).toHaveBeenCalledWith({
-			rawToken: 'tes_git_raw-secret',
-			requiredPermission: 'git:write',
+			externalSource: undefined,
 		})
 		expect(findSpy).toHaveBeenCalledWith({
 			username: 'marta',
@@ -2652,48 +2634,20 @@ describe(RepositoriesService.name, () => {
 		})
 	})
 
-	test('allows git writes for imported-only GitHub repositories', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github',
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'tessera',
-				fullName: 'marta/tessera',
-				sourceUrl: 'https://github.com/marta/tessera',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'imported',
-				syncStatus: 'succeeded',
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:01:00Z'),
-			},
-		})
-
+	test('allows git writes for imported-only GitHub repositories', () => {
 		expect(
-			await repositoriesService.authorizeGitRepositoryWrite({
-				rawToken: 'tes_git_raw-secret',
-				username: 'marta',
-				slug: repository.slug,
-			})
+			repositoriesService.completeGitRepositoryWriteAuthorization(
+				{
+					id: repository.id,
+					ownerUserId: mockUserId,
+					storagePath: '/var/lib/tessera/repositories/repo.git',
+					externalSource: {
+						provider: 'github',
+						mirrorMode: 'imported',
+					},
+				},
+				mockUserId
+			)
 		).toEqual({
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -2701,100 +2655,51 @@ describe(RepositoriesService.name, () => {
 		})
 	})
 
-	test('denies git writes when GitHub is source of truth', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github',
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'tessera',
-				fullName: 'marta/tessera',
-				sourceUrl: 'https://github.com/marta/tessera',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera',
-				syncStatus: 'succeeded',
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:01:00Z'),
-			},
-		})
-		const promise = repositoriesService.authorizeGitRepositoryWrite({
-			rawToken: 'tes_git_raw-secret',
-			username: 'marta',
-			slug: repository.slug,
-		})
+	test('denies git writes when GitHub is source of truth', () => {
+		const completeAuthorization = () =>
+			repositoriesService.completeGitRepositoryWriteAuthorization(
+				{
+					id: repository.id,
+					ownerUserId: mockUserId,
+					storagePath: '/var/lib/tessera/repositories/repo.git',
+					externalSource: {
+						provider: 'github',
+						mirrorMode: 'github_to_tessera',
+					},
+				},
+				mockUserId
+			)
 
-		await expect(promise).rejects.toBeInstanceOf(
+		expect(completeAuthorization).toThrow(
 			RepositoryGitHubSourceOfTruthWriteForbiddenError
 		)
-		await expect(promise).rejects.toMatchObject({
-			message:
-				'GitHub is the source of truth for this repository. Push to GitHub instead.',
-		})
-	})
-
-	test('forbids git writes for non-owners', async () => {
-		vi.spyOn(gitAccessTokensService, 'verify').mockResolvedValue({
-			userId: '00000000-0000-4000-8000-000000000099' as UserId,
-			permissions: { git: ['read', 'write'] },
-		})
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-		})
-
-		await expect(
-			repositoriesService.authorizeGitRepositoryWrite({
-				rawToken: 'tes_git_raw-secret',
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
+		expect(completeAuthorization).toThrow(
+			'GitHub is the source of truth for this repository. Push to GitHub instead.'
+		)
 	})
 
 	test('throws when a git write repository is unknown', async () => {
 		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
 
 		await expect(
-			repositoriesService.authorizeGitRepositoryWrite({
-				rawToken: 'tes_git_raw-secret',
+			repositoriesService.getGitRepositoryWriteTarget({
 				username: 'marta',
 				slug: 'missing' as RepositorySlug,
 			})
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
-	test('throws when a writable repository has no storage path', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: null,
-		})
-
-		await expect(
-			repositoriesService.authorizeGitRepositoryWrite({
-				rawToken: 'tes_git_raw-secret',
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
+	test('throws when a writable repository has no storage path', () => {
+		expect(() =>
+			repositoriesService.completeGitRepositoryWriteAuthorization(
+				{
+					id: repository.id,
+					ownerUserId: mockUserId,
+					storagePath: null,
+				},
+				mockUserId
+			)
+		).toThrow(RepositoryStoragePathMissingError)
 	})
 
 	test('authorizes ssh git reads for public repositories with known keys', async () => {
@@ -2881,90 +2786,6 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 			})
 		).rejects.toBeInstanceOf(PrivateRepositoryGitReadForbiddenError)
-	})
-
-	test('authorizes ssh git writes for repository owners', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-		})
-
-		expect(
-			await repositoriesService.authorizeSshGitRepositoryWrite({
-				fingerprint: 'SHA256:abc',
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).toEqual({
-			repositoryId: repository.id,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			trustedUser: mockUserId,
-		})
-	})
-
-	test('denies ssh git writes when GitHub is source of truth', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000010' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github',
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'tessera',
-				fullName: 'marta/tessera',
-				sourceUrl: 'https://github.com/marta/tessera',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera',
-				syncStatus: 'succeeded',
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:01:00Z'),
-			},
-		})
-		const promise = repositoriesService.authorizeSshGitRepositoryWrite({
-			fingerprint: 'SHA256:abc',
-			username: 'marta',
-			slug: repository.slug,
-		})
-
-		await expect(promise).rejects.toMatchObject({
-			message:
-				'GitHub is the source of truth for this repository. Push to GitHub instead.',
-		})
-	})
-
-	test('forbids ssh git writes for non-owners', async () => {
-		vi.spyOn(sshPublicKeysService, 'findOwnerByFingerprint').mockResolvedValue(
-			'00000000-0000-4000-8000-000000000099' as UserId
-		)
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-		})
-
-		await expect(
-			repositoriesService.authorizeSshGitRepositoryWrite({
-				fingerprint: 'SHA256:abc',
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
 	})
 })
 

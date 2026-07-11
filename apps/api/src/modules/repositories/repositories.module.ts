@@ -12,6 +12,7 @@ import {
 } from './infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from './infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from './presentation/git-authorization.grpc.controller'
+import { GitRepositoryWriteGuard } from './presentation/git-repository-write.guard'
 import { InternalGitAuthorizationGuard } from './presentation/internal-git-authorization.guard'
 import { RepositoriesController } from './presentation/repositories.controller'
 import { RepositoryBrowserController } from './presentation/repository-browser.controller'
@@ -38,6 +39,7 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		},
 		GitHubMirrorSyncQueue,
 		RepositoriesRepository,
+		GitRepositoryWriteGuard,
 		InternalGitAuthorizationGuard,
 		RepositoryOwnerGuard,
 	],

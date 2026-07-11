@@ -20,7 +20,6 @@ import {
 } from '../domain/pull-request'
 import {
 	PullRequestAlreadyOpenError,
-	PullRequestEditRequiredError,
 	PullRequestInvalidBranchesError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
@@ -51,14 +50,8 @@ export class PullRequestsService {
 			username,
 		}: ParsedCreatePullRequestInput
 	): Promise<PullRequest> {
-		if (sourceBranch === targetBranch)
-			throw new PullRequestInvalidBranchesError(
-				{ sourceBranch, targetBranch },
-				'The source and target branches must be different.'
-			)
-
 		const { repositoryId, storagePath } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+			await this.repositoriesService.getWritableRepositoryContext({
 				username,
 				slug,
 			})
@@ -163,11 +156,8 @@ export class PullRequestsService {
 		userId: UserId,
 		{ body, number, slug, title, username }: ParsedEditPullRequestInput
 	): Promise<PullRequest> {
-		if (title === undefined && body === undefined)
-			throw new PullRequestEditRequiredError({ number, slug, username })
-
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+			await this.repositoriesService.getWritableRepositoryContext({
 				username,
 				slug,
 			})
@@ -193,7 +183,7 @@ export class PullRequestsService {
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+			await this.repositoriesService.getWritableRepositoryContext({
 				username,
 				slug,
 			})
@@ -217,7 +207,7 @@ export class PullRequestsService {
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+			await this.repositoriesService.getWritableRepositoryContext({
 				username,
 				slug,
 			})

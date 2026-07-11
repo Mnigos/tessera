@@ -12,18 +12,14 @@ import {
 	GIT_AUTHORIZATION_SERVICE_NAME,
 	type GitAuthorizationServiceController,
 } from '@config/git-storage/generated/tessera/git/v1/git_authorization'
-import { status } from '@grpc/grpc-js'
 import { Controller, UseFilters, UseGuards } from '@nestjs/common'
 import { GrpcMethod } from '@nestjs/microservices'
 import type { RepositorySlug } from '@repo/domain'
-import { DomainError } from '~/shared/errors/domain.error'
 import { RepositoriesService } from '../application/repositories.service'
-import { RepositoryStoragePathMissingError } from '../domain/repository.errors'
+import { toGitAuthorizationGrpcException } from './git-authorization.grpc-error'
 import { GitAuthorizationGrpcExceptionFilter } from './git-authorization.grpc-exception.filter'
-import {
-	createGitAuthorizationRpcException,
-	isGitAuthorizationRpcException,
-} from './git-authorization.grpc-status'
+import { GitRepositoryWriteGuard } from './git-repository-write.guard'
+import { getGitRepositoryWriteAuthorization } from './git-repository-write-authorization.context'
 import { InternalGitAuthorizationGuard } from './internal-git-authorization.guard'
 
 @Controller()
@@ -44,22 +40,17 @@ export class GitAuthorizationGrpcController
 				slug: request.repositorySlug as RepositorySlug,
 			})
 		} catch (error) {
-			throw toGrpcException(error)
+			throw toGitAuthorizationGrpcException(error)
 		}
 	}
 
 	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeWrite')
-	async authorizeWrite(
-		request: AuthorizeWriteRequest
-	): Promise<AuthorizeWriteResponse> {
+	@UseGuards(GitRepositoryWriteGuard)
+	authorizeWrite(request: AuthorizeWriteRequest): AuthorizeWriteResponse {
 		try {
-			return await this.repositoriesService.authorizeGitRepositoryWrite({
-				username: request.ownerUsername,
-				slug: request.repositorySlug as RepositorySlug,
-				rawToken: request.token,
-			})
+			return getGitRepositoryWriteAuthorization(request)
 		} catch (error) {
-			throw toGrpcException(error)
+			throw toGitAuthorizationGrpcException(error)
 		}
 	}
 
@@ -73,7 +64,7 @@ export class GitAuthorizationGrpcController
 				fingerprint: request.fingerprint,
 			})
 		} catch (error) {
-			throw toGrpcException(error)
+			throw toGitAuthorizationGrpcException(error)
 		}
 	}
 
@@ -88,43 +79,19 @@ export class GitAuthorizationGrpcController
 				fingerprint: request.fingerprint,
 			})
 		} catch (error) {
-			throw toGrpcException(error)
+			throw toGitAuthorizationGrpcException(error)
 		}
 	}
 
 	@GrpcMethod(GIT_AUTHORIZATION_SERVICE_NAME, 'authorizeSshWrite')
-	async authorizeSshWrite(
+	@UseGuards(GitRepositoryWriteGuard)
+	authorizeSshWrite(
 		request: AuthorizeSshWriteRequest
-	): Promise<AuthorizeSshWriteResponse> {
+	): AuthorizeSshWriteResponse {
 		try {
-			return await this.repositoriesService.authorizeSshGitRepositoryWrite({
-				username: request.ownerUsername,
-				slug: request.repositorySlug as RepositorySlug,
-				fingerprint: request.fingerprint,
-			})
+			return getGitRepositoryWriteAuthorization(request)
 		} catch (error) {
-			throw toGrpcException(error)
+			throw toGitAuthorizationGrpcException(error)
 		}
 	}
-}
-
-function toGrpcException(error: unknown) {
-	if (isGitAuthorizationRpcException(error)) return error
-
-	return createGitAuthorizationRpcException(
-		getGrpcStatus(error),
-		error instanceof Error ? error.message : 'Internal error'
-	)
-}
-
-function getGrpcStatus(error: unknown) {
-	if (!(error instanceof DomainError)) return status.INTERNAL
-
-	if (error instanceof RepositoryStoragePathMissingError)
-		return status.FAILED_PRECONDITION
-	if (error.code === 'UNAUTHORIZED') return status.UNAUTHENTICATED
-	if (error.code === 'FORBIDDEN') return status.PERMISSION_DENIED
-	if (error.code === 'NOT_FOUND') return status.NOT_FOUND
-
-	return status.INTERNAL
 }

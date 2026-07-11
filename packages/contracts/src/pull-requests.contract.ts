@@ -52,12 +52,16 @@ const repositoryPullRequestsInputSchema = z.object({
 	slug: repositorySlugSchema,
 })
 
-export const createPullRequestInputSchema =
-	repositoryPullRequestsInputSchema.extend({
+export const createPullRequestInputSchema = repositoryPullRequestsInputSchema
+	.extend({
 		sourceBranch: z.string().trim().min(1).max(255),
 		targetBranch: z.string().trim().min(1).max(255),
 		title: z.string().trim().min(1).max(256),
 		body: z.string().max(65_536).optional(),
+	})
+	.refine(input => input.sourceBranch !== input.targetBranch, {
+		message: 'The source and target branches must be different',
+		path: ['targetBranch'],
 	})
 export type CreatePullRequestInput = z.input<
 	typeof createPullRequestInputSchema
