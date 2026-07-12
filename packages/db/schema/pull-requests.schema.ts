@@ -137,10 +137,30 @@ export const pullRequestEvents = pgTable(
 	]
 )
 
+export const pullRequestMergeIntents = pgTable(
+	'pull_request_merge_intents',
+	{
+		pullRequestId: uuid('pull_request_id')
+			.primaryKey()
+			.$type<PullRequestId>()
+			.references(() => pullRequests.id, { onDelete: 'cascade' }),
+		attemptId: uuid('attempt_id').notNull(),
+		actorUserId: uuid('actor_user_id')
+			.notNull()
+			.$type<UserId>()
+			.references(() => user.id, { onDelete: 'restrict' }),
+		startedAt: timestamp('started_at').notNull(),
+	},
+	table => [
+		index('pull_request_merge_intents_actor_user_id_idx').on(table.actorUserId),
+	]
+)
+
 export type PullRequest = typeof pullRequests.$inferSelect
 export type NewPullRequest = typeof pullRequests.$inferInsert
 export type PullRequestEvent = typeof pullRequestEvents.$inferSelect
 export type NewPullRequestEvent = typeof pullRequestEvents.$inferInsert
+export type PullRequestMergeIntent = typeof pullRequestMergeIntents.$inferSelect
 
 export const repositoryPullRequestCounterRelations = relations(
 	repositoryPullRequestCounters,
@@ -169,7 +189,23 @@ export const pullRequestRelations = relations(
 			references: [user.id],
 			relationName: 'pull_request_merge_actor',
 		}),
+		mergeIntent: one(pullRequestMergeIntents),
 		events: many(pullRequestEvents),
+	})
+)
+
+export const pullRequestMergeIntentRelations = relations(
+	pullRequestMergeIntents,
+	({ one }) => ({
+		pullRequest: one(pullRequests, {
+			fields: [pullRequestMergeIntents.pullRequestId],
+			references: [pullRequests.id],
+		}),
+		actorUser: one(user, {
+			fields: [pullRequestMergeIntents.actorUserId],
+			references: [user.id],
+			relationName: 'pull_request_merge_intent_actor',
+		}),
 	})
 )
 

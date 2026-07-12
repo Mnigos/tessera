@@ -12,7 +12,10 @@ use crate::domain::{
     RepositoryDiffLineKind, RepositoryError, RepositoryFileDiff,
 };
 use crate::storage::infrastructure::repository_browser_helpers::{
-    normalize_repository_path, validate_git_ref, validate_object_id,
+    normalize_repository_path, validate_object_id,
+};
+use crate::storage::infrastructure::repository_ref_helpers::{
+    qualified_branch_ref, resolve_commit_ref, utf8_trimmed,
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
@@ -197,12 +200,8 @@ impl RepositoryStorage {
     ) -> Result<(String, String, String), RepositoryError> {
         let base_ref = validated_comparison_ref(base_ref)?;
         let head_ref = validated_comparison_ref(head_ref)?;
-        let base_sha = self
-            .resolve_comparison_ref(repository_path, &base_ref)
-            .await?;
-        let head_sha = self
-            .resolve_comparison_ref(repository_path, &head_ref)
-            .await?;
+        let base_sha = resolve_commit_ref(self, repository_path, &base_ref).await?;
+        let head_sha = resolve_commit_ref(self, repository_path, &head_ref).await?;
         let output = self
             .git(repository_path, ["merge-base", &base_sha, &head_sha])
             .await?;
@@ -217,26 +216,6 @@ impl RepositoryStorage {
         }
 
         Ok((base_sha, head_sha, merge_base_sha))
-    }
-
-    async fn resolve_comparison_ref(
-        &self,
-        repository_path: &Path,
-        qualified_ref: &str,
-    ) -> Result<String, RepositoryError> {
-        let commit_ref = format!("{qualified_ref}^{{commit}}");
-        let output = self
-            .git(
-                repository_path,
-                ["rev-parse", "--verify", "--end-of-options", &commit_ref],
-            )
-            .await?;
-
-        if !output.status.success() {
-            return Err(RepositoryError::InvalidRepositoryRef);
-        }
-
-        utf8_trimmed(&output.stdout)
     }
 
     async fn comparison_commits(
@@ -418,11 +397,6 @@ fn complete_nul_output(output: &[u8], is_truncated: bool) -> &[u8] {
         .rposition(|byte| *byte == 0)
         .map_or(0, |index| index + 1);
     &output[..end]
-}
-
-fn qualified_branch_ref(value: &str) -> Result<String, RepositoryError> {
-    validate_git_ref(value)?;
-    Ok(format!("refs/heads/{value}"))
 }
 
 fn validated_comparison_ref(value: &str) -> Result<String, RepositoryError> {
@@ -694,10 +668,6 @@ fn nonzero_object_id(value: &str) -> String {
 
 fn utf8(value: &[u8]) -> Result<String, RepositoryError> {
     String::from_utf8(value.to_vec()).map_err(|_| RepositoryError::InvalidGitOutput)
-}
-
-fn utf8_trimmed(value: &[u8]) -> Result<String, RepositoryError> {
-    Ok(utf8(value)?.trim().to_string())
 }
 
 #[cfg(test)]

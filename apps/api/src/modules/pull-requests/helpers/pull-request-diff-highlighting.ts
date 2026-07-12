@@ -69,23 +69,37 @@ function toHighlightedDiffLine(
 		content: line.content,
 		lightHtml: highlightedLine?.lightHtml,
 		darkHtml: highlightedLine?.darkHtml,
-		old: line.oldLine
-			? {
-					sha: diff.mergeBaseSha,
-					path: diff.file.oldPath,
-					line: line.oldLine,
-					side: 'left',
-				}
-			: undefined,
-		new: line.newLine
-			? {
-					sha: diff.headSha,
-					path: diff.file.newPath,
-					line: line.newLine,
-					side: 'right',
-				}
-			: undefined,
+		old: toPullRequestDiffAnchor({
+			sha: diff.mergeBaseSha,
+			path: diff.file.oldPath,
+			line: line.oldLine,
+			side: 'left',
+		}),
+		new: toPullRequestDiffAnchor({
+			sha: diff.headSha,
+			path: diff.file.newPath,
+			line: line.newLine,
+			side: 'right',
+		}),
 	}
+}
+
+interface PullRequestDiffAnchorParams {
+	line: number | undefined
+	path: string
+	sha: string
+	side: 'left' | 'right'
+}
+
+function toPullRequestDiffAnchor({
+	line,
+	path,
+	sha,
+	side,
+}: PullRequestDiffAnchorParams) {
+	if (line === undefined) return undefined
+
+	return { line, path, sha, side }
 }
 
 function selectHighlightedLine(

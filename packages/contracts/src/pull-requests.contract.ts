@@ -2,6 +2,9 @@ import { oc } from '@orpc/contract'
 import { z } from 'zod'
 import { repositorySlugSchema } from './repositories.contract'
 
+export const PULL_REQUEST_STALE_COMPARISON_MESSAGE =
+	'The source or target branch changed. Refresh the pull request and try again.'
+
 export const pullRequestIdSchema = z.uuid().brand<'pull_request_id'>()
 export type PullRequestId = z.infer<typeof pullRequestIdSchema>
 

@@ -1,12 +1,12 @@
 import type { PullRequestEventType, PullRequestState } from '@repo/contracts'
 
-const pullRequestStateLabels: Record<PullRequestState, string> = {
+const PULL_REQUEST_STATE_LABELS: Record<PullRequestState, string> = {
 	open: 'Open',
 	closed: 'Closed',
 	merged: 'Merged',
 }
 
-const pullRequestEventLabels: Record<PullRequestEventType, string> = {
+const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	opened: 'Pull request opened',
 	edited: 'Pull request edited',
 	closed: 'Pull request closed',
@@ -15,11 +15,11 @@ const pullRequestEventLabels: Record<PullRequestEventType, string> = {
 }
 
 export function getPullRequestStateLabel(state: PullRequestState) {
-	return pullRequestStateLabels[state]
+	return PULL_REQUEST_STATE_LABELS[state]
 }
 
 export function getPullRequestEventLabel(type: PullRequestEventType) {
-	return pullRequestEventLabels[type]
+	return PULL_REQUEST_EVENT_LABELS[type]
 }
 
 export function formatPullRequestDate(date: Date) {

@@ -2167,8 +2167,24 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
         )
         .await
         .unwrap();
+    let refreshed_retry = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &merged.merge_commit_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap();
 
     assert_eq!(merged, retried);
+    assert_eq!(merged, refreshed_retry);
     assert_eq!(
         git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
         merged.merge_commit_sha

@@ -117,7 +117,7 @@ function PullRequestDetailContent({
 		isCurrentOwner && pullRequest.state === 'open' && tab === 'overview'
 	)
 
-	function handleTabValueChange(value: string) {
+	const handleTabValueChange = (value: string) => {
 		if (value === 'overview' || value === 'commits' || value === 'files')
 			onTabChange(value)
 	}

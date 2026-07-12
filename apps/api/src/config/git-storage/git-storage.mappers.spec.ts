@@ -393,6 +393,21 @@ describe('git storage mappers', () => {
 		).toMatchObject({ hunks: [{ lines: [{ kind: 'deletion' }] }] })
 	})
 
+	test('maps unspecified and unrecognized file statuses intentionally', () => {
+		expect(
+			toRepositoryComparison({
+				files: [
+					{
+						status:
+							RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_UNSPECIFIED,
+					},
+					{ status: RepositoryChangedFileStatus.UNRECOGNIZED },
+					{},
+				],
+			}).files.map(file => file.status)
+		).toEqual(['modified', 'modified', 'modified'])
+	})
+
 	test('rejects a file diff without its required file entry', () => {
 		expect(() => toRepositoryFileDiff({})).toThrow('git storage request failed')
 	})

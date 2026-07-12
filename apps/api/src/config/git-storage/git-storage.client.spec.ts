@@ -3,7 +3,7 @@ import { Metadata } from '@grpc/grpc-js'
 import type { ClientGrpc } from '@nestjs/microservices'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId } from '@repo/domain'
-import { of, throwError } from 'rxjs'
+import { NEVER, of, throwError } from 'rxjs'
 import {
 	ExternalServiceError,
 	GatewayTimeoutError,
@@ -830,6 +830,33 @@ describe(GitStorageClient.name, () => {
 		await expect(
 			client.createRepository({ repositoryId })
 		).rejects.toBeInstanceOf(GatewayTimeoutError)
+	})
+
+	test('bounds merge calls with a client-side timeout', async () => {
+		vi.useFakeTimers()
+		gitStorageService.mergeRepositoryRefs.mockReturnValue(NEVER)
+
+		try {
+			const promise = client.mergeRepositoryRefs({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+				expectedBaseSha: 'base-sha',
+				expectedHeadSha: 'head-sha',
+				authorName: 'Ada',
+				authorEmail: 'ada@example.com',
+				message: 'Merge',
+				operationId: 'pr-1',
+			})
+			const assertion =
+				expect(promise).rejects.toBeInstanceOf(GatewayTimeoutError)
+
+			await vi.advanceTimersByTimeAsync(50_000)
+			await assertion
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	test('maps comparison, file diff, and merge operations', async () => {

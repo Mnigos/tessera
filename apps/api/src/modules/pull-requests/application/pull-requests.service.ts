@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto'
 import {
 	GitStorageClient,
 	type GitStorageRepositoryBlob,
@@ -28,8 +29,10 @@ import {
 import {
 	PullRequestAlreadyOpenError,
 	PullRequestInvalidBranchesError,
+	PullRequestMergeConflictError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
@@ -39,6 +42,7 @@ import { PullRequestsRepository } from '../infrastructure/pull-requests.reposito
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
 	'pull_requests_open_branch_pair_unique',
 ])
+const MERGE_INTENT_LEASE_MS = 60_000
 
 export interface PullRequestMergeActor {
 	email: string
@@ -269,12 +273,14 @@ export class PullRequestsService {
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestClosable(pullRequest)
+		const changedAt = new Date()
 
 		const closedPullRequest = await this.pullRequestsRepository.close({
 			repositoryId,
 			pullRequestId: pullRequest.id,
 			actorUserId: userId,
-			changedAt: new Date(),
+			changedAt,
+			staleBefore: new Date(changedAt.getTime() - MERGE_INTENT_LEASE_MS),
 		})
 
 		return toPullRequestOutput(
@@ -350,30 +356,73 @@ export class PullRequestsService {
 				action: 'merge',
 			})
 
-		let mergedPullRequest: PullRequestEntity | undefined
-		try {
-			mergedPullRequest = await this.pullRequestsRepository.merge({
+		const attemptId = randomUUID()
+		const startedAt = new Date()
+		const claimedPullRequest = await this.pullRequestsRepository.claimMerge({
+			repositoryId,
+			pullRequestId: pullRequest.id,
+			actorUserId: actor.id,
+			attemptId,
+			startedAt,
+			staleBefore: new Date(startedAt.getTime() - MERGE_INTENT_LEASE_MS),
+		})
+
+		if (!claimedPullRequest) {
+			const currentPullRequest = await this.findPullRequest(
 				repositoryId,
+				number
+			)
+			if (currentPullRequest.state === 'merged')
+				return toPullRequestOutput(currentPullRequest, username)
+
+			throw new PullRequestStateConflictError({
 				pullRequestId: pullRequest.id,
-				actorUserId: actor.id,
-				changedAt: new Date(),
-				createMergeCommit: async () =>
-					await this.gitStorageClient.mergeRepositoryRefs({
-						repositoryId,
-						storagePath,
-						baseRef: pullRequest.targetBranch,
-						headRef: pullRequest.sourceBranch,
-						expectedBaseSha,
-						expectedHeadSha,
-						authorName: actor.name,
-						authorEmail: actor.email,
-						message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
-						operationId: pullRequest.id,
-					}),
+				state: currentPullRequest.state,
+				action: 'merge',
+			})
+		}
+
+		let mergeCommitSha: string
+		try {
+			mergeCommitSha = await this.gitStorageClient.mergeRepositoryRefs({
+				repositoryId,
+				storagePath,
+				baseRef: pullRequest.targetBranch,
+				headRef: pullRequest.sourceBranch,
+				expectedBaseSha,
+				expectedHeadSha,
+				authorName: actor.name,
+				authorEmail: actor.email,
+				message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
+				operationId: pullRequest.id,
 			})
 		} catch (error) {
-			throw toPullRequestStorageError(error, { repositoryId, number })
+			const storageError = toPullRequestStorageError(error, {
+				repositoryId,
+				number,
+			})
+			if (
+				storageError instanceof PullRequestMergeConflictError ||
+				storageError instanceof PullRequestStaleComparisonError
+			)
+				await this.pullRequestsRepository.releaseMerge({
+					repositoryId,
+					pullRequestId: pullRequest.id,
+					actorUserId: actor.id,
+					attemptId,
+				})
+
+			throw storageError
 		}
+
+		const mergedPullRequest = await this.pullRequestsRepository.completeMerge({
+			repositoryId,
+			pullRequestId: pullRequest.id,
+			actorUserId: actor.id,
+			attemptId,
+			changedAt: new Date(),
+			mergeCommitSha,
+		})
 
 		if (mergedPullRequest)
 			return toPullRequestOutput(mergedPullRequest, username)

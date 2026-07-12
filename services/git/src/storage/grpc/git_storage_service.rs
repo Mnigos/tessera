@@ -405,6 +405,9 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
             Status::invalid_argument("repository default branch is invalid")
         }
         RepositoryError::InvalidObjectId => Status::invalid_argument("object_id is invalid"),
+        RepositoryError::InvalidMergeInput => {
+            Status::invalid_argument("repository merge input is invalid")
+        }
         RepositoryError::InvalidGitOutput => Status::internal("git returned invalid output"),
         RepositoryError::BlobTooLarge => Status::resource_exhausted("repository blob is too large"),
         RepositoryError::RepositoryObjectNotFound => {
