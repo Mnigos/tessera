@@ -6,16 +6,51 @@ use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{RepositoryError, RepositoryMerge};
-use crate::storage::infrastructure::repository_browser_helpers::{
-    validate_git_ref, validate_object_id,
+use crate::storage::infrastructure::repository_browser_helpers::validate_object_id;
+use crate::storage::infrastructure::repository_ref_helpers::{
+    qualified_branch_ref, resolve_commit_ref, utf8_trimmed,
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
 const MERGE_TIMEOUT: Duration = Duration::from_secs(30);
+const MERGE_OPERATION_TIMEOUT: Duration = Duration::from_secs(45);
 
 impl RepositoryStorage {
     #[allow(clippy::too_many_arguments)]
     pub async fn merge_repository_refs(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        base_ref: &str,
+        head_ref: &str,
+        expected_base_sha: &str,
+        expected_head_sha: &str,
+        author_name: &str,
+        author_email: &str,
+        message: &str,
+        operation_id: &str,
+    ) -> Result<RepositoryMerge, RepositoryError> {
+        timeout(
+            MERGE_OPERATION_TIMEOUT,
+            self.merge_repository_refs_inner(
+                repository_id,
+                storage_path,
+                base_ref,
+                head_ref,
+                expected_base_sha,
+                expected_head_sha,
+                author_name,
+                author_email,
+                message,
+                operation_id,
+            ),
+        )
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    async fn merge_repository_refs_inner(
         &self,
         repository_id: &str,
         storage_path: &str,
@@ -36,22 +71,21 @@ impl RepositoryStorage {
             .await?;
         let base_ref = qualified_branch_ref(base_ref)?;
         let head_ref = qualified_branch_ref(head_ref)?;
-        let current_base_sha = self.resolve_merge_ref(&repository_path, &base_ref).await?;
-        let current_head_sha = self.resolve_merge_ref(&repository_path, &head_ref).await?;
+        let current_base_sha = resolve_commit_ref(self, &repository_path, &base_ref).await?;
+        let current_head_sha = resolve_commit_ref(self, &repository_path, &head_ref).await?;
+        if let Some(merge_commit_sha) = self
+            .existing_merge_for_operation(
+                &repository_path,
+                &current_base_sha,
+                expected_head_sha,
+                operation_id,
+            )
+            .await?
+        {
+            return Ok(RepositoryMerge { merge_commit_sha });
+        }
 
         if current_base_sha != expected_base_sha || current_head_sha != expected_head_sha {
-            if let Some(merge_commit_sha) = self
-                .existing_merge_for_operation(
-                    &repository_path,
-                    &current_base_sha,
-                    expected_head_sha,
-                    operation_id,
-                )
-                .await?
-            {
-                return Ok(RepositoryMerge { merge_commit_sha });
-            }
-
             return Err(RepositoryError::StaleRepositoryRef);
         }
 
@@ -83,7 +117,8 @@ impl RepositoryStorage {
             .await;
         if let Err(error) = update_result {
             if matches!(error, RepositoryError::StaleRepositoryRef) {
-                let current_base_sha = self.resolve_merge_ref(&repository_path, &base_ref).await?;
+                let current_base_sha =
+                    resolve_commit_ref(self, &repository_path, &base_ref).await?;
                 if let Some(existing_merge_sha) = self
                     .existing_merge_for_operation(
                         &repository_path,
@@ -103,26 +138,6 @@ impl RepositoryStorage {
         }
 
         Ok(RepositoryMerge { merge_commit_sha })
-    }
-
-    async fn resolve_merge_ref(
-        &self,
-        repository_path: &Path,
-        qualified_ref: &str,
-    ) -> Result<String, RepositoryError> {
-        let commit_ref = format!("{qualified_ref}^{{commit}}");
-        let output = self
-            .git(
-                repository_path,
-                ["rev-parse", "--verify", "--end-of-options", &commit_ref],
-            )
-            .await?;
-
-        if !output.status.success() {
-            return Err(RepositoryError::InvalidRepositoryRef);
-        }
-
-        utf8_trimmed(&output.stdout)
     }
 
     async fn existing_merge_for_operation(
@@ -303,11 +318,6 @@ impl RepositoryStorage {
     }
 }
 
-fn qualified_branch_ref(value: &str) -> Result<String, RepositoryError> {
-    validate_git_ref(value)?;
-    Ok(format!("refs/heads/{value}"))
-}
-
 fn validate_merge_input(
     author_name: &str,
     author_email: &str,
@@ -325,17 +335,10 @@ fn validate_merge_input(
         || author_email.contains('\n')
         || operation_id.contains('\n')
     {
-        return Err(RepositoryError::InvalidGitOutput);
+        return Err(RepositoryError::InvalidMergeInput);
     }
 
     Ok(())
-}
-
-fn utf8_trimmed(value: &[u8]) -> Result<String, RepositoryError> {
-    Ok(String::from_utf8(value.to_vec())
-        .map_err(|_| RepositoryError::InvalidGitOutput)?
-        .trim()
-        .to_string())
 }
 
 #[cfg(test)]
@@ -344,7 +347,10 @@ mod tests {
 
     #[test]
     fn merge_input_rejects_newline_in_identity() {
-        assert!(validate_merge_input("Ada\nBot", "ada@example.com", "Merge", "pr-1").is_err());
+        assert!(matches!(
+            validate_merge_input("Ada\nBot", "ada@example.com", "Merge", "pr-1"),
+            Err(RepositoryError::InvalidMergeInput)
+        ));
     }
 
     #[test]

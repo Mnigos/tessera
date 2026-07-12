@@ -56,7 +56,7 @@ export function CreatePullRequestPanel({
 			/>
 		)
 
-	function handleSubmit(fields: CreatePullRequestFields) {
+	const handleSubmit = (fields: CreatePullRequestFields) => {
 		createMutation.mutate(
 			{ username, slug, ...fields },
 			{ onSuccess: pullRequest => onCreated(pullRequest) }

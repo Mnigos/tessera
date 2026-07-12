@@ -1,4 +1,5 @@
 import { GitStorageClient } from '@config/git-storage'
+import { status } from '@grpc/grpc-js'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { PullRequest, PullRequestEvent } from '@repo/db'
@@ -8,12 +9,14 @@ import type {
 	RepositoryId,
 	RepositorySlug,
 } from '@repo/domain'
+import { ExternalServiceError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
 import {
 	PullRequestAlreadyOpenError,
 	PullRequestInvalidBranchesError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
@@ -78,7 +81,9 @@ describe(PullRequestsService.name, () => {
 						edit: vi.fn(),
 						close: vi.fn(),
 						reopen: vi.fn(),
-						merge: vi.fn(),
+						claimMerge: vi.fn(),
+						completeMerge: vi.fn(),
+						releaseMerge: vi.fn(),
 					},
 				},
 				{
@@ -456,24 +461,23 @@ describe(PullRequestsService.name, () => {
 		})
 	})
 
-	test('merges through Git before recording lifecycle persistence', async () => {
+	test('claims the merge before Git and completes persistence afterward', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const claimMergeSpy = vi
+			.spyOn(repository, 'claimMerge')
+			.mockResolvedValue(pullRequest)
 		const mergeGitSpy = vi
 			.spyOn(gitStorageClient, 'mergeRepositoryRefs')
 			.mockResolvedValue('merge-sha')
-		const mergeRepositorySpy = vi
-			.spyOn(repository, 'merge')
-			.mockImplementation(async params => {
-				const mergeCommitSha = await params.createMergeCommit()
-
-				return {
-					...pullRequest,
-					state: 'merged',
-					mergeCommitSha,
-					mergeActorUserId: mockUserId,
-					mergedAt: createdAt,
-					closedAt: createdAt,
-				}
+		const completeMergeSpy = vi
+			.spyOn(repository, 'completeMerge')
+			.mockResolvedValue({
+				...pullRequest,
+				state: 'merged',
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: createdAt,
+				closedAt: createdAt,
 			})
 
 		expect(
@@ -498,10 +502,24 @@ describe(PullRequestsService.name, () => {
 				expectedHeadSha: 'b'.repeat(40),
 			})
 		)
-		expect(mergeRepositorySpy).toHaveBeenCalledWith(
+		expect(claimMergeSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
-				createMergeCommit: expect.any(Function),
+				pullRequestId,
+				attemptId: expect.any(String),
 			})
+		)
+		expect(completeMergeSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pullRequestId,
+				mergeCommitSha: 'merge-sha',
+				attemptId: expect.any(String),
+			})
+		)
+		expect(claimMergeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+			mergeGitSpy.mock.invocationCallOrder[0] ?? 0
+		)
+		expect(mergeGitSpy.mock.invocationCallOrder[0]).toBeLessThan(
+			completeMergeSpy.mock.invocationCallOrder[0] ?? 0
 		)
 	})
 
@@ -520,7 +538,8 @@ describe(PullRequestsService.name, () => {
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
 			'merge-sha'
 		)
-		vi.spyOn(repository, 'merge').mockResolvedValue(undefined)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'completeMerge').mockResolvedValue(undefined)
 
 		expect(
 			await service.merge(
@@ -533,5 +552,34 @@ describe(PullRequestsService.name, () => {
 				}
 			)
 		).toMatchObject({ state: 'merged', mergeCommitSha: 'merge-sha' })
+	})
+
+	test('releases the merge intent after a deterministic stale-ref failure', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', { grpcCode: status.ABORTED })
+		)
+		const releaseMergeSpy = vi
+			.spyOn(repository, 'releaseMerge')
+			.mockResolvedValue()
+
+		await expect(
+			service.merge(
+				{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
+				{
+					...repositoryInput,
+					number: 1,
+					expectedBaseSha: 'a'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+				}
+			)
+		).rejects.toBeInstanceOf(PullRequestStaleComparisonError)
+		expect(releaseMergeSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pullRequestId,
+				attemptId: expect.any(String),
+			})
+		)
 	})
 })

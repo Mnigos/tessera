@@ -1,11 +1,12 @@
 import { ORPCError } from '@orpc/client'
+import { PULL_REQUEST_STALE_COMPARISON_MESSAGE } from '@repo/contracts'
 
-const pullRequestErrorStatuses = new Set([400, 409])
+const PULL_REQUEST_ERROR_STATUSES = new Set([400, 409])
 
 export function getPullRequestErrorMessage(error: unknown, fallback: string) {
 	if (
 		error instanceof ORPCError &&
-		pullRequestErrorStatuses.has(error.status) &&
+		PULL_REQUEST_ERROR_STATUSES.has(error.status) &&
 		error.message
 	)
 		return error.message
@@ -17,7 +18,6 @@ export function isPullRequestStaleComparisonError(error: unknown) {
 	return (
 		error instanceof ORPCError &&
 		error.status === 409 &&
-		error.message ===
-			'The source or target branch changed. Refresh the pull request and try again.'
+		error.message === PULL_REQUEST_STALE_COMPARISON_MESSAGE
 	)
 }

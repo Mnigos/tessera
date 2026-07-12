@@ -43,7 +43,7 @@ import type {
 	GitStorageRepositorySignature,
 	GitStorageRepositoryTree,
 	GitStorageRepositoryTreeEntry,
-} from './git-storage.client'
+} from './git-storage.client.types'
 
 const textDecoder = new TextDecoder()
 
@@ -388,22 +388,16 @@ function toRepositoryChangedFile({
 function toRepositoryChangedFileStatus(
 	status: RepositoryChangedFileStatus | undefined
 ): GitStorageRepositoryChangedFile['status'] {
-	if (
-		status === RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_ADDED
-	)
-		return 'added'
-	if (
-		status ===
-		RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_DELETED
-	)
-		return 'deleted'
-	if (
-		status ===
-		RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_RENAMED
-	)
-		return 'renamed'
-
-	return 'modified'
+	switch (status) {
+		case RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_ADDED:
+			return 'added'
+		case RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_DELETED:
+			return 'deleted'
+		case RepositoryChangedFileStatus.REPOSITORY_CHANGED_FILE_STATUS_RENAMED:
+			return 'renamed'
+		default:
+			return 'modified'
+	}
 }
 
 function toRepositoryDiffHunk({

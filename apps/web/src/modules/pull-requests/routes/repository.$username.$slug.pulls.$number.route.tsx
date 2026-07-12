@@ -52,7 +52,7 @@ function PullRequestRoute() {
 	const { tab } = Route.useSearch()
 	const navigate = Route.useNavigate()
 
-	function handleTabChange(selectedTab: PullRequestDetailTab) {
+	const handleTabChange = (selectedTab: PullRequestDetailTab) => {
 		navigate({
 			search: previousSearch => ({ ...previousSearch, tab: selectedTab }),
 		})

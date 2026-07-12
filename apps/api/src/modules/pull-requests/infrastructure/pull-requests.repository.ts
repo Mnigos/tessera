@@ -10,6 +10,7 @@ import {
 	type PullRequest,
 	type PullRequestEvent,
 	pullRequestEvents,
+	pullRequestMergeIntents,
 	pullRequests,
 	repositoryPullRequestCounters,
 	sql,
@@ -53,8 +54,23 @@ interface LifecycleParams extends PullRequestMutationParams {
 	changedAt: Date
 }
 
-interface MergeParams extends LifecycleParams {
-	createMergeCommit: () => Promise<string>
+interface CloseParams extends LifecycleParams {
+	staleBefore: Date
+}
+
+interface ClaimMergeParams extends PullRequestMutationParams {
+	attemptId: string
+	staleBefore: Date
+	startedAt: Date
+}
+
+interface CompleteMergeParams extends LifecycleParams {
+	attemptId: string
+	mergeCommitSha: string
+}
+
+interface ReleaseMergeParams extends PullRequestMutationParams {
+	attemptId: string
 }
 
 type PullRequestDatabase = Database | DrizzleTransaction
@@ -215,12 +231,44 @@ export class PullRequestsRepository {
 		})
 	}
 
-	async close(params: LifecycleParams): Promise<PullRequest | undefined> {
-		return await this.updateLifecycle(params, {
-			expectedState: 'open',
-			nextState: 'closed',
-			type: 'closed',
-			closedAt: params.changedAt,
+	async close(params: CloseParams): Promise<PullRequest | undefined> {
+		return await this.db.transaction(async tx => {
+			const lockedPullRequest = await this.lockPullRequest(tx, params)
+
+			if (lockedPullRequest?.state !== 'open') return undefined
+
+			const mergeIntent = await this.findMergeIntent(tx, params.pullRequestId)
+			if (mergeIntent && mergeIntent.startedAt > params.staleBefore)
+				return undefined
+
+			if (mergeIntent)
+				await tx
+					.delete(pullRequestMergeIntents)
+					.where(
+						eq(pullRequestMergeIntents.pullRequestId, params.pullRequestId)
+					)
+
+			const [pullRequest] = await tx
+				.update(pullRequests)
+				.set({ state: 'closed', closedAt: params.changedAt })
+				.where(
+					and(
+						eq(pullRequests.id, params.pullRequestId),
+						eq(pullRequests.repositoryId, params.repositoryId),
+						eq(pullRequests.state, 'open')
+					)
+				)
+				.returning(PULL_REQUEST_COLUMNS)
+
+			if (!pullRequest) return undefined
+
+			await this.createEvent(tx, {
+				pullRequestId: params.pullRequestId,
+				actorUserId: params.actorUserId,
+				type: 'closed',
+			})
+
+			return pullRequest
 		})
 	}
 
@@ -233,28 +281,62 @@ export class PullRequestsRepository {
 		})
 	}
 
-	async merge({
+	async claimMerge({
 		actorUserId,
-		changedAt,
-		createMergeCommit,
+		attemptId,
 		pullRequestId,
 		repositoryId,
-	}: MergeParams): Promise<PullRequest | undefined> {
+		staleBefore,
+		startedAt,
+	}: ClaimMergeParams): Promise<PullRequest | undefined> {
 		return await this.db.transaction(async tx => {
-			const [lockedPullRequest] = await tx
-				.select(PULL_REQUEST_COLUMNS)
-				.from(pullRequests)
-				.where(
-					and(
-						eq(pullRequests.id, pullRequestId),
-						eq(pullRequests.repositoryId, repositoryId)
-					)
-				)
-				.for('update')
+			const lockedPullRequest = await this.lockPullRequest(tx, {
+				pullRequestId,
+				repositoryId,
+			})
 
 			if (lockedPullRequest?.state !== 'open') return undefined
+			const mergeIntent = await this.findMergeIntent(tx, pullRequestId)
+			if (mergeIntent && mergeIntent.startedAt > staleBefore) return undefined
 
-			const mergeCommitSha = await createMergeCommit()
+			if (mergeIntent)
+				await tx
+					.update(pullRequestMergeIntents)
+					.set({ attemptId, actorUserId, startedAt })
+					.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
+			else
+				await tx.insert(pullRequestMergeIntents).values({
+					pullRequestId,
+					attemptId,
+					actorUserId,
+					startedAt,
+				})
+
+			return lockedPullRequest
+		})
+	}
+
+	async completeMerge({
+		actorUserId,
+		attemptId,
+		changedAt,
+		mergeCommitSha,
+		pullRequestId,
+		repositoryId,
+	}: CompleteMergeParams): Promise<PullRequest | undefined> {
+		return await this.db.transaction(async tx => {
+			const lockedPullRequest = await this.lockPullRequest(tx, {
+				pullRequestId,
+				repositoryId,
+			})
+			const mergeIntent = await this.findMergeIntent(tx, pullRequestId)
+
+			if (
+				lockedPullRequest?.state !== 'open' ||
+				mergeIntent?.attemptId !== attemptId
+			)
+				return undefined
+
 			const [pullRequest] = await tx
 				.update(pullRequests)
 				.set({
@@ -280,9 +362,26 @@ export class PullRequestsRepository {
 				actorUserId,
 				type: 'merged',
 			})
+			await tx
+				.delete(pullRequestMergeIntents)
+				.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
 
 			return pullRequest
 		})
+	}
+
+	async releaseMerge({
+		attemptId,
+		pullRequestId,
+	}: ReleaseMergeParams): Promise<void> {
+		await this.db
+			.delete(pullRequestMergeIntents)
+			.where(
+				and(
+					eq(pullRequestMergeIntents.pullRequestId, pullRequestId),
+					eq(pullRequestMergeIntents.attemptId, attemptId)
+				)
+			)
 	}
 
 	private async updateLifecycle(
@@ -331,5 +430,42 @@ export class PullRequestsRepository {
 		}
 	) {
 		await db.insert(pullRequestEvents).values(params)
+	}
+
+	private async lockPullRequest(
+		tx: DrizzleTransaction,
+		{
+			pullRequestId,
+			repositoryId,
+		}: Omit<PullRequestMutationParams, 'actorUserId'>
+	) {
+		const [pullRequest] = await tx
+			.select(PULL_REQUEST_COLUMNS)
+			.from(pullRequests)
+			.where(
+				and(
+					eq(pullRequests.id, pullRequestId),
+					eq(pullRequests.repositoryId, repositoryId)
+				)
+			)
+			.for('update')
+
+		return pullRequest
+	}
+
+	private async findMergeIntent(
+		tx: DrizzleTransaction,
+		pullRequestId: PullRequestId
+	) {
+		const [mergeIntent] = await tx
+			.select({
+				attemptId: pullRequestMergeIntents.attemptId,
+				startedAt: pullRequestMergeIntents.startedAt,
+			})
+			.from(pullRequestMergeIntents)
+			.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
+			.limit(1)
+
+		return mergeIntent
 	}
 }

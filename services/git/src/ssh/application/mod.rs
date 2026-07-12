@@ -106,7 +106,8 @@ fn storage_error_to_ssh_error(error: RepositoryError) -> SshGitError {
         RepositoryError::InvalidRepositoryId
         | RepositoryError::InvalidRepositoryPath
         | RepositoryError::InvalidRepositoryRef
-        | RepositoryError::InvalidObjectId => SshGitError::InvalidRepositoryMetadata,
+        | RepositoryError::InvalidObjectId
+        | RepositoryError::InvalidMergeInput => SshGitError::InvalidRepositoryMetadata,
         RepositoryError::PathEscapesStorageRoot
         | RepositoryError::ExistingPathNotBare
         | RepositoryError::StoragePathMismatch

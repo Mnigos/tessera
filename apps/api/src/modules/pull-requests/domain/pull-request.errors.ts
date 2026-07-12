@@ -1,3 +1,4 @@
+import { PULL_REQUEST_STALE_COMPARISON_MESSAGE } from '@repo/contracts'
 import { BadRequestError, ConflictError, NotFoundError } from '~/shared/errors'
 
 export class PullRequestNotFoundError extends NotFoundError {
@@ -47,7 +48,7 @@ export class PullRequestStaleComparisonError extends ConflictError {
 		super(
 			'pull request comparison',
 			context,
-			'The source or target branch changed. Refresh the pull request and try again.'
+			PULL_REQUEST_STALE_COMPARISON_MESSAGE
 		)
 	}
 }

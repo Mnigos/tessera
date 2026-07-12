@@ -31,7 +31,7 @@ function NewPullRequestRoute() {
 	const { username, slug } = Route.useParams()
 	const navigate = Route.useNavigate()
 
-	function handleCreated(pullRequest: PullRequest) {
+	const handleCreated = (pullRequest: PullRequest) => {
 		navigate({
 			params: { username, slug, number: String(pullRequest.number) },
 			to: '/$username/$slug/pulls/$number',
