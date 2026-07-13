@@ -2242,6 +2242,71 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
     assert_eq!(recovered, merged);
 }
 
+#[cfg(unix)]
+#[tokio::test]
+async fn repository_merge_maps_update_ref_failure_without_ref_movement() {
+    let temp_dir = TempDir::new().unwrap();
+    let repository_storage = storage(temp_dir.path(), "git");
+    let repository = repository_storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let head_sha = git_stdout(&repository.path, ["rev-parse", "feature"])
+        .trim()
+        .to_string();
+    let git_script = temp_dir.path().join("fail-update-ref.sh");
+    fs::write(
+        &git_script,
+        "#!/bin/sh\nfor argument in \"$@\"; do\n\tif [ \"$argument\" = \"update-ref\" ]; then\n\t\tprintf 'forced update-ref failure\\n' >&2\n\t\texit 2\n\tfi\ndone\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    make_executable(&git_script);
+    let failing_storage = storage(temp_dir.path(), git_script.to_str().unwrap());
+
+    let error = failing_storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &base_sha,
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::GitProcessFailed));
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        base_sha
+    );
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "feature"]).trim(),
+        head_sha
+    );
+}
+
 #[tokio::test]
 async fn repository_merge_rejects_stale_refs_and_conflicting_trees() {
     let temp_dir = TempDir::new().unwrap();
