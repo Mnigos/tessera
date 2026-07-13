@@ -289,7 +289,7 @@ impl RepositoryStorage {
             .arg("--stdin")
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::piped())
             .kill_on_drop(true)
             .spawn()
             .map_err(RepositoryError::GitProcessIo)?;
@@ -305,16 +305,40 @@ impl RepositoryStorage {
             .await
             .map_err(RepositoryError::GitProcessIo)?;
         drop(stdin);
-        let status = timeout(MERGE_TIMEOUT, child.wait())
+        let output = timeout(MERGE_TIMEOUT, child.wait_with_output())
             .await
             .map_err(|_| RepositoryError::GitProcessFailed)?
             .map_err(RepositoryError::GitProcessIo)?;
 
-        if !status.success() {
-            return Err(RepositoryError::StaleRepositoryRef);
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            tracing::warn!(
+                base_ref,
+                head_ref,
+                stderr = %stderr.trim(),
+                "git update-ref failed"
+            );
+            let current_base_sha = resolve_commit_ref(self, repository_path, base_ref).await;
+            let current_head_sha = resolve_commit_ref(self, repository_path, head_ref).await;
+            let base_changed = resolved_ref_changed(&current_base_sha, expected_base_sha);
+            let head_changed = resolved_ref_changed(&current_head_sha, expected_head_sha);
+
+            return if base_changed || head_changed {
+                Err(RepositoryError::StaleRepositoryRef)
+            } else {
+                Err(RepositoryError::GitProcessFailed)
+            };
         }
 
         Ok(())
+    }
+}
+
+fn resolved_ref_changed(current_sha: &Result<String, RepositoryError>, expected_sha: &str) -> bool {
+    match current_sha {
+        Ok(current_sha) => current_sha != expected_sha,
+        Err(RepositoryError::InvalidRepositoryRef) => true,
+        Err(_) => false,
     }
 }
 
