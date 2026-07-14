@@ -300,10 +300,7 @@ impl RepositoryStorage {
             .stdin
             .take()
             .ok_or(RepositoryError::GitProcessFailed)?;
-        stdin
-            .write_all(transaction.as_bytes())
-            .await
-            .map_err(RepositoryError::GitProcessIo)?;
+        let write_result = stdin.write_all(transaction.as_bytes()).await;
         drop(stdin);
         let output = timeout(MERGE_TIMEOUT, child.wait_with_output())
             .await
@@ -329,6 +326,8 @@ impl RepositoryStorage {
                 Err(RepositoryError::GitProcessFailed)
             };
         }
+
+        write_result.map_err(RepositoryError::GitProcessIo)?;
 
         Ok(())
     }
