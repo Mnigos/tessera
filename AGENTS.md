@@ -63,6 +63,7 @@
 - Avoid redundant return types; keep explicit types for public/API contract surfaces.
 - Use `Promise.all` for independent async work.
 - Assign awaited results to named variables before transforming them; avoid chaining like `(await something()).map(...)`.
+- Do not predeclare `let` only to assign once across `try`/`catch`; extract a value-returning helper and bind the result with `const`. Keep `let` for genuinely evolving state such as loops, caches, accumulators, and test setup.
 - Prefer `undefined` at API boundaries.
 - Use `null` only for persistence or external contracts that require explicit clear.
 - Use `??` for nullish checks and `||` for all-falsy checks.

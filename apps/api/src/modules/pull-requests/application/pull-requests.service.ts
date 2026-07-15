@@ -50,6 +50,16 @@ export interface PullRequestMergeActor {
 	name: string
 }
 
+interface MergeRepositoryRefsParams {
+	actor: PullRequestMergeActor
+	attemptId: string
+	expectedBaseSha: string
+	expectedHeadSha: string
+	pullRequest: PullRequestEntity
+	repositoryId: RepositoryId
+	storagePath: string
+}
+
 @Injectable()
 export class PullRequestsService {
 	constructor(
@@ -382,38 +392,15 @@ export class PullRequestsService {
 			})
 		}
 
-		let mergeCommitSha: string
-		try {
-			mergeCommitSha = await this.gitStorageClient.mergeRepositoryRefs({
-				repositoryId,
-				storagePath,
-				baseRef: pullRequest.targetBranch,
-				headRef: pullRequest.sourceBranch,
-				expectedBaseSha,
-				expectedHeadSha,
-				authorName: actor.name,
-				authorEmail: actor.email,
-				message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
-				operationId: pullRequest.id,
-			})
-		} catch (error) {
-			const storageError = toPullRequestStorageError(error, {
-				repositoryId,
-				number,
-			})
-			if (
-				storageError instanceof PullRequestMergeConflictError ||
-				storageError instanceof PullRequestStaleComparisonError
-			)
-				await this.pullRequestsRepository.releaseMerge({
-					repositoryId,
-					pullRequestId: pullRequest.id,
-					actorUserId: actor.id,
-					attemptId,
-				})
-
-			throw storageError
-		}
+		const mergeCommitSha = await this.mergeRepositoryRefs({
+			actor,
+			attemptId,
+			expectedBaseSha,
+			expectedHeadSha,
+			pullRequest,
+			repositoryId,
+			storagePath,
+		})
 
 		const mergedPullRequest = await this.pullRequestsRepository.completeMerge({
 			repositoryId,
@@ -435,6 +422,48 @@ export class PullRequestsService {
 			this.requireUpdatedPullRequest(mergedPullRequest, pullRequest, 'merge'),
 			username
 		)
+	}
+
+	private async mergeRepositoryRefs({
+		actor,
+		attemptId,
+		expectedBaseSha,
+		expectedHeadSha,
+		pullRequest,
+		repositoryId,
+		storagePath,
+	}: MergeRepositoryRefsParams): Promise<string> {
+		try {
+			return await this.gitStorageClient.mergeRepositoryRefs({
+				repositoryId,
+				storagePath,
+				baseRef: pullRequest.targetBranch,
+				headRef: pullRequest.sourceBranch,
+				expectedBaseSha,
+				expectedHeadSha,
+				authorName: actor.name,
+				authorEmail: actor.email,
+				message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
+				operationId: pullRequest.id,
+			})
+		} catch (error) {
+			const storageError = toPullRequestStorageError(error, {
+				repositoryId,
+				number: pullRequest.number,
+			})
+			if (
+				storageError instanceof PullRequestMergeConflictError ||
+				storageError instanceof PullRequestStaleComparisonError
+			)
+				await this.pullRequestsRepository.releaseMerge({
+					repositoryId,
+					pullRequestId: pullRequest.id,
+					actorUserId: actor.id,
+					attemptId,
+				})
+
+			throw storageError
+		}
 	}
 
 	private async getDiffBlob(

@@ -66,6 +66,7 @@ import {
 	toRepositoryRefs,
 	toRepositoryTree,
 } from './git-storage.mappers'
+import { getGrpcCode, getGrpcDetails } from './helpers/grpc-error'
 
 export const GIT_STORAGE_GRPC_CLIENT = Symbol('GIT_STORAGE_GRPC_CLIENT')
 const MERGE_RPC_TIMEOUT_MS = 50_000
@@ -454,20 +455,4 @@ function toGitStorageError(error: unknown) {
 			cause: error,
 		}
 	)
-}
-
-function getGrpcDetails(error: unknown) {
-	if (!error || typeof error !== 'object' || !('details' in error))
-		return undefined
-
-	return typeof error.details === 'string' ? error.details : undefined
-}
-
-function getGrpcCode(error: unknown) {
-	if (!error || typeof error !== 'object' || !('code' in error))
-		return undefined
-
-	const code = (error as { code: unknown }).code
-
-	return typeof code === 'number' ? code : undefined
 }
