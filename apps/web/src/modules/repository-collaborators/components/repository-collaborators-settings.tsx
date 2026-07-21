@@ -13,10 +13,11 @@ export function RepositoryCollaboratorsSettings({
 	username,
 	slug,
 }: Readonly<RepositoryCollaboratorsSettingsProps>) {
-	const { data, error, isError, isLoading } = useRepositoryCollaboratorsQuery({
-		username,
-		slug,
-	})
+	const { data, error, isError, isLoading, isSuccess } =
+		useRepositoryCollaboratorsQuery({
+			username,
+			slug,
+		})
 	const isForbidden =
 		error instanceof ORPCError && (error.status === 401 || error.status === 403)
 
@@ -40,7 +41,9 @@ export function RepositoryCollaboratorsSettings({
 				/>
 			) : (
 				<>
-					<AddRepositoryCollaboratorForm slug={slug} username={username} />
+					{isSuccess && (
+						<AddRepositoryCollaboratorForm slug={slug} username={username} />
+					)}
 					<RepositoryCollaboratorsList
 						collaborators={data?.collaborators}
 						isError={isError}

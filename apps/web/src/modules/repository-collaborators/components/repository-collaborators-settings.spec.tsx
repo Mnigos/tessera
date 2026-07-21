@@ -76,16 +76,21 @@ describe(RepositoryCollaboratorsSettings.name, () => {
 			error: null,
 			isLoading: true,
 			isError: false,
+			isSuccess: false,
 		} as never)
 		const props = { username: 'marta', slug: 'notes' }
 		const { rerender } = render(<RepositoryCollaboratorsSettings {...props} />)
 		expect(document.querySelector('.animate-pulse')).toBeTruthy()
+		expect(
+			screen.queryByRole('button', { name: 'Add collaborator' })
+		).toBeNull()
 
 		useRepositoryCollaboratorsQueryMock.mockReturnValue({
 			data: undefined,
 			error: new Error('boom'),
 			isLoading: false,
 			isError: true,
+			isSuccess: false,
 		} as never)
 		rerender(<RepositoryCollaboratorsSettings {...props} />)
 		expect(screen.getByText('Collaborators could not be loaded')).toBeTruthy()
@@ -95,6 +100,7 @@ describe(RepositoryCollaboratorsSettings.name, () => {
 			error: new ORPCError('FORBIDDEN', { status: 403 }),
 			isLoading: false,
 			isError: true,
+			isSuccess: false,
 		} as never)
 		rerender(<RepositoryCollaboratorsSettings {...props} />)
 		expect(screen.getByText('Admin access required')).toBeTruthy()
@@ -107,9 +113,13 @@ describe(RepositoryCollaboratorsSettings.name, () => {
 			error: null,
 			isLoading: false,
 			isError: false,
+			isSuccess: true,
 		} as never)
 		rerender(<RepositoryCollaboratorsSettings {...props} />)
 		expect(screen.getByText('No collaborators yet.')).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Add collaborator' })
+		).toBeTruthy()
 	})
 
 	test('renders collaborator rows and submits the add form with the default role', async () => {
@@ -125,6 +135,7 @@ describe(RepositoryCollaboratorsSettings.name, () => {
 			error: null,
 			isLoading: false,
 			isError: false,
+			isSuccess: true,
 		} as never)
 		const user = userEvent.setup()
 		render(<RepositoryCollaboratorsSettings slug="notes" username="marta" />)
