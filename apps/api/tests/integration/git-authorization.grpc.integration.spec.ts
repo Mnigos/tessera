@@ -886,6 +886,22 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
+	test('forbids http write requests for read-only collaborators with a valid git access token', async () => {
+		await seedCollaboratorFixture('read')
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: collaboratorUserId,
+			permissions: {
+				repository: ['write'],
+			},
+		})
+
+		await expect(
+			firstValueFrom(
+				service.authorizeWrite(createWriteRequest(), createMetadata())
+			)
+		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+	})
+
 	test('forbids ssh write requests for read-only collaborators', async () => {
 		await seedCollaboratorFixture('read')
 
