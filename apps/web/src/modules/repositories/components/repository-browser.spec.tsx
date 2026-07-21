@@ -216,6 +216,7 @@ const baseSummary = {
 			},
 		},
 	],
+	viewerRole: 'read',
 	isEmpty: false,
 	rootEntries: baseTree.entries,
 } satisfies RepositoryBrowserSummary

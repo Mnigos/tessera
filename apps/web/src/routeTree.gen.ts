@@ -17,6 +17,7 @@ import { Route as modulesGithubImportRoutesImportDotgithubDotrouteRouteImport } 
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.route'
+import { Route as modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRouteImport } from './modules/repository-collaborators/routes/repository.$username.$slug.settings.collaborators.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.new.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.$number.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.commits.$ref.route'
@@ -75,6 +76,14 @@ const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
       getParentRoute: () => rootRouteImport,
     } as any,
   )
+const modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute =
+  modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/settings/collaborators',
+      path: '/$username/$slug/settings/collaborators',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute =
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport.update(
     {
@@ -128,6 +137,7 @@ export interface FileRoutesByFullPath {
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
+  '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -143,6 +153,7 @@ export interface FileRoutesByTo {
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
+  '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -159,6 +170,7 @@ export interface FileRoutesById {
   '/$username/$slug/commits/$ref': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
+  '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/tree/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -176,6 +188,7 @@ export interface FileRouteTypes {
     | '/$username/$slug/commits/$ref'
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
+    | '/$username/$slug/settings/collaborators'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesByTo: FileRoutesByTo
@@ -191,6 +204,7 @@ export interface FileRouteTypes {
     | '/$username/$slug/commits/$ref'
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
+    | '/$username/$slug/settings/collaborators'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   id:
@@ -206,6 +220,7 @@ export interface FileRouteTypes {
     | '/$username/$slug/commits/$ref'
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
+    | '/$username/$slug/settings/collaborators'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/tree/$ref/$'
   fileRoutesById: FileRoutesById
@@ -220,6 +235,7 @@ export interface RootRouteChildren {
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRoute
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
+  modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute: typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute
 }
@@ -280,6 +296,13 @@ declare module '@tanstack/react-router' {
       path: '/$username/$slug/pulls'
       fullPath: '/$username/$slug/pulls'
       preLoaderRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/settings/collaborators': {
+      id: '/$username/$slug/settings/collaborators'
+      path: '/$username/$slug/settings/collaborators'
+      fullPath: '/$username/$slug/settings/collaborators'
+      preLoaderRoute: typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$username/$slug/pulls/new': {
@@ -368,6 +391,8 @@ const rootRouteChildren: RootRouteChildren = {
     modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute,
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute:
     modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute,
+  modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute:
+    modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDottreeDotrefDotDotrouteRoute:

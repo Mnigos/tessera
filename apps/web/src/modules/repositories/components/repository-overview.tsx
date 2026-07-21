@@ -1,11 +1,15 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { GitPullRequest, History } from 'lucide-react'
+import { GitPullRequest, History, Settings } from 'lucide-react'
 import {
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptions,
 	getSelectedRepositoryQualifiedRef,
 } from '../helpers/repository-refs'
+import {
+	canAdministerRepository,
+	isRepositoryOwner,
+} from '../helpers/repository-viewer-role'
 import { RepositoryClonePanel } from './repository-clone-panel'
 import { RepositoryEmptyState } from './repository-empty-state'
 import { RepositoryGitHubMirrorPanel } from './repository-github-mirror-panel'
@@ -14,13 +18,11 @@ import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryRootTree } from './repository-root-tree'
 
 interface RepositoryOverviewProps {
-	isCurrentOwner?: boolean
 	summary: RepositoryBrowserSummary
 	selectedRef?: string
 }
 
 export function RepositoryOverview({
-	isCurrentOwner = false,
 	summary: { owner, repository, defaultBranch, rootEntries, isEmpty, readme },
 	summary,
 	selectedRef,
@@ -86,6 +88,16 @@ export function RepositoryOverview({
 						<GitPullRequest className="size-4" />
 						Pull requests
 					</Link>
+					{canAdministerRepository(summary.viewerRole) && (
+						<Link
+							className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+							params={{ username: owner.username, slug: repository.slug }}
+							to="/$username/$slug/settings/collaborators"
+						>
+							<Settings className="size-4" />
+							Collaborators
+						</Link>
+					)}
 				</div>
 				{repository.description && (
 					<p className="max-w-3xl text-muted-foreground text-sm">
@@ -98,7 +110,7 @@ export function RepositoryOverview({
 			) : (
 				<>
 					<RepositoryGitHubMirrorPanel
-						isCurrentOwner={isCurrentOwner}
+						isCurrentOwner={isRepositoryOwner(summary.viewerRole)}
 						owner={owner}
 						repository={repository}
 					/>
