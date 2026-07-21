@@ -1,8 +1,9 @@
-import type {
-	RepositoryCollaboratorId,
-	RepositoryCollaboratorRole,
-	RepositoryId,
-	UserId,
+import {
+	type RepositoryCollaboratorId,
+	type RepositoryCollaboratorRole,
+	type RepositoryId,
+	repositoryCollaboratorRoles,
+	type UserId,
 } from '@repo/domain'
 import { relations } from 'drizzle-orm'
 import {
@@ -18,7 +19,7 @@ import { repositories } from './repositories.schema'
 
 export const repositoryCollaboratorRoleEnum = pgEnum(
 	'repository_collaborator_role',
-	['read', 'write', 'admin']
+	repositoryCollaboratorRoles
 )
 
 export const repositoryCollaborators = pgTable(

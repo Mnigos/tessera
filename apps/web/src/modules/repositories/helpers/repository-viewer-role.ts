@@ -1,19 +1,10 @@
 import type { RepositoryViewerRole } from '@repo/contracts'
+import { canAdministerRepository, canWriteRepository } from '@repo/domain'
 
-export function canWriteRepository(
-	role: RepositoryViewerRole | null | undefined
-): boolean {
-	return role === 'owner' || role === 'admin' || role === 'write'
-}
-
-export function canAdministerRepository(
-	role: RepositoryViewerRole | null | undefined
-): boolean {
-	return role === 'owner' || role === 'admin'
-}
+export { canAdministerRepository, canWriteRepository }
 
 export function isRepositoryOwner(
-	role: RepositoryViewerRole | null | undefined
+	role: RepositoryViewerRole | undefined
 ): boolean {
 	return role === 'owner'
 }
