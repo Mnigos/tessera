@@ -1,5 +1,11 @@
 import { apiKey } from '@better-auth/api-key'
-import { account, and, eq, user } from '@repo/db'
+import {
+	account,
+	and,
+	eq,
+	organization as organizationTable,
+	user,
+} from '@repo/db'
 import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
@@ -14,6 +20,7 @@ import {
 	preserveExistingUsernameOnUpdate,
 	resolveGitHubUsername,
 } from './src/github-username'
+import { assertOrganizationSlugNotUserHandle } from './src/handle-shadowing'
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0'])
 const LEADING_SUBDOMAIN_REGEX = /^(www|app)\./
@@ -112,22 +119,50 @@ export function initAuth({
 					if (existingAccount) return {}
 
 					return {
+						// Usernames matching an organization slug are treated as taken so
+						// a new user cannot shadow an organization page. Application-level
+						// check only; the DB-level guarantee is tracked by TES-61.
 						username: await resolveGitHubUsername(profile, async username => {
-							const foundUser = await db.query.user.findFirst({
-								where: eq(user.username, username),
-								columns: {
-									id: true,
-								},
-							})
+							const [foundUser, foundOrganization] = await Promise.all([
+								db.query.user.findFirst({
+									where: eq(user.username, username),
+									columns: {
+										id: true,
+									},
+								}),
+								db.query.organization.findFirst({
+									where: eq(organizationTable.slug, username),
+									columns: {
+										id: true,
+									},
+								}),
+							])
 
-							return foundUser !== undefined
+							return foundUser !== undefined || foundOrganization !== undefined
 						}),
 					}
 				},
 			},
 		},
 		plugins: [
-			organization(),
+			organization({
+				organizationHooks: {
+					beforeCreateOrganization: async ({ organization: newOrganization }) =>
+						await assertOrganizationSlugNotUserHandle(
+							newOrganization.slug,
+							async slug => {
+								const foundUser = await db.query.user.findFirst({
+									where: eq(user.username, slug),
+									columns: {
+										id: true,
+									},
+								})
+
+								return foundUser !== undefined
+							}
+						),
+				},
+			}),
 			apiKey([
 				{
 					configId: GIT_ACCESS_TOKEN_CONFIG_ID,
@@ -183,3 +218,4 @@ export {
 	preserveExistingUsernameOnUpdate,
 	resolveGitHubUsername,
 } from './src/github-username'
+export { assertOrganizationSlugNotUserHandle } from './src/handle-shadowing'

@@ -18,10 +18,15 @@ product is only exercised locally by a single user.
 
 All permission checks go through one resolver:
 
-```
-RepositoryPermissionsService.resolve(viewerUserId, repository)
+```text
+RepositoryPermissionsService.resolveRole(viewerUserId, repository)
   -> 'owner' | 'admin' | 'write' | 'read' | null
 ```
+
+The resolver also exposes `resolveImplicitRole(viewerUserId, repository)`, which returns
+only the ownership- or organization-derived role (no collaborator rows, no public read).
+Collaborator management uses it to reject grants for users who already hold implicit
+admin-or-higher access.
 
 For organization-owned repositories, the mapping from organization membership to a
 repository role is implemented behind a single private function inside the resolver. The
@@ -29,6 +34,12 @@ initial mapping is deliberately minimal: org `owner`/`admin` -> repository `admi
 `member` -> no implicit access (must be added as a repository collaborator). No consumer
 (guards, pull request services, comments, reviews, checks, branch protection, merge queue)
 may inspect organization membership directly.
+
+Users and organizations share the `/{handle}` URL namespace. When both exist, the user
+handle wins deterministically; to keep that case from arising, cross-namespace uniqueness
+is enforced at creation time (organization creation rejects slugs matching an existing
+username, and username resolution skips handles matching an existing organization slug).
+A DB-level guarantee is tracked by TES-61.
 
 ## Consequences
 
