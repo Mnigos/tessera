@@ -15,6 +15,7 @@ import {
 	RepositoriesModule,
 	RepositoriesWorkersModule,
 } from '@modules/repositories'
+import { RepositoryCollaboratorsModule } from '@modules/repository-collaborators'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
@@ -36,6 +37,7 @@ import { APP_FILTER } from '@nestjs/core'
 		SshPublicKeysModule,
 		RepositoriesModule,
 		RepositoriesWorkersModule,
+		RepositoryCollaboratorsModule,
 		PullRequestsModule,
 		DocsModule,
 		HealthModule,

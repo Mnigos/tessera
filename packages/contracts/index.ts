@@ -6,6 +6,7 @@ export * from './src/health.contract'
 export * from './src/organizations.contract'
 export * from './src/pull-requests.contract'
 export * from './src/repositories.contract'
+export * from './src/repository-collaborators.contract'
 export * from './src/ssh-public-keys.contract'
 export * from './src/user.contract'
 
@@ -17,6 +18,7 @@ import { healthContract } from './src/health.contract'
 import { organizationsContract } from './src/organizations.contract'
 import { pullRequestsContract } from './src/pull-requests.contract'
 import { repositoriesContract } from './src/repositories.contract'
+import { repositoryCollaboratorsContract } from './src/repository-collaborators.contract'
 import { sshPublicKeysContract } from './src/ssh-public-keys.contract'
 import { userContract } from './src/user.contract'
 
@@ -29,6 +31,7 @@ export const contract = {
 	organizations: organizationsContract,
 	pullRequests: pullRequestsContract,
 	repositories: repositoriesContract,
+	repositoryCollaborators: repositoryCollaboratorsContract,
 	sshPublicKeys: sshPublicKeysContract,
 	user: userContract,
 }
