@@ -231,6 +231,44 @@ describe('Repository collaborators integration', () => {
 		})
 	})
 
+	test('keeps the current role without recording a role-changed event', async () => {
+		await addCollaborator(writeCollaborator.username, 'write', owner.headers)
+
+		const response = await updateCollaboratorRole(
+			writeCollaborator.username,
+			'write',
+			owner.headers
+		)
+		expect(response.status).toBe(200)
+		expect(await response.json()).toMatchObject({
+			username: writeCollaborator.username,
+			role: 'write',
+		})
+		expect(
+			await findRepositoryEvent('collaborator_role_changed')
+		).toBeUndefined()
+	})
+
+	test('rejects updating the role of a user who is not a collaborator', async () => {
+		const response = await updateCollaboratorRole(
+			outsider.username,
+			'write',
+			owner.headers
+		)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body.code).toBe('NOT_FOUND')
+	})
+
+	test('rejects removing a user who is not a collaborator', async () => {
+		const response = await removeCollaborator(outsider.username, owner.headers)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(404)
+		expect(body.code).toBe('NOT_FOUND')
+	})
+
 	test('removes a collaborator while recording a removed event', async () => {
 		await addCollaborator(writeCollaborator.username, 'write', owner.headers)
 

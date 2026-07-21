@@ -9,6 +9,7 @@
     "ignoreUnknown": false,
     "includes": [
       "!**/*.css",
+      "!**/*.html",
       "!**/coverage",
       "!**/dist",
       "!**/@generated",
