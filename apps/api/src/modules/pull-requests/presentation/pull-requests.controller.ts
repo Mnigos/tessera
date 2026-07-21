@@ -20,12 +20,9 @@ export class PullRequestsController {
 
 	@Implement(contract.pullRequests.list)
 	list(@Session() session?: UserSession) {
-		return implement(contract.pullRequests.list).handler(async ({ input }) => ({
-			pullRequests: await this.pullRequestsService.list(
-				session?.user.id,
-				input
-			),
-		}))
+		return implement(contract.pullRequests.list).handler(({ input }) =>
+			this.pullRequestsService.list(session?.user.id, input)
+		)
 	}
 
 	@Implement(contract.pullRequests.get)

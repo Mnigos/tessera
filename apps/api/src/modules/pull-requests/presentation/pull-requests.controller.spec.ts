@@ -1,5 +1,7 @@
-import { RepositoryWriteGuard } from '@modules/repositories'
-import { UserService } from '@modules/user'
+import {
+	RepositoriesService,
+	RepositoryWriteGuard,
+} from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
 	PullRequest,
@@ -49,8 +51,8 @@ describe(PullRequestsController.name, () => {
 					useValue: { canActivate: vi.fn() },
 				},
 				{
-					provide: UserService,
-					useValue: { findUserId: vi.fn() },
+					provide: RepositoriesService,
+					useValue: { assertViewerRepositoryWriteAccess: vi.fn() },
 				},
 				{
 					provide: PullRequestsService,
@@ -102,7 +104,8 @@ describe(PullRequestsController.name, () => {
 	})
 
 	test('delegates anonymous list requests', async () => {
-		const listSpy = vi.spyOn(service, 'list').mockResolvedValue([pullRequest])
+		const output = { pullRequests: [pullRequest], viewerRole: 'read' as const }
+		const listSpy = vi.spyOn(service, 'list').mockResolvedValue(output)
 		const procedure = controller.list()
 
 		expect(
@@ -114,12 +117,12 @@ describe(PullRequestsController.name, () => {
 				lastEventId: undefined,
 				errors: {},
 			})
-		).toEqual({ pullRequests: [pullRequest] })
+		).toEqual(output)
 		expect(listSpy).toHaveBeenCalledWith(undefined, repositoryInput)
 	})
 
 	test('delegates get requests with an optional viewer', async () => {
-		const output = { pullRequest, events: [] }
+		const output = { pullRequest, events: [], viewerRole: 'read' as const }
 		const getSpy = vi.spyOn(service, 'get').mockResolvedValue(output)
 		const input = { ...repositoryInput, number: 1 }
 		const procedure = controller.get(session)

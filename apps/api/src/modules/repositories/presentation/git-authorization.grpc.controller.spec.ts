@@ -30,8 +30,6 @@ describe(GitAuthorizationGrpcController.name, () => {
 						authenticateSshKey: vi.fn(),
 						authorizeGitRepositoryRead: vi.fn(),
 						authorizeSshGitRepositoryRead: vi.fn(),
-						getGitRepositoryWriteTarget: vi.fn(),
-						completeGitRepositoryWriteAuthorization: vi.fn(),
 					},
 				},
 				{
@@ -91,21 +89,19 @@ describe(GitAuthorizationGrpcController.name, () => {
 			})
 
 		expect(
-			await controller.authorizeRead({
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-upload-pack',
-				action: 'read',
-			})
+			await controller.authorizeRead(createReadRequest('tes_git_raw-secret'))
 		).toEqual({
 			repositoryId: '00000000-0000-4000-8000-000000000002',
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			trustedUser: '',
 		})
-		expect(authorizeGitRepositoryReadSpy).toHaveBeenCalledWith({
-			username: 'marta',
-			slug: 'notes' as RepositorySlug,
-		})
+		expect(authorizeGitRepositoryReadSpy).toHaveBeenCalledWith(
+			{
+				username: 'marta',
+				slug: 'notes' as RepositorySlug,
+			},
+			'tes_git_raw-secret'
+		)
 	})
 
 	test('returns guard-resolved HTTP write authorization', async () => {
@@ -181,12 +177,7 @@ describe(GitAuthorizationGrpcController.name, () => {
 		).mockRejectedValue(new UnauthorizedError('git authorization'))
 
 		await expect(
-			controller.authorizeRead({
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-upload-pack',
-				action: 'read',
-			})
+			controller.authorizeRead(createReadRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.UNAUTHENTICATED }),
 		})
@@ -200,10 +191,8 @@ describe(GitAuthorizationGrpcController.name, () => {
 
 		await expect(
 			controller.authorizeRead({
-				ownerUsername: 'marta',
+				...createReadRequest(),
 				repositorySlug: 'missing',
-				service: 'git-upload-pack',
-				action: 'read',
 			})
 		).rejects.toMatchObject({
 			error: expect.objectContaining({ code: status.NOT_FOUND }),
@@ -243,14 +232,9 @@ describe(GitAuthorizationGrpcController.name, () => {
 			'authorizeGitRepositoryRead'
 		).mockRejectedValue(rpcException)
 
-		await expect(
-			controller.authorizeRead({
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-upload-pack',
-				action: 'read',
-			})
-		).rejects.toBe(rpcException)
+		await expect(controller.authorizeRead(createReadRequest())).rejects.toBe(
+			rpcException
+		)
 	})
 
 	test('uses a generic message for non-error exceptions', async () => {
@@ -260,12 +244,7 @@ describe(GitAuthorizationGrpcController.name, () => {
 		).mockRejectedValue('boom')
 
 		await expect(
-			controller.authorizeRead({
-				ownerUsername: 'marta',
-				repositorySlug: 'notes',
-				service: 'git-upload-pack',
-				action: 'read',
-			})
+			controller.authorizeRead(createReadRequest())
 		).rejects.toMatchObject({
 			error: expect.objectContaining({
 				code: status.INTERNAL,
@@ -275,11 +254,13 @@ describe(GitAuthorizationGrpcController.name, () => {
 	})
 })
 
-function createReadRequest() {
+function createReadRequest(token = '') {
 	return {
 		ownerUsername: 'marta',
 		repositorySlug: 'notes',
 		service: 'git-upload-pack',
 		action: 'read',
+		basicUsername: token ? 'marta' : '',
+		token,
 	}
 }

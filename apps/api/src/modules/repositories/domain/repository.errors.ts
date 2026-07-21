@@ -82,6 +82,12 @@ export class RepositoryGitWriteForbiddenError extends ForbiddenError {
 	}
 }
 
+export class RepositoryAdminForbiddenError extends ForbiddenError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository administration', context)
+	}
+}
+
 export class RepositoryGitHubSourceOfTruthWriteForbiddenError extends ForbiddenError {
 	constructor(context?: Record<string, unknown>) {
 		super(

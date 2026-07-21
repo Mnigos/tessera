@@ -35,10 +35,13 @@ export class GitAuthorizationGrpcController
 		request: AuthorizeReadRequest
 	): Promise<AuthorizeReadResponse> {
 		try {
-			return await this.repositoriesService.authorizeGitRepositoryRead({
-				username: request.ownerUsername,
-				slug: request.repositorySlug as RepositorySlug,
-			})
+			return await this.repositoriesService.authorizeGitRepositoryRead(
+				{
+					username: request.ownerUsername,
+					slug: request.repositorySlug as RepositorySlug,
+				},
+				request.token || undefined
+			)
 		} catch (error) {
 			throw toGitAuthorizationGrpcException(error)
 		}

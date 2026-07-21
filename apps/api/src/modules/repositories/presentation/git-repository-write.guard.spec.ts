@@ -6,17 +6,13 @@ import type { ExecutionContext } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryId, UserId } from '@repo/domain'
 import { RepositoriesService } from '../application/repositories.service'
+import { RepositoryGitWriteForbiddenError } from '../domain/repository.errors'
 import { GitRepositoryWriteGuard } from './git-repository-write.guard'
 import { getGitRepositoryWriteAuthorization } from './git-repository-write-authorization.context'
 
 const ownerUserId = '00000000-0000-4000-8000-000000000001' as UserId
 const otherUserId = '00000000-0000-4000-8000-000000000002' as UserId
 const repositoryId = '00000000-0000-4000-8000-000000000003' as RepositoryId
-const target = {
-	id: repositoryId,
-	ownerUserId,
-	storagePath: '/var/lib/tessera/repositories/repo.git',
-}
 const authorization = {
 	repositoryId,
 	storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -45,8 +41,7 @@ describe(GitRepositoryWriteGuard.name, () => {
 				{
 					provide: RepositoriesService,
 					useValue: {
-						getGitRepositoryWriteTarget: vi.fn(),
-						completeGitRepositoryWriteAuthorization: vi.fn(),
+						authorizeGitRepositoryWrite: vi.fn(),
 					},
 				},
 			],
@@ -59,12 +54,8 @@ describe(GitRepositoryWriteGuard.name, () => {
 
 		vi.spyOn(
 			repositoriesService,
-			'getGitRepositoryWriteTarget'
-		).mockResolvedValue(target)
-		vi.spyOn(
-			repositoriesService,
-			'completeGitRepositoryWriteAuthorization'
-		).mockReturnValue(authorization)
+			'authorizeGitRepositoryWrite'
+		).mockResolvedValue(authorization)
 	})
 
 	afterEach(async () => {
@@ -84,6 +75,9 @@ describe(GitRepositoryWriteGuard.name, () => {
 			rawToken: 'tes_git_raw-secret',
 			requiredPermission: 'git:write',
 		})
+		expect(
+			repositoriesService.authorizeGitRepositoryWrite
+		).toHaveBeenCalledWith({ username: 'marta', slug: 'notes' }, ownerUserId)
 		expect(getGitRepositoryWriteAuthorization(request)).toBe(authorization)
 	})
 
@@ -97,14 +91,26 @@ describe(GitRepositoryWriteGuard.name, () => {
 		expect(sshPublicKeysService.findOwnerByFingerprint).toHaveBeenCalledWith(
 			'SHA256:abc'
 		)
+		expect(
+			repositoriesService.authorizeGitRepositoryWrite
+		).toHaveBeenCalledWith({ username: 'marta', slug: 'notes' }, ownerUserId)
 		expect(getGitRepositoryWriteAuthorization(request)).toBe(authorization)
 	})
 
-	test('rejects write identities that do not own the repository', async () => {
+	test('rejects write identities the service does not authorize', async () => {
 		vi.spyOn(gitAccessTokensService, 'verify').mockResolvedValue({
 			userId: otherUserId,
 			permissions: { repository: ['write'] },
 		})
+		vi.spyOn(
+			repositoriesService,
+			'authorizeGitRepositoryWrite'
+		).mockRejectedValue(
+			new RepositoryGitWriteForbiddenError({
+				repositoryId,
+				userId: otherUserId,
+			})
+		)
 
 		await expect(
 			guard.canActivate(createGuardContext(createHttpWriteRequest()))

@@ -299,6 +299,7 @@ describe(RepositoriesController.name, () => {
 	test('delegates browser summary requests with an optional viewer', async () => {
 		const browserSummary = {
 			...repository,
+			viewerRole: 'read' as const,
 			isEmpty: false,
 			defaultBranch: 'main',
 			selectedRef: {
@@ -370,6 +371,7 @@ describe(RepositoriesController.name, () => {
 	test('delegates anonymous browser summary requests without a viewer', async () => {
 		const browserSummary = {
 			...repository,
+			viewerRole: 'read' as const,
 			isEmpty: true,
 			defaultBranch: 'main',
 			selectedRef: undefined,
@@ -626,6 +628,7 @@ describe(RepositoriesController.name, () => {
 			repositoryBrowserSummarySchema.parse({
 				...repository,
 				storagePath: '/internal/repositories/notes.git',
+				viewerRole: 'read',
 				isEmpty: false,
 				defaultBranch: 'main',
 				selectedRef: {

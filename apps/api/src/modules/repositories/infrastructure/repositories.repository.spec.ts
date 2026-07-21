@@ -125,15 +125,23 @@ describe(RepositoriesRepository.name, () => {
 		updateMock.mockReturnValue({ set: setMock })
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
 		limitMock.mockResolvedValue([repositoryRow])
-		orderByMock.mockResolvedValue([repositoryRow])
+		orderByMock.mockImplementation(() =>
+			Object.assign(Promise.resolve([repositoryRow]), { limit: limitMock })
+		)
 		selectWhereMock.mockReturnValue({ limit: limitMock, orderBy: orderByMock })
-		leftJoinMock.mockReturnValue({ where: selectWhereMock })
+		leftJoinMock.mockReturnValue({
+			leftJoin: leftJoinMock,
+			where: selectWhereMock,
+		})
 		innerJoinMock.mockReturnValue({
 			leftJoin: leftJoinMock,
 			innerJoin: innerJoinMock,
 			where: selectWhereMock,
 		})
-		fromMock.mockReturnValue({ innerJoin: innerJoinMock })
+		fromMock.mockReturnValue({
+			innerJoin: innerJoinMock,
+			leftJoin: leftJoinMock,
+		})
 		selectMock.mockReturnValue({ from: fromMock })
 
 		moduleRef = await Test.createTestingModule({

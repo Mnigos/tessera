@@ -29,6 +29,10 @@ const repositoryContext = {
 	repositoryId,
 	storagePath: '/var/lib/tessera/repositories/repo.git',
 }
+const repositoryAccessContext = {
+	...repositoryContext,
+	viewerRole: 'write' as const,
+}
 const pullRequest: PullRequest = {
 	id: pullRequestId,
 	repositoryId,
@@ -114,11 +118,11 @@ describe(PullRequestsService.name, () => {
 		vi.spyOn(
 			repositoriesService,
 			'getReadableRepositoryContext'
-		).mockResolvedValue(repositoryContext)
+		).mockResolvedValue(repositoryAccessContext)
 		vi.spyOn(
 			repositoriesService,
 			'getWritableRepositoryContext'
-		).mockResolvedValue(repositoryContext)
+		).mockResolvedValue(repositoryAccessContext)
 		vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
 			branches: [
 				{
@@ -233,9 +237,13 @@ describe(PullRequestsService.name, () => {
 			.spyOn(repository, 'list')
 			.mockResolvedValue([pullRequest])
 
-		expect(
-			await service.list(undefined, { ...repositoryInput, state: 'open' })
-		).toHaveLength(1)
+		const result = await service.list(undefined, {
+			...repositoryInput,
+			state: 'open',
+		})
+
+		expect(result.pullRequests).toHaveLength(1)
+		expect(result.viewerRole).toBe('write')
 		expect(listSpy).toHaveBeenCalledWith({ repositoryId, state: 'open' })
 	})
 
@@ -248,6 +256,7 @@ describe(PullRequestsService.name, () => {
 		).toEqual({
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
 			events: [event],
+			viewerRole: 'write',
 		})
 	})
 

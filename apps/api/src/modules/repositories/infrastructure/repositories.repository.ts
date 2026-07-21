@@ -11,15 +11,20 @@ import {
 	isNull,
 	lt,
 	lte,
+	type Member,
+	member,
 	ne,
 	or,
+	organization,
 	repositories,
+	repositoryCollaborators,
 	repositoryExternalSources,
 	sql,
 	user,
 } from '@repo/db'
 import type {
 	OrganizationId,
+	RepositoryCollaboratorRole,
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
@@ -199,6 +204,13 @@ const REPOSITORY_WITH_OWNER_COLUMNS = {
 	externalSource: REPOSITORY_EXTERNAL_SOURCE_COLUMNS,
 }
 
+const REPOSITORY_WITH_OWNER_HANDLE_COLUMNS = {
+	...REPOSITORY_WITH_OWNER_COLUMNS,
+	ownerUsername: sql<
+		string | null
+	>`coalesce(${user.username}, ${organization.slug})`,
+}
+
 @Injectable()
 export class RepositoriesRepository {
 	constructor(private readonly db: Database) {}
@@ -247,22 +259,73 @@ export class RepositoriesRepository {
 		}
 
 		const [row] = await this.db
-			.select(REPOSITORY_WITH_OWNER_COLUMNS)
+			.select(REPOSITORY_WITH_OWNER_HANDLE_COLUMNS)
 			.from(repositories)
-			.innerJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(
+				organization,
+				eq(repositories.ownerOrganizationId, organization.id)
+			)
 			.leftJoin(
 				repositoryExternalSources,
 				eq(repositoryExternalSources.repositoryId, repositories.id)
 			)
 			.where(
 				and(
-					eq(user.username, params.username),
-					eq(repositories.slug, params.slug)
+					eq(repositories.slug, params.slug),
+					or(
+						eq(user.username, params.username),
+						eq(organization.slug, params.username)
+					)
 				)
+			)
+			.orderBy(
+				sql`case when ${user.username} = ${params.username} then 0 else 1 end`
 			)
 			.limit(1)
 
 		return toRepositoryWithOwner(toRepositoryRow(row))
+	}
+
+	async findCollaboratorRole({
+		repositoryId,
+		userId,
+	}: RepositoryIdWithUserParams): Promise<
+		RepositoryCollaboratorRole | undefined
+	> {
+		const [row] = await this.db
+			.select({ role: repositoryCollaborators.role })
+			.from(repositoryCollaborators)
+			.where(
+				and(
+					eq(repositoryCollaborators.repositoryId, repositoryId),
+					eq(repositoryCollaborators.userId, userId)
+				)
+			)
+			.limit(1)
+
+		return row?.role
+	}
+
+	async findOrganizationMemberRole({
+		organizationId,
+		userId,
+	}: {
+		organizationId: OrganizationId
+		userId: UserId
+	}): Promise<Member['role'] | undefined> {
+		const [row] = await this.db
+			.select({ role: member.role })
+			.from(member)
+			.where(
+				and(
+					eq(member.organizationId, organizationId),
+					eq(member.userId, userId)
+				)
+			)
+			.limit(1)
+
+		return row?.role
 	}
 
 	async create({

@@ -98,6 +98,14 @@ export const repositoryOwnerSchema = z.object({
 })
 export type RepositoryOwner = z.infer<typeof repositoryOwnerSchema>
 
+export const repositoryViewerRoleSchema = z.enum([
+	'owner',
+	'admin',
+	'write',
+	'read',
+])
+export type RepositoryViewerRole = z.infer<typeof repositoryViewerRoleSchema>
+
 export const repositoryWithOwnerSchema = z.object({
 	repository: repositorySchema,
 	owner: repositoryOwnerSchema,
@@ -279,6 +287,7 @@ export type RepositoryRefs = z.infer<typeof repositoryRefsSchema>
 export const repositoryBrowserSummarySchema = z.object({
 	repository: repositorySchema,
 	owner: repositoryOwnerSchema,
+	viewerRole: repositoryViewerRoleSchema.nullable(),
 	isEmpty: z.boolean(),
 	defaultBranch: z.string(),
 	selectedRef: repositoryRefSchema.optional(),

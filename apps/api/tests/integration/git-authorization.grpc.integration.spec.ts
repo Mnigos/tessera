@@ -16,6 +16,7 @@ import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { InvalidGitAccessTokenError } from '@modules/git-access-tokens/domain/git-access-token.errors'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { RepositoriesService } from '@modules/repositories/application/repositories.service'
+import { RepositoryPermissionsService } from '@modules/repositories/application/repository-permissions.service'
 import { GitHubMirrorSyncQueue } from '@modules/repositories/infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
@@ -34,11 +35,13 @@ import { db } from '@repo/db/client'
 import {
 	type RepositoryExternalSourceId,
 	repositories,
+	repositoryCollaborators,
 	repositoryExternalSources,
 	sshPublicKeys,
 	user,
 } from '@repo/db/schema'
 import type {
+	RepositoryCollaboratorRole,
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
@@ -55,6 +58,7 @@ const MIGRATIONS_FOLDER = fileURLToPath(
 )
 const ownerUserId = '00000000-0000-4000-8000-000000000001' as UserId
 const otherUserId = '00000000-0000-4000-8000-000000000002' as UserId
+const collaboratorUserId = '00000000-0000-4000-8000-000000000003' as UserId
 const publicRepositoryId =
 	'00000000-0000-4000-8000-000000000101' as RepositoryId
 const privateRepositoryId =
@@ -63,10 +67,13 @@ const ownerSshPublicKeyId =
 	'00000000-0000-4000-8000-000000000201' as SshPublicKeyId
 const otherSshPublicKeyId =
 	'00000000-0000-4000-8000-000000000202' as SshPublicKeyId
+const collaboratorSshPublicKeyId =
+	'00000000-0000-4000-8000-000000000203' as SshPublicKeyId
 const externalSourceId =
 	'00000000-0000-4000-8000-000000000301' as RepositoryExternalSourceId
 const ownerFingerprintSha256 = 'SHA256:owner-key'
 const otherFingerprintSha256 = 'SHA256:other-key'
+const collaboratorFingerprintSha256 = 'SHA256:collaborator-key'
 const GITHUB_SOURCE_OF_TRUTH_MESSAGE =
 	'GitHub is the source of truth for this repository. Push to GitHub instead.'
 
@@ -109,6 +116,7 @@ describe('Git authorization gRPC integration', () => {
 			providers: [
 				RepositoriesService,
 				RepositoriesRepository,
+				RepositoryPermissionsService,
 				SshPublicKeysService,
 				SshPublicKeysRepository,
 				GitRepositoryWriteGuard,
@@ -201,7 +209,7 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
-	test('rejects read requests for private repositories through grpc permission status', async () => {
+	test('masks private repositories as not found for anonymous read requests', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
 			username: 'marta',
@@ -218,7 +226,52 @@ describe('Git authorization gRPC integration', () => {
 			firstValueFrom(
 				service.authorizeRead(createReadRequest(), createMetadata())
 			)
-		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
+	})
+
+	test('authorizes private repository reads for collaborators with a read token', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: collaboratorUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationCollaborator({
+			repositoryId: privateRepositoryId,
+			userId: collaboratorUserId,
+			role: 'read',
+		})
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: collaboratorUserId,
+			permissions: { git: ['read'] },
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeRead(
+					createReadRequest('tes_git_raw-secret'),
+					createMetadata()
+				)
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: collaboratorUserId,
+		})
+		expect(gitAccessTokensService.verify).toHaveBeenCalledWith({
+			rawToken: 'tes_git_raw-secret',
+			requiredPermission: 'git:read',
+		})
 	})
 
 	test('authorizes write requests with a valid git access token', async () => {
@@ -368,7 +421,7 @@ describe('Git authorization gRPC integration', () => {
 		).rejects.toMatchObject({ code: status.UNAUTHENTICATED })
 	})
 
-	test('rejects write requests when the token belongs to a different user', async () => {
+	test('masks private repositories as not found when the write token belongs to a different user', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
 			username: 'marta',
@@ -391,7 +444,7 @@ describe('Git authorization gRPC integration', () => {
 			firstValueFrom(
 				service.authorizeWrite(createWriteRequest(), createMetadata())
 			)
-		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
 	})
 
 	test('rejects write requests for missing repositories', async () => {
@@ -572,7 +625,7 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
-	test('rejects ssh read requests for private repositories not owned by the key owner', async () => {
+	test('masks private repositories as not found for ssh reads not owned by the key owner', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
 			username: 'marta',
@@ -602,7 +655,7 @@ describe('Git authorization gRPC integration', () => {
 					createMetadata()
 				)
 			)
-		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
 	})
 
 	test('authorizes ssh write requests for repository owners', async () => {
@@ -699,7 +752,7 @@ describe('Git authorization gRPC integration', () => {
 		})
 	})
 
-	test('rejects ssh write requests for non-owners', async () => {
+	test('masks private repositories as not found for ssh writes by non-collaborators', async () => {
 		await createIntegrationUser({
 			userId: ownerUserId,
 			username: 'marta',
@@ -729,7 +782,7 @@ describe('Git authorization gRPC integration', () => {
 					createMetadata()
 				)
 			)
-		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
 	})
 
 	test('rejects ssh requests with unknown fingerprints', async () => {
@@ -778,14 +831,159 @@ describe('Git authorization gRPC integration', () => {
 			)
 		).rejects.toMatchObject({ code: status.NOT_FOUND })
 	})
+
+	test('authorizes ssh read requests for private repositories shared with a read collaborator', async () => {
+		await seedCollaboratorFixture('read')
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshRead(
+					createSshReadRequest(collaboratorFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: collaboratorUserId,
+		})
+	})
+
+	test('authorizes ssh write requests for write collaborators', async () => {
+		await seedCollaboratorFixture('write')
+
+		expect(
+			await firstValueFrom(
+				service.authorizeSshWrite(
+					createSshWriteRequest(collaboratorFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: collaboratorUserId,
+		})
+	})
+
+	test('authorizes http write requests for write collaborators with a valid git access token', async () => {
+		await seedCollaboratorFixture('write')
+		vi.mocked(gitAccessTokensService.verify).mockResolvedValue({
+			userId: collaboratorUserId,
+			permissions: {
+				repository: ['write'],
+			},
+		})
+
+		expect(
+			await firstValueFrom(
+				service.authorizeWrite(createWriteRequest(), createMetadata())
+			)
+		).toEqual({
+			repositoryId: privateRepositoryId,
+			storagePath: `/var/lib/tessera/repositories/${privateRepositoryId}.git`,
+			trustedUser: collaboratorUserId,
+		})
+	})
+
+	test('forbids ssh write requests for read-only collaborators', async () => {
+		await seedCollaboratorFixture('read')
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshWrite(
+					createSshWriteRequest(collaboratorFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+	})
+
+	test('forbids ssh write requests for read-only access to public repositories', async () => {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: otherUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: otherSshPublicKeyId,
+			ownerUserId: otherUserId,
+			fingerprint: otherFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: publicRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'public',
+		})
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshWrite(
+					createSshWriteRequest(otherFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).rejects.toMatchObject({ code: status.PERMISSION_DENIED })
+	})
+
+	test('masks private repositories as not found after a collaborator is removed', async () => {
+		await seedCollaboratorFixture('read')
+		await db.delete(repositoryCollaborators)
+
+		await expect(
+			firstValueFrom(
+				service.authorizeSshRead(
+					createSshReadRequest(collaboratorFingerprintSha256),
+					createMetadata()
+				)
+			)
+		).rejects.toMatchObject({ code: status.NOT_FOUND })
+	})
+
+	async function seedCollaboratorFixture(role: RepositoryCollaboratorRole) {
+		await createIntegrationUser({
+			userId: ownerUserId,
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createIntegrationUser({
+			userId: collaboratorUserId,
+			username: 'ren',
+			email: 'ren@example.com',
+		})
+		await createIntegrationSshPublicKey({
+			id: collaboratorSshPublicKeyId,
+			ownerUserId: collaboratorUserId,
+			fingerprint: collaboratorFingerprintSha256,
+		})
+		await createIntegrationRepository({
+			id: privateRepositoryId,
+			ownerUserId,
+			slug: 'notes' as RepositorySlug,
+			visibility: 'private',
+		})
+		await createIntegrationCollaborator({
+			repositoryId: privateRepositoryId,
+			userId: collaboratorUserId,
+			role,
+		})
+	}
 })
 
-function createReadRequest() {
+function createReadRequest(token = '') {
 	return {
 		ownerUsername: 'marta',
 		repositorySlug: 'notes',
 		service: 'git-upload-pack',
 		action: 'info_refs',
+		basicUsername: token ? 'marta' : '',
+		token,
 	}
 }
 
@@ -919,6 +1117,24 @@ async function createIntegrationSshPublicKey({
 	})
 }
 
+interface CreateIntegrationCollaboratorOptions {
+	repositoryId: RepositoryId
+	userId: UserId
+	role: RepositoryCollaboratorRole
+}
+
+async function createIntegrationCollaborator({
+	repositoryId,
+	role,
+	userId,
+}: CreateIntegrationCollaboratorOptions) {
+	await db.insert(repositoryCollaborators).values({
+		repositoryId,
+		userId,
+		role,
+	})
+}
+
 async function getSshPublicKeyLastUsedAt(id: SshPublicKeyId) {
 	const sshPublicKey = await db.query.sshPublicKeys.findFirst({
 		columns: { lastUsedAt: true },
@@ -929,6 +1145,7 @@ async function getSshPublicKeyLastUsedAt(id: SshPublicKeyId) {
 }
 
 async function resetIntegrationDatabase() {
+	await db.delete(repositoryCollaborators)
 	await db.delete(repositoryExternalSources)
 	await db.delete(sshPublicKeys)
 	await db.delete(repositories)

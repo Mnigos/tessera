@@ -8,7 +8,6 @@ import {
 } from '@nestjs/common'
 import type { RepositorySlug, UserId } from '@repo/domain'
 import { RepositoriesService } from '../application/repositories.service'
-import { RepositoryGitWriteForbiddenError } from '../domain/repository.errors'
 import { toGitAuthorizationGrpcException } from './git-authorization.grpc-error'
 import {
 	type GitRepositoryWriteRequest,
@@ -28,22 +27,12 @@ export class GitRepositoryWriteGuard implements CanActivate {
 
 		try {
 			const trustedUserId = await this.resolveTrustedUserId(request)
-			const target = await this.repositoriesService.getGitRepositoryWriteTarget(
-				{
-					username: request.ownerUsername,
-					slug: request.repositorySlug as RepositorySlug,
-				}
-			)
-
-			if (target.ownerUserId !== trustedUserId)
-				throw new RepositoryGitWriteForbiddenError({
-					repositoryId: target.id,
-					userId: trustedUserId,
-				})
-
 			const authorization =
-				this.repositoriesService.completeGitRepositoryWriteAuthorization(
-					target,
+				await this.repositoriesService.authorizeGitRepositoryWrite(
+					{
+						username: request.ownerUsername,
+						slug: request.repositorySlug as RepositorySlug,
+					},
 					trustedUserId
 				)
 			setGitRepositoryWriteAuthorization(request, authorization)
