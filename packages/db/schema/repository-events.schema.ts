@@ -48,6 +48,9 @@ export const repositoryEvents = pgTable(
 			.notNull()
 			.$type<RepositoryId>()
 			.references(() => repositories.id, { onDelete: 'cascade' }),
+		// restrict is deliberate: audit rows must keep a real actor, so account
+		// deletion has to handle/anonymize repository events explicitly
+		// (mirrors pull_request_events).
 		actorUserId: uuid('actor_user_id')
 			.notNull()
 			.$type<UserId>()
