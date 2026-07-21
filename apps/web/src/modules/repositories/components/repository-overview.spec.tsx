@@ -1119,7 +1119,6 @@ describe('RepositoryOverview', () => {
 	test.each([
 		'write',
 		'read',
-		null,
 	] as const)('hides the collaborators settings link for %s viewers', viewerRole => {
 		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
 

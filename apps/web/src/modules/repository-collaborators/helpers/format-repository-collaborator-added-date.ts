@@ -1,5 +1,6 @@
 const REPOSITORY_COLLABORATOR_DATE_FORMATTER = new Intl.DateTimeFormat('en', {
 	dateStyle: 'medium',
+	timeZone: 'UTC',
 })
 
 export function formatRepositoryCollaboratorAddedDate(value: Date | string) {
