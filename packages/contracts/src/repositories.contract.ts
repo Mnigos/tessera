@@ -1,4 +1,5 @@
 import { oc } from '@orpc/contract'
+import { repositoryRoles } from '@repo/domain'
 import { z } from 'zod'
 
 export const repositorySlugSchema = z
@@ -98,12 +99,7 @@ export const repositoryOwnerSchema = z.object({
 })
 export type RepositoryOwner = z.infer<typeof repositoryOwnerSchema>
 
-export const repositoryViewerRoleSchema = z.enum([
-	'owner',
-	'admin',
-	'write',
-	'read',
-])
+export const repositoryViewerRoleSchema = z.enum(repositoryRoles)
 export type RepositoryViewerRole = z.infer<typeof repositoryViewerRoleSchema>
 
 export const repositoryWithOwnerSchema = z.object({
@@ -287,7 +283,7 @@ export type RepositoryRefs = z.infer<typeof repositoryRefsSchema>
 export const repositoryBrowserSummarySchema = z.object({
 	repository: repositorySchema,
 	owner: repositoryOwnerSchema,
-	viewerRole: repositoryViewerRoleSchema.nullable(),
+	viewerRole: repositoryViewerRoleSchema,
 	isEmpty: z.boolean(),
 	defaultBranch: z.string(),
 	selectedRef: repositoryRefSchema.optional(),
