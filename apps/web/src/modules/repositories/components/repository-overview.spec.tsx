@@ -123,6 +123,7 @@ const baseSummary = {
 	owner: {
 		username: 'mnigos',
 	},
+	viewerRole: 'read',
 	defaultBranch: 'main',
 	branches: [
 		{
@@ -212,6 +213,10 @@ function getSummary(
 			...overrides.owner,
 		},
 	} as RepositoryBrowserSummary
+}
+
+function asOwner<T>(summary: T): T & { viewerRole: 'owner' } {
+	return { ...summary, viewerRole: 'owner' }
 }
 
 function getMirroredSummary(
@@ -411,7 +416,7 @@ describe('RepositoryOverview', () => {
 			timeStyle: 'short',
 		})
 
-		render(<RepositoryOverview isCurrentOwner summary={summary} />)
+		render(<RepositoryOverview summary={asOwner(summary)} />)
 
 		expect(screen.getByRole('heading', { name: 'GitHub mirror' })).toBeTruthy()
 		expect(screen.getAllByText('mnigos/upstream-notes')).toBeTruthy()
@@ -444,10 +449,11 @@ describe('RepositoryOverview', () => {
 
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({
-					nextSyncAt: new Date('2026-06-16T10:00:00.000Z'),
-				})}
+				summary={asOwner(
+					getMirroredSummary({
+						nextSyncAt: new Date('2026-06-16T10:00:00.000Z'),
+					})
+				)}
 			/>
 		)
 
@@ -466,12 +472,13 @@ describe('RepositoryOverview', () => {
 
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({
-					lastSyncFailedAt: undefined,
-					lastSyncStartedAt: '2026-06-15T10:00:00.000Z' as unknown as Date,
-					lastSyncSucceededAt: 'not-a-date' as unknown as Date,
-				})}
+				summary={asOwner(
+					getMirroredSummary({
+						lastSyncFailedAt: undefined,
+						lastSyncStartedAt: '2026-06-15T10:00:00.000Z' as unknown as Date,
+						lastSyncSucceededAt: 'not-a-date' as unknown as Date,
+					})
+				)}
 			/>
 		)
 
@@ -484,7 +491,7 @@ describe('RepositoryOverview', () => {
 	test('queues manual GitHub mirror sync for the current owner', async () => {
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		await user.click(screen.getByRole('button', { name: 'Sync now' }))
 
@@ -507,8 +514,7 @@ describe('RepositoryOverview', () => {
 	] as const)('disables manual GitHub mirror sync while status is %s', status => {
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({ syncStatus: status })}
+				summary={asOwner(getMirroredSummary({ syncStatus: status }))}
 			/>
 		)
 
@@ -524,11 +530,12 @@ describe('RepositoryOverview', () => {
 	test('shows GitHub mirror failure state and reason', () => {
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({
-					syncStatus: 'failed',
-					syncFailureReason: 'GitHub source could not be fetched.',
-				})}
+				summary={asOwner(
+					getMirroredSummary({
+						syncStatus: 'failed',
+						syncFailureReason: 'GitHub source could not be fetched.',
+					})
+				)}
 			/>
 		)
 
@@ -544,11 +551,12 @@ describe('RepositoryOverview', () => {
 	test('does not show next scheduled sync for failed mirrors without nextSyncAt', () => {
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({
-					syncStatus: 'failed',
-					syncFailureReason: 'GitHub auth must be reconnected.',
-				})}
+				summary={asOwner(
+					getMirroredSummary({
+						syncStatus: 'failed',
+						syncFailureReason: 'GitHub auth must be reconnected.',
+					})
+				)}
 			/>
 		)
 
@@ -570,7 +578,7 @@ describe('RepositoryOverview', () => {
 		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
 
 		const { rerender } = render(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
 		)
 
 		expect(
@@ -587,9 +595,7 @@ describe('RepositoryOverview', () => {
 			mutate: syncGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
 
-		rerender(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
-		)
+		rerender(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText('Sync queued.')).toBeTruthy()
 	})
@@ -603,7 +609,7 @@ describe('RepositoryOverview', () => {
 			mutate: syncGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useSyncGitHubMirrorMutation>)
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		expect(
 			screen.getByText('GitHub mirror sync could not be queued.')
@@ -616,7 +622,7 @@ describe('RepositoryOverview', () => {
 			.mockResolvedValue(undefined)
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText('Cut over writes to detent')).toBeTruthy()
 		expect(
@@ -666,8 +672,7 @@ describe('RepositoryOverview', () => {
 
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({ syncStatus: status })}
+				summary={asOwner(getMirroredSummary({ syncStatus: status }))}
 			/>
 		)
 
@@ -686,7 +691,7 @@ describe('RepositoryOverview', () => {
 	test('confirms and submits GitHub mirror cutover for the current owner', async () => {
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />)
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		await user.click(screen.getByRole('button', { name: 'Review cutover' }))
 
@@ -715,7 +720,7 @@ describe('RepositoryOverview', () => {
 	test('blocks GitHub mirror cutover submission when sync locks after confirmation', async () => {
 		const user = userEvent.setup()
 		const { rerender } = render(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
 		)
 
 		await user.click(screen.getByRole('button', { name: 'Review cutover' }))
@@ -723,8 +728,7 @@ describe('RepositoryOverview', () => {
 
 		rerender(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getMirroredSummary({ syncStatus: 'running' })}
+				summary={asOwner(getMirroredSummary({ syncStatus: 'running' }))}
 			/>
 		)
 
@@ -753,7 +757,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		const { rerender } = render(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
+			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
 		)
 
 		await user.click(screen.getByRole('button', { name: 'Review cutover' }))
@@ -772,9 +776,7 @@ describe('RepositoryOverview', () => {
 			mutate: cutoverGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
 
-		rerender(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
-		)
+		rerender(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		expect(
 			screen.getByText('Cutover complete. detent is source of truth.')
@@ -788,9 +790,7 @@ describe('RepositoryOverview', () => {
 			mutate: cutoverGitHubMirrorMutateMock,
 		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
 
-		rerender(
-			<RepositoryOverview isCurrentOwner summary={getMirroredSummary()} />
-		)
+		rerender(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
 		expect(
 			screen.getByText('GitHub mirror cutover could not be completed.')
@@ -813,8 +813,7 @@ describe('RepositoryOverview', () => {
 
 		rerender(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({ cutoverAt })}
+				summary={asOwner(getTesseraSourceSummary({ cutoverAt }))}
 			/>
 		)
 
@@ -835,13 +834,14 @@ describe('RepositoryOverview', () => {
 	test('shows separate Tessera source and GitHub backup mirror panels after cutover', () => {
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'succeeded',
-					githubPushBackStartedAt: new Date('2026-06-18T10:00:00.000Z'),
-					githubPushBackSucceededAt: new Date('2026-06-18T10:01:00.000Z'),
-				})}
+				summary={asOwner(
+					getTesseraSourceSummary({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'succeeded',
+						githubPushBackStartedAt: new Date('2026-06-18T10:00:00.000Z'),
+						githubPushBackSucceededAt: new Date('2026-06-18T10:01:00.000Z'),
+					})
+				)}
 			/>
 		)
 
@@ -864,9 +864,7 @@ describe('RepositoryOverview', () => {
 	test('enables GitHub backup mirror for the current owner', async () => {
 		const user = userEvent.setup()
 
-		render(
-			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
-		)
+		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
 
 		await user.click(screen.getByRole('button', { name: 'Enable backup' }))
 
@@ -881,11 +879,12 @@ describe('RepositoryOverview', () => {
 
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'succeeded',
-				})}
+				summary={asOwner(
+					getTesseraSourceSummary({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'succeeded',
+					})
+				)}
 			/>
 		)
 
@@ -938,11 +937,12 @@ describe('RepositoryOverview', () => {
 
 		render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'running',
-				})}
+				summary={asOwner(
+					getTesseraSourceSummary({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'running',
+					})
+				)}
 			/>
 		)
 
@@ -977,11 +977,12 @@ describe('RepositoryOverview', () => {
 
 		const { rerender } = render(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'succeeded',
-				})}
+				summary={asOwner(
+					getTesseraSourceSummary({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'succeeded',
+					})
+				)}
 			/>
 		)
 
@@ -1017,11 +1018,12 @@ describe('RepositoryOverview', () => {
 
 		rerender(
 			<RepositoryOverview
-				isCurrentOwner
-				summary={getTesseraSourceSummary({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'succeeded',
-				})}
+				summary={asOwner(
+					getTesseraSourceSummary({
+						githubPushBackEnabled: true,
+						githubPushBackStatus: 'succeeded',
+					})
+				)}
 			/>
 		)
 
@@ -1056,7 +1058,7 @@ describe('RepositoryOverview', () => {
 		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
 
 		const { rerender } = render(
-			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
+			<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />
 		)
 
 		expect(
@@ -1082,7 +1084,7 @@ describe('RepositoryOverview', () => {
 		} as unknown as ReturnType<typeof usePushGitHubPushBackMirrorMutation>)
 
 		rerender(
-			<RepositoryOverview isCurrentOwner summary={getTesseraSourceSummary()} />
+			<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />
 		)
 
 		expect(
@@ -1094,12 +1096,44 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('shows a non-mirrored fallback', () => {
-		render(<RepositoryOverview isCurrentOwner summary={getSummary()} />)
+		render(<RepositoryOverview summary={asOwner(getSummary())} />)
 
 		expect(screen.getByRole('heading', { name: 'GitHub mirror' })).toBeTruthy()
 		expect(
 			screen.getByText('This repository is not mirrored from GitHub.')
 		).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
+	})
+
+	test.each([
+		'owner',
+		'admin',
+	] as const)('shows the collaborators settings link for %s viewers', viewerRole => {
+		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
+
+		expect(
+			screen.getByRole('link', { name: 'Collaborators' }).getAttribute('href')
+		).toBe('/mnigos/tessera-notes/settings/collaborators')
+	})
+
+	test.each([
+		'write',
+		'read',
+		null,
+	] as const)('hides the collaborators settings link for %s viewers', viewerRole => {
+		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
+
+		expect(screen.queryByRole('link', { name: 'Collaborators' })).toBeNull()
+	})
+
+	test('hides owner-only GitHub mirror controls for admin viewers', () => {
+		render(
+			<RepositoryOverview
+				summary={{ ...getMirroredSummary(), viewerRole: 'admin' }}
+			/>
+		)
+
+		expect(screen.getByText('mnigos/upstream-notes')).toBeTruthy()
 		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
 	})
 

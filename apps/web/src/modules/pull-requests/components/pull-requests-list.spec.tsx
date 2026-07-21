@@ -2,7 +2,6 @@ import { pullRequestSchema } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
-import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { usePullRequestsListQuery } from '../hooks/use-pull-requests-list.query'
 import { PullRequestsList } from './pull-requests-list'
 
@@ -21,15 +20,10 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
-vi.mock('@/modules/auth/hooks/use-auth', () => ({
-	useAuth: vi.fn(),
-}))
-
 vi.mock('../hooks/use-pull-requests-list.query', () => ({
 	usePullRequestsListQuery: vi.fn(),
 }))
 
-const useAuthMock = vi.mocked(useAuth)
 const usePullRequestsListQueryMock = vi.mocked(usePullRequestsListQuery)
 const PULL_REQUEST = pullRequestSchema.parse({
 	id: 'd8101d74-b320-4482-a8f2-a25308fb2757',
@@ -54,7 +48,6 @@ describe(PullRequestsList.name, () => {
 	})
 
 	test('renders loading, error, and empty states', () => {
-		useAuthMock.mockReturnValue({ user: undefined } as never)
 		usePullRequestsListQueryMock.mockReturnValue({
 			data: undefined,
 			isLoading: true,
@@ -77,7 +70,7 @@ describe(PullRequestsList.name, () => {
 		expect(screen.getByText('Pull requests could not be loaded')).toBeTruthy()
 
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [] },
+			data: { pullRequests: [], viewerRole: 'read' },
 			isLoading: false,
 			isError: false,
 		} as never)
@@ -85,10 +78,9 @@ describe(PullRequestsList.name, () => {
 		expect(screen.getByText('No pull requests match this filter.')).toBeTruthy()
 	})
 
-	test('renders metadata, owner action, and state filter behavior', async () => {
-		useAuthMock.mockReturnValue({ user: { username: 'marta' } } as never)
+	test('renders metadata, write action, and state filter behavior', async () => {
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [PULL_REQUEST] },
+			data: { pullRequests: [PULL_REQUEST], viewerRole: 'write' },
 			isLoading: false,
 			isError: false,
 		} as never)
@@ -108,5 +100,22 @@ describe(PullRequestsList.name, () => {
 		expect(screen.getByRole('link', { name: 'New pull request' })).toBeTruthy()
 		await user.click(screen.getByRole('button', { name: 'Closed' }))
 		expect(onSelectedStateChange).toHaveBeenCalledWith('closed')
+	})
+
+	test('hides the new pull request action for read-only viewers', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: { pullRequests: [PULL_REQUEST], viewerRole: 'read' },
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
 	})
 })

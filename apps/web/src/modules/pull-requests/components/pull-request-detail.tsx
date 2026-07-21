@@ -7,7 +7,7 @@ import { Tabs, TabsList, TabsTrigger } from '@repo/ui/components/tabs'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Pencil } from 'lucide-react'
 import { useState } from 'react'
-import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
@@ -39,7 +39,6 @@ export function PullRequestDetail({
 	tab,
 	onTabChange,
 }: Readonly<PullRequestDetailProps>) {
-	const { user } = useAuth()
 	const { data, error, isError, isLoading } = usePullRequestQuery({
 		username,
 		slug,
@@ -81,8 +80,8 @@ export function PullRequestDetail({
 
 	return (
 		<PullRequestDetailContent
+			canWrite={canWriteRepository(data.viewerRole)}
 			events={data.events}
-			isCurrentOwner={user?.username === username}
 			onTabChange={onTabChange}
 			pullRequest={data.pullRequest}
 			slug={slug}
@@ -97,7 +96,7 @@ interface PullRequestDetailContentProps {
 	slug: string
 	pullRequest: PullRequest
 	events: PullRequestEvent[]
-	isCurrentOwner: boolean
+	canWrite: boolean
 	tab: PullRequestDetailTab
 	onTabChange: (tab: PullRequestDetailTab) => void
 }
@@ -107,14 +106,14 @@ function PullRequestDetailContent({
 	slug,
 	pullRequest,
 	events,
-	isCurrentOwner,
+	canWrite,
 	tab,
 	onTabChange,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
 	const comparisonQuery = usePullRequestComparisonQuery(
 		{ username, slug, number: pullRequest.number },
-		isCurrentOwner && pullRequest.state === 'open' && tab === 'overview'
+		canWrite && pullRequest.state === 'open' && tab === 'overview'
 	)
 
 	const handleTabValueChange = (value: string) => {
@@ -177,7 +176,7 @@ function PullRequestDetailContent({
 								by {pullRequest.authorUsername}
 							</span>
 						</div>
-						{isCurrentOwner && (
+						{canWrite && (
 							<div className="flex flex-wrap items-start gap-2">
 								<Button
 									onClick={() => setIsEditing(true)}
@@ -218,7 +217,7 @@ function PullRequestDetailContent({
 							</p>
 						)}
 					</Card>
-					{isCurrentOwner && (
+					{canWrite && (
 						<PullRequestMergePanel
 							comparison={comparisonQuery.data}
 							isComparisonError={comparisonQuery.isError}

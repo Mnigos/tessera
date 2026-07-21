@@ -7,10 +7,12 @@ import { pullRequestSchema } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
-import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { useClosePullRequestMutation } from '../hooks/use-close-pull-request.mutation'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
+import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
+import { useReopenPullRequestMutation } from '../hooks/use-reopen-pull-request.mutation'
 import { CreatePullRequestForm } from './create-pull-request-form'
 import { PullRequestDetail } from './pull-request-detail'
 import { PullRequestEditForm } from './pull-request-edit-form'
@@ -32,12 +34,20 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
-vi.mock('@/modules/auth/hooks/use-auth', () => ({
-	useAuth: vi.fn(),
+vi.mock('../hooks/use-close-pull-request.mutation', () => ({
+	useClosePullRequestMutation: vi.fn(),
 }))
 
 vi.mock('../hooks/use-edit-pull-request.mutation', () => ({
 	useEditPullRequestMutation: vi.fn(),
+}))
+
+vi.mock('../hooks/use-pull-request-comparison.query', () => ({
+	usePullRequestComparisonQuery: vi.fn(),
+}))
+
+vi.mock('../hooks/use-reopen-pull-request.mutation', () => ({
+	useReopenPullRequestMutation: vi.fn(),
 }))
 
 vi.mock('../hooks/use-merge-pull-request.mutation', () => ({
@@ -48,10 +58,14 @@ vi.mock('../hooks/use-pull-request.query', () => ({
 	usePullRequestQuery: vi.fn(),
 }))
 
-const useAuthMock = vi.mocked(useAuth)
+const useClosePullRequestMutationMock = vi.mocked(useClosePullRequestMutation)
 const useEditPullRequestMutationMock = vi.mocked(useEditPullRequestMutation)
 const useMergePullRequestMutationMock = vi.mocked(useMergePullRequestMutation)
+const usePullRequestComparisonQueryMock = vi.mocked(
+	usePullRequestComparisonQuery
+)
 const usePullRequestQueryMock = vi.mocked(usePullRequestQuery)
+const useReopenPullRequestMutationMock = vi.mocked(useReopenPullRequestMutation)
 
 const PULL_REQUEST = pullRequestSchema.parse({
 	id: 'd8101d74-b320-4482-a8f2-a25308fb2757',
@@ -218,7 +232,6 @@ describe('pull request review findings', () => {
 	})
 
 	test('distinguishes not found from generic detail query failures', () => {
-		useAuthMock.mockReturnValue({ user: undefined } as never)
 		usePullRequestQueryMock.mockReturnValue({
 			data: undefined,
 			error: new ORPCError('NOT_FOUND'),
@@ -255,6 +268,87 @@ describe('pull request review findings', () => {
 		)
 
 		expect(screen.getByText('Pull request could not be loaded')).toBeTruthy()
+	})
+
+	test('shows edit, lifecycle, and merge controls for write-role viewers', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: { pullRequest: PULL_REQUEST, events: [], viewerRole: 'write' },
+			isError: false,
+			isLoading: false,
+		} as never)
+		usePullRequestComparisonQueryMock.mockReturnValue({
+			data: COMPARISON,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+		useMergePullRequestMutationMock.mockReturnValue({
+			error: undefined,
+			isError: false,
+			isPending: false,
+			mutate: vi.fn(),
+		} as never)
+		useClosePullRequestMutationMock.mockReturnValue({
+			isError: false,
+			isPending: false,
+			mutate: vi.fn(),
+		} as never)
+		useReopenPullRequestMutationMock.mockReturnValue({
+			isError: false,
+			isPending: false,
+			mutate: vi.fn(),
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				onTabChange={vi.fn()}
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Close pull request' })
+		).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Merge pull request' })
+		).toBeTruthy()
+	})
+
+	test('hides edit, lifecycle, and merge controls for read-only viewers', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: { pullRequest: PULL_REQUEST, events: [], viewerRole: 'read' },
+			isError: false,
+			isLoading: false,
+		} as never)
+		usePullRequestComparisonQueryMock.mockReturnValue({
+			data: undefined,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				onTabChange={vi.fn()}
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('Review pull request UI')).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Close pull request' })
+		).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Merge pull request' })
+		).toBeNull()
 	})
 
 	test('preserves full long branch names as accessible titles', () => {

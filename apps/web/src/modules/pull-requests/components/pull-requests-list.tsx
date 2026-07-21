@@ -2,7 +2,7 @@ import type { PullRequest, PullRequestState } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { Link } from '@tanstack/react-router'
 import { GitPullRequest, Plus } from 'lucide-react'
-import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
 import { usePullRequestsListQuery } from '../hooks/use-pull-requests-list.query'
 import { PullRequestListItem } from './pull-request-list-item'
 import { PullRequestsMessage } from './pull-requests-message'
@@ -21,7 +21,6 @@ export function PullRequestsList({
 	selectedState,
 	onSelectedStateChange,
 }: Readonly<PullRequestsListProps>) {
-	const { user } = useAuth()
 	const { data, isError, isLoading } = usePullRequestsListQuery({
 		username,
 		slug,
@@ -39,7 +38,7 @@ export function PullRequestsList({
 						Pull requests
 					</h1>
 				</div>
-				{user?.username === username && (
+				{canWriteRepository(data?.viewerRole) && (
 					<Link
 						className="inline-flex h-8 items-center justify-center gap-2 rounded-md bg-primary px-3 font-medium text-primary-foreground text-xs transition-colors hover:bg-primary/90"
 						params={{ username, slug }}
