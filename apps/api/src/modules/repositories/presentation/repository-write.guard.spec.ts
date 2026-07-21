@@ -64,14 +64,14 @@ describe(RepositoryWriteGuard.name, () => {
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
-	test('rejects requests without an authenticated user', async () => {
+	test('masks the repository from unauthenticated requests', async () => {
 		await expect(
 			guard.canActivate(
 				createGuardContext({
 					params: { username: 'marta', slug: 'tessera-notes' },
 				})
 			)
-		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
 	test('propagates denied write access from the service', async () => {

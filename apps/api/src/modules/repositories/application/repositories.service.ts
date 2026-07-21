@@ -37,11 +37,17 @@ import type {
 	RepositoryTree,
 	RepositoryWithOwner,
 } from '@repo/contracts'
-import type {
-	RepositoryId,
-	RepositoryName,
-	RepositorySlug,
-	UserId,
+import {
+	canAdministerRepository,
+	canReadRepository,
+	canWriteRepository,
+	type OrganizationId,
+	type RepositoryId,
+	type RepositoryName,
+	type RepositoryRole,
+	type RepositorySlug,
+	type RepositoryVisibility,
+	type UserId,
 } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
@@ -75,12 +81,6 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
-import {
-	canAdministerRepository,
-	canReadRepository,
-	canWriteRepository,
-	type RepositoryRole,
-} from '../domain/repository-role'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import {
 	type RepositoryBrowserStorageErrorContext,
@@ -137,7 +137,9 @@ export interface RepositoryAccessContext {
 
 export interface RepositoryManagementContext {
 	repositoryId: RepositoryId
+	visibility: RepositoryVisibility
 	ownerUserId: UserId | null
+	ownerOrganizationId: OrganizationId | null
 }
 
 export interface AuthorizeGitRepositoryReadInput {
@@ -336,7 +338,9 @@ export class RepositoriesService {
 
 		return {
 			repositoryId: repository.id,
+			visibility: repository.visibility,
 			ownerUserId: repository.ownerUserId,
+			ownerOrganizationId: repository.ownerOrganizationId,
 		}
 	}
 

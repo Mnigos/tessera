@@ -7,7 +7,6 @@ import type { RepositorySlug } from '@repo/domain'
 import type { AppRequest } from '~/shared/types/app-request'
 import { RepositoriesService } from '../application/repositories.service'
 import {
-	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryOwnerUsernameRequiredError,
 } from '../domain/repository.errors'
@@ -24,7 +23,7 @@ export class RepositoryWriteGuard implements CanActivate {
 
 		if (!username) throw new RepositoryOwnerUsernameRequiredError()
 		if (!slug) throw new RepositoryNotFoundError({ username })
-		if (!viewerUserId) throw new RepositoryGitWriteForbiddenError({ username })
+		if (!viewerUserId) throw new RepositoryNotFoundError({ username })
 
 		request.viewerUserId = viewerUserId
 
