@@ -27,7 +27,7 @@ const repositoryCollaboratorsInputSchema = z.object({
 
 const repositoryCollaboratorInputSchema =
 	repositoryCollaboratorsInputSchema.extend({
-		collaboratorUsername: z.string().min(1),
+		collaboratorUsername: z.string().trim().min(1),
 	})
 
 export const listRepositoryCollaboratorsInputSchema =
@@ -40,8 +40,7 @@ export type ParsedListRepositoryCollaboratorsInput = z.infer<
 >
 
 export const addRepositoryCollaboratorInputSchema =
-	repositoryCollaboratorsInputSchema.extend({
-		collaboratorUsername: z.string().trim().min(1),
+	repositoryCollaboratorInputSchema.extend({
 		role: repositoryCollaboratorRoleSchema,
 	})
 export type AddRepositoryCollaboratorInput = z.input<

@@ -230,7 +230,7 @@ export const pullRequestsContract = {
 		.output(
 			z.object({
 				pullRequests: z.array(pullRequestSchema),
-				viewerRole: repositoryViewerRoleSchema.nullable(),
+				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
 	get: oc
@@ -243,7 +243,7 @@ export const pullRequestsContract = {
 			z.object({
 				pullRequest: pullRequestSchema,
 				events: z.array(pullRequestEventSchema),
-				viewerRole: repositoryViewerRoleSchema.nullable(),
+				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
 	comparison: oc
