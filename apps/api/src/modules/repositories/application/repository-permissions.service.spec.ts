@@ -222,4 +222,67 @@ describe(RepositoryPermissionsService.name, () => {
 			})
 		).toBe('read')
 	})
+
+	test('resolves the implicit owner role for the repository owner', async () => {
+		expect(
+			await repositoryPermissionsService.resolveImplicitRole(
+				ownerUserId,
+				userOwnedRepository
+			)
+		).toBe('owner')
+	})
+
+	test.each([
+		'owner',
+		'admin',
+	] as const)('resolves the implicit admin role for an organization %s', async role => {
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue(role)
+
+		expect(
+			await repositoryPermissionsService.resolveImplicitRole(
+				viewerUserId,
+				organizationOwnedRepository
+			)
+		).toBe('admin')
+	})
+
+	test('resolves no implicit role for an organization member', async () => {
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue('member')
+
+		expect(
+			await repositoryPermissionsService.resolveImplicitRole(
+				viewerUserId,
+				organizationOwnedRepository
+			)
+		).toBeNull()
+	})
+
+	test('ignores collaborator roles and public visibility when resolving implicit roles', async () => {
+		vi.spyOn(repositoriesRepository, 'findCollaboratorRole').mockResolvedValue(
+			'admin'
+		)
+
+		expect(
+			await repositoryPermissionsService.resolveImplicitRole(viewerUserId, {
+				...userOwnedRepository,
+				visibility: 'public',
+			})
+		).toBeNull()
+		expect(repositoriesRepository.findCollaboratorRole).not.toHaveBeenCalled()
+	})
+
+	test('resolves no implicit role for anonymous viewers', async () => {
+		expect(
+			await repositoryPermissionsService.resolveImplicitRole(
+				null,
+				userOwnedRepository
+			)
+		).toBeNull()
+	})
 })

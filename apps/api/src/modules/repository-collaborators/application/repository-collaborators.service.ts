@@ -1,4 +1,7 @@
-import { RepositoriesService } from '@modules/repositories'
+import {
+	RepositoriesService,
+	RepositoryPermissionsService,
+} from '@modules/repositories'
 import { UserService } from '@modules/user'
 import { Injectable } from '@nestjs/common'
 import type {
@@ -8,11 +11,12 @@ import type {
 	ParsedUpdateRepositoryCollaboratorRoleInput,
 	RepositoryCollaborator,
 } from '@repo/contracts'
-import type { UserId } from '@repo/domain'
+import { canAdministerRepository, type UserId } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import { toRepositoryCollaboratorOutput } from '../domain/repository-collaborator'
 import {
 	RepositoryCollaboratorAlreadyExistsError,
+	RepositoryCollaboratorImplicitAccessError,
 	RepositoryCollaboratorNotFoundError,
 	RepositoryCollaboratorOwnerError,
 } from '../domain/repository-collaborator.errors'
@@ -27,6 +31,7 @@ export class RepositoryCollaboratorsService {
 	constructor(
 		private readonly repositoryCollaboratorsRepository: RepositoryCollaboratorsRepository,
 		private readonly repositoriesService: RepositoriesService,
+		private readonly repositoryPermissionsService: RepositoryPermissionsService,
 		private readonly userService: UserService
 	) {}
 
@@ -55,7 +60,7 @@ export class RepositoryCollaboratorsService {
 			username,
 		}: ParsedAddRepositoryCollaboratorInput
 	): Promise<RepositoryCollaborator> {
-		const { repositoryId, ownerUserId } =
+		const { ownerOrganizationId, ownerUserId, repositoryId, visibility } =
 			await this.repositoriesService.getManageableRepositoryContext(
 				actorUserId,
 				{ username, slug }
@@ -63,9 +68,20 @@ export class RepositoryCollaboratorsService {
 		const collaboratorUserId = await this.userService.findUserId({
 			username: collaboratorUsername,
 		})
+		const implicitRole =
+			await this.repositoryPermissionsService.resolveImplicitRole(
+				collaboratorUserId,
+				{ id: repositoryId, visibility, ownerUserId, ownerOrganizationId }
+			)
 
-		if (ownerUserId && ownerUserId === collaboratorUserId)
+		if (implicitRole === 'owner')
 			throw new RepositoryCollaboratorOwnerError({
+				repositoryId,
+				collaboratorUsername,
+			})
+
+		if (canAdministerRepository(implicitRole))
+			throw new RepositoryCollaboratorImplicitAccessError({
 				repositoryId,
 				collaboratorUsername,
 			})
@@ -77,12 +93,6 @@ export class RepositoryCollaboratorsService {
 				role,
 				actorUserId,
 			})
-
-			if (!collaborator)
-				throw new RepositoryCollaboratorNotFoundError({
-					repositoryId,
-					collaboratorUsername,
-				})
 
 			return toRepositoryCollaboratorOutput({
 				...collaborator,

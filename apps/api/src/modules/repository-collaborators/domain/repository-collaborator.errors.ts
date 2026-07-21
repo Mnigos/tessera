@@ -1,4 +1,9 @@
-import { BadRequestError, ConflictError, NotFoundError } from '~/shared/errors'
+import {
+	BadRequestError,
+	ConflictError,
+	InternalError,
+	NotFoundError,
+} from '~/shared/errors'
 
 export class RepositoryCollaboratorNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
@@ -23,5 +28,21 @@ export class RepositoryCollaboratorOwnerError extends BadRequestError {
 			context,
 			'The repository owner cannot be added as a collaborator.'
 		)
+	}
+}
+
+export class RepositoryCollaboratorImplicitAccessError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository collaborator',
+			context,
+			'This user already has implicit organization access to the repository.'
+		)
+	}
+}
+
+export class RepositoryCollaboratorCreateFailedError extends InternalError {
+	constructor(context?: Record<string, unknown>) {
+		super('repository collaborator create', context)
 	}
 }

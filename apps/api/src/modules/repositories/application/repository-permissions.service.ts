@@ -3,10 +3,10 @@ import type { Member } from '@repo/db'
 import type {
 	OrganizationId,
 	RepositoryId,
+	RepositoryRole,
 	RepositoryVisibility,
 	UserId,
 } from '@repo/domain'
-import type { RepositoryRole } from '../domain/repository-role'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 
 export interface RepositoryRoleTarget {
@@ -26,19 +26,12 @@ export class RepositoryPermissionsService {
 		viewerUserId: UserId | null,
 		repository: RepositoryRoleTarget
 	): Promise<RepositoryRole | null> {
-		if (repository.ownerUserId) {
-			if (viewerUserId && repository.ownerUserId === viewerUserId)
-				return 'owner'
-		} else if (repository.ownerOrganizationId && viewerUserId) {
-			const organizationRole =
-				await this.repositoriesRepository.findOrganizationMemberRole({
-					organizationId: repository.ownerOrganizationId,
-					userId: viewerUserId,
-				})
-			const mappedRole = mapOrganizationRoleToRepositoryRole(organizationRole)
+		const implicitRole = await this.resolveImplicitRole(
+			viewerUserId,
+			repository
+		)
 
-			if (mappedRole) return mappedRole
-		}
+		if (implicitRole) return implicitRole
 
 		if (viewerUserId) {
 			const collaboratorRole =
@@ -51,6 +44,28 @@ export class RepositoryPermissionsService {
 		}
 
 		if (repository.visibility === 'public') return 'read'
+
+		return null
+	}
+
+	async resolveImplicitRole(
+		viewerUserId: UserId | null,
+		repository: RepositoryRoleTarget
+	): Promise<RepositoryRole | null> {
+		if (!viewerUserId) return null
+
+		if (repository.ownerUserId)
+			return repository.ownerUserId === viewerUserId ? 'owner' : null
+
+		if (repository.ownerOrganizationId) {
+			const organizationRole =
+				await this.repositoriesRepository.findOrganizationMemberRole({
+					organizationId: repository.ownerOrganizationId,
+					userId: viewerUserId,
+				})
+
+			return mapOrganizationRoleToRepositoryRole(organizationRole)
+		}
 
 		return null
 	}

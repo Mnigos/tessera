@@ -17,6 +17,7 @@ import type {
 	UserId,
 } from '@repo/domain'
 import type { RepositoryCollaboratorView } from '../domain/repository-collaborator'
+import { RepositoryCollaboratorCreateFailedError } from '../domain/repository-collaborator.errors'
 
 interface RepositoryParams {
 	repositoryId: RepositoryId
@@ -39,8 +40,6 @@ type RepositoryCollaboratorMutationRow = Omit<
 	RepositoryCollaboratorView,
 	'username'
 >
-
-type CollaboratorDatabase = Database | DrizzleTransaction
 
 const COLLABORATOR_MUTATION_COLUMNS = {
 	userId: repositoryCollaborators.userId,
@@ -67,6 +66,8 @@ export class RepositoryCollaboratorsRepository {
 			.where(eq(repositoryCollaborators.repositoryId, repositoryId))
 			.orderBy(asc(repositoryCollaborators.createdAt))
 
+		// Defensive filter: username-less users cannot be created via current
+		// signup flows nor added as collaborators.
 		return rows.flatMap(({ username, ...row }) =>
 			username ? [{ ...row, username }] : []
 		)
@@ -77,14 +78,18 @@ export class RepositoryCollaboratorsRepository {
 		repositoryId,
 		role,
 		userId,
-	}: AddParams): Promise<RepositoryCollaboratorMutationRow | undefined> {
+	}: AddParams): Promise<RepositoryCollaboratorMutationRow> {
 		return await this.db.transaction(async tx => {
 			const [collaborator] = await tx
 				.insert(repositoryCollaborators)
 				.values({ repositoryId, userId, role })
 				.returning(COLLABORATOR_MUTATION_COLUMNS)
 
-			if (!collaborator) return undefined
+			if (!collaborator)
+				throw new RepositoryCollaboratorCreateFailedError({
+					repositoryId,
+					userId,
+				})
 
 			await this.createEvent(tx, {
 				repositoryId,
@@ -109,7 +114,7 @@ export class RepositoryCollaboratorsRepository {
 	}: UpdateRoleParams): Promise<RepositoryCollaboratorMutationRow | undefined> {
 		return await this.db.transaction(async tx => {
 			const [existing] = await tx
-				.select({ role: repositoryCollaborators.role })
+				.select(COLLABORATOR_MUTATION_COLUMNS)
 				.from(repositoryCollaborators)
 				.where(
 					and(
@@ -121,19 +126,7 @@ export class RepositoryCollaboratorsRepository {
 
 			if (!existing) return undefined
 
-			if (existing.role === role) {
-				const [unchanged] = await tx
-					.select(COLLABORATOR_MUTATION_COLUMNS)
-					.from(repositoryCollaborators)
-					.where(
-						and(
-							eq(repositoryCollaborators.repositoryId, repositoryId),
-							eq(repositoryCollaborators.userId, userId)
-						)
-					)
-
-				return unchanged
-			}
+			if (existing.role === role) return existing
 
 			const [collaborator] = await tx
 				.update(repositoryCollaborators)
@@ -198,7 +191,7 @@ export class RepositoryCollaboratorsRepository {
 	}
 
 	private async createEvent(
-		db: CollaboratorDatabase,
+		db: DrizzleTransaction,
 		params: {
 			repositoryId: RepositoryId
 			actorUserId: UserId
