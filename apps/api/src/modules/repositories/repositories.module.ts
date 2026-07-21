@@ -5,6 +5,7 @@ import { UserModule } from '@modules/user'
 import { BullModule, getQueueToken } from '@nestjs/bullmq'
 import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
+import { RepositoryPermissionsService } from './application/repository-permissions.service'
 import {
 	GITHUB_MIRROR_SYNC_QUEUE_NAME,
 	GitHubMirrorSyncJobQueue,
@@ -33,6 +34,7 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 	],
 	providers: [
 		RepositoriesService,
+		RepositoryPermissionsService,
 		{
 			provide: GitHubMirrorSyncJobQueue,
 			useExisting: getQueueToken(GITHUB_MIRROR_SYNC_QUEUE_NAME),
@@ -43,6 +45,11 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		InternalGitAuthorizationGuard,
 		RepositoryOwnerGuard,
 	],
-	exports: [RepositoriesService, RepositoriesRepository, GitHubMirrorSyncQueue],
+	exports: [
+		RepositoriesService,
+		RepositoriesRepository,
+		GitHubMirrorSyncQueue,
+		RepositoryPermissionsService,
+	],
 })
 export class RepositoriesModule {}

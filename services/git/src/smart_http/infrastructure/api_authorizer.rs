@@ -69,6 +69,15 @@ impl SmartHttpAuthorizer for ApiSmartHttpAuthorizer {
             repository_slug: request.repo_slug,
             service: request.action.cgi_service_name().to_string(),
             action: request.action.action_name().to_string(),
+            basic_username: request
+                .basic_credentials
+                .as_ref()
+                .map(|credentials| credentials.username.clone())
+                .unwrap_or_default(),
+            token: request
+                .basic_credentials
+                .map(|credentials| credentials.token)
+                .unwrap_or_default(),
         };
 
         authorize_read(&mut client, grpc_request, self.token.as_deref()).await
@@ -198,13 +207,15 @@ mod tests {
     }
 
     #[test]
-    fn constructs_read_request_with_metadata() {
+    fn constructs_read_request_with_credentials_and_metadata() {
         let request = with_authorization_metadata(
             AuthorizeReadRequest {
                 owner_username: "mona".to_string(),
                 repository_slug: "repo".to_string(),
                 service: "git-upload-pack".to_string(),
                 action: "info_refs".to_string(),
+                basic_username: "mona".to_string(),
+                token: "secret-token".to_string(),
             },
             Some("service-token"),
         )
@@ -215,6 +226,8 @@ mod tests {
         assert_eq!(body.repository_slug, "repo");
         assert_eq!(body.service, "git-upload-pack");
         assert_eq!(body.action, "info_refs");
+        assert_eq!(body.basic_username, "mona");
+        assert_eq!(body.token, "secret-token");
         assert_eq!(
             request.metadata().get("authorization").unwrap(),
             "Bearer service-token"

@@ -17,6 +17,8 @@ export interface AuthorizeReadRequest {
   repositorySlug: string;
   service: string;
   action: string;
+  basicUsername: string;
+  token: string;
 }
 
 export interface AuthorizeReadResponse {
@@ -80,7 +82,7 @@ export interface AuthorizeSshWriteResponse {
 export const TESSERA_GIT_V1_PACKAGE_NAME = "tessera.git.v1";
 
 function createBaseAuthorizeReadRequest(): AuthorizeReadRequest {
-  return { ownerUsername: "", repositorySlug: "", service: "", action: "" };
+  return { ownerUsername: "", repositorySlug: "", service: "", action: "", basicUsername: "", token: "" };
 }
 
 export const AuthorizeReadRequest: MessageFns<AuthorizeReadRequest> = {
@@ -96,6 +98,12 @@ export const AuthorizeReadRequest: MessageFns<AuthorizeReadRequest> = {
     }
     if (message.action !== "") {
       writer.uint32(34).string(message.action);
+    }
+    if (message.basicUsername !== "") {
+      writer.uint32(42).string(message.basicUsername);
+    }
+    if (message.token !== "") {
+      writer.uint32(50).string(message.token);
     }
     return writer;
   },
@@ -137,6 +145,22 @@ export const AuthorizeReadRequest: MessageFns<AuthorizeReadRequest> = {
           }
 
           message.action = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.basicUsername = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.token = reader.string();
           continue;
         }
       }

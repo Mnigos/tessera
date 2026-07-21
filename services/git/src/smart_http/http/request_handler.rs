@@ -72,10 +72,14 @@ async fn handle(
             return smart_http_error_response(error, &method, &request_label, &query, false);
         }
     };
-    let basic_credentials = match basic_credentials_for_request(is_receive_pack, &headers) {
+    let basic_credentials = match basic_credentials_for_request(&headers) {
         Ok(credentials) => credentials,
         Err(error) => return basic_auth_challenge_response(error),
     };
+
+    if is_receive_pack && basic_credentials.is_none() {
+        return basic_auth_challenge_response(SmartHttpError::MissingCredentials);
+    }
     let authorized = if is_receive_pack {
         match service
             .authorize(SmartHttpAuthorizationContext {
@@ -182,10 +186,6 @@ fn smart_http_error_response(
             | SmartHttpError::InvalidCredentials
             | SmartHttpError::Unauthorized
     ) {
-        if matches!(error, SmartHttpError::Unauthorized) && !is_receive_pack {
-            return empty_response(status);
-        }
-
         basic_auth_challenge_response(error)
     } else if matches!(error, SmartHttpError::GitHubMirrorWriteDenied) && is_receive_pack {
         git_receive_pack_error_response(error, query)
@@ -261,15 +261,10 @@ fn is_receive_pack_request(path: &str, query: Option<&str>) -> Result<bool, Smar
 }
 
 fn basic_credentials_for_request(
-    is_receive_pack: bool,
     headers: &HeaderMap,
 ) -> Result<Option<BasicCredentials>, SmartHttpError> {
-    if !is_receive_pack {
-        return Ok(None);
-    }
-
     let Some(header) = headers.get(http::header::AUTHORIZATION) else {
-        return Err(SmartHttpError::MissingCredentials);
+        return Ok(None);
     };
 
     let header = header
@@ -355,10 +350,28 @@ mod tests {
     }
 
     #[test]
-    fn receive_pack_requires_basic_credentials() {
-        let error = basic_credentials_for_request(true, &HeaderMap::new()).unwrap_err();
+    fn requests_without_basic_credentials_return_none() {
+        assert_eq!(
+            basic_credentials_for_request(&HeaderMap::new()).unwrap(),
+            None
+        );
+    }
 
-        assert_eq!(error, SmartHttpError::MissingCredentials);
+    #[test]
+    fn parses_optional_read_credentials() {
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            http::header::AUTHORIZATION,
+            "Basic bW9uYTpnaHBfMTIz".parse().unwrap(),
+        );
+
+        assert_eq!(
+            basic_credentials_for_request(&headers).unwrap(),
+            Some(BasicCredentials {
+                username: "mona".to_string(),
+                token: "ghp_123".to_string(),
+            })
+        );
     }
 
     #[test]
@@ -381,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn read_authorization_denials_do_not_challenge_for_basic_credentials() {
+    fn read_authorization_denials_challenge_for_basic_credentials() {
         let response = smart_http_error_response(
             SmartHttpError::Unauthorized,
             &Method::GET,
@@ -391,10 +404,12 @@ mod tests {
         );
 
         assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
-        assert!(
-            !response
+        assert_eq!(
+            response
                 .headers()
-                .contains_key(http::header::WWW_AUTHENTICATE)
+                .get(http::header::WWW_AUTHENTICATE)
+                .unwrap(),
+            "Basic realm=\"Tessera Git\""
         );
     }
 

@@ -15,6 +15,7 @@ import type {
 	PullRequest,
 	PullRequestComparison,
 	PullRequestFileDiff,
+	RepositoryViewerRole,
 } from '@repo/contracts'
 import type { PullRequest as PullRequestEntity } from '@repo/db'
 import type { RepositoryId, UserId } from '@repo/domain'
@@ -80,7 +81,7 @@ export class PullRequestsService {
 		}: ParsedCreatePullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId, storagePath } =
-			await this.repositoriesService.getWritableRepositoryContext({
+			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
 				slug,
 			})
@@ -141,8 +142,11 @@ export class PullRequestsService {
 	async list(
 		viewerUserId: UserId | undefined,
 		{ slug, state, username }: ParsedListPullRequestsInput
-	): Promise<PullRequest[]> {
-		const { repositoryId } =
+	): Promise<{
+		pullRequests: PullRequest[]
+		viewerRole: RepositoryViewerRole
+	}> {
+		const { repositoryId, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{
@@ -155,16 +159,19 @@ export class PullRequestsService {
 			state,
 		})
 
-		return pullRequests.map(pullRequest =>
-			toPullRequestOutput(pullRequest, username)
-		)
+		return {
+			pullRequests: pullRequests.map(pullRequest =>
+				toPullRequestOutput(pullRequest, username)
+			),
+			viewerRole,
+		}
 	}
 
 	async get(
 		viewerUserId: UserId | undefined,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	) {
-		const { repositoryId } =
+		const { repositoryId, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{
@@ -180,6 +187,7 @@ export class PullRequestsService {
 		return {
 			pullRequest: toPullRequestOutput(pullRequest, username),
 			events: events.map(toPullRequestEventOutput),
+			viewerRole,
 		}
 	}
 
@@ -250,7 +258,7 @@ export class PullRequestsService {
 		{ body, number, slug, title, username }: ParsedEditPullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext({
+			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
 				slug,
 			})
@@ -277,7 +285,7 @@ export class PullRequestsService {
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext({
+			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
 				slug,
 			})
@@ -304,7 +312,7 @@ export class PullRequestsService {
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext({
+			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
 				slug,
 			})
@@ -350,7 +358,7 @@ export class PullRequestsService {
 		}: ParsedMergePullRequestInput
 	): Promise<PullRequest> {
 		const { repositoryId, storagePath } =
-			await this.repositoriesService.getWritableRepositoryContext({
+			await this.repositoriesService.getWritableRepositoryContext(actor.id, {
 				username,
 				slug,
 			})

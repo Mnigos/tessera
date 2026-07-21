@@ -1,7 +1,7 @@
-import { UserService } from '@modules/user'
-import { ProfileNotFoundError } from '@modules/user/domain/user.errors'
 import type { ExecutionContext } from '@nestjs/common'
+import type { RepositorySlug } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
+import { RepositoriesService } from '../application/repositories.service'
 import {
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
@@ -11,31 +11,34 @@ import { RepositoryWriteGuard } from './repository-write.guard'
 
 describe(RepositoryWriteGuard.name, () => {
 	let guard: RepositoryWriteGuard
-	let userService: UserService
+	let repositoriesService: RepositoriesService
 
 	beforeEach(() => {
-		userService = {
-			findUserId: vi.fn(),
-		} as unknown as UserService
-		guard = new RepositoryWriteGuard(userService)
+		repositoriesService = {
+			assertViewerRepositoryWriteAccess: vi.fn().mockResolvedValue(undefined),
+		} as unknown as RepositoriesService
+		guard = new RepositoryWriteGuard(repositoriesService)
 	})
 
 	afterEach(() => {
 		vi.clearAllMocks()
 	})
 
-	test('allows repository owner writes and attaches resolved user ids', async () => {
-		const findUserIdSpy = vi
-			.spyOn(userService, 'findUserId')
-			.mockResolvedValue(mockUserId)
+	test('allows writers and attaches the viewer user id', async () => {
+		const assertSpy = vi.spyOn(
+			repositoriesService,
+			'assertViewerRepositoryWriteAccess'
+		)
 		const request: GuardRequest = {
-			params: { username: 'marta' },
+			params: { username: 'marta', slug: 'tessera-notes' },
 			session: createMockSession({ username: 'marta' }),
 		}
 
 		expect(await guard.canActivate(createGuardContext(request))).toBe(true)
-		expect(findUserIdSpy).toHaveBeenCalledWith({ username: 'marta' })
-		expect(request.targetUserId).toBe(mockUserId)
+		expect(assertSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: 'tessera-notes' as RepositorySlug,
+		})
 		expect(request.viewerUserId).toBe(mockUserId)
 	})
 
@@ -43,60 +46,66 @@ describe(RepositoryWriteGuard.name, () => {
 		await expect(
 			guard.canActivate(
 				createGuardContext({
+					params: { slug: 'tessera-notes' },
 					session: createMockSession({ username: 'marta' }),
 				})
 			)
 		).rejects.toBeInstanceOf(RepositoryOwnerUsernameRequiredError)
 	})
 
-	test('rejects requests without an authenticated user', async () => {
-		await expect(
-			guard.canActivate(createGuardContext({ params: { username: 'marta' } }))
-		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
-	})
-
-	test('rejects repository writes by another user', async () => {
-		vi.spyOn(userService, 'findUserId').mockResolvedValue(
-			'00000000-0000-4000-8000-000000000009' as typeof mockUserId
-		)
-
+	test('rejects requests without a slug path param', async () => {
 		await expect(
 			guard.canActivate(
 				createGuardContext({
-					params: { username: 'ren' },
-					session: createMockSession({ username: 'marta' }),
-				})
-			)
-		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
-	})
-
-	test('maps missing target users to repository misses', async () => {
-		vi.spyOn(userService, 'findUserId').mockRejectedValue(
-			new ProfileNotFoundError('ren')
-		)
-
-		await expect(
-			guard.canActivate(
-				createGuardContext({
-					params: { username: 'ren' },
+					params: { username: 'marta' },
 					session: createMockSession({ username: 'marta' }),
 				})
 			)
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
-	test('propagates unexpected user lookup errors', async () => {
-		const error = new Error('profile lookup failed')
-		vi.spyOn(userService, 'findUserId').mockRejectedValue(error)
+	test('rejects requests without an authenticated user', async () => {
+		await expect(
+			guard.canActivate(
+				createGuardContext({
+					params: { username: 'marta', slug: 'tessera-notes' },
+				})
+			)
+		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
+	})
+
+	test('propagates denied write access from the service', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'assertViewerRepositoryWriteAccess'
+		).mockRejectedValue(
+			new RepositoryGitWriteForbiddenError({ username: 'ren' })
+		)
 
 		await expect(
 			guard.canActivate(
 				createGuardContext({
-					params: { username: 'ren' },
+					params: { username: 'ren', slug: 'tessera-notes' },
 					session: createMockSession({ username: 'marta' }),
 				})
 			)
-		).rejects.toBe(error)
+		).rejects.toBeInstanceOf(RepositoryGitWriteForbiddenError)
+	})
+
+	test('propagates hidden repositories as repository misses', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'assertViewerRepositoryWriteAccess'
+		).mockRejectedValue(new RepositoryNotFoundError({ username: 'ren' }))
+
+		await expect(
+			guard.canActivate(
+				createGuardContext({
+					params: { username: 'ren', slug: 'tessera-notes' },
+					session: createMockSession({ username: 'marta' }),
+				})
+			)
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 })
 

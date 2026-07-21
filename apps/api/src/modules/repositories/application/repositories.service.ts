@@ -13,6 +13,7 @@ import {
 	type GitStorageRepositoryTree,
 	type GitStorageTrustedGpgKey,
 } from '@config/git-storage'
+import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
@@ -55,7 +56,7 @@ import {
 } from '../domain/repository.assertions'
 import {
 	DuplicateRepositorySlugError,
-	PrivateRepositoryGitReadForbiddenError,
+	RepositoryAdminForbiddenError,
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
@@ -66,6 +67,7 @@ import {
 	RepositoryGitHubPushBackInProgressError,
 	RepositoryGitHubPushBackTokenMissingError,
 	RepositoryGitHubPushBackUnavailableError,
+	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
 import {
@@ -73,6 +75,12 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
+import {
+	canAdministerRepository,
+	canReadRepository,
+	canWriteRepository,
+	type RepositoryRole,
+} from '../domain/repository-role'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import {
 	type RepositoryBrowserStorageErrorContext,
@@ -80,6 +88,7 @@ import {
 } from '../helpers/repository-browser-storage-error'
 import { GitHubMirrorSyncQueue } from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
+import { RepositoryPermissionsService } from './repository-permissions.service'
 
 const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 	'repositories_owner_user_slug_unique',
@@ -123,6 +132,12 @@ interface CompleteImportedGitHubRepositoryInput
 export interface RepositoryAccessContext {
 	repositoryId: RepositoryId
 	storagePath: string
+	viewerRole: RepositoryRole
+}
+
+export interface RepositoryManagementContext {
+	repositoryId: RepositoryId
+	ownerUserId: UserId | null
 }
 
 export interface AuthorizeGitRepositoryReadInput {
@@ -151,21 +166,10 @@ export interface GitRepositoryAuthorization {
 	trustedUser: string
 }
 
-export interface GitRepositoryWriteExternalSource {
-	mirrorMode: string
-	provider: string
-}
-
-export interface GitRepositoryWriteTarget {
-	id: RepositoryId
-	ownerUserId: UserId | null
-	storagePath: string | null
-	externalSource?: GitRepositoryWriteExternalSource
-}
-
 interface ReadableRepositoryContext {
 	repository: RepositoryWithOwnerEntity
 	storagePath: string
+	role: RepositoryRole
 }
 
 export interface CreateImportedRepositoryMetadataInput {
@@ -185,7 +189,9 @@ export class RepositoriesService {
 		private readonly gitStorageClient: GitStorageClient,
 		private readonly gpgPublicKeysService: GpgPublicKeysService,
 		private readonly sshPublicKeysService: SshPublicKeysService,
-		private readonly githubMirrorSyncQueue: GitHubMirrorSyncQueue
+		private readonly githubMirrorSyncQueue: GitHubMirrorSyncQueue,
+		private readonly repositoryPermissionsService: RepositoryPermissionsService,
+		private readonly gitAccessTokensService: GitAccessTokensService
 	) {}
 
 	async create(
@@ -240,7 +246,7 @@ export class RepositoriesService {
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryAccessContext> {
-		const { repository, storagePath } = await this.findReadableRepository(
+		const { repository, storagePath, role } = await this.findReadableRepository(
 			viewerUserId,
 			input
 		)
@@ -248,19 +254,89 @@ export class RepositoriesService {
 		return {
 			repositoryId: repository.id,
 			storagePath,
+			viewerRole: role,
 		}
 	}
 
 	async getWritableRepositoryContext(
+		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryAccessContext> {
-		const repository = await this.findRepository(input)
+		const { repository, role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		if (!canWriteRepository(role))
+			throw new RepositoryGitWriteForbiddenError({
+				username: input.username,
+				slug: input.slug,
+				userId: viewerUserId,
+			})
+
 		assertRepositoryHasStoragePath(repository)
 		assertTesseraWritesAllowed(repository)
 
 		return {
 			repositoryId: repository.id,
 			storagePath: repository.storagePath,
+			viewerRole: role,
+		}
+	}
+
+	async assertViewerRepositoryWriteAccess(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<void> {
+		const { role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		if (!canWriteRepository(role))
+			throw new RepositoryGitWriteForbiddenError({
+				username: input.username,
+				slug: input.slug,
+				userId: viewerUserId,
+			})
+	}
+
+	async assertViewerRepositoryAdminAccess(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<void> {
+		const { role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		if (!canAdministerRepository(role))
+			throw new RepositoryAdminForbiddenError({
+				username: input.username,
+				slug: input.slug,
+				userId: viewerUserId,
+			})
+	}
+
+	async getManageableRepositoryContext(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryManagementContext> {
+		const { repository, role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		if (!canAdministerRepository(role))
+			throw new RepositoryAdminForbiddenError({
+				username: input.username,
+				slug: input.slug,
+				userId: viewerUserId,
+			})
+
+		return {
+			repositoryId: repository.id,
+			ownerUserId: repository.ownerUserId,
 		}
 	}
 
@@ -632,7 +708,7 @@ export class RepositoriesService {
 		viewerUserId: UserId | undefined,
 		{ ref, slug, username }: ParsedGetRepositoryBrowserSummaryInput
 	): Promise<RepositoryBrowserSummary> {
-		const { repository, storagePath } = await this.findReadableRepository(
+		const { repository, storagePath, role } = await this.findReadableRepository(
 			viewerUserId,
 			{ slug, username }
 		)
@@ -672,6 +748,7 @@ export class RepositoriesService {
 		return {
 			...repositoryOutput,
 			...browserSummary,
+			viewerRole: role,
 			selectedRef,
 			branches: refs.branches,
 			tags: refs.tags,
@@ -877,67 +954,19 @@ export class RepositoriesService {
 		}
 	}
 
-	async authorizeGitRepositoryRead({
-		slug,
-		username,
-	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryAuthorization> {
-		const repository = await this.repositoriesRepository.find({
-			username,
-			slug,
+	async authorizeGitRepositoryRead(
+		input: AuthorizeGitRepositoryReadInput,
+		rawToken?: string
+	): Promise<GitRepositoryAuthorization> {
+		if (!rawToken)
+			return this.authorizeGitRepositoryReadForViewer(input, null, '')
+
+		const { userId } = await this.gitAccessTokensService.verify({
+			rawToken,
+			requiredPermission: 'git:read',
 		})
 
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		if (repository.visibility === 'private')
-			throw new PrivateRepositoryGitReadForbiddenError({
-				repositoryId: repository.id,
-			})
-
-		assertRepositoryHasStoragePath(repository)
-
-		return {
-			repositoryId: repository.id,
-			storagePath: repository.storagePath,
-			trustedUser: '',
-		}
-	}
-
-	async getGitRepositoryWriteTarget({
-		slug,
-		username,
-	}: AuthorizeGitRepositoryReadInput): Promise<GitRepositoryWriteTarget> {
-		const repository = await this.repositoriesRepository.find({
-			username,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		return {
-			id: repository.id,
-			ownerUserId: repository.ownerUserId,
-			storagePath: repository.storagePath,
-			externalSource: repository.externalSource
-				? {
-						provider: repository.externalSource.provider,
-						mirrorMode: repository.externalSource.mirrorMode,
-					}
-				: undefined,
-		}
-	}
-
-	completeGitRepositoryWriteAuthorization(
-		target: GitRepositoryWriteTarget,
-		trustedUserId: UserId
-	): GitRepositoryAuthorization {
-		assertTesseraWritesAllowed(target)
-		assertRepositoryHasStoragePath(target)
-
-		return {
-			repositoryId: target.id,
-			storagePath: target.storagePath,
-			trustedUser: trustedUserId,
-		}
+		return this.authorizeGitRepositoryReadForViewer(input, userId, userId)
 	}
 
 	async authorizeSshGitRepositoryRead({
@@ -947,6 +976,19 @@ export class RepositoriesService {
 	}: AuthorizeSshGitRepositoryInput): Promise<GitRepositoryAuthorization> {
 		const keyOwnerUserId =
 			await this.sshPublicKeysService.findOwnerByFingerprint(fingerprint)
+
+		return this.authorizeGitRepositoryReadForViewer(
+			{ slug, username },
+			keyOwnerUserId,
+			keyOwnerUserId
+		)
+	}
+
+	private async authorizeGitRepositoryReadForViewer(
+		{ slug, username }: AuthorizeGitRepositoryReadInput,
+		viewerUserId: UserId | null,
+		trustedUser: string
+	): Promise<GitRepositoryAuthorization> {
 		const repository = await this.repositoriesRepository.find({
 			username,
 			slug,
@@ -954,21 +996,56 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		if (
-			repository.visibility === 'private' &&
-			repository.ownerUserId !== keyOwnerUserId
+		const role = await this.repositoryPermissionsService.resolveRole(
+			viewerUserId,
+			repository
 		)
-			throw new PrivateRepositoryGitReadForbiddenError({
-				repositoryId: repository.id,
-				userId: keyOwnerUserId,
-			})
+
+		if (!canReadRepository(role))
+			throw new RepositoryNotFoundError({ slug, username })
 
 		assertRepositoryHasStoragePath(repository)
 
 		return {
 			repositoryId: repository.id,
 			storagePath: repository.storagePath,
-			trustedUser: keyOwnerUserId,
+			trustedUser,
+		}
+	}
+
+	async authorizeGitRepositoryWrite(
+		{ slug, username }: AuthorizeGitRepositoryReadInput,
+		trustedUserId: UserId
+	): Promise<GitRepositoryAuthorization> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		const role = await this.repositoryPermissionsService.resolveRole(
+			trustedUserId,
+			repository
+		)
+
+		if (!canWriteRepository(role)) {
+			if (canReadRepository(role))
+				throw new RepositoryGitWriteForbiddenError({
+					repositoryId: repository.id,
+					userId: trustedUserId,
+				})
+
+			throw new RepositoryNotFoundError({ slug, username })
+		}
+
+		assertTesseraWritesAllowed(repository)
+		assertRepositoryHasStoragePath(repository)
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			trustedUser: trustedUserId,
 		}
 	}
 
@@ -1151,22 +1228,39 @@ export class RepositoriesService {
 
 	private async findReadableRepository(
 		viewerUserId: UserId | undefined,
-		{ slug, username }: ParsedGetRepositoryInput
+		input: ParsedGetRepositoryInput
 	): Promise<ReadableRepositoryContext> {
-		const repository = await this.findRepository({ slug, username })
-
-		if (
-			repository.visibility === 'private' &&
-			repository.ownerUserId !== viewerUserId
+		const { repository, role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
 		)
-			throw new RepositoryNotFoundError({ slug, username })
 
 		assertRepositoryHasStoragePath(repository)
 
 		return {
 			repository,
 			storagePath: repository.storagePath,
+			role,
 		}
+	}
+
+	private async resolveReadableRepositoryRole(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<{ repository: RepositoryWithOwnerEntity; role: RepositoryRole }> {
+		const repository = await this.findRepository(input)
+		const role = await this.repositoryPermissionsService.resolveRole(
+			viewerUserId ?? null,
+			repository
+		)
+
+		if (!canReadRepository(role))
+			throw new RepositoryNotFoundError({
+				slug: input.slug,
+				username: input.username,
+			})
+
+		return { repository, role }
 	}
 
 	private async findRepository({

@@ -1,6 +1,9 @@
 import { oc } from '@orpc/contract'
 import { z } from 'zod'
-import { repositorySlugSchema } from './repositories.contract'
+import {
+	repositorySlugSchema,
+	repositoryViewerRoleSchema,
+} from './repositories.contract'
 
 export const PULL_REQUEST_STALE_COMPARISON_MESSAGE =
 	'The source or target branch changed. Refresh the pull request and try again.'
@@ -224,7 +227,12 @@ export const pullRequestsContract = {
 			path: '/repositories/{username}/{slug}/pulls',
 		})
 		.input(listPullRequestsInputSchema)
-		.output(z.object({ pullRequests: z.array(pullRequestSchema) })),
+		.output(
+			z.object({
+				pullRequests: z.array(pullRequestSchema),
+				viewerRole: repositoryViewerRoleSchema.nullable(),
+			})
+		),
 	get: oc
 		.route({
 			method: 'GET',
@@ -235,6 +243,7 @@ export const pullRequestsContract = {
 			z.object({
 				pullRequest: pullRequestSchema,
 				events: z.array(pullRequestEventSchema),
+				viewerRole: repositoryViewerRoleSchema.nullable(),
 			})
 		),
 	comparison: oc
