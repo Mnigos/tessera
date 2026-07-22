@@ -11,6 +11,7 @@ import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
+import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { CreatePullRequestForm } from './create-pull-request-form'
 import { PullRequestDetail } from './pull-request-detail'
 import { PullRequestEditForm } from './pull-request-edit-form'
@@ -48,9 +49,16 @@ vi.mock('../hooks/use-pull-request.query', () => ({
 	usePullRequestQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-comparison.query', () => ({
+	usePullRequestComparisonQuery: vi.fn(),
+}))
+
 const useAuthMock = vi.mocked(useAuth)
 const useEditPullRequestMutationMock = vi.mocked(useEditPullRequestMutation)
 const useMergePullRequestMutationMock = vi.mocked(useMergePullRequestMutation)
+const usePullRequestComparisonQueryMock = vi.mocked(
+	usePullRequestComparisonQuery
+)
 const usePullRequestQueryMock = vi.mocked(usePullRequestQuery)
 
 const PULL_REQUEST = pullRequestSchema.parse({
@@ -229,7 +237,6 @@ describe('pull request review findings', () => {
 		const { rerender } = render(
 			<PullRequestDetail
 				number="1"
-				onTabChange={vi.fn()}
 				slug="notes"
 				tab="overview"
 				username="marta"
@@ -247,7 +254,6 @@ describe('pull request review findings', () => {
 		rerender(
 			<PullRequestDetail
 				number="1"
-				onTabChange={vi.fn()}
 				slug="notes"
 				tab="overview"
 				username="marta"
@@ -255,6 +261,45 @@ describe('pull request review findings', () => {
 		)
 
 		expect(screen.getByText('Pull request could not be loaded')).toBeTruthy()
+	})
+
+	test('renders safe Markdown and exposes the current detail page', () => {
+		useAuthMock.mockReturnValue({ user: undefined } as never)
+		usePullRequestComparisonQueryMock.mockReturnValue({
+			data: undefined,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+		usePullRequestQueryMock.mockReturnValue({
+			data: {
+				pullRequest: {
+					...PULL_REQUEST,
+					body: '## Summary\n\n- Safe item\n\n<script>unsafe()</script>',
+				},
+				events: [],
+			},
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		const { container } = render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('heading', { name: 'Summary' })).toBeTruthy()
+		expect(screen.getByText('Safe item').closest('li')).toBeTruthy()
+		expect(
+			screen
+				.getByRole('link', { name: 'Overview' })
+				.getAttribute('aria-current')
+		).toBe('page')
+		expect(container.querySelector('script')).toBeNull()
 	})
 
 	test('preserves full long branch names as accessible titles', () => {

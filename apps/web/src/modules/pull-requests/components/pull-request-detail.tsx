@@ -3,11 +3,11 @@ import type { PullRequest, PullRequestEvent } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
-import { Tabs, TabsList, TabsTrigger } from '@repo/ui/components/tabs'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { MarkdownContent } from '@/shared/components/markdown-content'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
@@ -19,6 +19,10 @@ import { PullRequestEditForm } from './pull-request-edit-form'
 import { PullRequestEvents } from './pull-request-events'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
 import { PullRequestMergePanel } from './pull-request-merge-panel'
+import {
+	type PullRequestDetailTab,
+	PullRequestNavigation,
+} from './pull-request-navigation'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 import { PullRequestsMessage } from './pull-requests-message'
 
@@ -27,17 +31,13 @@ interface PullRequestDetailProps {
 	slug: string
 	number: string
 	tab: PullRequestDetailTab
-	onTabChange: (tab: PullRequestDetailTab) => void
 }
-
-export type PullRequestDetailTab = 'overview' | 'commits' | 'files'
 
 export function PullRequestDetail({
 	username,
 	slug,
 	number,
 	tab,
-	onTabChange,
 }: Readonly<PullRequestDetailProps>) {
 	const { user } = useAuth()
 	const { data, error, isError, isLoading } = usePullRequestQuery({
@@ -83,7 +83,6 @@ export function PullRequestDetail({
 		<PullRequestDetailContent
 			events={data.events}
 			isCurrentOwner={user?.username === username}
-			onTabChange={onTabChange}
 			pullRequest={data.pullRequest}
 			slug={slug}
 			tab={tab}
@@ -99,7 +98,6 @@ interface PullRequestDetailContentProps {
 	events: PullRequestEvent[]
 	isCurrentOwner: boolean
 	tab: PullRequestDetailTab
-	onTabChange: (tab: PullRequestDetailTab) => void
 }
 
 function PullRequestDetailContent({
@@ -109,18 +107,12 @@ function PullRequestDetailContent({
 	events,
 	isCurrentOwner,
 	tab,
-	onTabChange,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
 	const comparisonQuery = usePullRequestComparisonQuery(
 		{ username, slug, number: pullRequest.number },
 		isCurrentOwner && pullRequest.state === 'open' && tab === 'overview'
 	)
-
-	const handleTabValueChange = (value: string) => {
-		if (value === 'overview' || value === 'commits' || value === 'files')
-			onTabChange(value)
-	}
 
 	return (
 		<section className="flex flex-col gap-6">
@@ -197,13 +189,12 @@ function PullRequestDetailContent({
 					</>
 				)}
 			</header>
-			<Tabs onValueChange={handleTabValueChange} value={tab}>
-				<TabsList aria-label="Pull request details">
-					<TabsTrigger value="overview">Overview</TabsTrigger>
-					<TabsTrigger value="commits">Commits</TabsTrigger>
-					<TabsTrigger value="files">Files changed</TabsTrigger>
-				</TabsList>
-			</Tabs>
+			<PullRequestNavigation
+				number={String(pullRequest.number)}
+				slug={slug}
+				tab={tab}
+				username={username}
+			/>
 			{tab === 'overview' ? (
 				<>
 					<Card className="gap-2">
@@ -211,7 +202,7 @@ function PullRequestDetailContent({
 							Description
 						</h2>
 						{pullRequest.body ? (
-							<p className="whitespace-pre-wrap text-sm">{pullRequest.body}</p>
+							<MarkdownContent>{pullRequest.body}</MarkdownContent>
 						) : (
 							<p className="text-muted-foreground text-sm italic">
 								No description provided.
