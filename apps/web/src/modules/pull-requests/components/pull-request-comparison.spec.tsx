@@ -189,6 +189,116 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByText('Commit list truncated')).toBeTruthy()
 	})
 
+	test('pairs removed and added lines in a split diff', async () => {
+		useComparisonQueryMock.mockReturnValue({
+			data: COMPARISON,
+			isLoading: false,
+			isError: false,
+		} as never)
+		useFileDiffQueryMock.mockReturnValue({
+			data: {
+				baseSha: COMPARISON.baseSha,
+				headSha: COMPARISON.headSha,
+				mergeBaseSha: COMPARISON.mergeBaseSha,
+				file: CHANGED_FILE,
+				language: 'typescript',
+				hunks: [
+					{
+						header: '@@ -1,2 +1,3 @@',
+						lines: [
+							{
+								kind: 'deletion',
+								content: 'if (ready === false)',
+								old: {
+									sha: COMPARISON.baseSha,
+									path: 'src/index.ts',
+									line: 1,
+									side: 'left',
+								},
+							},
+							{
+								kind: 'addition',
+								content: 'if (ready === true)',
+								new: {
+									sha: COMPARISON.headSha,
+									path: 'src/index.ts',
+									line: 1,
+									side: 'right',
+								},
+							},
+							{
+								kind: 'addition',
+								content: 'runTask()',
+								new: {
+									sha: COMPARISON.headSha,
+									path: 'src/index.ts',
+									line: 2,
+									side: 'right',
+								},
+							},
+							{
+								kind: 'context',
+								content: 'finish()',
+								old: {
+									sha: COMPARISON.baseSha,
+									path: 'src/index.ts',
+									line: 2,
+									side: 'left',
+								},
+								new: {
+									sha: COMPARISON.headSha,
+									path: 'src/index.ts',
+									line: 3,
+									side: 'right',
+								},
+							},
+						],
+					},
+				],
+				isTruncated: false,
+				patchLimitBytes: 2_097_152,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const { container } = render(
+			<PullRequestComparison
+				number="1"
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+
+		await user.click(
+			screen.getByRole('button', { name: INDEX_FILE_BUTTON_NAME_REGEX })
+		)
+
+		expect(
+			container.querySelector('[data-side="left"][data-kind="deletion"]')
+				?.textContent
+		).toContain('if (ready === false)')
+		expect(
+			container.querySelector('[data-side="right"][data-kind="addition"]')
+				?.textContent
+		).toContain('if (ready === true)')
+		expect(
+			container.querySelector('[data-side="left"][data-empty="true"]')
+		).toBeTruthy()
+		expect(container.querySelector('[data-diff-code]')?.className).toContain(
+			'[font-variant-ligatures:none]'
+		)
+		expect(
+			container.querySelector('[data-side="left"][data-kind="context"]')
+				?.textContent
+		).toContain('finish()')
+		expect(
+			container.querySelector('[data-side="right"][data-kind="context"]')
+				?.textContent
+		).toContain('finish()')
+	})
+
 	test('renders binary and loading fallbacks', async () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
