@@ -1,37 +1,40 @@
 import { ORPCError, safe } from '@orpc/client'
-import { createFileRoute, notFound } from '@tanstack/react-router'
+import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
 import { z } from 'zod'
-import {
-	PullRequestDetail,
-	type PullRequestDetailTab,
-} from '../components/pull-request-detail'
+import { PullRequestDetail } from '../components/pull-request-detail'
 import { getPullRequestQueryOptions } from '../hooks/use-pull-request.query'
-import { getPullRequestComparisonQueryOptions } from '../hooks/use-pull-request-comparison.query'
 
 export const Route = createFileRoute('/$username/$slug/pulls/$number')({
 	validateSearch: z.object({
-		tab: z
-			.enum(['overview', 'commits', 'files'])
-			.catch('overview')
-			.default('overview'),
+		tab: z.string().optional(),
 	}),
-	loaderDeps: ({ search: { tab } }) => ({ tab }),
-	loader: async ({
-		context,
-		deps: { tab },
-		params: { username, slug, number },
-	}) => {
-		const input = { username, slug, number }
-		const queries = [
-			context.queryClient.ensureQueryData(getPullRequestQueryOptions(input)),
-		]
-		if (tab !== 'overview')
-			queries.push(
-				context.queryClient.ensureQueryData(
-					getPullRequestComparisonQueryOptions(input)
-				)
+	beforeLoad: ({ params, search }) => {
+		if (!search.tab) return
+
+		if (search.tab === 'commits')
+			throw redirect({
+				to: '/$username/$slug/pulls/$number/commits',
+				params,
+			})
+
+		if (search.tab === 'files')
+			throw redirect({
+				to: '/$username/$slug/pulls/$number/files',
+				params,
+			})
+
+		throw redirect({
+			to: '/$username/$slug/pulls/$number',
+			params,
+			search: {},
+		})
+	},
+	loader: async ({ context, params: { username, slug, number } }) => {
+		const [error] = await safe(
+			context.queryClient.ensureQueryData(
+				getPullRequestQueryOptions({ username, slug, number })
 			)
-		const [error] = await safe(Promise.all(queries))
+		)
 
 		if (error instanceof ORPCError && error.status === 404) throw notFound()
 
@@ -44,27 +47,18 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number')({
 			},
 		],
 	}),
-	component: PullRequestRoute,
+	component: PullRequestOverviewRoute,
 })
 
-function PullRequestRoute() {
+function PullRequestOverviewRoute() {
 	const { username, slug, number } = Route.useParams()
-	const { tab } = Route.useSearch()
-	const navigate = Route.useNavigate()
-
-	const handleTabChange = (selectedTab: PullRequestDetailTab) => {
-		navigate({
-			search: previousSearch => ({ ...previousSearch, tab: selectedTab }),
-		})
-	}
 
 	return (
-		<main className="mx-auto max-w-4xl px-4 py-6 sm:px-6 sm:py-8">
+		<main className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
 			<PullRequestDetail
 				number={number}
-				onTabChange={handleTabChange}
 				slug={slug}
-				tab={tab}
+				tab="overview"
 				username={username}
 			/>
 		</main>

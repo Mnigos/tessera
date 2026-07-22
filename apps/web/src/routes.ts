@@ -38,6 +38,14 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.route.tsx'
 	),
 	route(
+		'/$username/$slug/pulls/$number/commits',
+		'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.commits.route.tsx'
+	),
+	route(
+		'/$username/$slug/pulls/$number/files',
+		'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.files.route.tsx'
+	),
+	route(
 		'/$username/$slug/settings/collaborators',
 		'modules/repository-collaborators/routes/repository.$username.$slug.settings.collaborators.route.tsx'
 	),
