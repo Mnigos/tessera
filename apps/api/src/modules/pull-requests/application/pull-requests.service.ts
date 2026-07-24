@@ -51,6 +51,11 @@ export interface PullRequestMergeActor {
 	name: string
 }
 
+export interface ListPullRequestsResult {
+	pullRequests: PullRequest[]
+	viewerRole: RepositoryViewerRole
+}
+
 interface MergeRepositoryRefsParams {
 	actor: PullRequestMergeActor
 	attemptId: string
@@ -142,10 +147,7 @@ export class PullRequestsService {
 	async list(
 		viewerUserId: UserId | undefined,
 		{ slug, state, username }: ParsedListPullRequestsInput
-	): Promise<{
-		pullRequests: PullRequest[]
-		viewerRole: RepositoryViewerRole
-	}> {
+	): Promise<ListPullRequestsResult> {
 		const { repositoryId, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
