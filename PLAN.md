@@ -578,6 +578,8 @@ Tasks:
 - Show import progress.
 - Handle import failures.
 - Add retry.
+- Mark the completed import as `imported`: a one-time Tessera-authoritative snapshot with no
+  continuing GitHub synchronization.
 
 Acceptance:
 
@@ -596,15 +598,18 @@ Tasks:
   - external repo ID.
   - mirror mode.
 - Implement one-way GitHub -> Tessera sync first.
-- Add scheduled fetch.
-- Add manual sync.
-- Show mirrored state in UI.
+- Make `github_to_tessera` GitHub-authoritative and reject Tessera Git writes.
+- Use verified GitHub webhooks as the primary trigger.
+- Add backend scheduled reconciliation as the missed-event recovery path.
+- Use GitHub HTTPS and SSH clone URLs and show provenance, freshness, and failure state.
+- Reuse native pull request, comment, review, and checks models with provider mappings.
 - Handle conflicts and force pushes.
+- Do not add frontend scheduling, manual sync, user retry, or Tessera-to-GitHub write-back.
 
 Acceptance:
 
-- Tessera repo can stay synced from GitHub.
-- UI clearly marks mirrored repositories.
+- Tessera converges to GitHub through webhooks and backend reconciliation.
+- UI clearly marks GitHub authority and remains read-only.
 
 ## Phase 16: Migration And Cutover
 
@@ -614,7 +619,8 @@ Tasks:
 
 - Generate remote switch commands.
 - Add migration checklist.
-- Add optional push mirror back to GitHub.
+- Make `tessera_source` an explicit cutover that stops inbound synchronization and switches
+  clone/write guidance to Tessera.
 - Add docs for team migration.
 - Add import of open PRs later.
 - Add import of issues later only if needed.
@@ -623,6 +629,12 @@ Acceptance:
 
 - User can switch local remote from GitHub to Tessera.
 - Team can follow documented cutover path.
+
+Implementation ownership: TES-64 persists provider mappings and cursors; TES-65 handles
+webhooks, repository/PR lifecycle, and reconciliation; TES-66 imports checks using TES-55;
+TES-67 synchronizes comments/reviews using TES-57 and TES-58; TES-68 owns clone/provenance/UI;
+TES-69 owns operational hardening. See
+`docs/adr/0002-github-authoritative-synchronization.md`.
 
 ## Phase 17: Integration Framework
 

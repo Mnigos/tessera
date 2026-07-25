@@ -379,21 +379,28 @@ GitHub support should evolve through three phases:
 - Preserve branches.
 - Preserve tags.
 - Preserve commit authors.
+- Treat the completed import as a one-time snapshot with Tessera immediately authoritative.
 
 ### Mirror
 
-- One-way mirror from GitHub to Tessera first.
-- Display mirrored repository state.
-- Allow teams to use Tessera browsing and review without cutting over immediately.
+- GitHub is authoritative for Git refs, pull requests, comments, reviews, checks, and
+  GitHub-owned settings.
+- Tessera is a read-only synchronized view and rejects Git writes with GitHub guidance.
+- Clone controls use GitHub HTTPS and SSH URLs.
+- Verified webhooks are primary; backend scheduled reconciliation repairs gaps.
+- Reuse Tessera's native pull request, comment, review, and checks models with provider
+  identity, provenance, and freshness.
+- Do not provide frontend scheduling, manual sync, or Tessera-to-GitHub push-back.
 
 ### Cutover
 
 - Help users switch remotes.
 - Make Tessera the source of truth.
-- Optionally push mirror back to GitHub.
+- Stop inbound GitHub synchronization and switch clone/write guidance to Tessera.
 - Provide migration docs and commands.
 
-Open PRs, issues, and comments can be imported later. Repository history comes first.
+The detailed authority, identity, reconciliation, failure, security, and cutover contract is
+defined in `docs/adr/0002-github-authoritative-synchronization.md`.
 
 ## Open Source Strategy
 
