@@ -6,7 +6,8 @@ Use this guide when moving a GitHub-mirrored repository to Tessera as the source
 
 1. Pick a short cutover window and ask teammates to pause pushes to GitHub.
 2. Finish, merge, or record any GitHub PR, issue, or comment context the team still needs.
-3. Verify the latest GitHub-to-Tessera sync completed successfully in Tessera.
+3. Verify the latest GitHub-to-Tessera synchronization completed successfully and freshness
+   is current in Tessera. Webhooks are primary; backend reconciliation repairs missed events.
 4. Compare the default branch HEAD on both remotes:
 
 ```bash
@@ -14,7 +15,9 @@ git ls-remote https://<github-host>/<owner>/<repo>.git <branch>
 git ls-remote https://<tessera-host>/<owner>/<repo>.git <branch>
 ```
 
-The commit hashes should match. If they do not match, run a manual sync before cutover and wait for it to finish.
+The commit hashes should match. If they do not, postpone cutover. Do not use a user-facing
+manual sync; wait for backend reconciliation or ask an administrator to investigate or replay
+the synchronization path.
 
 ## Cutover Steps
 
@@ -60,15 +63,21 @@ The pushed branch should resolve to the expected commit on the Tessera remote.
 
 ## Mirror Behavior After Cutover
 
-Before cutover, scheduled GitHub-to-Tessera sync and manual sync keep Tessera current with GitHub.
+Before cutover, `github_to_tessera` means GitHub is authoritative. Verified webhooks keep
+Tessera current and backend scheduled reconciliation repairs gaps. Tessera is read-only,
+rejects Git writes, and presents GitHub HTTPS and SSH clone URLs. There is no frontend
+scheduler, manual sync, or Tessera-to-GitHub push-back.
 
-After cutover, Tessera is the source of truth. Scheduled GitHub mirror sync stops for that repository, manual GitHub sync is no longer available, and direct pushes to Tessera are allowed through normal repository permissions.
+Cutover records `tessera_source`. Inbound webhooks and scheduled reconciliation stop for that
+repository, clone guidance switches to Tessera, and direct pushes to Tessera are allowed
+through normal repository permissions.
 
 Pushing new commits to GitHub after cutover does not move them into Tessera. Push to Tessera instead.
 
-## Recovery
+## Read-only inspection
 
-If a teammate switched too early or must temporarily return to GitHub, set `origin` back to GitHub:
+If a teammate switched too early or needs to inspect GitHub history, use a separate remote or
+temporarily set `origin` to GitHub for fetch-only inspection:
 
 | Protocol | Switch `origin` back to GitHub |
 | --- | --- |
@@ -83,4 +92,10 @@ git fetch origin
 git ls-remote origin <branch>
 ```
 
-If commits were made while `origin` pointed at Tessera, compare branch heads before pushing anywhere. Push only after the team agrees which remote has the correct history.
+Do not push to GitHub after cutover. Compare branch heads without mutating either remote. If
+GitHub must become authoritative again, create a new import or mirror through the supported
+administrative flow.
+
+Cutover is intentionally irreversible. Returning to GitHub authority requires creating a new
+import or mirror; it is not a mode rollback. The complete contract is in
+`docs/adr/0002-github-authoritative-synchronization.md`.
