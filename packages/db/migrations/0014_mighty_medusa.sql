@@ -109,6 +109,7 @@ ALTER TABLE "repository_external_sources" ADD COLUMN "sync_failure_code" text;--
 ALTER TABLE "repository_external_sources" ADD COLUMN "authority_generation" integer DEFAULT 1 NOT NULL;--> statement-breakpoint
 ALTER TABLE "repository_external_sources" ADD COLUMN "requested_sync_version" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
 ALTER TABLE "repository_external_sources" ADD COLUMN "completed_sync_version" bigint DEFAULT 0 NOT NULL;--> statement-breakpoint
+ALTER TABLE "repository_external_sources" ADD COLUMN "pull_request_sync_cursor_at" timestamp;--> statement-breakpoint
 ALTER TABLE "repository_external_sources" ADD COLUMN "sync_lease_owner" text;--> statement-breakpoint
 ALTER TABLE "repository_external_sources" ADD COLUMN "sync_lease_acquired_at" timestamp;--> statement-breakpoint
 ALTER TABLE "repository_external_sources" ADD COLUMN "sync_lease_expires_at" timestamp;--> statement-breakpoint

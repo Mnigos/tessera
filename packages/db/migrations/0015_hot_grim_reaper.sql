@@ -1,1 +1,0 @@
-ALTER TABLE "repository_external_sources" ADD COLUMN "pull_request_sync_cursor_at" timestamp;
