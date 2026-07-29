@@ -4,7 +4,7 @@ import type { GitHubActorId } from '@repo/db'
 import { gitHubActors } from '@repo/db'
 import { GitHubSyncRepository } from './github-sync.repository'
 
-const actorId = '00000000-0000-4000-8000-000000000121' as GitHubActorId
+const ACTOR_ID = '00000000-0000-4000-8000-000000000121' as GitHubActorId
 
 describe(GitHubSyncRepository.name, () => {
 	let moduleRef: TestingModule
@@ -32,11 +32,13 @@ describe(GitHubSyncRepository.name, () => {
 				where: vi.fn(() => ({
 					limit: vi
 						.fn()
-						.mockResolvedValue(table === gitHubActors ? [{ id: actorId }] : []),
+						.mockResolvedValue(
+							table === gitHubActors ? [{ id: ACTOR_ID }] : []
+						),
 				})),
 			})),
 		})
-		returningMock.mockResolvedValue([{ id: actorId }])
+		returningMock.mockResolvedValue([{ id: ACTOR_ID }])
 		updateWhereMock.mockReturnValue({ returning: returningMock })
 		setMock.mockReturnValue({ where: updateWhereMock })
 		updateMock.mockReturnValue({ set: setMock })
@@ -74,7 +76,7 @@ describe(GitHubSyncRepository.name, () => {
 					type: 'user',
 				},
 			])
-		).toEqual(new Map([['new-node-id', actorId]]))
+		).toEqual(new Map([['new-node-id', ACTOR_ID]]))
 		expect(updateMock).toHaveBeenCalledWith(gitHubActors)
 		expect(setMock).toHaveBeenCalledWith(
 			expect.objectContaining({

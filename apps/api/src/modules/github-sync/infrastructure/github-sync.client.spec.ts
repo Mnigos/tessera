@@ -3,7 +3,7 @@ import { GitHubSyncClient } from './github-sync.client'
 
 vi.mock('@octokit/rest', () => ({ Octokit: vi.fn() }))
 
-const repository = {
+const REPOSITORY = {
 	id: 456,
 	node_id: 'repository-node',
 	owner: {
@@ -64,7 +64,7 @@ describe(GitHubSyncClient.name, () => {
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2026-07-29T12:00:00.500Z'))
 		request.mockResolvedValue({
-			data: repository,
+			data: REPOSITORY,
 			headers: { date: 'Wed, 29 Jul 2026 12:00:00 GMT' },
 		})
 		vi.mocked(Octokit).mockImplementation(
