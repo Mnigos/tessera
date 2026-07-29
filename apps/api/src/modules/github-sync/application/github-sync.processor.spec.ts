@@ -50,6 +50,7 @@ const reconciliation = {
 		defaultBranch: 'main',
 	},
 	pullRequests: [],
+	pullRequestCursorAt: new Date('2026-07-29T01:00:00Z'),
 }
 
 describe(GitHubSyncProcessor.name, () => {
@@ -152,6 +153,7 @@ describe(GitHubSyncProcessor.name, () => {
 		expect(client.getRepositoryReconciliation).toHaveBeenCalledWith({
 			accessToken: 'installation-token',
 			externalRepositoryId: 456n,
+			updatedAfter: undefined,
 		})
 		expect(repository.heartbeatSync).toHaveBeenCalledTimes(2)
 		expect(gitStorageClient.importRepository).toHaveBeenCalledWith({
@@ -175,6 +177,7 @@ describe(GitHubSyncProcessor.name, () => {
 				authorityGeneration: 2,
 				requestedSyncVersion: 5,
 				leaseOwner: 'lease-owner',
+				pullRequestSyncCursorAt: reconciliation.pullRequestCursorAt,
 			})
 		)
 	})

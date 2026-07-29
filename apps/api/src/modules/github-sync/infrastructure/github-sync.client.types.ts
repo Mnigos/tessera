@@ -47,4 +47,5 @@ export interface GitHubSyncPullRequest {
 export interface GitHubRepositoryReconciliation {
 	repository: GitHubSyncRepository
 	pullRequests: GitHubSyncPullRequest[]
+	pullRequestCursorAt: Date
 }

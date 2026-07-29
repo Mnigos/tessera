@@ -1,5 +1,5 @@
 import { EnvService } from '@config/env'
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { createAppAuth } from '@octokit/auth-app'
 import { GitHubAppConfigurationError } from '../domain/github-sync.errors'
 
@@ -16,6 +16,7 @@ interface CachedInstallationToken extends InstallationToken {
 
 @Injectable()
 export class GitHubAppAuthService {
+	private readonly logger = new Logger(GitHubAppAuthService.name)
 	private readonly cachedTokens = new Map<string, CachedInstallationToken>()
 
 	constructor(private readonly envService: EnvService) {}
@@ -45,9 +46,9 @@ export class GitHubAppAuthService {
 			appId,
 			privateKey: privateKey.replaceAll('\\n', '\n'),
 		})
-		const authentication = await auth({
-			type: 'installation',
-			installationId: Number(externalInstallationId),
+		const authentication = await this.authenticateInstallation({
+			auth,
+			externalInstallationId,
 		})
 		const token = {
 			installationId: externalInstallationId,
@@ -58,5 +59,26 @@ export class GitHubAppAuthService {
 		this.cachedTokens.set(cacheKey, token)
 
 		return token
+	}
+
+	private async authenticateInstallation({
+		auth,
+		externalInstallationId,
+	}: {
+		auth: ReturnType<typeof createAppAuth>
+		externalInstallationId: bigint
+	}) {
+		try {
+			return await auth({
+				type: 'installation',
+				installationId: Number(externalInstallationId),
+			})
+		} catch (error) {
+			this.logger.error(
+				`GitHub App authentication failed for installation ${externalInstallationId}`,
+				error instanceof Error ? error.stack : undefined
+			)
+			throw error
+		}
 	}
 }

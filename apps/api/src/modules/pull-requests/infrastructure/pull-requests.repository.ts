@@ -166,30 +166,17 @@ export class PullRequestsRepository {
 
 	async create(params: CreateParams): Promise<PullRequest | undefined> {
 		return await this.db.transaction(async tx => {
-			await tx
-				.insert(repositoryPullRequestCounters)
-				.values({ repositoryId: params.repositoryId })
-				.onConflictDoNothing()
-
-			const [counter] = await tx
-				.update(repositoryPullRequestCounters)
-				.set({
-					nextNumber: sql`${repositoryPullRequestCounters.nextNumber} + 1`,
-				})
-				.where(
-					eq(repositoryPullRequestCounters.repositoryId, params.repositoryId)
-				)
-				.returning({
-					nextNumber: repositoryPullRequestCounters.nextNumber,
-				})
-
-			if (!counter) return undefined
+			const number = await this.allocatePullRequestNumber(
+				tx,
+				params.repositoryId
+			)
+			if (!number) return undefined
 
 			const [pullRequest] = await tx
 				.insert(pullRequests)
 				.values({
 					repositoryId: params.repositoryId,
-					number: counter.nextNumber - 1,
+					number,
 					authorUserId: params.authorUserId,
 					sourceBranch: params.sourceBranch,
 					targetBranch: params.targetBranch,
@@ -700,12 +687,19 @@ export class PullRequestsRepository {
 			repositoryId,
 		}: Pick<ReconcileGitHubPullRequestParams, 'pullRequest' | 'repositoryId'>
 	): Promise<PullRequestId> {
+		const number = await this.allocatePullRequestNumber(
+			transaction,
+			repositoryId
+		)
+		if (!number)
+			throw new Error('failed to allocate synchronized pull request number')
+
 		const [createdPullRequest] = await transaction
 			.insert(pullRequests)
 			.values({
 				repositoryId,
 				provider: 'github',
-				number: pullRequest.number,
+				number,
 				sourceBranch: pullRequest.sourceBranch,
 				targetBranch: pullRequest.targetBranch,
 				openingBaseSha: pullRequest.baseSha,
@@ -740,7 +734,6 @@ export class PullRequestsRepository {
 		const [updatedPullRequest] = await transaction
 			.update(pullRequests)
 			.set({
-				number: pullRequest.number,
 				sourceBranch: pullRequest.sourceBranch,
 				targetBranch: pullRequest.targetBranch,
 				title: pullRequest.title,
@@ -763,6 +756,28 @@ export class PullRequestsRepository {
 			throw new Error('failed to update synchronized GitHub pull request')
 
 		return updatedPullRequest.id
+	}
+
+	private async allocatePullRequestNumber(
+		transaction: PullRequestDatabase,
+		repositoryId: RepositoryId
+	): Promise<number | undefined> {
+		await transaction
+			.insert(repositoryPullRequestCounters)
+			.values({ repositoryId })
+			.onConflictDoNothing()
+
+		const [counter] = await transaction
+			.update(repositoryPullRequestCounters)
+			.set({
+				nextNumber: sql`${repositoryPullRequestCounters.nextNumber} + 1`,
+			})
+			.where(eq(repositoryPullRequestCounters.repositoryId, repositoryId))
+			.returning({
+				nextNumber: repositoryPullRequestCounters.nextNumber,
+			})
+
+		return counter ? counter.nextNumber - 1 : undefined
 	}
 
 	private async createGitHubEvent(

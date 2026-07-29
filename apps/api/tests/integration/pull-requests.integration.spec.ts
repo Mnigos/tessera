@@ -5,7 +5,9 @@ import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
+import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { PullRequestsModule } from '@modules/pull-requests'
+import { PullRequestsRepository } from '@modules/pull-requests/infrastructure/pull-requests.repository'
 import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
@@ -13,6 +15,8 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import { db } from '@repo/db/client'
 import {
 	account,
+	gitHubActors,
+	gitHubPullRequestMappings,
 	pullRequestEvents,
 	pullRequests,
 	repositories,
@@ -79,6 +83,7 @@ describe('Pull requests integration', () => {
 	let gitStorageGetRepositoryFileDiff: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageMergeRepositoryRefs: ReturnType<typeof vi.fn>
+	let pullRequestsRepository: PullRequestsRepository
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -116,6 +121,9 @@ describe('Pull requests integration', () => {
 		adapter = new HonoAdapter()
 		app = moduleRef.createNestApplication(adapter)
 		await app.init()
+		pullRequestsRepository = moduleRef.get(PullRequestsRepository, {
+			strict: false,
+		})
 	})
 
 	beforeEach(async () => {
@@ -358,6 +366,77 @@ describe('Pull requests integration', () => {
 			pullRequest: { number: 1 },
 			events: [{ type: 'opened' }],
 		})
+	})
+
+	test('keeps GitHub numbers in provider mappings and allocates local route numbers', async () => {
+		const headers = await createUserAndRepository({ visibility: 'public' })
+		await createPullRequest(
+			'marta',
+			'notes',
+			{
+				sourceBranch: 'feature',
+				targetBranch: 'main',
+				title: 'Native pull request',
+			},
+			headers
+		)
+		const repository = await getRepositoryRow()
+		const [actor] = await db
+			.insert(gitHubActors)
+			.values({
+				externalNodeId: 'github-user-node',
+				externalNumericId: 7n,
+				login: 'marta',
+				type: 'user',
+			})
+			.returning({ id: gitHubActors.id })
+		if (!actor) throw new Error('Failed to create GitHub actor')
+		const synchronizedPullRequest: GitHubSyncPullRequest = {
+			nodeId: 'github-pull-request-node',
+			numericId: 101n,
+			number: 1,
+			htmlUrl: 'https://github.com/tessera-org/notes/pull/1',
+			title: 'Synchronized pull request',
+			body: '',
+			state: 'open',
+			draft: false,
+			author: {
+				nodeId: 'github-user-node',
+				numericId: 7n,
+				login: 'marta',
+				type: 'user',
+			},
+			sourceBranch: 'github-feature',
+			targetBranch: 'main',
+			headRepositoryNodeId: 'repository-node',
+			baseRepositoryNodeId: 'repository-node',
+			headSha: 'github-head-sha',
+			baseSha: 'github-base-sha',
+			createdAt: new Date('2026-07-28T10:00:00Z'),
+			updatedAt: new Date('2026-07-28T11:00:00Z'),
+		}
+
+		await pullRequestsRepository.reconcileGitHubPullRequest({
+			repositoryId: repository.id,
+			pullRequest: synchronizedPullRequest,
+			authorActorId: actor.id,
+			pendingEvents: [],
+		})
+
+		expect(
+			await db.query.pullRequests.findMany({
+				orderBy: (table, { asc }) => [asc(table.number)],
+				columns: { provider: true, number: true },
+			})
+		).toEqual([
+			{ provider: 'tessera', number: 1 },
+			{ provider: 'github', number: 2 },
+		])
+		expect(
+			await db.query.gitHubPullRequestMappings.findFirst({
+				columns: { externalNumber: true },
+			})
+		).toEqual({ externalNumber: 1 })
 	})
 
 	test('allocates repository-scoped numbers safely for concurrent creates', async () => {
@@ -661,6 +740,8 @@ describe('Pull requests integration', () => {
 	async function resetIntegrationDatabase() {
 		await db.delete(pullRequestEvents)
 		await db.delete(pullRequests)
+		await db.delete(gitHubPullRequestMappings)
+		await db.delete(gitHubActors)
 		await db.delete(repositoryPullRequestCounters)
 		await db.delete(repositoryExternalSources)
 		await db.delete(repositories)

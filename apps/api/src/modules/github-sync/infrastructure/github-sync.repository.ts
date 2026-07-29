@@ -80,6 +80,7 @@ export interface GitHubSyncClaim extends GitHubSyncRequest {
 	externalInstallationId: bigint
 	sourceUrl: string
 	sourceDefaultBranch: string
+	pullRequestSyncCursorAt?: Date
 }
 
 export interface GitHubPendingPullRequestEvent {
@@ -112,6 +113,7 @@ interface FinalizeSyncParams
 	fullName: string
 	sourceUrl: string
 	sourceDefaultBranch: string
+	pullRequestSyncCursorAt: Date
 	completedAt: Date
 	nextSyncAt: Date
 }
@@ -559,6 +561,8 @@ export class GitHubSyncRepository {
 					sourceDefaultBranch: repositoryExternalSources.sourceDefaultBranch,
 					authorityGeneration: repositoryExternalSources.authorityGeneration,
 					requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
+					pullRequestSyncCursorAt:
+						repositoryExternalSources.pullRequestSyncCursorAt,
 				})
 
 			if (!source?.installationId) return undefined
@@ -612,6 +616,7 @@ export class GitHubSyncRepository {
 				externalRepositoryId: source.externalRepositoryId,
 				sourceUrl: source.sourceUrl,
 				sourceDefaultBranch: source.sourceDefaultBranch,
+				pullRequestSyncCursorAt: source.pullRequestSyncCursorAt ?? undefined,
 				authorityGeneration: source.authorityGeneration,
 				requestedSyncVersion: source.requestedSyncVersion,
 				leaseOwner,
@@ -658,6 +663,7 @@ export class GitHubSyncRepository {
 		name,
 		nextSyncAt,
 		ownerLogin,
+		pullRequestSyncCursorAt,
 		repositoryId,
 		requestedSyncVersion,
 		sourceDefaultBranch,
@@ -701,6 +707,7 @@ export class GitHubSyncRepository {
 					fullName,
 					sourceUrl,
 					sourceDefaultBranch,
+					pullRequestSyncCursorAt,
 					completedSyncVersion: requestedSyncVersion,
 					syncStatus: hasFollowUp ? 'pending' : 'succeeded',
 					lastSyncSucceededAt: completedAt,
@@ -1099,28 +1106,41 @@ export class GitHubSyncRepository {
 				)
 			)
 			.limit(1)
-		const [storedActor] = await db
+		const actorValues = {
+			externalNodeId: actor.nodeId,
+			externalNumericId: actor.numericId,
+			login: actor.login,
+			type: actor.type,
+			avatarUrl: actor.avatarUrl,
+			htmlUrl: actor.htmlUrl,
+			userId: linkedAccount?.userId,
+		}
+
+		const [insertedActor] = await db
 			.insert(gitHubActors)
-			.values({
-				externalNodeId: actor.nodeId,
-				externalNumericId: actor.numericId,
-				login: actor.login,
-				type: actor.type,
-				avatarUrl: actor.avatarUrl,
-				htmlUrl: actor.htmlUrl,
-				userId: linkedAccount?.userId,
-			})
-			.onConflictDoUpdate({
-				target: gitHubActors.externalNodeId,
-				set: {
-					externalNumericId: actor.numericId,
-					login: actor.login,
-					type: actor.type,
-					avatarUrl: actor.avatarUrl,
-					htmlUrl: actor.htmlUrl,
-					userId: linkedAccount?.userId,
-				},
-			})
+			.values(actorValues)
+			.onConflictDoNothing()
+			.returning({ id: gitHubActors.id })
+
+		if (insertedActor) return insertedActor.id
+
+		const [existingActor] = await db
+			.select({ id: gitHubActors.id })
+			.from(gitHubActors)
+			.where(
+				or(
+					eq(gitHubActors.externalNodeId, actor.nodeId),
+					eq(gitHubActors.externalNumericId, actor.numericId)
+				)
+			)
+			.limit(1)
+
+		if (!existingActor) throw new Error('failed to resolve GitHub actor')
+
+		const [storedActor] = await db
+			.update(gitHubActors)
+			.set(actorValues)
+			.where(eq(gitHubActors.id, existingActor.id))
 			.returning({ id: gitHubActors.id })
 
 		if (!storedActor) throw new Error('failed to persist GitHub actor')

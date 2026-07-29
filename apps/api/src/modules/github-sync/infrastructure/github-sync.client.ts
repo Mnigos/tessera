@@ -11,6 +11,7 @@ import type {
 
 const GITHUB_PAGE_SIZE = 100
 const MERGED_PULL_REQUEST_DETAIL_BATCH_SIZE = 10
+const GITHUB_CURSOR_FALLBACK_OVERLAP_MS = 60_000
 
 const gitHubActorSchema = z.object({
 	id: z.number().int().positive(),
@@ -69,9 +70,11 @@ export class GitHubSyncClient {
 	async getRepositoryReconciliation({
 		accessToken,
 		externalRepositoryId,
+		updatedAfter,
 	}: {
 		accessToken: string
 		externalRepositoryId: bigint
+		updatedAfter?: Date
 	}): Promise<GitHubRepositoryReconciliation> {
 		const octokit = new Octokit({ auth: accessToken })
 
@@ -80,15 +83,36 @@ export class GitHubSyncClient {
 				'GET /repositories/{repository_id}',
 				{ repository_id: externalRepositoryId.toString() }
 			)
+			const pullRequestCursorAt = getPullRequestCursorAt(
+				repositoryResponse.headers.date
+			)
 			const repository = gitHubRepositorySchema.parse(repositoryResponse.data)
-			const pullRequests = await octokit.paginate(octokit.rest.pulls.list, {
-				owner: repository.owner.login,
-				repo: repository.name,
-				state: 'all',
-				sort: 'updated',
-				direction: 'desc',
-				per_page: GITHUB_PAGE_SIZE,
-			})
+			const pullRequests = await octokit.paginate(
+				octokit.rest.pulls.list,
+				{
+					owner: repository.owner.login,
+					repo: repository.name,
+					state: 'all',
+					sort: 'updated',
+					direction: 'desc',
+					per_page: GITHUB_PAGE_SIZE,
+				},
+				(response, done) => {
+					if (!updatedAfter) return response.data
+
+					const updatedPullRequests = response.data.filter(pullRequest => {
+						const updatedAt = Date.parse(pullRequest.updated_at)
+
+						return (
+							Number.isNaN(updatedAt) || updatedAt >= updatedAfter.getTime()
+						)
+					})
+
+					if (updatedPullRequests.length < response.data.length) done()
+
+					return updatedPullRequests
+				}
+			)
 			const parsedPullRequests = pullRequests.map(pullRequest =>
 				gitHubPullRequestSchema.parse(pullRequest)
 			)
@@ -111,6 +135,7 @@ export class GitHubSyncClient {
 					defaultBranch: repository.default_branch,
 				},
 				pullRequests: detailedPullRequests.map(toGitHubSyncPullRequest),
+				pullRequestCursorAt,
 			}
 		} catch (error) {
 			this.logger.warn('GitHub reconciliation request failed')
@@ -168,6 +193,16 @@ export class GitHubSyncClient {
 
 		return detailedPullRequests
 	}
+}
+
+function getPullRequestCursorAt(providerDate?: string): Date {
+	const providerTimestamp = providerDate ? Date.parse(providerDate) : Number.NaN
+
+	if (!Number.isNaN(providerTimestamp)) return new Date(providerTimestamp)
+
+	return new Date(
+		Math.floor((Date.now() - GITHUB_CURSOR_FALLBACK_OVERLAP_MS) / 1000) * 1000
+	)
 }
 
 function toGitHubSyncPullRequest(

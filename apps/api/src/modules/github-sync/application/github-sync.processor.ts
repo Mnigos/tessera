@@ -59,6 +59,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				await this.gitHubSyncClient.getRepositoryReconciliation({
 					accessToken: installationToken.token,
 					externalRepositoryId: claim.externalRepositoryId,
+					updatedAfter: claim.pullRequestSyncCursorAt,
 				})
 			await this.requireHeartbeat(claim)
 			const mirrorToken = await this.gitHubAppAuthService.getInstallationToken(
@@ -98,6 +99,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				fullName: reconciliation.repository.fullName,
 				sourceUrl: reconciliation.repository.htmlUrl,
 				sourceDefaultBranch: reconciliation.repository.defaultBranch,
+				pullRequestSyncCursorAt: reconciliation.pullRequestCursorAt,
 				completedAt,
 				nextSyncAt: addMinutes(
 					completedAt,

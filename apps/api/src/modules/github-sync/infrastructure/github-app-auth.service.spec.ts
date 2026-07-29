@@ -1,4 +1,5 @@
 import { EnvService } from '@config/env'
+import { Logger } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { createAppAuth } from '@octokit/auth-app'
 import { GitHubAppConfigurationError } from '../domain/github-sync.errors'
@@ -55,6 +56,25 @@ describe('GitHubAppAuthService', () => {
 
 		await expect(service.getInstallationToken(123n)).rejects.toBeInstanceOf(
 			GitHubAppConfigurationError
+		)
+	})
+
+	test('logs external authentication failures with installation context', async () => {
+		const auth = Object.assign(
+			vi.fn().mockRejectedValue(new Error('GitHub unavailable')),
+			{ hook: vi.fn() }
+		)
+		vi.mocked(createAppAuth).mockReturnValue(auth)
+		const loggerErrorSpy = vi
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined)
+
+		await expect(service.getInstallationToken(123n)).rejects.toThrow(
+			'GitHub unavailable'
+		)
+		expect(loggerErrorSpy).toHaveBeenCalledWith(
+			'GitHub App authentication failed for installation 123',
+			expect.stringContaining('GitHub unavailable')
 		)
 	})
 })

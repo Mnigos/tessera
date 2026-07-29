@@ -4,7 +4,7 @@ const gitHubActorSchema = z.object({
 	id: z.number().int().positive(),
 	node_id: z.string().min(1),
 	login: z.string().min(1),
-	type: z.enum(['User', 'Bot', 'Organization', 'Mannequin']),
+	type: z.string().min(1),
 	avatar_url: z.url().optional(),
 	html_url: z.url().optional(),
 })

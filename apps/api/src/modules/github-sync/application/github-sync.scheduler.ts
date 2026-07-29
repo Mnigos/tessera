@@ -12,9 +12,17 @@ export class GitHubSyncScheduler implements OnModuleInit {
 	) {}
 
 	async onModuleInit(): Promise<void> {
-		await this.githubSyncQueue.scheduleDispatcher(
-			this.envService.get('GITHUB_MIRROR_SYNC_CRONTIME')
-		)
+		try {
+			await this.githubSyncQueue.scheduleDispatcher(
+				this.envService.get('GITHUB_MIRROR_SYNC_CRONTIME')
+			)
+		} catch (error) {
+			this.logger.error(
+				'Failed to register GitHub sync dispatcher schedule',
+				error instanceof Error ? error.stack : undefined
+			)
+			return
+		}
 
 		const schedule = await this.githubSyncQueue.getDispatcherSchedule()
 		if (schedule?.next)
