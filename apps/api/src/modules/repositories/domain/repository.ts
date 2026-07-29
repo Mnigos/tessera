@@ -1,7 +1,7 @@
 import type { RepositoryWithOwner as RepositoryWithOwnerOutput } from '@repo/contracts'
 import type { Repository, RepositoryExternalSource } from '@repo/db'
 
-type RepositoryExternalSourceReadModel = Omit<
+export type RepositoryExternalSourceReadModel = Omit<
 	RepositoryExternalSource,
 	| 'githubPushBackEnabled'
 	| 'githubPushBackStatus'
@@ -9,6 +9,15 @@ type RepositoryExternalSourceReadModel = Omit<
 	| 'githubPushBackSucceededAt'
 	| 'githubPushBackFailedAt'
 	| 'githubPushBackFailureReason'
+	| 'installationId'
+	| 'externalRepositoryNodeId'
+	| 'syncFailureCode'
+	| 'authorityGeneration'
+	| 'requestedSyncVersion'
+	| 'completedSyncVersion'
+	| 'syncLeaseOwner'
+	| 'syncLeaseAcquiredAt'
+	| 'syncLeaseExpiresAt'
 > &
 	Partial<
 		Pick<
@@ -33,7 +42,7 @@ export interface RepositoryOwnerRow extends Repository {
 	ownerUser?: {
 		username: string | null
 	} | null
-	externalSource?: RepositoryExternalSource
+	externalSource?: RepositoryExternalSourceReadModel
 }
 
 export function toRepositoryWithOwner(

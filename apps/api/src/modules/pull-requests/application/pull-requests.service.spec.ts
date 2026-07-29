@@ -36,6 +36,7 @@ const repositoryAccessContext = {
 const pullRequest: PullRequest = {
 	id: pullRequestId,
 	repositoryId,
+	provider: 'tessera',
 	number: 1,
 	authorUserId: mockUserId,
 	sourceBranch: 'feature',
@@ -55,6 +56,7 @@ const pullRequest: PullRequest = {
 const event: PullRequestEvent = {
 	id: '00000000-0000-4000-8000-000000000045' as PullRequestEventId,
 	pullRequestId,
+	provider: 'tessera',
 	actorUserId: mockUserId,
 	type: 'opened',
 	createdAt,
@@ -255,9 +257,43 @@ describe(PullRequestsService.name, () => {
 			await service.get(undefined, { ...repositoryInput, number: 1 })
 		).toEqual({
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
-			events: [event],
+			events: [{ ...event, actorUsername: 'marta' }],
 			viewerRole: 'write',
 		})
+	})
+
+	test('returns GitHub provider actors instead of the repository owner', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			provider: 'github',
+			authorUserId: null,
+			authorUsername: 'octocat',
+			github: {
+				nodeId: 'PR_kwDOExample',
+				htmlUrl: 'https://github.com/octocat/notes/pull/1',
+				draft: false,
+				headSha: 'head-sha',
+				baseSha: 'base-sha',
+				mergedByUsername: 'hubot',
+			},
+		})
+		vi.spyOn(repository, 'listEvents').mockResolvedValue([
+			{
+				...event,
+				provider: 'github',
+				actorUserId: null,
+				actorUsername: 'reviewer',
+			},
+		])
+
+		const result = await service.get(undefined, {
+			...repositoryInput,
+			number: 1,
+		})
+
+		expect(result.pullRequest.authorUsername).toBe('octocat')
+		expect(result.pullRequest.github?.mergedByUsername).toBe('hubot')
+		expect(result.events[0]?.actorUsername).toBe('reviewer')
 	})
 
 	test('rejects missing pull requests', async () => {
@@ -430,6 +466,48 @@ describe(PullRequestsService.name, () => {
 			...repositoryContext,
 			baseRef: `${'c'.repeat(40)}^1`,
 			headRef: `${'c'.repeat(40)}^2`,
+		})
+	})
+
+	test('uses provider SHAs for merged GitHub comparisons', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			provider: 'github',
+			authorUserId: null,
+			authorUsername: 'octocat',
+			state: 'merged',
+			mergeCommitSha: 'c'.repeat(40),
+			mergeActorUserId: null,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+			github: {
+				nodeId: 'PR_kwDOExample',
+				htmlUrl: 'https://github.com/octocat/notes/pull/1',
+				draft: false,
+				headSha: 'b'.repeat(40),
+				baseSha: 'a'.repeat(40),
+			},
+		})
+		const compareSpy = vi
+			.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValue({
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+				mergeBaseSha: 'a'.repeat(40),
+				commits: [],
+				files: [],
+				isTruncated: false,
+				commitsTruncated: false,
+				commitLimit: 500,
+				fileLimit: 300,
+			})
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(compareSpy).toHaveBeenCalledWith({
+			...repositoryContext,
+			baseRef: 'a'.repeat(40),
+			headRef: 'b'.repeat(40),
 		})
 	})
 

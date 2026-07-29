@@ -13,6 +13,7 @@ const createdAt = new Date('2026-07-11T00:00:00Z')
 const pullRequest: PullRequest = {
 	id: '00000000-0000-4000-8000-000000000044' as PullRequestId,
 	repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
+	provider: 'tessera',
 	number: 1,
 	authorUserId: mockUserId,
 	sourceBranch: 'feature',
@@ -35,11 +36,21 @@ describe('pull request domain', () => {
 		expect(toPullRequestOutput(pullRequest, 'marta')).toEqual({
 			...pullRequest,
 			authorUsername: 'marta',
+			github: undefined,
 			mergeCommitSha: undefined,
 			mergeActorUserId: undefined,
 			closedAt: undefined,
 			mergedAt: undefined,
 		})
+	})
+
+	test('prefers a provider actor over the repository owner fallback', () => {
+		expect(
+			toPullRequestOutput(
+				{ ...pullRequest, authorUsername: 'octocat' },
+				'marta'
+			).authorUsername
+		).toBe('octocat')
 	})
 
 	test('allows editing open and closed pull requests', () => {

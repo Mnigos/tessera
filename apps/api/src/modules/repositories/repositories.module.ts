@@ -2,15 +2,9 @@ import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
-import { BullModule, getQueueToken } from '@nestjs/bullmq'
 import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
 import { RepositoryPermissionsService } from './application/repository-permissions.service'
-import {
-	GITHUB_MIRROR_SYNC_QUEUE_NAME,
-	GitHubMirrorSyncJobQueue,
-	GitHubMirrorSyncQueue,
-} from './infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from './infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from './presentation/git-authorization.grpc.controller'
 import { GitRepositoryWriteGuard } from './presentation/git-repository-write.guard'
@@ -25,7 +19,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
 		UserModule,
-		BullModule.registerQueue({ name: GITHUB_MIRROR_SYNC_QUEUE_NAME }),
 	],
 	controllers: [
 		RepositoriesController,
@@ -35,11 +28,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 	providers: [
 		RepositoriesService,
 		RepositoryPermissionsService,
-		{
-			provide: GitHubMirrorSyncJobQueue,
-			useExisting: getQueueToken(GITHUB_MIRROR_SYNC_QUEUE_NAME),
-		},
-		GitHubMirrorSyncQueue,
 		RepositoriesRepository,
 		GitRepositoryWriteGuard,
 		InternalGitAuthorizationGuard,
@@ -48,7 +36,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 	exports: [
 		RepositoriesService,
 		RepositoriesRepository,
-		GitHubMirrorSyncQueue,
 		RepositoryPermissionsService,
 	],
 })

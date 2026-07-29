@@ -30,6 +30,7 @@ export const repositoryExternalSourceSyncStatusSchema = z.enum([
 	'running',
 	'succeeded',
 	'failed',
+	'blocked',
 ])
 export type RepositoryExternalSourceSyncStatus = z.infer<
 	typeof repositoryExternalSourceSyncStatusSchema
@@ -128,36 +129,20 @@ export const getRepositoryInputSchema = z.object({
 export type GetRepositoryInput = z.input<typeof getRepositoryInputSchema>
 export type ParsedGetRepositoryInput = z.infer<typeof getRepositoryInputSchema>
 
+export const enableGitHubMirrorInputSchema = getRepositoryInputSchema
+export type EnableGitHubMirrorInput = z.input<
+	typeof enableGitHubMirrorInputSchema
+>
+export type ParsedEnableGitHubMirrorInput = z.infer<
+	typeof enableGitHubMirrorInputSchema
+>
+
 export const cutoverGitHubMirrorInputSchema = getRepositoryInputSchema
 export type CutoverGitHubMirrorInput = z.input<
 	typeof cutoverGitHubMirrorInputSchema
 >
 export type ParsedCutoverGitHubMirrorInput = z.infer<
 	typeof cutoverGitHubMirrorInputSchema
->
-
-export const enableGitHubPushBackInputSchema = getRepositoryInputSchema
-export type EnableGitHubPushBackInput = z.input<
-	typeof enableGitHubPushBackInputSchema
->
-export type ParsedEnableGitHubPushBackInput = z.infer<
-	typeof enableGitHubPushBackInputSchema
->
-
-export const disableGitHubPushBackInputSchema = getRepositoryInputSchema
-export type DisableGitHubPushBackInput = z.input<
-	typeof disableGitHubPushBackInputSchema
->
-export type ParsedDisableGitHubPushBackInput = z.infer<
-	typeof disableGitHubPushBackInputSchema
->
-
-export const pushGitHubPushBackMirrorInputSchema = getRepositoryInputSchema
-export type PushGitHubPushBackMirrorInput = z.input<
-	typeof pushGitHubPushBackMirrorInputSchema
->
-export type ParsedPushGitHubPushBackMirrorInput = z.infer<
-	typeof pushGitHubPushBackMirrorInputSchema
 >
 
 export const getRepositoryBrowserSummaryInputSchema =
@@ -387,40 +372,27 @@ export const repositoriesContract = {
 		.route({ method: 'GET', path: '/repositories/{username}/{slug}' })
 		.input(getRepositoryInputSchema)
 		.output(repositoryWithOwnerSchema),
-	syncGitHubMirror: oc
+	enableGitHubMirror: oc
 		.route({
 			method: 'POST',
-			path: '/repositories/{username}/{slug}/sync',
+			path: '/repositories/{username}/{slug}/github-mirror/enable',
 		})
-		.input(getRepositoryInputSchema)
-		.output(repositoryWithOwnerSchema),
+		.input(enableGitHubMirrorInputSchema)
+		.output(
+			z.discriminatedUnion('status', [
+				z.object({ status: z.literal('enabled') }),
+				z.object({
+					status: z.literal('installation_required'),
+					installUrl: z.url(),
+				}),
+			])
+		),
 	cutoverGitHubMirror: oc
 		.route({
 			method: 'POST',
 			path: '/repositories/{username}/{slug}/cutover',
 		})
 		.input(cutoverGitHubMirrorInputSchema)
-		.output(repositoryWithOwnerSchema),
-	enableGitHubPushBack: oc
-		.route({
-			method: 'POST',
-			path: '/repositories/{username}/{slug}/github-push-back/enable',
-		})
-		.input(enableGitHubPushBackInputSchema)
-		.output(repositoryWithOwnerSchema),
-	disableGitHubPushBack: oc
-		.route({
-			method: 'POST',
-			path: '/repositories/{username}/{slug}/github-push-back/disable',
-		})
-		.input(disableGitHubPushBackInputSchema)
-		.output(repositoryWithOwnerSchema),
-	pushGitHubPushBackMirror: oc
-		.route({
-			method: 'POST',
-			path: '/repositories/{username}/{slug}/github-push-back/push',
-		})
-		.input(pushGitHubPushBackMirrorInputSchema)
 		.output(repositoryWithOwnerSchema),
 	getBrowserSummary: oc
 		.route({

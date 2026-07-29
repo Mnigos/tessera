@@ -3,4 +3,3 @@ export { RepositoryPermissionsService } from './application/repository-permissio
 export { RepositoryAdminGuard } from './presentation/repository-admin.guard'
 export { RepositoryWriteGuard } from './presentation/repository-write.guard'
 export { RepositoriesModule } from './repositories.module'
-export { RepositoriesWorkersModule } from './repositories-workers.module'

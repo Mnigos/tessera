@@ -1,3 +1,4 @@
+import { EnvService } from '@config/env'
 import {
 	GitStorageClient,
 	type GitStorageGetRepositoryBlobParams,
@@ -20,15 +21,13 @@ import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
 	ParsedCutoverGitHubMirrorInput,
-	ParsedDisableGitHubPushBackInput,
-	ParsedEnableGitHubPushBackInput,
+	ParsedEnableGitHubMirrorInput,
 	ParsedGetRepositoryBlobInput,
 	ParsedGetRepositoryBrowserSummaryInput,
 	ParsedGetRepositoryCommitHistoryInput,
 	ParsedGetRepositoryInput,
 	ParsedGetRepositoryRefsInput,
 	ParsedGetRepositoryTreeInput,
-	ParsedPushGitHubPushBackMirrorInput,
 	RepositoryBlob,
 	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
@@ -55,8 +54,6 @@ import {
 	toRepositoryOutput,
 } from '../domain/repository'
 import {
-	assertGitHubPushBackAvailable,
-	assertGitHubPushBackNotRunning,
 	assertRepositoryHasStoragePath,
 	assertTesseraWritesAllowed,
 } from '../domain/repository.assertions'
@@ -69,10 +66,6 @@ import {
 	RepositoryGitHubMirrorCutoverSyncInProgressError,
 	RepositoryGitHubMirrorCutoverUnavailableError,
 	RepositoryGitHubMirrorSyncUnavailableError,
-	RepositoryGitHubPushBackDisabledError,
-	RepositoryGitHubPushBackInProgressError,
-	RepositoryGitHubPushBackTokenMissingError,
-	RepositoryGitHubPushBackUnavailableError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 } from '../domain/repository.errors'
@@ -86,7 +79,6 @@ import {
 	type RepositoryBrowserStorageErrorContext,
 	toRepositoryBrowserReadError,
 } from '../helpers/repository-browser-storage-error'
-import { GitHubMirrorSyncQueue } from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { RepositoryPermissionsService } from './repository-permissions.service'
 
@@ -94,8 +86,6 @@ const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 	'repositories_owner_user_slug_unique',
 	'repositories_owner_organization_slug_unique',
 ])
-const GITHUB_MIRROR_SYNC_ENQUEUE_FAILURE_REASON =
-	'GitHub mirror sync could not be queued. Please retry.'
 
 interface CreateRepositoryMetadataParams {
 	description: string | undefined
@@ -191,7 +181,7 @@ export class RepositoriesService {
 		private readonly gitStorageClient: GitStorageClient,
 		private readonly gpgPublicKeysService: GpgPublicKeysService,
 		private readonly sshPublicKeysService: SshPublicKeysService,
-		private readonly githubMirrorSyncQueue: GitHubMirrorSyncQueue,
+		private readonly envService: EnvService,
 		private readonly repositoryPermissionsService: RepositoryPermissionsService,
 		private readonly gitAccessTokensService: GitAccessTokensService
 	) {}
@@ -459,21 +449,19 @@ export class RepositoriesService {
 		return toRepositoryOutput(repository)
 	}
 
-	async syncGitHubMirror(
-		requesterUserId: UserId,
+	async enableGitHubMirror(
 		targetUserId: UserId,
-		{ slug, username }: ParsedGetRepositoryInput
-	): Promise<RepositoryWithOwner> {
+		{ slug, username }: ParsedEnableGitHubMirrorInput
+	) {
 		const repository = await this.repositoriesRepository.find({
 			userId: targetUserId,
 			slug,
 		})
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-		assertRepositoryHasStoragePath(repository)
 		if (
 			repository.externalSource?.provider !== 'github' ||
-			repository.externalSource.mirrorMode === 'tessera_source'
+			repository.externalSource.mirrorMode !== 'imported'
 		)
 			throw new RepositoryGitHubMirrorSyncUnavailableError({
 				repositoryId: repository.id,
@@ -481,43 +469,33 @@ export class RepositoriesService {
 				mirrorMode: repository.externalSource?.mirrorMode,
 			})
 
-		const pendingRepository =
-			await this.repositoriesRepository.markGitHubMirrorSyncPending({
+		const enablement =
+			await this.repositoriesRepository.findGitHubMirrorEnablement({
 				repositoryId: repository.id,
-				userId: targetUserId,
 			})
 
-		if (!pendingRepository)
-			throw new RepositoryNotFoundError({ repositoryId: repository.id })
-
-		if (pendingRepository.didMarkPending)
-			try {
-				await this.githubMirrorSyncQueue.enqueueRepositorySync({
+		if (!enablement?.installationId) {
+			const installUrl = this.envService.get('GITHUB_APP_INSTALL_URL')
+			if (!installUrl)
+				throw new RepositoryGitHubMirrorSyncUnavailableError({
 					repositoryId: repository.id,
-					requesterUserId,
+					reason: 'missing_github_app_install_url',
 				})
-			} catch (error) {
-				this.logger.error(
-					'Failed to enqueue GitHub mirror sync job',
-					error instanceof Error ? error.stack : undefined
-				)
-				try {
-					await this.repositoriesRepository.markGitHubMirrorSyncFailed({
-						repositoryId: repository.id,
-						failedAt: new Date(),
-						failureReason: GITHUB_MIRROR_SYNC_ENQUEUE_FAILURE_REASON,
-					})
-				} catch (markError) {
-					this.logger.error(
-						'Failed to mark GitHub mirror sync as failed after enqueue error',
-						markError instanceof Error ? markError.stack : undefined
-					)
-				}
 
-				throw error
-			}
+			return { status: 'installation_required' as const, installUrl }
+		}
 
-		return toRepositoryOutput(pendingRepository.repository)
+		const didEnable = await this.repositoriesRepository.enableGitHubMirror({
+			repositoryId: repository.id,
+			userId: targetUserId,
+		})
+
+		if (!didEnable)
+			throw new RepositoryGitHubMirrorSyncUnavailableError({
+				repositoryId: repository.id,
+			})
+
+		return { status: 'enabled' as const }
 	}
 
 	async cutoverGitHubMirror(
@@ -573,139 +551,6 @@ export class RepositoriesService {
 			})
 
 		return toRepositoryOutput(cutoverRepository)
-	}
-
-	async enableGitHubPushBack(
-		targetUserId: UserId,
-		{ slug, username }: ParsedEnableGitHubPushBackInput
-	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		assertGitHubPushBackAvailable(repository)
-
-		assertGitHubPushBackNotRunning(repository)
-
-		const enabledRepository =
-			await this.repositoriesRepository.enableGitHubPushBack({
-				repositoryId: repository.id,
-				userId: targetUserId,
-			})
-
-		if (!enabledRepository)
-			throw new RepositoryGitHubPushBackUnavailableError({
-				repositoryId: repository.id,
-				provider: repository.externalSource?.provider,
-				mirrorMode: repository.externalSource?.mirrorMode,
-			})
-
-		return toRepositoryOutput(enabledRepository)
-	}
-
-	async disableGitHubPushBack(
-		targetUserId: UserId,
-		{ slug, username }: ParsedDisableGitHubPushBackInput
-	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		assertGitHubPushBackAvailable(repository)
-
-		assertGitHubPushBackNotRunning(repository)
-
-		const disabledRepository =
-			await this.repositoriesRepository.disableGitHubPushBack({
-				repositoryId: repository.id,
-				userId: targetUserId,
-			})
-
-		if (!disabledRepository)
-			throw new RepositoryGitHubPushBackUnavailableError({
-				repositoryId: repository.id,
-				provider: repository.externalSource?.provider,
-				mirrorMode: repository.externalSource?.mirrorMode,
-			})
-
-		return toRepositoryOutput(disabledRepository)
-	}
-
-	async pushGitHubPushBackMirror(
-		targetUserId: UserId,
-		{ slug, username }: ParsedPushGitHubPushBackMirrorInput
-	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
-		assertGitHubPushBackAvailable(repository)
-
-		assertRepositoryHasStoragePath(repository)
-
-		if (!repository.externalSource?.githubPushBackEnabled)
-			throw new RepositoryGitHubPushBackDisabledError({
-				repositoryId: repository.id,
-			})
-
-		assertGitHubPushBackNotRunning(repository)
-
-		const account = await this.repositoriesRepository.findGitHubAccount({
-			userId: targetUserId,
-		})
-
-		if (!account?.accessToken)
-			throw new RepositoryGitHubPushBackTokenMissingError({
-				repositoryId: repository.id,
-				userId: targetUserId,
-			})
-
-		const runningRepository =
-			await this.repositoriesRepository.markGitHubPushBackRunning({
-				repositoryId: repository.id,
-				userId: targetUserId,
-				startedAt: new Date(),
-			})
-
-		if (!runningRepository)
-			throw new RepositoryGitHubPushBackInProgressError({
-				repositoryId: repository.id,
-			})
-
-		try {
-			await this.gitStorageClient.pushRepositoryMirror({
-				repositoryId: repository.id,
-				storagePath: repository.storagePath,
-				targetUrl: repository.externalSource.sourceUrl,
-				accessToken: account.accessToken,
-			})
-			await this.repositoriesRepository.markGitHubPushBackSucceeded({
-				repositoryId: repository.id,
-				succeededAt: new Date(),
-			})
-		} catch (error) {
-			await this.markGitHubPushBackFailed(repository.id, error)
-			throw error
-		}
-
-		const pushedRepository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!pushedRepository)
-			throw new RepositoryNotFoundError({ repositoryId: repository.id })
-
-		return toRepositoryOutput(pushedRepository)
 	}
 
 	async getBrowserSummary(
@@ -1099,27 +944,6 @@ export class RepositoriesService {
 			this.logger.error(
 				'Failed to cleanup repository metadata after git storage failure',
 				cleanupError instanceof Error ? cleanupError.stack : undefined
-			)
-		}
-	}
-
-	private async markGitHubPushBackFailed(
-		repositoryId: RepositoryId,
-		error: unknown
-	): Promise<void> {
-		const failureReason =
-			error instanceof Error ? error.message : 'GitHub push-back mirror failed'
-
-		try {
-			await this.repositoriesRepository.markGitHubPushBackFailed({
-				repositoryId,
-				failedAt: new Date(),
-				failureReason,
-			})
-		} catch (markError) {
-			this.logger.error(
-				'Failed to mark GitHub push-back mirror as failed',
-				markError instanceof Error ? markError.stack : undefined
 			)
 		}
 	}

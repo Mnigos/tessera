@@ -21,8 +21,10 @@ const createdAt = new Date('2026-07-11T00:00:00Z')
 const pullRequest = {
 	id: pullRequestId,
 	repositoryId,
+	provider: 'tessera' as const,
 	number: 1,
 	authorUserId: mockUserId,
+	authorUsername: 'marta',
 	sourceBranch: 'feature',
 	targetBranch: 'main',
 	openingBaseSha: 'base-sha',
@@ -36,11 +38,19 @@ const pullRequest = {
 	updatedAt: createdAt,
 	closedAt: null,
 	mergedAt: null,
+	githubNodeId: null,
+	githubHtmlUrl: null,
+	githubDraft: null,
+	githubHeadSha: null,
+	githubBaseSha: null,
+	githubMergedByUsername: null,
 }
 const event = {
 	id: '00000000-0000-4000-8000-000000000045' as PullRequestEventId,
 	pullRequestId,
+	provider: 'tessera' as const,
 	actorUserId: mockUserId,
+	actorUsername: 'marta',
 	type: 'opened' as const,
 	createdAt,
 }
@@ -52,6 +62,7 @@ describe(PullRequestsRepository.name, () => {
 	const transactionMock = vi.fn()
 	const selectMock = vi.fn()
 	const selectFromMock = vi.fn()
+	const selectLeftJoinMock = vi.fn()
 	const selectWhereMock = vi.fn()
 	const selectOrderByMock = vi.fn()
 	const selectLimitMock = vi.fn()
@@ -84,7 +95,12 @@ describe(PullRequestsRepository.name, () => {
 			limit: selectLimitMock,
 			for: selectForMock,
 		})
-		selectFromMock.mockReturnValue({ where: selectWhereMock })
+		const joinedSelect = {
+			leftJoin: selectLeftJoinMock,
+			where: selectWhereMock,
+		}
+		selectLeftJoinMock.mockReturnValue(joinedSelect)
+		selectFromMock.mockReturnValue(joinedSelect)
 		selectMock.mockReturnValue({ from: selectFromMock })
 
 		counterConflictMock.mockResolvedValue(undefined)
@@ -191,14 +207,24 @@ describe(PullRequestsRepository.name, () => {
 
 	test('lists repository pull requests', async () => {
 		expect(await repository.list({ repositoryId, state: 'open' })).toEqual([
-			pullRequest,
+			expect.objectContaining({
+				id: pullRequestId,
+				provider: 'tessera',
+				authorUsername: 'marta',
+				github: undefined,
+			}),
 		])
 		expect(selectOrderByMock).toHaveBeenCalled()
 	})
 
 	test('finds a repository-scoped pull request number', async () => {
 		expect(await repository.find({ repositoryId, number: 1 })).toEqual(
-			pullRequest
+			expect.objectContaining({
+				id: pullRequestId,
+				provider: 'tessera',
+				authorUsername: 'marta',
+				github: undefined,
+			})
 		)
 		expect(selectLimitMock).toHaveBeenCalledWith(1)
 	})

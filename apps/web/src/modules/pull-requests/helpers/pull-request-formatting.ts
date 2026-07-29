@@ -12,6 +12,13 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	closed: 'Pull request closed',
 	reopened: 'Pull request reopened',
 	merged: 'Pull request merged',
+	synchronized: 'Pull request synchronized',
+	retargeted: 'Pull request retargeted',
+	converted_to_draft: 'Pull request converted to draft',
+	ready_for_review: 'Pull request marked ready for review',
+	assigned: 'Pull request assigned',
+	review_requested: 'Pull request review requested',
+	labeled: 'Pull request labeled',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [
@@ -60,11 +67,4 @@ export function formatPullRequestDate(date: Date) {
  */
 export function formatPullRequestDateTime(date: Date) {
 	return date.toISOString()
-}
-
-/**
- * Formats a user id for compact pull request activity metadata.
- */
-export function formatPullRequestActor(userId: string) {
-	return userId.slice(0, 8)
 }

@@ -40,18 +40,11 @@ export class RepositoriesController {
 	}
 
 	@UseGuards(RepositoryOwnerGuard)
-	@Implement(contract.repositories.syncGitHubMirror)
-	syncGitHubMirror(
-		@Session() session: UserSession,
-		@TargetUserId() targetUserId: UserId
-	) {
-		return implement(contract.repositories.syncGitHubMirror).handler(
+	@Implement(contract.repositories.enableGitHubMirror)
+	enableGitHubMirror(@TargetUserId() targetUserId: UserId) {
+		return implement(contract.repositories.enableGitHubMirror).handler(
 			({ input }) =>
-				this.repositoriesService.syncGitHubMirror(
-					session.user.id,
-					targetUserId,
-					input
-				)
+				this.repositoriesService.enableGitHubMirror(targetUserId, input)
 		)
 	}
 
@@ -68,33 +61,6 @@ export class RepositoriesController {
 					targetUserId,
 					input
 				)
-		)
-	}
-
-	@UseGuards(RepositoryOwnerGuard)
-	@Implement(contract.repositories.enableGitHubPushBack)
-	enableGitHubPushBack(@TargetUserId() targetUserId: UserId) {
-		return implement(contract.repositories.enableGitHubPushBack).handler(
-			({ input }) =>
-				this.repositoriesService.enableGitHubPushBack(targetUserId, input)
-		)
-	}
-
-	@UseGuards(RepositoryOwnerGuard)
-	@Implement(contract.repositories.disableGitHubPushBack)
-	disableGitHubPushBack(@TargetUserId() targetUserId: UserId) {
-		return implement(contract.repositories.disableGitHubPushBack).handler(
-			({ input }) =>
-				this.repositoriesService.disableGitHubPushBack(targetUserId, input)
-		)
-	}
-
-	@UseGuards(RepositoryOwnerGuard)
-	@Implement(contract.repositories.pushGitHubPushBackMirror)
-	pushGitHubPushBackMirror(@TargetUserId() targetUserId: UserId) {
-		return implement(contract.repositories.pushGitHubPushBackMirror).handler(
-			({ input }) =>
-				this.repositoriesService.pushGitHubPushBackMirror(targetUserId, input)
 		)
 	}
 }
