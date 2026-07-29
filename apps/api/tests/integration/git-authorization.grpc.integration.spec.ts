@@ -17,7 +17,6 @@ import { InvalidGitAccessTokenError } from '@modules/git-access-tokens/domain/gi
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { RepositoriesService } from '@modules/repositories/application/repositories.service'
 import { RepositoryPermissionsService } from '@modules/repositories/application/repository-permissions.service'
-import { GitHubMirrorSyncQueue } from '@modules/repositories/infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
 import { GitRepositoryWriteGuard } from '@modules/repositories/presentation/git-repository-write.guard'
@@ -124,12 +123,6 @@ describe('Git authorization gRPC integration', () => {
 				{
 					provide: GitStorageClient,
 					useValue: {},
-				},
-				{
-					provide: GitHubMirrorSyncQueue,
-					useValue: {
-						enqueueRepositorySync: vi.fn(),
-					},
 				},
 				{
 					provide: GitAccessTokensService,

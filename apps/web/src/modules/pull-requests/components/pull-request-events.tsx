@@ -1,7 +1,6 @@
 import type { PullRequestEvent } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import {
-	formatPullRequestActor,
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 	getPullRequestEventLabel,
@@ -26,8 +25,7 @@ export function PullRequestEvents({
 						key={event.id}
 					>
 						<span>
-							{getPullRequestEventLabel(event.type)} by{' '}
-							{formatPullRequestActor(event.actorUserId)}
+							{getPullRequestEventLabel(event.type)} by {event.actorUsername}
 						</span>
 						<time
 							className="text-muted-foreground text-xs"

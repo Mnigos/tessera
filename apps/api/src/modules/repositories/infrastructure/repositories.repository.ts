@@ -71,6 +71,11 @@ interface RepositoryIdWithUserParams extends RepositoryIdParams {
 	userId: UserId
 }
 
+export interface GitHubMirrorEnablement {
+	installationId?: string
+	mirrorMode: 'imported' | 'github_to_tessera' | 'tessera_source'
+}
+
 interface CutoverGitHubMirrorParams extends RepositoryIdWithUserParams {
 	actorUserId: UserId
 	cutoverAt: Date
@@ -464,6 +469,64 @@ export class RepositoriesRepository {
 		return toGitHubMirrorSyncRepository(row)
 	}
 
+	async findGitHubMirrorEnablement({
+		repositoryId,
+	}: RepositoryIdParams): Promise<GitHubMirrorEnablement | undefined> {
+		const [source] = await this.db
+			.select({
+				installationId: repositoryExternalSources.installationId,
+				mirrorMode: repositoryExternalSources.mirrorMode,
+			})
+			.from(repositoryExternalSources)
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github')
+				)
+			)
+			.limit(1)
+
+		return source
+			? {
+					installationId: source.installationId ?? undefined,
+					mirrorMode: source.mirrorMode,
+				}
+			: undefined
+	}
+
+	async enableGitHubMirror({
+		repositoryId,
+		userId,
+	}: RepositoryIdWithUserParams): Promise<boolean> {
+		const [source] = await this.db
+			.update(repositoryExternalSources)
+			.set({
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'pending',
+				requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+				syncFailureCode: null,
+				syncFailureReason: null,
+				nextSyncAt: new Date(),
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github'),
+					eq(repositoryExternalSources.mirrorMode, 'imported'),
+					isNotNull(repositoryExternalSources.installationId),
+					sql`exists (
+						select 1
+						from ${repositories}
+						where ${repositories.id} = ${repositoryExternalSources.repositoryId}
+							and ${repositories.ownerUserId} = ${userId}
+					)`
+				)
+			)
+			.returning({ id: repositoryExternalSources.id })
+
+		return Boolean(source)
+	}
+
 	async markGitHubMirrorSyncPending({
 		repositoryId,
 		userId,
@@ -715,6 +778,10 @@ export class RepositoriesRepository {
 				.set({
 					mirrorMode: 'tessera_source',
 					nextSyncAt: null,
+					authorityGeneration: sql`${repositoryExternalSources.authorityGeneration} + 1`,
+					syncLeaseOwner: null,
+					syncLeaseAcquiredAt: null,
+					syncLeaseExpiresAt: null,
 					cutoverActorUserId: actorUserId,
 					cutoverAt,
 					cutoverFromMirrorMode: 'github_to_tessera',

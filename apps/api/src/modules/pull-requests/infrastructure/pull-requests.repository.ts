@@ -1,11 +1,17 @@
 import { Database } from '@config/database'
+import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
+import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { Injectable } from '@nestjs/common'
+import type { GitHubActorId, GitHubWebhookDeliveryId } from '@repo/db'
 import {
 	and,
 	asc,
 	type DrizzleTransaction,
 	desc,
 	eq,
+	gitHubActors,
+	gitHubPullRequestEventMappings,
+	gitHubPullRequestMappings,
 	ne,
 	type PullRequest,
 	type PullRequestEvent,
@@ -14,8 +20,10 @@ import {
 	pullRequests,
 	repositoryPullRequestCounters,
 	sql,
+	user,
 } from '@repo/db'
 import type { PullRequestId, RepositoryId, UserId } from '@repo/domain'
+import { alias } from 'drizzle-orm/pg-core'
 
 interface RepositoryParams {
 	repositoryId: RepositoryId
@@ -37,6 +45,13 @@ interface CreateParams extends RepositoryParams {
 	openingHeadSha: string
 	title: string
 	body: string
+}
+
+interface ReconcileGitHubPullRequestParams extends RepositoryParams {
+	pullRequest: GitHubSyncPullRequest
+	authorActorId: GitHubActorId
+	mergedByActorId?: GitHubActorId
+	pendingEvents: GitHubPendingPullRequestEvent[]
 }
 
 interface PullRequestMutationParams extends RepositoryParams {
@@ -75,9 +90,36 @@ interface ReleaseMergeParams extends PullRequestMutationParams {
 
 type PullRequestDatabase = Database | DrizzleTransaction
 
+export interface PullRequestReadModel extends PullRequest {
+	authorUsername?: string
+	github?: {
+		nodeId: string
+		htmlUrl: string
+		draft: boolean
+		headSha: string
+		baseSha: string
+		mergedByUsername?: string
+	}
+}
+
+export interface PullRequestEventReadModel extends PullRequestEvent {
+	actorUsername?: string
+}
+
+interface PullRequestReadRow extends PullRequest {
+	authorUsername: string
+	githubNodeId: string | null
+	githubHtmlUrl: string | null
+	githubDraft: boolean | null
+	githubHeadSha: string | null
+	githubBaseSha: string | null
+	githubMergedByUsername: string | null
+}
+
 const PULL_REQUEST_COLUMNS = {
 	id: pullRequests.id,
 	repositoryId: pullRequests.repositoryId,
+	provider: pullRequests.provider,
 	number: pullRequests.number,
 	authorUserId: pullRequests.authorUserId,
 	sourceBranch: pullRequests.sourceBranch,
@@ -93,6 +135,29 @@ const PULL_REQUEST_COLUMNS = {
 	updatedAt: pullRequests.updatedAt,
 	closedAt: pullRequests.closedAt,
 	mergedAt: pullRequests.mergedAt,
+}
+
+const authorUser = alias(user, 'pull_request_author_user')
+const authorGitHubActor = alias(
+	gitHubActors,
+	'pull_request_author_github_actor'
+)
+const mergedByGitHubActor = alias(
+	gitHubActors,
+	'pull_request_merged_by_github_actor'
+)
+const eventActorUser = alias(user, 'pull_request_event_actor_user')
+const eventGitHubActor = alias(gitHubActors, 'pull_request_event_github_actor')
+
+const PULL_REQUEST_READ_COLUMNS = {
+	...PULL_REQUEST_COLUMNS,
+	authorUsername: sql<string>`coalesce(${authorUser.username}, ${authorGitHubActor.login})`,
+	githubNodeId: gitHubPullRequestMappings.externalNodeId,
+	githubHtmlUrl: gitHubPullRequestMappings.htmlUrl,
+	githubDraft: gitHubPullRequestMappings.draft,
+	githubHeadSha: gitHubPullRequestMappings.headSha,
+	githubBaseSha: gitHubPullRequestMappings.baseSha,
+	githubMergedByUsername: mergedByGitHubActor.login,
 }
 
 @Injectable()
@@ -147,25 +212,56 @@ export class PullRequestsRepository {
 		})
 	}
 
-	async list({ repositoryId, state }: ListParams): Promise<PullRequest[]> {
+	async list({
+		repositoryId,
+		state,
+	}: ListParams): Promise<PullRequestReadModel[]> {
 		const conditions = [eq(pullRequests.repositoryId, repositoryId)]
 
 		if (state) conditions.push(eq(pullRequests.state, state))
 
-		return await this.db
-			.select(PULL_REQUEST_COLUMNS)
+		const rows = await this.db
+			.select(PULL_REQUEST_READ_COLUMNS)
 			.from(pullRequests)
+			.leftJoin(authorUser, eq(authorUser.id, pullRequests.authorUserId))
+			.leftJoin(
+				gitHubPullRequestMappings,
+				eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+			)
+			.leftJoin(
+				authorGitHubActor,
+				eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
+			)
+			.leftJoin(
+				mergedByGitHubActor,
+				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
+			)
 			.where(and(...conditions))
 			.orderBy(desc(pullRequests.number))
+
+		return rows.map(toPullRequestReadModel)
 	}
 
 	async find({
 		number,
 		repositoryId,
-	}: PullRequestNumberParams): Promise<PullRequest | undefined> {
+	}: PullRequestNumberParams): Promise<PullRequestReadModel | undefined> {
 		const [pullRequest] = await this.db
-			.select(PULL_REQUEST_COLUMNS)
+			.select(PULL_REQUEST_READ_COLUMNS)
 			.from(pullRequests)
+			.leftJoin(authorUser, eq(authorUser.id, pullRequests.authorUserId))
+			.leftJoin(
+				gitHubPullRequestMappings,
+				eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+			)
+			.leftJoin(
+				authorGitHubActor,
+				eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
+			)
+			.leftJoin(
+				mergedByGitHubActor,
+				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
+			)
 			.where(
 				and(
 					eq(pullRequests.repositoryId, repositoryId),
@@ -174,25 +270,153 @@ export class PullRequestsRepository {
 			)
 			.limit(1)
 
-		return pullRequest
+		return pullRequest ? toPullRequestReadModel(pullRequest) : undefined
 	}
 
 	async listEvents({
 		pullRequestId,
 	}: Pick<PullRequestMutationParams, 'pullRequestId'>): Promise<
-		PullRequestEvent[]
+		PullRequestEventReadModel[]
 	> {
 		return await this.db
 			.select({
 				id: pullRequestEvents.id,
 				pullRequestId: pullRequestEvents.pullRequestId,
+				provider: pullRequestEvents.provider,
 				actorUserId: pullRequestEvents.actorUserId,
 				type: pullRequestEvents.type,
 				createdAt: pullRequestEvents.createdAt,
+				actorUsername: sql<string>`coalesce(${eventActorUser.username}, ${eventGitHubActor.login})`,
 			})
 			.from(pullRequestEvents)
+			.leftJoin(
+				eventActorUser,
+				eq(eventActorUser.id, pullRequestEvents.actorUserId)
+			)
+			.leftJoin(
+				gitHubPullRequestEventMappings,
+				eq(
+					gitHubPullRequestEventMappings.pullRequestEventId,
+					pullRequestEvents.id
+				)
+			)
+			.leftJoin(
+				eventGitHubActor,
+				eq(eventGitHubActor.id, gitHubPullRequestEventMappings.actorId)
+			)
 			.where(eq(pullRequestEvents.pullRequestId, pullRequestId))
 			.orderBy(asc(pullRequestEvents.createdAt))
+	}
+
+	async reconcileGitHubPullRequest({
+		authorActorId,
+		mergedByActorId,
+		pendingEvents,
+		pullRequest,
+		repositoryId,
+	}: ReconcileGitHubPullRequestParams): Promise<void> {
+		await this.db.transaction(async transaction => {
+			const [existingMapping] = await transaction
+				.select({
+					pullRequestId: gitHubPullRequestMappings.pullRequestId,
+				})
+				.from(gitHubPullRequestMappings)
+				.where(
+					and(
+						eq(gitHubPullRequestMappings.repositoryId, repositoryId),
+						eq(gitHubPullRequestMappings.externalNodeId, pullRequest.nodeId)
+					)
+				)
+				.limit(1)
+				.for('update')
+
+			const pullRequestId = existingMapping?.pullRequestId
+				? await this.updateGitHubPullRequest(transaction, {
+						pullRequestId: existingMapping.pullRequestId,
+						pullRequest,
+					})
+				: await this.createGitHubPullRequest(transaction, {
+						repositoryId,
+						pullRequest,
+					})
+
+			await transaction
+				.insert(gitHubPullRequestMappings)
+				.values({
+					repositoryId,
+					pullRequestId,
+					externalNodeId: pullRequest.nodeId,
+					externalNumericId: pullRequest.numericId,
+					externalNumber: pullRequest.number,
+					htmlUrl: pullRequest.htmlUrl,
+					authorActorId,
+					mergedByActorId,
+					headRepositoryNodeId: pullRequest.headRepositoryNodeId,
+					baseRepositoryNodeId: pullRequest.baseRepositoryNodeId,
+					headSha: pullRequest.headSha,
+					baseSha: pullRequest.baseSha,
+					draft: pullRequest.draft,
+					providerCreatedAt: pullRequest.createdAt,
+					providerUpdatedAt: pullRequest.updatedAt,
+					providerClosedAt: pullRequest.closedAt,
+					providerMergedAt: pullRequest.mergedAt,
+					lastSyncedAt: new Date(),
+				})
+				.onConflictDoUpdate({
+					target: gitHubPullRequestMappings.externalNodeId,
+					set: {
+						externalNumericId: pullRequest.numericId,
+						externalNumber: pullRequest.number,
+						htmlUrl: pullRequest.htmlUrl,
+						authorActorId,
+						mergedByActorId,
+						headRepositoryNodeId: pullRequest.headRepositoryNodeId,
+						baseRepositoryNodeId: pullRequest.baseRepositoryNodeId,
+						headSha: pullRequest.headSha,
+						baseSha: pullRequest.baseSha,
+						draft: pullRequest.draft,
+						providerUpdatedAt: pullRequest.updatedAt,
+						providerClosedAt: pullRequest.closedAt,
+						providerMergedAt: pullRequest.mergedAt,
+						lastSyncedAt: new Date(),
+					},
+				})
+
+			await this.createGitHubEvent(transaction, {
+				pullRequestId,
+				type: 'opened',
+				actorId: authorActorId,
+				externalKey: `${pullRequest.nodeId}:opened`,
+				createdAt: pullRequest.createdAt,
+			})
+
+			if (
+				pullRequest.state === 'merged' &&
+				mergedByActorId &&
+				pullRequest.mergedAt
+			)
+				await this.createGitHubEvent(transaction, {
+					pullRequestId,
+					type: 'merged',
+					actorId: mergedByActorId,
+					externalKey: `${pullRequest.nodeId}:merged`,
+					createdAt: pullRequest.mergedAt,
+				})
+
+			for (const event of pendingEvents) {
+				const type = toPullRequestEventType(event.action, pullRequest.state)
+				if (!(type && event.actorId)) continue
+
+				await this.createGitHubEvent(transaction, {
+					pullRequestId,
+					type,
+					actorId: event.actorId,
+					deliveryId: event.deliveryId,
+					externalKey: event.deliveryId,
+					createdAt: event.receivedAt,
+				})
+			}
+		})
 	}
 
 	async edit({
@@ -467,5 +691,195 @@ export class PullRequestsRepository {
 			.limit(1)
 
 		return mergeIntent
+	}
+
+	private async createGitHubPullRequest(
+		transaction: DrizzleTransaction,
+		{
+			pullRequest,
+			repositoryId,
+		}: Pick<ReconcileGitHubPullRequestParams, 'pullRequest' | 'repositoryId'>
+	): Promise<PullRequestId> {
+		const [createdPullRequest] = await transaction
+			.insert(pullRequests)
+			.values({
+				repositoryId,
+				provider: 'github',
+				number: pullRequest.number,
+				sourceBranch: pullRequest.sourceBranch,
+				targetBranch: pullRequest.targetBranch,
+				openingBaseSha: pullRequest.baseSha,
+				openingHeadSha: pullRequest.headSha,
+				title: pullRequest.title,
+				body: pullRequest.body,
+				state: pullRequest.state,
+				mergeCommitSha: pullRequest.mergeCommitSha,
+				createdAt: pullRequest.createdAt,
+				updatedAt: pullRequest.updatedAt,
+				closedAt: pullRequest.closedAt,
+				mergedAt: pullRequest.mergedAt,
+			})
+			.returning({ id: pullRequests.id })
+
+		if (!createdPullRequest)
+			throw new Error('failed to create synchronized GitHub pull request')
+
+		return createdPullRequest.id
+	}
+
+	private async updateGitHubPullRequest(
+		transaction: DrizzleTransaction,
+		{
+			pullRequest,
+			pullRequestId,
+		}: {
+			pullRequest: GitHubSyncPullRequest
+			pullRequestId: PullRequestId
+		}
+	): Promise<PullRequestId> {
+		const [updatedPullRequest] = await transaction
+			.update(pullRequests)
+			.set({
+				number: pullRequest.number,
+				sourceBranch: pullRequest.sourceBranch,
+				targetBranch: pullRequest.targetBranch,
+				title: pullRequest.title,
+				body: pullRequest.body,
+				state: pullRequest.state,
+				mergeCommitSha: pullRequest.mergeCommitSha,
+				updatedAt: pullRequest.updatedAt,
+				closedAt: pullRequest.closedAt,
+				mergedAt: pullRequest.mergedAt,
+			})
+			.where(
+				and(
+					eq(pullRequests.id, pullRequestId),
+					eq(pullRequests.provider, 'github')
+				)
+			)
+			.returning({ id: pullRequests.id })
+
+		if (!updatedPullRequest)
+			throw new Error('failed to update synchronized GitHub pull request')
+
+		return updatedPullRequest.id
+	}
+
+	private async createGitHubEvent(
+		transaction: DrizzleTransaction,
+		{
+			actorId,
+			createdAt,
+			deliveryId,
+			externalKey,
+			pullRequestId,
+			type,
+		}: {
+			actorId: GitHubActorId
+			createdAt: Date
+			deliveryId?: GitHubWebhookDeliveryId
+			externalKey: string
+			pullRequestId: PullRequestId
+			type: PullRequestEvent['type']
+		}
+	): Promise<void> {
+		const existingMapping =
+			await transaction.query.gitHubPullRequestEventMappings.findFirst({
+				where: eq(gitHubPullRequestEventMappings.externalKey, externalKey),
+				columns: { id: true },
+			})
+
+		if (existingMapping) return
+
+		const [event] = await transaction
+			.insert(pullRequestEvents)
+			.values({
+				pullRequestId,
+				provider: 'github',
+				type,
+				createdAt,
+			})
+			.returning({ id: pullRequestEvents.id })
+
+		if (!event) throw new Error('failed to create synchronized GitHub event')
+
+		await transaction.insert(gitHubPullRequestEventMappings).values({
+			pullRequestEventId: event.id,
+			externalKey,
+			actorId,
+			deliveryId,
+			createdAt,
+		})
+	}
+}
+
+function toPullRequestReadModel(
+	pullRequest: PullRequestReadRow
+): PullRequestReadModel {
+	return {
+		id: pullRequest.id,
+		repositoryId: pullRequest.repositoryId,
+		provider: pullRequest.provider,
+		number: pullRequest.number,
+		authorUserId: pullRequest.authorUserId,
+		authorUsername: pullRequest.authorUsername,
+		sourceBranch: pullRequest.sourceBranch,
+		targetBranch: pullRequest.targetBranch,
+		openingBaseSha: pullRequest.openingBaseSha,
+		openingHeadSha: pullRequest.openingHeadSha,
+		title: pullRequest.title,
+		body: pullRequest.body,
+		state: pullRequest.state,
+		mergeCommitSha: pullRequest.mergeCommitSha,
+		mergeActorUserId: pullRequest.mergeActorUserId,
+		createdAt: pullRequest.createdAt,
+		updatedAt: pullRequest.updatedAt,
+		closedAt: pullRequest.closedAt,
+		mergedAt: pullRequest.mergedAt,
+		github:
+			pullRequest.githubNodeId &&
+			pullRequest.githubHtmlUrl &&
+			pullRequest.githubDraft !== null &&
+			pullRequest.githubHeadSha &&
+			pullRequest.githubBaseSha
+				? {
+						nodeId: pullRequest.githubNodeId,
+						htmlUrl: pullRequest.githubHtmlUrl,
+						draft: pullRequest.githubDraft,
+						headSha: pullRequest.githubHeadSha,
+						baseSha: pullRequest.githubBaseSha,
+						mergedByUsername: pullRequest.githubMergedByUsername ?? undefined,
+					}
+				: undefined,
+	}
+}
+
+function toPullRequestEventType(
+	action: string,
+	state: PullRequest['state']
+): PullRequestEvent['type'] | undefined {
+	switch (action) {
+		case 'opened':
+			return undefined
+		case 'edited':
+			return 'edited'
+		case 'closed':
+			return state === 'merged' ? undefined : 'closed'
+		case 'reopened':
+			return 'reopened'
+		case 'synchronize':
+			return 'synchronized'
+		case 'converted_to_draft':
+			return 'converted_to_draft'
+		case 'ready_for_review':
+			return 'ready_for_review'
+		case 'assigned':
+			return 'assigned'
+		case 'review_requested':
+			return 'review_requested'
+		case 'labeled':
+			return 'labeled'
+		default:
+			return undefined
 	}
 }

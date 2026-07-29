@@ -26,12 +26,24 @@ export const pullRequestStateEnum = pgEnum('pull_request_state', [
 	'merged',
 ])
 
+export const pullRequestProviderEnum = pgEnum('pull_request_provider', [
+	'tessera',
+	'github',
+])
+
 export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'opened',
 	'edited',
 	'closed',
 	'reopened',
 	'merged',
+	'synchronized',
+	'retargeted',
+	'converted_to_draft',
+	'ready_for_review',
+	'assigned',
+	'review_requested',
+	'labeled',
 ])
 
 export const repositoryPullRequestCounters = pgTable(
@@ -59,9 +71,9 @@ export const pullRequests = pgTable(
 			.notNull()
 			.$type<RepositoryId>()
 			.references(() => repositories.id, { onDelete: 'cascade' }),
+		provider: pullRequestProviderEnum('provider').default('tessera').notNull(),
 		number: integer('number').notNull(),
 		authorUserId: uuid('author_user_id')
-			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
 		sourceBranch: text('source_branch').notNull(),
@@ -90,7 +102,7 @@ export const pullRequests = pgTable(
 		),
 		uniqueIndex('pull_requests_open_branch_pair_unique')
 			.on(table.repositoryId, table.sourceBranch, table.targetBranch)
-			.where(sql`${table.state} = 'open'`),
+			.where(sql`${table.state} = 'open' and ${table.provider} = 'tessera'`),
 		index('pull_requests_repository_state_number_idx').on(
 			table.repositoryId,
 			table.state,
@@ -107,8 +119,12 @@ export const pullRequests = pgTable(
 			sql`(
 				(${table.state}::text = 'open' and ${table.closedAt} is null and ${table.mergedAt} is null and ${table.mergeCommitSha} is null and ${table.mergeActorUserId} is null)
 				or (${table.state}::text = 'closed' and ${table.closedAt} is not null and ${table.mergedAt} is null and ${table.mergeCommitSha} is null and ${table.mergeActorUserId} is null)
-				or (${table.state}::text = 'merged' and ${table.closedAt} is not null and ${table.mergedAt} is not null and ${table.mergeCommitSha} is not null and ${table.mergeActorUserId} is not null)
+				or (${table.state}::text = 'merged' and ${table.closedAt} is not null and ${table.mergedAt} is not null and ${table.mergeCommitSha} is not null and (${table.provider}::text = 'github' or ${table.mergeActorUserId} is not null))
 			)`
+		),
+		check(
+			'pull_requests_author_check',
+			sql`${table.provider}::text = 'github' or ${table.authorUserId} is not null`
 		),
 	]
 )
@@ -121,8 +137,8 @@ export const pullRequestEvents = pgTable(
 			.notNull()
 			.$type<PullRequestId>()
 			.references(() => pullRequests.id, { onDelete: 'cascade' }),
+		provider: pullRequestProviderEnum('provider').default('tessera').notNull(),
 		actorUserId: uuid('actor_user_id')
-			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
 		type: pullRequestEventTypeEnum('type').notNull(),
@@ -134,6 +150,10 @@ export const pullRequestEvents = pgTable(
 			table.createdAt
 		),
 		index('pull_request_events_actor_user_id_idx').on(table.actorUserId),
+		check(
+			'pull_request_events_actor_check',
+			sql`${table.provider}::text = 'github' or ${table.actorUserId} is not null`
+		),
 	]
 )
 

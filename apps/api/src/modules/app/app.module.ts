@@ -8,13 +8,11 @@ import { AuthModule } from '@modules/auth'
 import { DocsModule } from '@modules/docs'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GitHubImportModule } from '@modules/github-import'
+import { GitHubSyncModule } from '@modules/github-sync'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { HealthModule } from '@modules/health'
 import { PullRequestsModule } from '@modules/pull-requests'
-import {
-	RepositoriesModule,
-	RepositoriesWorkersModule,
-} from '@modules/repositories'
+import { RepositoriesModule } from '@modules/repositories'
 import { RepositoryCollaboratorsModule } from '@modules/repository-collaborators'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { UserModule } from '@modules/user'
@@ -33,10 +31,10 @@ import { APP_FILTER } from '@nestjs/core'
 		UserModule,
 		GitAccessTokensModule,
 		GitHubImportModule,
+		GitHubSyncModule,
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
 		RepositoriesModule,
-		RepositoriesWorkersModule,
 		RepositoryCollaboratorsModule,
 		PullRequestsModule,
 		DocsModule,

@@ -1,4 +1,5 @@
 export * from './auth.schema'
+export * from './github-sync.schema'
 export * from './gpg-public-keys.schema'
 export * from './organizations.schema'
 export * from './pull-requests.schema'

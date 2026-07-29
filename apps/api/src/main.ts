@@ -16,7 +16,7 @@ async function bootstrap() {
 	const adapter = new HonoAdapter({
 		skipBodyParserFor: ['/api/auth'],
 	})
-	const app = await NestFactory.create(AppModule, adapter)
+	const app = await NestFactory.create(AppModule, adapter, { rawBody: true })
 	const envService = app.get(EnvService)
 
 	const port = envService.get('PORT')

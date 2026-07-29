@@ -810,13 +810,18 @@ describe(RepositoriesRepository.name, () => {
 		)
 		expect(transactionMock).toHaveBeenCalledOnce()
 		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
-		expect(setMock).toHaveBeenCalledWith({
-			mirrorMode: 'tessera_source',
-			nextSyncAt: null,
-			cutoverActorUserId: mockUserId,
-			cutoverAt,
-			cutoverFromMirrorMode: 'github_to_tessera',
-		})
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mirrorMode: 'tessera_source',
+				nextSyncAt: null,
+				syncLeaseOwner: null,
+				syncLeaseAcquiredAt: null,
+				syncLeaseExpiresAt: null,
+				cutoverActorUserId: mockUserId,
+				cutoverAt,
+				cutoverFromMirrorMode: 'github_to_tessera',
+			})
+		)
 		expect(updateReturningMock).toHaveBeenCalledWith({
 			id: repositoryExternalSources.id,
 		})

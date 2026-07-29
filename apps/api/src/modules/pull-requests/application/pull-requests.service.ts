@@ -3,6 +3,8 @@ import {
 	GitStorageClient,
 	type GitStorageRepositoryBlob,
 } from '@config/git-storage'
+import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
+import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { RepositoriesService } from '@modules/repositories'
 import { Injectable } from '@nestjs/common'
 import type {
@@ -17,7 +19,7 @@ import type {
 	PullRequestFileDiff,
 	RepositoryViewerRole,
 } from '@repo/contracts'
-import type { PullRequest as PullRequestEntity } from '@repo/db'
+import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
 import type { RepositoryId, UserId } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
@@ -38,7 +40,10 @@ import {
 } from '../domain/pull-request.errors'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
 import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
-import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
+import {
+	type PullRequestReadModel,
+	PullRequestsRepository,
+} from '../infrastructure/pull-requests.repository'
 
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
 	'pull_requests_open_branch_pair_unique',
@@ -73,6 +78,38 @@ export class PullRequestsService {
 		private readonly repositoriesService: RepositoriesService,
 		private readonly gitStorageClient: GitStorageClient
 	) {}
+
+	async reconcileGitHubPullRequests({
+		actorIds,
+		pendingEvents,
+		pullRequests,
+		repositoryId,
+	}: {
+		actorIds: Map<string, GitHubActorId>
+		pendingEvents: GitHubPendingPullRequestEvent[]
+		pullRequests: GitHubSyncPullRequest[]
+		repositoryId: RepositoryId
+	}): Promise<void> {
+		for (const pullRequest of pullRequests) {
+			const authorActorId = actorIds.get(pullRequest.author.nodeId)
+			const mergedByActorId = pullRequest.mergedBy
+				? actorIds.get(pullRequest.mergedBy.nodeId)
+				: undefined
+
+			if (!authorActorId)
+				throw new Error('synchronized pull request author mapping is missing')
+
+			await this.pullRequestsRepository.reconcileGitHubPullRequest({
+				repositoryId,
+				pullRequest,
+				authorActorId,
+				mergedByActorId,
+				pendingEvents: pendingEvents.filter(
+					event => event.subjectNumber === pullRequest.number
+				),
+			})
+		}
+	}
 
 	async create(
 		userId: UserId,
@@ -188,7 +225,7 @@ export class PullRequestsService {
 
 		return {
 			pullRequest: toPullRequestOutput(pullRequest, username),
-			events: events.map(toPullRequestEventOutput),
+			events: events.map(event => toPullRequestEventOutput(event, username)),
 			viewerRole,
 		}
 	}
@@ -490,7 +527,13 @@ export class PullRequestsService {
 		})
 	}
 
-	private getComparisonRefs(pullRequest: PullRequestEntity) {
+	private getComparisonRefs(pullRequest: PullRequestReadModel) {
+		if (pullRequest.github)
+			return {
+				baseRef: pullRequest.github.baseSha,
+				headRef: pullRequest.github.headSha,
+			}
+
 		if (pullRequest.state === 'merged' && pullRequest.mergeCommitSha)
 			return {
 				baseRef: `${pullRequest.mergeCommitSha}^1`,
@@ -506,7 +549,7 @@ export class PullRequestsService {
 	private async findPullRequest(
 		repositoryId: RepositoryId,
 		number: number
-	): Promise<PullRequestEntity> {
+	): Promise<PullRequestReadModel> {
 		const pullRequest = await this.pullRequestsRepository.find({
 			repositoryId,
 			number,

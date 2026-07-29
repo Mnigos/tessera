@@ -1,3 +1,4 @@
+import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
@@ -22,18 +23,12 @@ import {
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryGitHubMirrorCutoverSyncInProgressError,
 	RepositoryGitHubMirrorCutoverUnavailableError,
-	RepositoryGitHubMirrorSyncUnavailableError,
-	RepositoryGitHubPushBackDisabledError,
-	RepositoryGitHubPushBackInProgressError,
-	RepositoryGitHubPushBackTokenMissingError,
-	RepositoryGitHubPushBackUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
-import { GitHubMirrorSyncQueue } from '../infrastructure/github-mirror-sync.queue'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 import { RepositoriesService } from './repositories.service'
 import { RepositoryPermissionsService } from './repository-permissions.service'
@@ -72,7 +67,6 @@ describe(RepositoriesService.name, () => {
 	let repositoriesRepository: RepositoriesRepository
 	let gpgPublicKeysService: GpgPublicKeysService
 	let sshPublicKeysService: SshPublicKeysService
-	let githubMirrorSyncQueue: GitHubMirrorSyncQueue
 	let gitAccessTokensService: GitAccessTokensService
 
 	beforeEach(async () => {
@@ -91,6 +85,8 @@ describe(RepositoriesService.name, () => {
 						upsertGitHubExternalSource: vi.fn(),
 						markGitHubMirrorSyncPending: vi.fn(),
 						markGitHubMirrorSyncFailed: vi.fn(),
+						findGitHubMirrorEnablement: vi.fn(),
+						enableGitHubMirror: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
 						enableGitHubPushBack: vi.fn(),
 						disableGitHubPushBack: vi.fn(),
@@ -216,9 +212,13 @@ describe(RepositoriesService.name, () => {
 					},
 				},
 				{
-					provide: GitHubMirrorSyncQueue,
+					provide: EnvService,
 					useValue: {
-						enqueueRepositorySync: vi.fn(),
+						get: vi.fn((key: string) =>
+							key === 'GITHUB_APP_INSTALL_URL'
+								? 'https://github.com/apps/tessera/installations/new'
+								: undefined
+						),
 					},
 				},
 				{
@@ -232,7 +232,6 @@ describe(RepositoriesService.name, () => {
 		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		gpgPublicKeysService = moduleRef.get(GpgPublicKeysService)
 		sshPublicKeysService = moduleRef.get(SshPublicKeysService)
-		githubMirrorSyncQueue = moduleRef.get(GitHubMirrorSyncQueue)
 		gitAccessTokensService = moduleRef.get(GitAccessTokensService)
 		vi.mocked(highlightRepositoryBlobPreview).mockResolvedValue(undefined)
 	})
@@ -599,185 +598,56 @@ describe(RepositoriesService.name, () => {
 		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
-	test('queues a GitHub mirror sync for an imported GitHub repository', async () => {
-		const pendingRepository = {
+	test('enables automatic GitHub mirroring when an installation is linked', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
 			...repository,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github' as const,
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera' as const,
-				syncStatus: 'pending' as const,
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: mockUserId,
-				cutoverAt: new Date('2026-05-12T00:02:00Z'),
-				cutoverFromMirrorMode: 'github_to_tessera' as const,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-			},
-		}
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...pendingRepository,
-			externalSource: {
-				...pendingRepository.externalSource,
-				mirrorMode: 'imported',
-				syncStatus: 'succeeded',
-			},
+			externalSource: createGitHubExternalSource({ mirrorMode: 'imported' }),
 		})
 		vi.spyOn(
 			repositoriesRepository,
-			'markGitHubMirrorSyncPending'
+			'findGitHubMirrorEnablement'
 		).mockResolvedValue({
-			didMarkPending: true,
-			repository: pendingRepository,
+			installationId: '00000000-0000-4000-8000-000000000099',
+			mirrorMode: 'imported',
 		})
-		const enqueueRepositorySyncSpy = vi.spyOn(
-			githubMirrorSyncQueue,
-			'enqueueRepositorySync'
-		)
+		const enableGitHubMirrorSpy = vi
+			.spyOn(repositoriesRepository, 'enableGitHubMirror')
+			.mockResolvedValue(true)
 
 		expect(
-			await repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+			await repositoriesService.enableGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
-		).toEqual(
-			expect.objectContaining({
-				repository: expect.objectContaining({
-					externalSource: expect.objectContaining({
-						mode: 'github_to_tessera',
-						syncStatus: 'pending',
-					}),
-				}),
-			})
-		)
-		expect(enqueueRepositorySyncSpy).toHaveBeenCalledWith({
+		).toEqual({ status: 'enabled' })
+		expect(enableGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
-			requesterUserId: mockUserId,
+			userId: mockUserId,
 		})
 	})
 
-	test('does not enqueue duplicate GitHub mirror sync jobs', async () => {
-		const pendingRepository = {
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github' as const,
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera' as const,
-				syncStatus: 'pending' as const,
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: null,
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-			},
-		}
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			pendingRepository
-		)
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubMirrorSyncPending'
-		).mockResolvedValue({
-			didMarkPending: false,
-			repository: pendingRepository,
-		})
-		const enqueueRepositorySyncSpy = vi.spyOn(
-			githubMirrorSyncQueue,
-			'enqueueRepositorySync'
-		)
-
-		await repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
-			username: 'marta',
-			slug: repository.slug,
-		})
-
-		expect(enqueueRepositorySyncSpy).not.toHaveBeenCalled()
-	})
-
-	test('rejects GitHub mirror sync after cutover', async () => {
+	test('returns the GitHub App installation URL when installation is required', async () => {
 		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
 			...repository,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github' as const,
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'tessera_source' as const,
-				syncStatus: 'succeeded' as const,
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-			},
+			externalSource: createGitHubExternalSource({ mirrorMode: 'imported' }),
 		})
+		vi.spyOn(
+			repositoriesRepository,
+			'findGitHubMirrorEnablement'
+		).mockResolvedValue({ mirrorMode: 'imported' })
 
-		await expect(
-			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
+		expect(
+			await repositoriesService.enableGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
-		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
-		expect(
-			repositoriesRepository.markGitHubMirrorSyncPending
-		).not.toHaveBeenCalled()
+		).toEqual({
+			status: 'installation_required',
+			installUrl: 'https://github.com/apps/tessera/installations/new',
+		})
+		expect(repositoriesRepository.enableGitHubMirror).not.toHaveBeenCalled()
 	})
 
 	test('cuts over a succeeded GitHub mirror to Tessera source', async () => {
@@ -1000,402 +870,6 @@ describe(RepositoriesService.name, () => {
 			})
 		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverUnavailableError)
 		expect(repositoriesRepository.cutoverGitHubMirror).not.toHaveBeenCalled()
-	})
-
-	test('marks GitHub mirror sync failed when enqueue fails', async () => {
-		const pendingRepository = {
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github' as const,
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera' as const,
-				syncStatus: 'pending' as const,
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: null,
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-			},
-		}
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			pendingRepository
-		)
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubMirrorSyncPending'
-		).mockResolvedValue({
-			didMarkPending: true,
-			repository: pendingRepository,
-		})
-		vi.spyOn(githubMirrorSyncQueue, 'enqueueRepositorySync').mockRejectedValue(
-			new Error('redis unavailable')
-		)
-		const markGitHubMirrorSyncFailedSpy = vi.spyOn(
-			repositoriesRepository,
-			'markGitHubMirrorSyncFailed'
-		)
-		const loggerErrorSpy = vi
-			.spyOn(repositoriesService['logger'], 'error')
-			.mockImplementation(() => undefined)
-
-		await expect(
-			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toThrow('redis unavailable')
-		expect(markGitHubMirrorSyncFailedSpy).toHaveBeenCalledWith({
-			repositoryId: repository.id,
-			failedAt: expect.any(Date),
-			failureReason: 'GitHub mirror sync could not be queued. Please retry.',
-		})
-		expect(loggerErrorSpy).toHaveBeenCalledWith(
-			'Failed to enqueue GitHub mirror sync job',
-			expect.any(String)
-		)
-	})
-
-	test('preserves enqueue errors when failed status persistence also fails', async () => {
-		const pendingRepository = {
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: {
-				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
-				repositoryId: repository.id,
-				provider: 'github' as const,
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera' as const,
-				syncStatus: 'pending' as const,
-				lastSyncStartedAt: null,
-				lastSyncSucceededAt: null,
-				lastSyncFailedAt: null,
-				nextSyncAt: null,
-				syncFailureCount: 0,
-				syncFailureReason: null,
-				cutoverActorUserId: null,
-				cutoverAt: null,
-				cutoverFromMirrorMode: null,
-				githubPushBackEnabled: false,
-				githubPushBackStatus: 'idle' as const,
-				githubPushBackStartedAt: null,
-				githubPushBackSucceededAt: null,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-				createdAt: new Date('2026-05-12T00:00:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
-			},
-		}
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			pendingRepository
-		)
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubMirrorSyncPending'
-		).mockResolvedValue({
-			didMarkPending: true,
-			repository: pendingRepository,
-		})
-		vi.spyOn(githubMirrorSyncQueue, 'enqueueRepositorySync').mockRejectedValue(
-			new Error('redis unavailable')
-		)
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubMirrorSyncFailed'
-		).mockRejectedValue(new Error('status update failed'))
-		const loggerErrorSpy = vi
-			.spyOn(repositoriesService['logger'], 'error')
-			.mockImplementation(() => undefined)
-
-		await expect(
-			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toThrow('redis unavailable')
-		expect(loggerErrorSpy).toHaveBeenCalledWith(
-			'Failed to enqueue GitHub mirror sync job',
-			expect.any(String)
-		)
-		expect(loggerErrorSpy).toHaveBeenCalledWith(
-			'Failed to mark GitHub mirror sync as failed after enqueue error',
-			expect.any(String)
-		)
-	})
-
-	test('rejects GitHub mirror sync while storage is missing', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(repository)
-
-		await expect(
-			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryStoragePathMissingError)
-	})
-
-	test('rejects GitHub mirror sync for non-mirrored repositories', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-		})
-
-		await expect(
-			repositoriesService.syncGitHubMirror(mockUserId, mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
-	})
-
-	test('enables GitHub push-back for cutover repositories', async () => {
-		const cutoverRepository = createCutoverGitHubRepository({
-			githubPushBackEnabled: false,
-		})
-		const enabledRepository = createCutoverGitHubRepository({
-			githubPushBackEnabled: true,
-		})
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			cutoverRepository
-		)
-		const enableGitHubPushBackSpy = vi
-			.spyOn(repositoriesRepository, 'enableGitHubPushBack')
-			.mockResolvedValue(enabledRepository)
-
-		expect(
-			await repositoriesService.enableGitHubPushBack(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).toEqual(
-			expect.objectContaining({
-				repository: expect.objectContaining({
-					externalSource: expect.objectContaining({
-						githubPushBackEnabled: true,
-						githubPushBackStatus: 'idle',
-					}),
-				}),
-			})
-		)
-		expect(enableGitHubPushBackSpy).toHaveBeenCalledWith({
-			repositoryId: repository.id,
-			userId: mockUserId,
-		})
-	})
-
-	test('rejects enabling GitHub push-back before cutover', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
-			...repository,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			externalSource: createGitHubExternalSource({
-				mirrorMode: 'github_to_tessera',
-				syncStatus: 'succeeded',
-			}),
-		})
-
-		await expect(
-			repositoriesService.enableGitHubPushBack(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackUnavailableError)
-		expect(repositoriesRepository.enableGitHubPushBack).not.toHaveBeenCalled()
-	})
-
-	test('rejects GitHub push-back setting changes while already running', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			createCutoverGitHubRepository({
-				githubPushBackEnabled: true,
-				githubPushBackStatus: 'running',
-			})
-		)
-
-		await expect(
-			repositoriesService.enableGitHubPushBack(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
-		await expect(
-			repositoriesService.disableGitHubPushBack(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
-		expect(repositoriesRepository.enableGitHubPushBack).not.toHaveBeenCalled()
-		expect(repositoriesRepository.disableGitHubPushBack).not.toHaveBeenCalled()
-	})
-
-	test('pushes enabled GitHub push-back mirrors and persists success', async () => {
-		const cutoverRepository = createCutoverGitHubRepository({
-			githubPushBackEnabled: true,
-		})
-		const succeededRepository = createCutoverGitHubRepository({
-			githubPushBackEnabled: true,
-			githubPushBackStatus: 'succeeded',
-			githubPushBackSucceededAt: new Date('2026-05-12T00:02:00Z'),
-		})
-		vi.spyOn(repositoriesRepository, 'find')
-			.mockResolvedValueOnce(cutoverRepository)
-			.mockResolvedValueOnce(succeededRepository)
-		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
-			accessToken: 'github-token',
-		})
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubPushBackRunning'
-		).mockResolvedValue(
-			createCutoverGitHubRepository({
-				githubPushBackEnabled: true,
-				githubPushBackStatus: 'running',
-			})
-		)
-		const pushRepositoryMirrorSpy = vi.spyOn(
-			moduleRef.get(GitStorageClient),
-			'pushRepositoryMirror'
-		)
-		const markGitHubPushBackSucceededSpy = vi.spyOn(
-			repositoriesRepository,
-			'markGitHubPushBackSucceeded'
-		)
-
-		expect(
-			await repositoriesService.pushGitHubPushBackMirror(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).toEqual(
-			expect.objectContaining({
-				repository: expect.objectContaining({
-					externalSource: expect.objectContaining({
-						githubPushBackStatus: 'succeeded',
-					}),
-				}),
-			})
-		)
-		expect(pushRepositoryMirrorSpy).toHaveBeenCalledWith({
-			repositoryId: repository.id,
-			storagePath: '/var/lib/tessera/repositories/repo.git',
-			targetUrl: 'https://github.com/marta/notes',
-			accessToken: 'github-token',
-		})
-		expect(markGitHubPushBackSucceededSpy).toHaveBeenCalledWith({
-			repositoryId: repository.id,
-			succeededAt: expect.any(Date),
-		})
-	})
-
-	test('rejects push-back when disabled', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			createCutoverGitHubRepository({ githubPushBackEnabled: false })
-		)
-
-		await expect(
-			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackDisabledError)
-		expect(repositoriesRepository.findGitHubAccount).not.toHaveBeenCalled()
-	})
-
-	test('rejects push-back while already running', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			createCutoverGitHubRepository({
-				githubPushBackEnabled: true,
-				githubPushBackStatus: 'running',
-			})
-		)
-
-		await expect(
-			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackInProgressError)
-		expect(repositoriesRepository.findGitHubAccount).not.toHaveBeenCalled()
-		expect(
-			repositoriesRepository.markGitHubPushBackRunning
-		).not.toHaveBeenCalled()
-	})
-
-	test('rejects push-back when GitHub token is missing', async () => {
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			createCutoverGitHubRepository({ githubPushBackEnabled: true })
-		)
-		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
-			accessToken: null,
-		})
-
-		await expect(
-			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toBeInstanceOf(RepositoryGitHubPushBackTokenMissingError)
-		expect(
-			repositoriesRepository.markGitHubPushBackRunning
-		).not.toHaveBeenCalled()
-	})
-
-	test('marks push-back failed when storage push fails', async () => {
-		const cutoverRepository = createCutoverGitHubRepository({
-			githubPushBackEnabled: true,
-		})
-		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
-			cutoverRepository
-		)
-		vi.spyOn(repositoriesRepository, 'findGitHubAccount').mockResolvedValue({
-			accessToken: 'github-token',
-		})
-		vi.spyOn(
-			repositoriesRepository,
-			'markGitHubPushBackRunning'
-		).mockResolvedValue(cutoverRepository)
-		vi.spyOn(
-			moduleRef.get(GitStorageClient),
-			'pushRepositoryMirror'
-		).mockRejectedValue(new Error('non-fast-forward'))
-		const markGitHubPushBackFailedSpy = vi.spyOn(
-			repositoriesRepository,
-			'markGitHubPushBackFailed'
-		)
-
-		await expect(
-			repositoriesService.pushGitHubPushBackMirror(mockUserId, {
-				username: 'marta',
-				slug: repository.slug,
-			})
-		).rejects.toThrow('non-fast-forward')
-		expect(markGitHubPushBackFailedSpy).toHaveBeenCalledWith({
-			repositoryId: repository.id,
-			failedAt: expect.any(Date),
-			failureReason: 'non-fast-forward',
-		})
 	})
 
 	test('throws when a readable repository is unknown', async () => {
@@ -2937,15 +2411,5 @@ function createGitHubExternalSource(overrides = {}) {
 		createdAt: new Date('2026-05-12T00:00:00Z'),
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
 		...overrides,
-	}
-}
-
-function createCutoverGitHubRepository(
-	externalSourceOverrides = {}
-): RepositoryWithOwner {
-	return {
-		...repository,
-		storagePath: '/var/lib/tessera/repositories/repo.git',
-		externalSource: createGitHubExternalSource(externalSourceOverrides),
 	}
 }

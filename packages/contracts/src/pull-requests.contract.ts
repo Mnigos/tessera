@@ -20,14 +20,22 @@ export const pullRequestEventTypeSchema = z.enum([
 	'closed',
 	'reopened',
 	'merged',
+	'synchronized',
+	'retargeted',
+	'converted_to_draft',
+	'ready_for_review',
+	'assigned',
+	'review_requested',
+	'labeled',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
 
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
 	repositoryId: z.uuid().brand<'repository_id'>(),
+	provider: z.enum(['tessera', 'github']),
 	number: z.number().int().positive(),
-	authorUserId: z.uuid().brand<'user_id'>(),
+	authorUserId: z.uuid().brand<'user_id'>().optional(),
 	authorUsername: z.string().min(1),
 	sourceBranch: z.string(),
 	targetBranch: z.string(),
@@ -42,13 +50,25 @@ export const pullRequestSchema = z.object({
 	updatedAt: z.coerce.date(),
 	closedAt: z.coerce.date().optional(),
 	mergedAt: z.coerce.date().optional(),
+	github: z
+		.object({
+			nodeId: z.string().min(1),
+			htmlUrl: z.url(),
+			draft: z.boolean(),
+			headSha: z.string().min(1),
+			baseSha: z.string().min(1),
+			mergedByUsername: z.string().min(1).optional(),
+		})
+		.optional(),
 })
 export type PullRequest = z.infer<typeof pullRequestSchema>
 
 export const pullRequestEventSchema = z.object({
 	id: z.uuid().brand<'pull_request_event_id'>(),
 	pullRequestId: pullRequestIdSchema,
-	actorUserId: z.uuid().brand<'user_id'>(),
+	provider: z.enum(['tessera', 'github']),
+	actorUserId: z.uuid().brand<'user_id'>().optional(),
+	actorUsername: z.string().min(1),
 	type: pullRequestEventTypeSchema,
 	createdAt: z.coerce.date(),
 })

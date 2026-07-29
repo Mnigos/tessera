@@ -1,16 +1,11 @@
 import type { Repository, RepositoryOwner } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
-import { cn } from '@repo/ui/utils'
-import { RefreshCw } from 'lucide-react'
-import { useSyncGitHubMirrorMutation } from '../hooks/use-sync-github-mirror.mutation'
+import { ArrowUpRight } from 'lucide-react'
+import { useEnableGitHubMirrorMutation } from '../hooks/use-enable-github-mirror.mutation'
 import { RepositoryDetentSourcePanel } from './repository-detent-source-panel'
-import { RepositoryGitHubBackupMirrorPanel } from './repository-github-backup-mirror-panel'
 import { GitHubMirrorCutoverSection } from './repository-github-mirror-cutover-section'
-import {
-	GitHubMirrorStatusBadge,
-	MirrorTimestamp,
-} from './repository-github-mirror-fields'
+import { GitHubMirrorStatusBadge } from './repository-github-mirror-fields'
 
 interface RepositoryGitHubMirrorPanelProps {
 	isCurrentOwner: boolean
@@ -24,168 +19,127 @@ export function RepositoryGitHubMirrorPanel({
 	repository,
 }: Readonly<RepositoryGitHubMirrorPanelProps>) {
 	const externalSource = repository.externalSource
-	const syncMutation = useSyncGitHubMirrorMutation()
 
-	if (externalSource.mode === 'none') return <NoGitHubMirrorPanel />
-
+	if (externalSource.mode === 'none') return null
 	if (externalSource.mode === 'tessera_source')
+		return <RepositoryDetentSourcePanel externalSource={externalSource} />
+	if (externalSource.mode === 'imported')
 		return (
-			<>
-				<RepositoryDetentSourcePanel externalSource={externalSource} />
-				<RepositoryGitHubBackupMirrorPanel
-					externalSource={externalSource}
-					isCurrentOwner={isCurrentOwner}
-					owner={owner}
-					repository={repository}
-				/>
-			</>
+			<ImportedGitHubRepositoryPanel
+				externalSource={externalSource}
+				isCurrentOwner={isCurrentOwner}
+				owner={owner}
+				repository={repository}
+			/>
 		)
 
-	const mirrorActions = getGitHubMirrorActions({
-		externalSource,
-		isCurrentOwner,
-		isSyncPending: syncMutation.isPending,
-	})
+	const statusTimestamp = getSyncStatusTimestamp(externalSource)
 
-	function handleSync() {
-		if (mirrorActions.sync.isDisabled) return
+	return (
+		<Card className="gap-3 p-4">
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+				<div className="flex min-w-0 flex-col gap-2">
+					<div className="flex min-w-0 flex-wrap items-center gap-2">
+						<a
+							className="inline-flex min-w-0 items-center gap-1 font-medium text-sm hover:text-primary"
+							href={externalSource.sourceUrl}
+							rel="noreferrer"
+							target="_blank"
+						>
+							<span className="truncate">{externalSource.fullName}</span>
+							<ArrowUpRight className="size-3 shrink-0" />
+						</a>
+						<span className="inline-flex rounded-md border border-border bg-secondary px-2 py-0.5 font-medium text-muted-foreground text-xs">
+							GitHub → Tessera
+						</span>
+					</div>
+					<GitHubMirrorStatusBadge
+						status={externalSource.syncStatus}
+						timestamp={statusTimestamp}
+					/>
+				</div>
+				{isCurrentOwner && externalSource.syncStatus === 'succeeded' && (
+					<GitHubMirrorCutoverSection owner={owner} repository={repository} />
+				)}
+			</div>
+			{externalSource.syncFailureReason && (
+				<p aria-live="polite" className="text-destructive text-sm">
+					{externalSource.syncFailureReason}
+				</p>
+			)}
+		</Card>
+	)
+}
 
-		syncMutation.mutate({
+interface ImportedGitHubRepositoryPanelProps {
+	externalSource: Exclude<Repository['externalSource'], { mode: 'none' }>
+	isCurrentOwner: boolean
+	owner: RepositoryOwner
+	repository: Repository
+}
+
+function ImportedGitHubRepositoryPanel({
+	externalSource,
+	isCurrentOwner,
+	owner,
+	repository,
+}: Readonly<ImportedGitHubRepositoryPanelProps>) {
+	const enableMutation = useEnableGitHubMirrorMutation()
+
+	function handleEnableMirror() {
+		enableMutation.mutate({
 			slug: repository.slug,
 			username: owner.username,
 		})
 	}
 
 	return (
-		<Card className="gap-4 p-4">
-			<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-				<div className="flex min-w-0 flex-col gap-1">
-					<div className="flex flex-wrap items-center gap-2">
-						<h2 className="font-semibold text-base tracking-normal">
-							GitHub mirror
-						</h2>
-						<GitHubMirrorStatusBadge status={externalSource.syncStatus} />
-					</div>
+		<Card className="gap-3 p-4">
+			<div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<div className="min-w-0">
+					<h2 className="font-semibold text-sm tracking-normal">
+						Not mirrored to GitHub
+					</h2>
 					<p className="text-muted-foreground text-sm">
-						{externalSource.fullName}
+						Connect the GitHub App to keep a mirror in sync automatically.
 					</p>
 					<a
-						className="break-all text-muted-foreground text-sm underline-offset-4 hover:text-foreground hover:underline"
+						className="inline-flex max-w-full items-center gap-1 text-muted-foreground text-xs hover:text-foreground"
 						href={externalSource.sourceUrl}
 						rel="noreferrer"
 						target="_blank"
 					>
-						{externalSource.sourceUrl}
+						<span className="truncate">{externalSource.fullName}</span>
+						<ArrowUpRight className="size-3 shrink-0" />
 					</a>
 				</div>
 				{isCurrentOwner && (
 					<Button
-						className="w-full sm:w-auto"
-						disabled={mirrorActions.sync.isDisabled}
-						onClick={handleSync}
+						disabled={enableMutation.isPending}
+						onClick={handleEnableMirror}
 						size="sm"
 						variant="secondary"
 					>
-						<RefreshCw className="size-4" />
-						{syncMutation.isPending ? 'Syncing...' : 'Sync now'}
+						{enableMutation.isPending ? 'Enabling…' : 'Enable mirror'}
 					</Button>
 				)}
 			</div>
-			<div
-				className={cn(
-					'grid gap-3 text-sm',
-					externalSource.nextSyncAt ? 'sm:grid-cols-4' : 'sm:grid-cols-3'
-				)}
-			>
-				{externalSource.nextSyncAt && (
-					<MirrorTimestamp
-						label="Next scheduled"
-						value={externalSource.nextSyncAt}
-					/>
-				)}
-				<MirrorTimestamp
-					label="Last started"
-					value={externalSource.lastSyncStartedAt}
-				/>
-				<MirrorTimestamp
-					label="Last success"
-					value={externalSource.lastSyncSucceededAt}
-				/>
-				<MirrorTimestamp
-					label="Last failure"
-					value={externalSource.lastSyncFailedAt}
-				/>
-			</div>
-			{mirrorActions.sync.isLocked && (
-				<p className="text-muted-foreground text-sm">
-					Sync is {externalSource.syncStatus}.
+			{enableMutation.isError && (
+				<p aria-live="polite" className="text-destructive text-sm">
+					The mirror could not be enabled. Try again.
 				</p>
-			)}
-			{externalSource.syncFailureReason && (
-				<p className="text-destructive text-sm">
-					{externalSource.syncFailureReason}
-				</p>
-			)}
-			{syncMutation.isSuccess && (
-				<p className="text-emerald-700 text-sm">Sync queued.</p>
-			)}
-			{syncMutation.isError && (
-				<p className="text-destructive text-sm">
-					GitHub mirror sync could not be queued.
-				</p>
-			)}
-			{mirrorActions.cutover.shouldShow && (
-				<GitHubMirrorCutoverSection
-					canCutover={mirrorActions.cutover.canStart}
-					externalSource={externalSource}
-					isSyncLocked={mirrorActions.sync.isLocked}
-					owner={owner}
-					repository={repository}
-				/>
 			)}
 		</Card>
 	)
 }
 
-interface GetGitHubMirrorActionsParams {
+function getSyncStatusTimestamp(
 	externalSource: Exclude<Repository['externalSource'], { mode: 'none' }>
-	isCurrentOwner: boolean
-	isSyncPending: boolean
-}
+) {
+	if (externalSource.syncStatus === 'succeeded')
+		return externalSource.lastSyncSucceededAt
+	if (externalSource.syncStatus === 'failed')
+		return externalSource.lastSyncFailedAt
 
-function getGitHubMirrorActions({
-	externalSource,
-	isCurrentOwner,
-	isSyncPending,
-}: GetGitHubMirrorActionsParams) {
-	const isMirror = externalSource.mode === 'github_to_tessera'
-	const isSyncLocked =
-		externalSource.syncStatus === 'pending' ||
-		externalSource.syncStatus === 'running'
-	const canSync = isCurrentOwner && !isSyncLocked
-	const canCutover =
-		isCurrentOwner && isMirror && externalSource.syncStatus === 'succeeded'
-
-	return {
-		sync: {
-			canStart: canSync,
-			isDisabled: !canSync || isSyncPending,
-			isLocked: isSyncLocked,
-		},
-		cutover: {
-			canStart: canCutover,
-			shouldShow: canCutover || (isCurrentOwner && isMirror && isSyncLocked),
-		},
-	}
-}
-
-function NoGitHubMirrorPanel() {
-	return (
-		<Card className="border-dashed p-4">
-			<h2 className="font-semibold text-base tracking-normal">GitHub mirror</h2>
-			<p className="text-muted-foreground text-sm">
-				This repository is not mirrored from GitHub.
-			</p>
-		</Card>
-	)
+	return externalSource.lastSyncStartedAt
 }

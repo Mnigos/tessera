@@ -70,6 +70,7 @@ const useReopenPullRequestMutationMock = vi.mocked(useReopenPullRequestMutation)
 const PULL_REQUEST = pullRequestSchema.parse({
 	id: 'd8101d74-b320-4482-a8f2-a25308fb2757',
 	repositoryId: '8426d960-d537-4bc9-9ec9-43e8acd632b0',
+	provider: 'tessera',
 	number: 1,
 	authorUserId: '479a0ef2-aed6-48cd-9511-bb39a86a3ba5',
 	authorUsername: 'marta',
