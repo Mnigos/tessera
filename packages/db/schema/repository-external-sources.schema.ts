@@ -118,6 +118,7 @@ export const repositoryExternalSources = pgTable(
 		completedSyncVersion: bigint('completed_sync_version', { mode: 'number' })
 			.default(0)
 			.notNull(),
+		pullRequestSyncCursorAt: timestamp('pull_request_sync_cursor_at'),
 		syncLeaseOwner: text('sync_lease_owner'),
 		syncLeaseAcquiredAt: timestamp('sync_lease_acquired_at'),
 		syncLeaseExpiresAt: timestamp('sync_lease_expires_at'),

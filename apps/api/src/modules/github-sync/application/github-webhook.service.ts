@@ -57,7 +57,8 @@ export class GitHubWebhookService {
 						accountNodeId: payload.installation.account.node_id,
 						accountLogin: payload.installation.account.login,
 						targetType:
-							payload.installation.target_type === 'Organization'
+							(payload.installation.target_type ??
+								payload.installation.account.type) === 'Organization'
 								? 'organization'
 								: 'user',
 						suspendedAt:

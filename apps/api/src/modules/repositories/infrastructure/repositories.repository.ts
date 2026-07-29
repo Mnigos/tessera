@@ -504,6 +504,7 @@ export class RepositoriesRepository {
 				mirrorMode: 'github_to_tessera',
 				syncStatus: 'pending',
 				requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+				syncFailureCount: 0,
 				syncFailureCode: null,
 				syncFailureReason: null,
 				nextSyncAt: new Date(),

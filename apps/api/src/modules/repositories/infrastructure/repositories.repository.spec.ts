@@ -564,6 +564,26 @@ describe(RepositoriesRepository.name, () => {
 		})
 	})
 
+	test('resets the failure tier when enabling GitHub mirroring', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+
+		expect(
+			await repositoriesRepository.enableGitHubMirror({
+				repositoryId,
+				userId: mockUserId,
+			})
+		).toBe(true)
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'pending',
+				syncFailureCount: 0,
+				syncFailureCode: null,
+				syncFailureReason: null,
+			})
+		)
+	})
+
 	test('marks GitHub mirror sync running before processing', async () => {
 		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 		limitMock.mockResolvedValue([

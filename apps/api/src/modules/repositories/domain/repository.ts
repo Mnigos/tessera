@@ -15,6 +15,7 @@ export type RepositoryExternalSourceReadModel = Omit<
 	| 'authorityGeneration'
 	| 'requestedSyncVersion'
 	| 'completedSyncVersion'
+	| 'pullRequestSyncCursorAt'
 	| 'syncLeaseOwner'
 	| 'syncLeaseAcquiredAt'
 	| 'syncLeaseExpiresAt'

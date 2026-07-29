@@ -165,6 +165,40 @@ describe(GitHubWebhookService.name, () => {
 		).toEqual({ accepted: true, duplicate: true })
 		expect(queue.enqueue).toHaveBeenCalledWith(syncRequest)
 	})
+
+	test('preserves organization installations when target type is omitted', async () => {
+		vi.spyOn(repository, 'recordWebhookDelivery').mockResolvedValue({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [],
+		})
+		const rawBody = Buffer.from(
+			JSON.stringify({
+				...payload,
+				installation: {
+					id: payload.installation.id,
+					account: payload.installation.account,
+				},
+				sender: { ...payload.sender, type: 'EnterpriseUserAccount' },
+			})
+		)
+
+		await service.receive({
+			deliveryId,
+			eventName: 'installation',
+			rawBody,
+			signature: sign(rawBody),
+		})
+
+		expect(repository.recordWebhookDelivery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				installation: expect.objectContaining({
+					targetType: 'organization',
+				}),
+				sender: expect.objectContaining({ type: 'user' }),
+			})
+		)
+	})
 })
 
 function sign(rawBody: Buffer) {
