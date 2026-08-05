@@ -92,6 +92,7 @@ CREATE TABLE "github_installations" (
 	"account_login" text NOT NULL,
 	"target_type" "github_installation_target_type" NOT NULL,
 	"suspended_at" timestamp,
+	"deleted_at" timestamp,
 	"created_at" timestamp DEFAULT now() NOT NULL,
 	"updated_at" timestamp DEFAULT now() NOT NULL,
 	CONSTRAINT "github_installations_external_installation_id_unique" UNIQUE("external_installation_id")

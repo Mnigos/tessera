@@ -41,6 +41,7 @@ export const gitHubInstallations = pgTable(
 		accountLogin: text('account_login').notNull(),
 		targetType: gitHubInstallationTargetTypeEnum('target_type').notNull(),
 		suspendedAt: timestamp('suspended_at'),
+		deletedAt: timestamp('deleted_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()

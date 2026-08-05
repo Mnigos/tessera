@@ -303,19 +303,23 @@ export class PullRequestsRepository {
 		repositoryId,
 	}: ReconcileGitHubPullRequestParams): Promise<void> {
 		await this.db.transaction(async transaction => {
+			await transaction.execute(
+				sql`select pg_advisory_xact_lock(hashtextextended(${pullRequest.nodeId}, 0))`
+			)
 			const [existingMapping] = await transaction
 				.select({
 					pullRequestId: gitHubPullRequestMappings.pullRequestId,
+					repositoryId: gitHubPullRequestMappings.repositoryId,
 				})
 				.from(gitHubPullRequestMappings)
-				.where(
-					and(
-						eq(gitHubPullRequestMappings.repositoryId, repositoryId),
-						eq(gitHubPullRequestMappings.externalNodeId, pullRequest.nodeId)
-					)
-				)
+				.where(eq(gitHubPullRequestMappings.externalNodeId, pullRequest.nodeId))
 				.limit(1)
 				.for('update')
+
+			if (existingMapping && existingMapping.repositoryId !== repositoryId)
+				throw new Error(
+					'GitHub pull request mapping belongs to another repository'
+				)
 
 			const pullRequestId = existingMapping?.pullRequestId
 				? await this.updateGitHubPullRequest(transaction, {

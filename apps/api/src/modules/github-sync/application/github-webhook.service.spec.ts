@@ -166,6 +166,80 @@ describe(GitHubWebhookService.name, () => {
 		expect(queue.enqueue).toHaveBeenCalledWith(syncRequest)
 	})
 
+	test('accepts an abbreviated installation reference from a pull request event', async () => {
+		vi.spyOn(repository, 'recordWebhookDelivery').mockResolvedValue({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [],
+		})
+		const rawBody = Buffer.from(
+			JSON.stringify({
+				...payload,
+				installation: { id: 123, node_id: 'installation-node' },
+				pull_request: { node_id: 'pull-request-node', number: 7 },
+			})
+		)
+
+		await service.receive({
+			deliveryId,
+			eventName: 'pull_request',
+			rawBody,
+			signature: sign(rawBody),
+		})
+
+		expect(repository.recordWebhookDelivery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				installation: {
+					externalInstallationId: 123n,
+					suspendedAt: undefined,
+				},
+				subjectNodeId: 'pull-request-node',
+				subjectNumber: 7,
+			})
+		)
+	})
+
+	test.each([
+		{
+			action: 'suspend',
+			suspendedAt: '2026-08-05T10:00:00Z',
+			expected: new Date('2026-08-05T10:00:00Z'),
+		},
+		{ action: 'unsuspend', suspendedAt: null, expected: null },
+	])('maps the $action installation lifecycle action', async params => {
+		vi.spyOn(repository, 'recordWebhookDelivery').mockResolvedValue({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [],
+		})
+		const rawBody = Buffer.from(
+			JSON.stringify({
+				...payload,
+				action: params.action,
+				installation: {
+					...payload.installation,
+					suspended_at: params.suspendedAt,
+				},
+			})
+		)
+
+		await service.receive({
+			deliveryId,
+			eventName: 'installation',
+			rawBody,
+			signature: sign(rawBody),
+		})
+
+		expect(repository.recordWebhookDelivery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				action: params.action,
+				installation: expect.objectContaining({
+					suspendedAt: params.expected,
+				}),
+			})
+		)
+	})
+
 	test('preserves organization installations when target type is omitted', async () => {
 		vi.spyOn(repository, 'recordWebhookDelivery').mockResolvedValue({
 			accepted: true,
