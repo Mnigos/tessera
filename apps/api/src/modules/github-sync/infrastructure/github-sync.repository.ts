@@ -29,12 +29,25 @@ import type { RepositoryId } from '@repo/domain'
 import type { SQL } from 'drizzle-orm'
 import type { GitHubSyncActor } from './github-sync.client.types'
 
-interface GitHubInstallationInput {
+interface GitHubInstallationReferenceInput {
 	externalInstallationId: bigint
+	suspendedAt?: Date | null
+}
+
+interface GitHubInstallationDetailsInput
+	extends GitHubInstallationReferenceInput {
 	accountNodeId: string
 	accountLogin: string
 	targetType: 'user' | 'organization'
-	suspendedAt?: Date | null
+}
+
+export type GitHubInstallationInput =
+	| GitHubInstallationReferenceInput
+	| GitHubInstallationDetailsInput
+
+interface ResolvedGitHubInstallation {
+	id: GitHubInstallationId
+	suspendedAt?: Date
 }
 
 interface GitHubInstallationRepositoryInput {
@@ -199,13 +212,7 @@ export class GitHubSyncRepository {
 		transaction: DrizzleTransaction,
 		params: RecordWebhookDeliveryParams
 	): Promise<RecordWebhookDeliveryResult> {
-		const installationId = params.installation
-			? await this.upsertInstallation(transaction, params.installation)
-			: undefined
-		const didInsert = await this.persistWebhookDelivery(transaction, {
-			...params,
-			installationId,
-		})
+		const didInsert = await this.persistWebhookDelivery(transaction, params)
 
 		if (!didInsert)
 			return {
@@ -217,6 +224,17 @@ export class GitHubSyncRepository {
 				),
 			}
 
+		const installation = params.installation
+			? await this.resolveInstallation(transaction, params.installation)
+			: undefined
+		const installationId = installation?.id
+
+		if (installationId)
+			await transaction
+				.update(gitHubWebhookDeliveries)
+				.set({ installationId })
+				.where(eq(gitHubWebhookDeliveries.id, params.deliveryId))
+
 		const installationSyncRequests = installationId
 			? await this.applyInstallationChanges(transaction, {
 					action: params.action,
@@ -225,6 +243,15 @@ export class GitHubSyncRepository {
 					removedRepositories: params.removedInstallationRepositories,
 				})
 			: []
+
+		if (params.action === 'deleted') {
+			await this.completeUnscopedDelivery(transaction, params)
+			return {
+				accepted: true,
+				duplicate: false,
+				syncRequests: installationSyncRequests,
+			}
+		}
 
 		if (
 			!(params.externalRepositoryNumericId || params.externalRepositoryNodeId)
@@ -263,11 +290,11 @@ export class GitHubSyncRepository {
 		if (
 			externalSource.mirrorMode !== 'github_to_tessera' ||
 			!installationId ||
-			params.installation?.suspendedAt
+			installation?.suspendedAt
 		) {
 			await this.ignoreUnsyncableDelivery(transaction, {
 				deliveryId: params.deliveryId,
-				isSuspended: Boolean(params.installation?.suspendedAt),
+				isSuspended: Boolean(installation?.suspendedAt),
 				repositoryId: externalSource.repositoryId,
 			})
 			return {
@@ -885,11 +912,19 @@ export class GitHubSyncRepository {
 						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
 					)
 				)
+			await transaction
+				.update(repositoryExternalSources)
+				.set({ installationId: null })
+				.where(eq(repositoryExternalSources.installationId, installationId))
+			await transaction
+				.update(gitHubInstallations)
+				.set({ deletedAt: new Date() })
+				.where(eq(gitHubInstallations.id, installationId))
 
 			return syncRequests
 		}
 
-		if (action === 'suspended') {
+		if (action === 'suspend') {
 			await transaction
 				.update(repositoryExternalSources)
 				.set({
@@ -928,7 +963,7 @@ export class GitHubSyncRepository {
 			if (request) syncRequests.push(request)
 		}
 
-		if (action === 'unsuspended') {
+		if (action === 'unsuspend') {
 			const resumedRequests = await this.resumeInstallationRepositories(
 				transaction,
 				installationId
@@ -1070,8 +1105,8 @@ export class GitHubSyncRepository {
 			externalInstallationId,
 			suspendedAt,
 			targetType,
-		}: GitHubInstallationInput
-	): Promise<GitHubInstallationId> {
+		}: GitHubInstallationDetailsInput
+	): Promise<ResolvedGitHubInstallation> {
 		const [installation] = await db
 			.insert(gitHubInstallations)
 			.values({
@@ -1085,11 +1120,63 @@ export class GitHubSyncRepository {
 				target: gitHubInstallations.externalInstallationId,
 				set: { accountNodeId, accountLogin, targetType, suspendedAt },
 			})
-			.returning({ id: gitHubInstallations.id })
+			.returning({
+				id: gitHubInstallations.id,
+				suspendedAt: gitHubInstallations.suspendedAt,
+			})
 
 		if (!installation) throw new Error('failed to persist GitHub installation')
 
-		return installation.id
+		return {
+			id: installation.id,
+			suspendedAt: installation.suspendedAt ?? undefined,
+		}
+	}
+
+	private async resolveInstallation(
+		db: DrizzleTransaction,
+		installation: GitHubInstallationInput
+	): Promise<ResolvedGitHubInstallation | undefined> {
+		await db.execute(
+			sql`select pg_advisory_xact_lock(hashtextextended(${`github_installation:${installation.externalInstallationId}`}, 0))`
+		)
+
+		const [existingInstallation] = await db
+			.select({
+				id: gitHubInstallations.id,
+				suspendedAt: gitHubInstallations.suspendedAt,
+				deletedAt: gitHubInstallations.deletedAt,
+			})
+			.from(gitHubInstallations)
+			.where(
+				eq(
+					gitHubInstallations.externalInstallationId,
+					installation.externalInstallationId
+				)
+			)
+			.limit(1)
+
+		if (existingInstallation?.deletedAt) return undefined
+		if ('accountNodeId' in installation)
+			return await this.upsertInstallation(db, installation)
+		if (!existingInstallation) return undefined
+
+		if (installation.suspendedAt !== undefined) {
+			await db
+				.update(gitHubInstallations)
+				.set({ suspendedAt: installation.suspendedAt })
+				.where(eq(gitHubInstallations.id, existingInstallation.id))
+
+			return {
+				id: existingInstallation.id,
+				suspendedAt: installation.suspendedAt ?? undefined,
+			}
+		}
+
+		return {
+			id: existingInstallation.id,
+			suspendedAt: existingInstallation.suspendedAt ?? undefined,
+		}
 	}
 
 	private async upsertActor(

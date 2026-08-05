@@ -12,18 +12,13 @@ const gitHubActorSchema = z.object({
 const gitHubInstallationSchema = z.object({
 	id: z.number().int().positive(),
 	target_type: z.enum(['User', 'Organization']).optional(),
-	account: gitHubActorSchema,
+	account: gitHubActorSchema.nullish(),
+	suspended_at: z.coerce.date().nullish(),
 })
 
 const gitHubRepositorySchema = z.object({
 	id: z.number().int().positive(),
 	node_id: z.string().min(1),
-	name: z.string().min(1),
-	full_name: z.string().min(1),
-	html_url: z.url(),
-	clone_url: z.url(),
-	default_branch: z.string().min(1),
-	owner: gitHubActorSchema,
 })
 
 const gitHubInstallationRepositorySchema = z.object({
@@ -31,31 +26,9 @@ const gitHubInstallationRepositorySchema = z.object({
 	node_id: z.string().min(1),
 })
 
-const gitHubPullRequestRefSchema = z.object({
-	ref: z.string().min(1),
-	sha: z.string().min(1),
-	repo: gitHubRepositorySchema.nullable(),
-})
-
 const gitHubPullRequestSchema = z.object({
-	id: z.number().int().positive(),
 	node_id: z.string().min(1),
 	number: z.number().int().positive(),
-	html_url: z.url(),
-	title: z.string(),
-	body: z.string().nullable(),
-	state: z.enum(['open', 'closed']),
-	draft: z.boolean().nullable(),
-	user: gitHubActorSchema,
-	merged: z.boolean().optional(),
-	merged_by: gitHubActorSchema.nullable().optional(),
-	merge_commit_sha: z.string().nullable(),
-	created_at: z.coerce.date(),
-	updated_at: z.coerce.date(),
-	closed_at: z.coerce.date().nullable(),
-	merged_at: z.coerce.date().nullable(),
-	head: gitHubPullRequestRefSchema,
-	base: gitHubPullRequestRefSchema,
 })
 
 export const gitHubWebhookPayloadSchema = z.object({
@@ -79,7 +52,7 @@ export const gitHubWebhookPayloadSchema = z.object({
 
 export type GitHubWebhookPayload = z.infer<typeof gitHubWebhookPayloadSchema>
 export type GitHubWebhookActor = z.infer<typeof gitHubActorSchema>
-export type GitHubWebhookPullRequest = z.infer<typeof gitHubPullRequestSchema>
+export type GitHubWebhookInstallation = z.infer<typeof gitHubInstallationSchema>
 
 export function parseGitHubWebhookPayload(
 	rawBody: Buffer

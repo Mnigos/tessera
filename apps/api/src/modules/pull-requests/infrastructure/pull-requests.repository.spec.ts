@@ -1,5 +1,7 @@
 import { Database } from '@config/database'
+import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { GitHubActorId } from '@repo/db'
 import {
 	asc,
 	pullRequestEvents,
@@ -16,7 +18,10 @@ import { mockUserId } from '~/shared/test-utils'
 import { PullRequestsRepository } from './pull-requests.repository'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+const anotherRepositoryId =
+	'00000000-0000-4000-8000-000000000003' as RepositoryId
 const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
+const gitHubActorId = '00000000-0000-4000-8000-000000000055' as GitHubActorId
 const createdAt = new Date('2026-07-11T00:00:00Z')
 const pullRequest = {
 	id: pullRequestId,
@@ -54,6 +59,29 @@ const event = {
 	type: 'opened' as const,
 	createdAt,
 }
+const gitHubPullRequest: GitHubSyncPullRequest = {
+	nodeId: 'pull-request-node',
+	numericId: 7n,
+	number: 7,
+	htmlUrl: 'https://github.com/tessera/notes/pull/7',
+	title: 'Imported pull request',
+	body: '',
+	state: 'open',
+	draft: false,
+	author: {
+		nodeId: 'actor-node',
+		numericId: 9n,
+		login: 'marta',
+		type: 'user',
+	},
+	sourceBranch: 'feature',
+	targetBranch: 'main',
+	baseRepositoryNodeId: 'repository-node',
+	headSha: 'head-sha',
+	baseSha: 'base-sha',
+	createdAt,
+	updatedAt: createdAt,
+}
 
 describe(PullRequestsRepository.name, () => {
 	let moduleRef: TestingModule
@@ -85,6 +113,7 @@ describe(PullRequestsRepository.name, () => {
 	const mergeIntentUpdateWhereMock = vi.fn()
 	const deleteMock = vi.fn()
 	const deleteWhereMock = vi.fn()
+	const executeMock = vi.fn()
 
 	beforeEach(async () => {
 		selectOrderByMock.mockResolvedValue([pullRequest])
@@ -151,6 +180,7 @@ describe(PullRequestsRepository.name, () => {
 		deleteMock.mockReturnValue({ where: deleteWhereMock })
 		const tx = {
 			delete: deleteMock,
+			execute: executeMock,
 			insert: insertMock,
 			select: selectMock,
 			update: updateMock,
@@ -254,6 +284,27 @@ describe(PullRequestsRepository.name, () => {
 		expect(selectOrderByMock).toHaveBeenCalledWith(
 			asc(pullRequestEvents.createdAt)
 		)
+	})
+
+	test('rejects a GitHub mapping owned by another repository before creating a pull request', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([
+			{ pullRequestId, repositoryId: anotherRepositoryId },
+		])
+
+		await expect(
+			repository.reconcileGitHubPullRequest({
+				repositoryId,
+				pullRequest: gitHubPullRequest,
+				authorActorId: gitHubActorId,
+				pendingEvents: [],
+			})
+		).rejects.toThrow(
+			'GitHub pull request mapping belongs to another repository'
+		)
+		expect(pullRequestValuesMock).not.toHaveBeenCalled()
+		expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+		expect(executeMock).toHaveBeenCalledOnce()
 	})
 
 	test('edits a pull request and records an edited event', async () => {

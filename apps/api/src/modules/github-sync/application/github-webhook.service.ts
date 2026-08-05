@@ -4,6 +4,7 @@ import type { GitHubWebhookDeliveryId } from '@repo/db'
 import { BadRequestError, UnauthorizedError } from '~/shared/errors'
 import {
 	type GitHubWebhookActor,
+	type GitHubWebhookInstallation,
 	parseGitHubWebhookPayload,
 } from '../domain/github-webhook.schema'
 import { verifyGitHubWebhookSignature } from '../helpers/github-webhook-signature'
@@ -12,7 +13,10 @@ import type {
 	GitHubSyncActorType,
 } from '../infrastructure/github-sync.client.types'
 import { GitHubSyncQueue } from '../infrastructure/github-sync.queue'
-import { GitHubSyncRepository } from '../infrastructure/github-sync.repository'
+import {
+	type GitHubInstallationInput,
+	GitHubSyncRepository,
+} from '../infrastructure/github-sync.repository'
 
 @Injectable()
 export class GitHubWebhookService {
@@ -52,22 +56,7 @@ export class GitHubWebhookService {
 			eventName,
 			action: payload.action,
 			installation: payload.installation
-				? {
-						externalInstallationId: BigInt(payload.installation.id),
-						accountNodeId: payload.installation.account.node_id,
-						accountLogin: payload.installation.account.login,
-						targetType:
-							(payload.installation.target_type ??
-								payload.installation.account.type) === 'Organization'
-								? 'organization'
-								: 'user',
-						suspendedAt:
-							payload.action === 'suspended'
-								? new Date()
-								: payload.action === 'unsuspended'
-									? null
-									: undefined,
-					}
+				? toGitHubInstallationInput(payload.installation, payload.action)
 				: undefined,
 			externalRepositoryNodeId: payload.repository?.node_id,
 			externalRepositoryNumericId: payload.repository
@@ -89,6 +78,34 @@ export class GitHubWebhookService {
 		)
 
 		return { accepted: true, duplicate: result.duplicate }
+	}
+}
+
+function toGitHubInstallationInput(
+	installation: GitHubWebhookInstallation,
+	action?: string
+): GitHubInstallationInput {
+	const suspendedAt =
+		action === 'suspend'
+			? (installation.suspended_at ?? new Date())
+			: action === 'unsuspend'
+				? null
+				: undefined
+	const reference = {
+		externalInstallationId: BigInt(installation.id),
+		suspendedAt,
+	}
+
+	if (!installation.account) return reference
+
+	return {
+		...reference,
+		accountNodeId: installation.account.node_id,
+		accountLogin: installation.account.login,
+		targetType:
+			(installation.target_type ?? installation.account.type) === 'Organization'
+				? 'organization'
+				: 'user',
 	}
 }
 
