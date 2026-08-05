@@ -228,6 +228,66 @@ describe(GitHubSyncRepository.name, () => {
 		})
 	})
 
+	test('requests synchronization for a deleted pull request review comment', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn(table => ({
+				where: vi.fn(() => ({
+					limit:
+						table === gitHubInstallations
+							? vi
+									.fn()
+									.mockResolvedValue([
+										{ id: INSTALLATION_ID, suspendedAt: null },
+									])
+							: vi.fn(() => ({
+									for: vi.fn().mockResolvedValue([
+										{
+											repositoryId: REPOSITORY_ID,
+											mirrorMode: 'github_to_tessera',
+											authorityGeneration: 2,
+										},
+									]),
+								})),
+				})),
+			})),
+		})
+		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
+		returningMock.mockResolvedValue([
+			{
+				repositoryId: REPOSITORY_ID,
+				authorityGeneration: 2,
+				requestedSyncVersion: 1,
+			},
+		])
+
+		expect(
+			await repository.recordWebhookDelivery({
+				deliveryId: DELIVERY_ID,
+				eventName: 'pull_request_review_comment',
+				action: 'deleted',
+				installation: { externalInstallationId: 123n },
+				externalRepositoryNodeId: 'repository-node',
+				externalRepositoryNumericId: 456n,
+			})
+		).toEqual({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [
+				{
+					repositoryId: REPOSITORY_ID,
+					authorityGeneration: 2,
+					requestedSyncVersion: 1,
+				},
+			],
+		})
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestedSyncVersion: expect.anything(),
+				syncStatus: 'pending',
+			})
+		)
+	})
+
 	test('blocks synchronized sources for the GitHub suspend action', async () => {
 		mockExistingInstallationDelivery()
 		const suspendedAt = new Date('2026-08-05T10:00:00Z')
