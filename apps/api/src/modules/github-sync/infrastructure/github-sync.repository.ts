@@ -244,7 +244,7 @@ export class GitHubSyncRepository {
 				})
 			: []
 
-		if (params.action === 'deleted') {
+		if (params.eventName === 'installation' && params.action === 'deleted') {
 			await this.completeUnscopedDelivery(transaction, params)
 			return {
 				accepted: true,
