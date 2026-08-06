@@ -1,6 +1,8 @@
 import type {
+	PullRequestCommentId,
 	PullRequestEventId,
 	PullRequestId,
+	PullRequestThreadId,
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
@@ -9,6 +11,7 @@ import {
 	check,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -44,7 +47,17 @@ export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'assigned',
 	'review_requested',
 	'labeled',
+	'commented',
+	'thread_resolved',
+	'thread_unresolved',
 ])
+
+export interface PullRequestEventPayload {
+	threadId: PullRequestThreadId
+	commentId?: PullRequestCommentId
+	threadKind: 'top_level' | 'inline'
+	path?: string
+}
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',
@@ -142,6 +155,7 @@ export const pullRequestEvents = pgTable(
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
 		type: pullRequestEventTypeEnum('type').notNull(),
+		payload: jsonb('payload').$type<PullRequestEventPayload>(),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	table => [
