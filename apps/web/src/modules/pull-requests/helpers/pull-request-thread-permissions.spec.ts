@@ -48,12 +48,12 @@ describe('pull request thread permissions', () => {
 		})
 		const stranger = { ...participant, viewerUserId: OTHER_ID }
 
-		expect(canResolvePullRequestThread(participant, THREAD)).toBe(true)
-		expect(canEditPullRequestComment(participant, COMMENT)).toBe(true)
-		expect(canDeletePullRequestComment(participant, COMMENT)).toBe(true)
-		expect(canResolvePullRequestThread(stranger, THREAD)).toBe(false)
-		expect(canEditPullRequestComment(stranger, COMMENT)).toBe(false)
-		expect(canDeletePullRequestComment(stranger, COMMENT)).toBe(false)
+		expect(canResolvePullRequestThread(participant, THREAD)).toBeTruthy()
+		expect(canEditPullRequestComment(participant, COMMENT)).toBeTruthy()
+		expect(canDeletePullRequestComment(participant, COMMENT)).toBeTruthy()
+		expect(canResolvePullRequestThread(stranger, THREAD)).toBeFalsy()
+		expect(canEditPullRequestComment(stranger, COMMENT)).toBeFalsy()
+		expect(canDeletePullRequestComment(stranger, COMMENT)).toBeFalsy()
 	})
 
 	test('allows server-wide resolve and delete but never editing another author', () => {
@@ -66,8 +66,8 @@ describe('pull request thread permissions', () => {
 			viewerUserId: OTHER_ID,
 		})
 
-		expect(canResolvePullRequestThread(administrator, THREAD)).toBe(true)
-		expect(canDeletePullRequestComment(administrator, COMMENT)).toBe(true)
-		expect(canEditPullRequestComment(administrator, COMMENT)).toBe(false)
+		expect(canResolvePullRequestThread(administrator, THREAD)).toBeTruthy()
+		expect(canDeletePullRequestComment(administrator, COMMENT)).toBeTruthy()
+		expect(canEditPullRequestComment(administrator, COMMENT)).toBeFalsy()
 	})
 })

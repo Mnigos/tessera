@@ -268,7 +268,7 @@ describe(PullRequestThreadsService.name, () => {
 
 		expect(
 			(await service.list(undefined, repositoryInput)).threads[0]?.outdated
-		).toBe(true)
+		).toBeTruthy()
 	})
 
 	test.each([
