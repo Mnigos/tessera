@@ -1,14 +1,22 @@
 import type {
 	PullRequestChangedFile,
 	PullRequestComparison as PullRequestComparisonData,
+	SessionUser,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { ChevronRight, FileCode2, GitCommitHorizontal } from 'lucide-react'
 import { useState } from 'react'
+import {
+	getInlineThreadsForFile,
+	getUnanchoredInlineThreads,
+} from '../helpers/pull-request-inline-threads'
+import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
+import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestFileDiffView } from './pull-request-file-diff'
+import { PullRequestOutdatedThreads } from './pull-request-file-threads'
 import { PullRequestsMessage } from './pull-requests-message'
 
 type PullRequestDetailTab = 'overview' | 'commits' | 'files'
@@ -18,6 +26,7 @@ interface PullRequestComparisonProps {
 	slug: string
 	number: string
 	tab: PullRequestDetailTab
+	viewerUserId?: SessionUser['id']
 }
 
 export function PullRequestComparison({
@@ -25,6 +34,7 @@ export function PullRequestComparison({
 	slug,
 	number,
 	tab,
+	viewerUserId,
 }: Readonly<PullRequestComparisonProps>) {
 	const comparisonQuery = usePullRequestComparisonQuery(
 		{ username, slug, number },
@@ -60,6 +70,7 @@ export function PullRequestComparison({
 			number={number}
 			slug={slug}
 			username={username}
+			viewerUserId={viewerUserId}
 		/>
 	)
 }
@@ -121,6 +132,7 @@ interface PullRequestFilesProps {
 	username: string
 	slug: string
 	number: string
+	viewerUserId?: SessionUser['id']
 }
 
 function PullRequestFiles({
@@ -128,15 +140,41 @@ function PullRequestFiles({
 	username,
 	slug,
 	number,
+	viewerUserId,
 }: Readonly<PullRequestFilesProps>) {
 	const [expandedPaths, setExpandedPaths] = useState<string[]>([])
+	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
+
+	const threads = threadsQuery.data?.threads ?? []
+	const permissions = getPullRequestThreadPermissions({
+		viewer: threadsQuery.data?.viewer,
+		viewerUserId,
+	})
+	const unanchoredThreads = getUnanchoredInlineThreads(
+		threads,
+		comparison.files
+	)
 
 	if (comparison.files.length === 0)
 		return (
-			<PullRequestsMessage
-				description="The source and target branches contain the same files."
-				title="No changed files"
-			/>
+			<div className="flex flex-col gap-3">
+				<PullRequestsMessage
+					description="The source and target branches contain the same files."
+					title="No changed files"
+				/>
+				{unanchoredThreads.length > 0 && (
+					<Card className="gap-0 overflow-hidden p-0">
+						<PullRequestOutdatedThreads
+							number={number}
+							permissions={permissions}
+							slug={slug}
+							threads={unanchoredThreads}
+							title="Outdated discussions"
+							username={username}
+						/>
+					</Card>
+				)}
+			</div>
 		)
 
 	function togglePath(path: string) {
@@ -154,6 +192,11 @@ function PullRequestFiles({
 					description={`Only the first ${comparison.fileLimit} changed files are shown.`}
 					title="File list truncated"
 				/>
+			)}
+			{threadsQuery.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					The comments for these files could not be loaded.
+				</p>
 			)}
 			{comparison.files.map(file => {
 				const path = file.newPath || file.oldPath
@@ -193,13 +236,31 @@ function PullRequestFiles({
 								expectedHeadSha={comparison.headSha}
 								number={number}
 								path={path}
+								permissions={permissions}
 								slug={slug}
+								threads={getInlineThreadsForFile(
+									threads,
+									file,
+									comparison.files
+								)}
 								username={username}
 							/>
 						)}
 					</Card>
 				)
 			})}
+			{unanchoredThreads.length > 0 && (
+				<Card className="gap-0 overflow-hidden p-0">
+					<PullRequestOutdatedThreads
+						number={number}
+						permissions={permissions}
+						slug={slug}
+						threads={unanchoredThreads}
+						title="Outdated discussions"
+						username={username}
+					/>
+				</Card>
+			)}
 		</div>
 	)
 }

@@ -1,11 +1,16 @@
 import { ORPCError } from '@orpc/client'
-import type { PullRequest, PullRequestEvent } from '@repo/contracts'
+import type {
+	PullRequest,
+	PullRequestEvent,
+	SessionUser,
+} from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Pencil } from 'lucide-react'
 import { useState } from 'react'
+import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
 import { MarkdownContent } from '@/shared/components/markdown-content'
 import {
@@ -16,7 +21,6 @@ import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestEditForm } from './pull-request-edit-form'
-import { PullRequestEvents } from './pull-request-events'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
 import { PullRequestMergePanel } from './pull-request-merge-panel'
 import {
@@ -24,6 +28,7 @@ import {
 	PullRequestNavigation,
 } from './pull-request-navigation'
 import { PullRequestStateBadge } from './pull-request-state-badge'
+import { PullRequestTimeline } from './pull-request-timeline'
 import { PullRequestsMessage } from './pull-requests-message'
 
 interface PullRequestDetailProps {
@@ -39,6 +44,7 @@ export function PullRequestDetail({
 	number,
 	tab,
 }: Readonly<PullRequestDetailProps>) {
+	const { user } = useAuth()
 	const { data, error, isError, isLoading } = usePullRequestQuery({
 		username,
 		slug,
@@ -86,6 +92,7 @@ export function PullRequestDetail({
 			slug={slug}
 			tab={tab}
 			username={username}
+			viewerUserId={user?.id}
 		/>
 	)
 }
@@ -96,6 +103,7 @@ interface PullRequestDetailContentProps {
 	pullRequest: PullRequest
 	events: PullRequestEvent[]
 	canWrite: boolean
+	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
 }
 
@@ -105,6 +113,7 @@ function PullRequestDetailContent({
 	pullRequest,
 	events,
 	canWrite,
+	viewerUserId,
 	tab,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
@@ -219,7 +228,13 @@ function PullRequestDetailContent({
 							username={username}
 						/>
 					)}
-					<PullRequestEvents events={events} />
+					<PullRequestTimeline
+						events={events}
+						number={String(pullRequest.number)}
+						slug={slug}
+						username={username}
+						viewerUserId={viewerUserId}
+					/>
 				</>
 			) : (
 				<PullRequestComparison
@@ -227,6 +242,7 @@ function PullRequestDetailContent({
 					slug={slug}
 					tab={tab}
 					username={username}
+					viewerUserId={viewerUserId}
 				/>
 			)}
 		</section>

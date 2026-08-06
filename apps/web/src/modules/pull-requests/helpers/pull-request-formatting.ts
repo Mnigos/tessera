@@ -19,6 +19,9 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	assigned: 'Pull request assigned',
 	review_requested: 'Pull request review requested',
 	labeled: 'Pull request labeled',
+	commented: 'Pull request commented',
+	thread_resolved: 'Comment thread resolved',
+	thread_unresolved: 'Comment thread unresolved',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [
