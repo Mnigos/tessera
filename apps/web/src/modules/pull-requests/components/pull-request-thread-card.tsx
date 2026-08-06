@@ -45,7 +45,11 @@ export function PullRequestThreadCard({
 		// The card keeps its current shape until the server confirms; clearing the
 		// override then hands expansion back to the freshly invalidated thread.
 		const mutation = thread.resolved ? unresolveMutation : resolveMutation
+		const previousMutation = thread.resolved
+			? resolveMutation
+			: unresolveMutation
 
+		previousMutation.reset()
 		mutation.mutate(input, {
 			onSuccess: () => {
 				setExpandedOverride(undefined)

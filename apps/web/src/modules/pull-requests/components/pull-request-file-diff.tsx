@@ -8,7 +8,7 @@ import { Plus } from 'lucide-react'
 import { useState } from 'react'
 import {
 	getInlineThreadsForLine,
-	getOutdatedInlineThreads,
+	getLeftoverInlineThreads,
 	toThreadLineExcerpt,
 } from '../helpers/pull-request-inline-threads'
 import type { PullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
@@ -61,6 +61,7 @@ export function PullRequestFileDiffView({
 						permissions={permissions}
 						slug={slug}
 						threads={threads}
+						title="Comments"
 						username={username}
 					/>
 				)}
@@ -74,6 +75,7 @@ export function PullRequestFileDiffView({
 				permissions={permissions}
 				slug={slug}
 				threads={threads}
+				title="Comments"
 				username={username}
 			/>
 		) : null
@@ -128,13 +130,14 @@ function FileDiff({
 						permissions={permissions}
 						slug={slug}
 						threads={threads}
+						title="Comments"
 						username={username}
 					/>
 				)}
 			</div>
 		)
 
-	const outdatedThreads = getOutdatedInlineThreads(threads)
+	const leftoverThreads = getLeftoverInlineThreads(threads, diff)
 	const threading: PullRequestDiffThreading = {
 		activeAnchor,
 		number,
@@ -181,12 +184,13 @@ function FileDiff({
 					</div>
 				))}
 			</div>
-			{outdatedThreads.length > 0 && (
+			{leftoverThreads.length > 0 && (
 				<PullRequestOutdatedThreads
 					number={number}
 					permissions={permissions}
 					slug={slug}
-					threads={outdatedThreads}
+					threads={leftoverThreads}
+					title="Comments on lines not shown"
 					username={username}
 				/>
 			)}

@@ -1,5 +1,6 @@
 import type {
 	PullRequestChangedFile,
+	PullRequestFileDiff,
 	PullRequestThread,
 	PullRequestThreadSide,
 } from '@repo/contracts'
@@ -59,6 +60,34 @@ export function getInlineThreadsForFile(
  */
 export function getOutdatedInlineThreads(threads: PullRequestThread[]) {
 	return threads.filter(thread => thread.kind === 'inline' && thread.outdated)
+}
+
+/**
+ * Threads a file card cannot place on a rendered line: outdated ones, and
+ * current ones whose anchor sits outside the displayed hunks (truncated diffs,
+ * context boundaries). Both would silently disappear without a fallback list.
+ */
+export function getLeftoverInlineThreads(
+	threads: PullRequestThread[],
+	diff: PullRequestFileDiff
+) {
+	const renderedLines = new Set(
+		diff.hunks.flatMap(hunk =>
+			hunk.lines.flatMap(line => [
+				...(line.old ? [`left:${line.old.line}`] : []),
+				...(line.new ? [`right:${line.new.line}`] : []),
+			])
+		)
+	)
+
+	return threads.filter(thread => {
+		if (thread.anchor === undefined) return false
+
+		return (
+			thread.outdated ||
+			!renderedLines.has(`${thread.anchor.side}:${thread.anchor.line}`)
+		)
+	})
 }
 
 /**

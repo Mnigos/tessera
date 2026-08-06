@@ -40,7 +40,9 @@ export function PullRequestTimeline({
 	return (
 		<section className="flex flex-col gap-3">
 			<h2 className="font-semibold text-base tracking-normal">Activity</h2>
-			{entries.length === 0 && !threadsQuery.isLoading ? (
+			{entries.length === 0 &&
+			!threadsQuery.isLoading &&
+			!threadsQuery.isError ? (
 				<p className="text-muted-foreground text-sm italic">No activity yet.</p>
 			) : (
 				<ol className="flex flex-col gap-3">
