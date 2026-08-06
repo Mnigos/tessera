@@ -8,8 +8,20 @@ import {
 export const PULL_REQUEST_STALE_COMPARISON_MESSAGE =
 	'The source or target branch changed. Refresh the pull request and try again.'
 
+const pullRequestShaSchema = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/)
+
 export const pullRequestIdSchema = z.uuid().brand<'pull_request_id'>()
 export type PullRequestId = z.infer<typeof pullRequestIdSchema>
+
+export const pullRequestThreadIdSchema = z
+	.uuid()
+	.brand<'pull_request_thread_id'>()
+export type PullRequestThreadId = z.infer<typeof pullRequestThreadIdSchema>
+
+export const pullRequestCommentIdSchema = z
+	.uuid()
+	.brand<'pull_request_comment_id'>()
+export type PullRequestCommentId = z.infer<typeof pullRequestCommentIdSchema>
 
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
@@ -27,8 +39,17 @@ export const pullRequestEventTypeSchema = z.enum([
 	'assigned',
 	'review_requested',
 	'labeled',
+	'commented',
+	'thread_resolved',
+	'thread_unresolved',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
+
+export const pullRequestThreadKindSchema = z.enum(['top_level', 'inline'])
+export type PullRequestThreadKind = z.infer<typeof pullRequestThreadKindSchema>
+
+export const pullRequestThreadSideSchema = z.enum(['left', 'right'])
+export type PullRequestThreadSide = z.infer<typeof pullRequestThreadSideSchema>
 
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
@@ -63,6 +84,13 @@ export const pullRequestSchema = z.object({
 })
 export type PullRequest = z.infer<typeof pullRequestSchema>
 
+const pullRequestEventPayloadSchema = z.object({
+	threadId: pullRequestThreadIdSchema,
+	commentId: pullRequestCommentIdSchema.optional(),
+	threadKind: pullRequestThreadKindSchema,
+	path: z.string().optional(),
+})
+
 export const pullRequestEventSchema = z.object({
 	id: z.uuid().brand<'pull_request_event_id'>(),
 	pullRequestId: pullRequestIdSchema,
@@ -70,6 +98,7 @@ export const pullRequestEventSchema = z.object({
 	actorUserId: z.uuid().brand<'user_id'>().optional(),
 	actorUsername: z.string().min(1),
 	type: pullRequestEventTypeSchema,
+	payload: pullRequestEventPayloadSchema.optional(),
 	createdAt: z.coerce.date(),
 })
 export type PullRequestEvent = z.infer<typeof pullRequestEventSchema>
@@ -157,6 +186,56 @@ export const pullRequestFileDiffSchema = z.object({
 })
 export type PullRequestFileDiff = z.infer<typeof pullRequestFileDiffSchema>
 
+export const pullRequestThreadAnchorInputSchema = z.object({
+	path: z.string().trim().min(1).max(4096),
+	side: pullRequestThreadSideSchema,
+	line: z.number().int().positive(),
+	anchorSha: pullRequestShaSchema,
+	baseSha: pullRequestShaSchema,
+	headSha: pullRequestShaSchema,
+	lineExcerpt: z.string().max(4096),
+})
+export type PullRequestThreadAnchor = z.infer<
+	typeof pullRequestThreadAnchorInputSchema
+>
+
+export const pullRequestCommentSchema = z.object({
+	id: pullRequestCommentIdSchema,
+	threadId: pullRequestThreadIdSchema,
+	authorUserId: z.uuid().brand<'user_id'>(),
+	authorUsername: z.string().min(1),
+	body: z.string(),
+	createdAt: z.coerce.date(),
+	editedAt: z.coerce.date().optional(),
+})
+export type PullRequestComment = z.infer<typeof pullRequestCommentSchema>
+
+export const pullRequestThreadSchema = z.object({
+	id: pullRequestThreadIdSchema,
+	kind: pullRequestThreadKindSchema,
+	anchor: pullRequestThreadAnchorInputSchema.optional(),
+	resolved: z
+		.object({
+			at: z.coerce.date(),
+			byUserId: z.uuid().brand<'user_id'>(),
+			byUsername: z.string().min(1),
+		})
+		.optional(),
+	outdated: z.boolean(),
+	createdAt: z.coerce.date(),
+	comments: z.array(pullRequestCommentSchema),
+})
+export type PullRequestThread = z.infer<typeof pullRequestThreadSchema>
+
+export const pullRequestThreadViewerSchema = z.object({
+	canComment: z.boolean(),
+	canResolveAnyThread: z.boolean(),
+	canDeleteAnyComment: z.boolean(),
+})
+export type PullRequestThreadViewer = z.infer<
+	typeof pullRequestThreadViewerSchema
+>
+
 const repositoryPullRequestsInputSchema = z.object({
 	username: z.string().min(1),
 	slug: repositorySlugSchema,
@@ -201,8 +280,8 @@ export type ParsedGetPullRequestInput = z.infer<
 export const getPullRequestFileDiffInputSchema =
 	getPullRequestInputSchema.extend({
 		path: z.string().trim().min(1).max(4096),
-		expectedBaseSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
-		expectedHeadSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+		expectedBaseSha: pullRequestShaSchema,
+		expectedHeadSha: pullRequestShaSchema,
 	})
 export type GetPullRequestFileDiffInput = z.input<
 	typeof getPullRequestFileDiffInputSchema
@@ -212,8 +291,8 @@ export type ParsedGetPullRequestFileDiffInput = z.infer<
 >
 
 export const mergePullRequestInputSchema = getPullRequestInputSchema.extend({
-	expectedBaseSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
-	expectedHeadSha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+	expectedBaseSha: pullRequestShaSchema,
+	expectedHeadSha: pullRequestShaSchema,
 })
 export type MergePullRequestInput = z.input<typeof mergePullRequestInputSchema>
 export type ParsedMergePullRequestInput = z.infer<
@@ -231,6 +310,77 @@ export const editPullRequestInputSchema = getPullRequestInputSchema
 export type EditPullRequestInput = z.input<typeof editPullRequestInputSchema>
 export type ParsedEditPullRequestInput = z.infer<
 	typeof editPullRequestInputSchema
+>
+
+const pullRequestCommentBodySchema = z.string().trim().min(1).max(65_536)
+
+export const listPullRequestThreadsInputSchema =
+	getPullRequestInputSchema.extend({
+		path: z.string().trim().min(1).max(4096).optional(),
+	})
+export type ListPullRequestThreadsInput = z.input<
+	typeof listPullRequestThreadsInputSchema
+>
+export type ParsedListPullRequestThreadsInput = z.infer<
+	typeof listPullRequestThreadsInputSchema
+>
+
+export const createPullRequestThreadInputSchema =
+	getPullRequestInputSchema.extend({
+		body: pullRequestCommentBodySchema,
+		anchor: pullRequestThreadAnchorInputSchema.optional(),
+	})
+export type CreatePullRequestThreadInput = z.input<
+	typeof createPullRequestThreadInputSchema
+>
+export type ParsedCreatePullRequestThreadInput = z.infer<
+	typeof createPullRequestThreadInputSchema
+>
+
+export const replyPullRequestThreadInputSchema =
+	getPullRequestInputSchema.extend({
+		threadId: pullRequestThreadIdSchema,
+		body: pullRequestCommentBodySchema,
+	})
+export type ReplyPullRequestThreadInput = z.input<
+	typeof replyPullRequestThreadInputSchema
+>
+export type ParsedReplyPullRequestThreadInput = z.infer<
+	typeof replyPullRequestThreadInputSchema
+>
+
+export const editPullRequestCommentInputSchema =
+	getPullRequestInputSchema.extend({
+		commentId: pullRequestCommentIdSchema,
+		body: pullRequestCommentBodySchema,
+	})
+export type EditPullRequestCommentInput = z.input<
+	typeof editPullRequestCommentInputSchema
+>
+export type ParsedEditPullRequestCommentInput = z.infer<
+	typeof editPullRequestCommentInputSchema
+>
+
+export const deletePullRequestCommentInputSchema =
+	getPullRequestInputSchema.extend({
+		commentId: pullRequestCommentIdSchema,
+	})
+export type DeletePullRequestCommentInput = z.input<
+	typeof deletePullRequestCommentInputSchema
+>
+export type ParsedDeletePullRequestCommentInput = z.infer<
+	typeof deletePullRequestCommentInputSchema
+>
+
+export const resolvePullRequestThreadInputSchema =
+	getPullRequestInputSchema.extend({
+		threadId: pullRequestThreadIdSchema,
+	})
+export type ResolvePullRequestThreadInput = z.input<
+	typeof resolvePullRequestThreadInputSchema
+>
+export type ParsedResolvePullRequestThreadInput = z.infer<
+	typeof resolvePullRequestThreadInputSchema
 >
 
 export const pullRequestsContract = {
@@ -308,4 +458,62 @@ export const pullRequestsContract = {
 		})
 		.input(mergePullRequestInputSchema)
 		.output(pullRequestSchema),
+	listThreads: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/threads',
+		})
+		.input(listPullRequestThreadsInputSchema)
+		.output(
+			z.object({
+				threads: z.array(pullRequestThreadSchema),
+				comparison: z.object({
+					baseSha: z.string(),
+					headSha: z.string(),
+				}),
+				viewer: pullRequestThreadViewerSchema,
+			})
+		),
+	createThread: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/threads',
+		})
+		.input(createPullRequestThreadInputSchema)
+		.output(pullRequestThreadSchema),
+	replyThread: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/threads/{threadId}/comments',
+		})
+		.input(replyPullRequestThreadInputSchema)
+		.output(pullRequestThreadSchema),
+	editComment: oc
+		.route({
+			method: 'PATCH',
+			path: '/repositories/{username}/{slug}/pulls/{number}/comments/{commentId}',
+		})
+		.input(editPullRequestCommentInputSchema)
+		.output(pullRequestCommentSchema),
+	deleteComment: oc
+		.route({
+			method: 'DELETE',
+			path: '/repositories/{username}/{slug}/pulls/{number}/comments/{commentId}',
+		})
+		.input(deletePullRequestCommentInputSchema)
+		.output(z.object({ threadDeleted: z.boolean() })),
+	resolveThread: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/threads/{threadId}/resolve',
+		})
+		.input(resolvePullRequestThreadInputSchema)
+		.output(pullRequestThreadSchema),
+	unresolveThread: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/threads/{threadId}/unresolve',
+		})
+		.input(resolvePullRequestThreadInputSchema)
+		.output(pullRequestThreadSchema),
 }
