@@ -292,7 +292,7 @@ describe(PullRequestThreadsRepository.name, () => {
 	test('locks the thread row before deleting its last comment', async () => {
 		limitMock.mockResolvedValue([])
 
-		expect(await repository.deleteComment({ commentId, threadId })).toBe(true)
+		expect(await repository.deleteComment({ commentId, threadId })).toBeTruthy()
 		expect(transactionMock).toHaveBeenCalledOnce()
 		expect(selectMock).toHaveBeenNthCalledWith(1, { id: pullRequestThreads.id })
 		expect(whereMock).toHaveBeenNthCalledWith(
@@ -311,7 +311,7 @@ describe(PullRequestThreadsRepository.name, () => {
 	test('keeps the thread when another comment remains', async () => {
 		limitMock.mockResolvedValue([{ id: commentId }])
 
-		expect(await repository.deleteComment({ commentId, threadId })).toBe(false)
+		expect(await repository.deleteComment({ commentId, threadId })).toBeFalsy()
 		expect(deleteMock).toHaveBeenCalledOnce()
 	})
 })

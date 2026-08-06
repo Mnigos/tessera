@@ -6,6 +6,7 @@ import type {
 import {
 	getInlineThreadsForFile,
 	getInlineThreadsForLine,
+	getLeftoverInlineThreads,
 	getOutdatedInlineThreads,
 	getUnanchoredInlineThreads,
 	toThreadLineExcerpt,
@@ -13,19 +14,23 @@ import {
 
 const createdAt = new Date('2026-08-06T10:00:00.000Z')
 
+function inlineAnchor(path: string): NonNullable<PullRequestThread['anchor']> {
+	return {
+		path,
+		side: 'right',
+		line: 7,
+		anchorSha: 'a'.repeat(40),
+		baseSha: 'b'.repeat(40),
+		headSha: 'c'.repeat(40),
+		lineExcerpt: 'const value = 1',
+	}
+}
+
 function inlineThread(id: string, path: string): PullRequestThread {
 	return {
 		id: id as PullRequestThreadId,
 		kind: 'inline',
-		anchor: {
-			path,
-			side: 'right',
-			line: 7,
-			anchorSha: 'a'.repeat(40),
-			baseSha: 'b'.repeat(40),
-			headSha: 'c'.repeat(40),
-			lineExcerpt: 'const value = 1',
-		},
+		anchor: inlineAnchor(path),
 		outdated: false,
 		createdAt,
 		comments: [],
@@ -134,7 +139,7 @@ describe('pull request inline threads', () => {
 		)
 		const wrongSide = {
 			...inlineThread('00000000-0000-4000-8000-000000000009', 'src/new.ts'),
-			anchor: { ...matching.anchor!, side: 'left' as const },
+			anchor: { ...inlineAnchor('src/new.ts'), side: 'left' as const },
 		}
 		const outdated = {
 			...matching,
@@ -147,6 +152,55 @@ describe('pull request inline threads', () => {
 		).toEqual([matching])
 		expect(getOutdatedInlineThreads([matching, wrongSide, outdated])).toEqual([
 			outdated,
+		])
+	})
+
+	test('collects outdated threads and threads on lines outside rendered hunks', () => {
+		const rendered = inlineThread(
+			'00000000-0000-4000-8000-000000000011',
+			'src/new.ts'
+		)
+		const offHunk = {
+			...inlineThread('00000000-0000-4000-8000-000000000012', 'src/new.ts'),
+			anchor: { ...inlineAnchor('src/new.ts'), line: 99 },
+		}
+		const outdated = {
+			...inlineThread('00000000-0000-4000-8000-000000000013', 'src/new.ts'),
+			outdated: true,
+		}
+		const diff = {
+			baseSha: 'b'.repeat(40),
+			headSha: 'c'.repeat(40),
+			mergeBaseSha: 'd'.repeat(40),
+			file: renamedFile,
+			hunks: [
+				{
+					header: '@@ -7,1 +7,1 @@',
+					lines: [
+						{
+							kind: 'addition' as const,
+							content: 'const value = 1',
+							new: {
+								sha: 'c'.repeat(40),
+								path: 'src/new.ts',
+								line: 7,
+								side: 'right' as const,
+							},
+						},
+					],
+				},
+			],
+			isTruncated: false,
+			patchLimitBytes: 1_048_576,
+		}
+
+		expect(
+			getLeftoverInlineThreads([rendered, offHunk, outdated], diff).map(
+				thread => thread.id
+			)
+		).toEqual([
+			'00000000-0000-4000-8000-000000000012',
+			'00000000-0000-4000-8000-000000000013',
 		])
 	})
 

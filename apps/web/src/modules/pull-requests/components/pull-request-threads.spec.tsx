@@ -275,7 +275,7 @@ describe('pull request threads', () => {
 		expect(screen.queryByText('Top level comment')).toBeNull()
 	})
 
-	test('currently hides a matched-file thread when its diff has no hunks', async () => {
+	test('shows a matched-file thread under its file card when the diff has no hunks', async () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [
@@ -310,7 +310,7 @@ describe('pull request threads', () => {
 			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
 		)
 		expect(screen.getByText('No text changes to display.')).toBeTruthy()
-		expect(screen.getByText('Outdated comments (1)')).toBeTruthy()
+		expect(screen.getByText('Comments (1)')).toBeTruthy()
 		expect(screen.getByText('Discussion with no rendered hunk')).toBeTruthy()
 	})
 
