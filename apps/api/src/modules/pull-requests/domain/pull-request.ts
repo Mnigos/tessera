@@ -48,6 +48,7 @@ export function toPullRequestEventOutput(
 		...event,
 		actorUserId: event.actorUserId ?? undefined,
 		actorUsername: resolvedActorUsername,
+		payload: event.payload ?? undefined,
 	}
 }
 

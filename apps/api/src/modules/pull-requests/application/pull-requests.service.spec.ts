@@ -32,6 +32,7 @@ const repositoryContext = {
 const repositoryAccessContext = {
 	...repositoryContext,
 	viewerRole: 'write' as const,
+	tesseraWritesAllowed: true,
 }
 const pullRequest: PullRequest = {
 	id: pullRequestId,
@@ -59,6 +60,7 @@ const event: PullRequestEvent = {
 	provider: 'tessera',
 	actorUserId: mockUserId,
 	type: 'opened',
+	payload: null,
 	createdAt,
 }
 const repositoryInput = {
@@ -257,7 +259,7 @@ describe(PullRequestsService.name, () => {
 			await service.get(undefined, { ...repositoryInput, number: 1 })
 		).toEqual({
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
-			events: [{ ...event, actorUsername: 'marta' }],
+			events: [{ ...event, actorUsername: 'marta', payload: undefined }],
 			viewerRole: 'write',
 		})
 	})

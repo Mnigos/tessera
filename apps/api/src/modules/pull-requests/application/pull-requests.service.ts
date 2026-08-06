@@ -38,6 +38,7 @@ import {
 	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
 import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
 import {
@@ -240,7 +241,7 @@ export class PullRequestsService {
 				{ username, slug }
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const { baseRef, headRef } = this.getComparisonRefs(pullRequest)
+		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
 
 		const comparison = await this.gitStorageClient.compareRepositoryRefs({
 			repositoryId,
@@ -525,25 +526,6 @@ export class PullRequestsService {
 			storagePath,
 			objectId,
 		})
-	}
-
-	private getComparisonRefs(pullRequest: PullRequestReadModel) {
-		if (pullRequest.github)
-			return {
-				baseRef: pullRequest.github.baseSha,
-				headRef: pullRequest.github.headSha,
-			}
-
-		if (pullRequest.state === 'merged' && pullRequest.mergeCommitSha)
-			return {
-				baseRef: `${pullRequest.mergeCommitSha}^1`,
-				headRef: `${pullRequest.mergeCommitSha}^2`,
-			}
-
-		return {
-			baseRef: pullRequest.targetBranch,
-			headRef: pullRequest.sourceBranch,
-		}
 	}
 
 	private async findPullRequest(

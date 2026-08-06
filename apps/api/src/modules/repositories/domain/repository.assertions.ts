@@ -22,10 +22,22 @@ interface TesseraWriteTarget {
 	externalSource?: TesseraWriteExternalSource | null
 }
 
+function isGitHubSourceOfTruth(
+	repository: TesseraWriteTarget
+): repository is TesseraWriteTarget & {
+	externalSource: TesseraWriteExternalSource
+} {
+	return repository.externalSource?.mirrorMode === 'github_to_tessera'
+}
+
+export function allowsTesseraWrites(repository: TesseraWriteTarget): boolean {
+	return !isGitHubSourceOfTruth(repository)
+}
+
 export function assertTesseraWritesAllowed(
 	repository: TesseraWriteTarget
 ): void {
-	if (repository.externalSource?.mirrorMode !== 'github_to_tessera') return
+	if (!isGitHubSourceOfTruth(repository)) return
 
 	throw new RepositoryGitHubSourceOfTruthWriteForbiddenError({
 		repositoryId: repository.id,
