@@ -272,6 +272,7 @@ export class PullRequestsRepository {
 				provider: pullRequestEvents.provider,
 				actorUserId: pullRequestEvents.actorUserId,
 				type: pullRequestEvents.type,
+				payload: pullRequestEvents.payload,
 				createdAt: pullRequestEvents.createdAt,
 				actorUsername: sql<string>`coalesce(${eventActorUser.username}, ${eventGitHubActor.login})`,
 			})

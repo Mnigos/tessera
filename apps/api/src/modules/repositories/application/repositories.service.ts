@@ -54,6 +54,7 @@ import {
 	toRepositoryOutput,
 } from '../domain/repository'
 import {
+	allowsTesseraWrites,
 	assertRepositoryHasStoragePath,
 	assertTesseraWritesAllowed,
 } from '../domain/repository.assertions'
@@ -123,6 +124,12 @@ export interface RepositoryAccessContext {
 	repositoryId: RepositoryId
 	storagePath: string
 	viewerRole: RepositoryRole
+	/**
+	 * Whether Tessera owns the write side of this repository. Read paths use it
+	 * to report viewer capabilities without rejecting GitHub-authoritative
+	 * repositories outright.
+	 */
+	tesseraWritesAllowed: boolean
 }
 
 export interface RepositoryManagementContext {
@@ -247,6 +254,7 @@ export class RepositoriesService {
 			repositoryId: repository.id,
 			storagePath,
 			viewerRole: role,
+			tesseraWritesAllowed: allowsTesseraWrites(repository),
 		}
 	}
 
@@ -273,6 +281,27 @@ export class RepositoriesService {
 			repositoryId: repository.id,
 			storagePath: repository.storagePath,
 			viewerRole: role,
+			tesseraWritesAllowed: true,
+		}
+	}
+
+	async getReadableTesseraRepositoryContext(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryAccessContext> {
+		const { repository, role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		assertRepositoryHasStoragePath(repository)
+		assertTesseraWritesAllowed(repository)
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			viewerRole: role,
+			tesseraWritesAllowed: true,
 		}
 	}
 
