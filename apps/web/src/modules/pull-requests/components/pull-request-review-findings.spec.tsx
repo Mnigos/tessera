@@ -58,6 +58,18 @@ vi.mock('../hooks/use-pull-request.query', () => ({
 	usePullRequestQuery: vi.fn(),
 }))
 
+vi.mock('@/modules/auth/hooks/use-auth', () => ({
+	useAuth: () => ({ user: undefined }),
+}))
+
+vi.mock('../hooks/use-pull-request-threads.query', () => ({
+	usePullRequestThreadsQuery: () => ({
+		data: undefined,
+		isLoading: false,
+		isError: false,
+	}),
+}))
+
 const useClosePullRequestMutationMock = vi.mocked(useClosePullRequestMutation)
 const useEditPullRequestMutationMock = vi.mocked(useEditPullRequestMutation)
 const useMergePullRequestMutationMock = vi.mocked(useMergePullRequestMutation)

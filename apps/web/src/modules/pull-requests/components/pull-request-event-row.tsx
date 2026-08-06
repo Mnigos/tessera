@@ -1,0 +1,28 @@
+import type { PullRequestEvent } from '@repo/contracts'
+import {
+	formatPullRequestDate,
+	formatPullRequestDateTime,
+	getPullRequestEventLabel,
+} from '../helpers/pull-request-formatting'
+
+interface PullRequestEventRowProps {
+	event: PullRequestEvent
+}
+
+export function PullRequestEventRow({
+	event,
+}: Readonly<PullRequestEventRowProps>) {
+	return (
+		<div className="flex flex-wrap items-baseline justify-between gap-2 px-1 text-muted-foreground text-sm">
+			<span>
+				{getPullRequestEventLabel(event.type)} by {event.actorUsername}
+			</span>
+			<time
+				className="text-xs"
+				dateTime={formatPullRequestDateTime(event.createdAt)}
+			>
+				{formatPullRequestDate(event.createdAt)}
+			</time>
+		</div>
+	)
+}

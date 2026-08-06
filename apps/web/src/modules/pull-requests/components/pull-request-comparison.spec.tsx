@@ -16,6 +16,14 @@ vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-threads.query', () => ({
+	usePullRequestThreadsQuery: () => ({
+		data: undefined,
+		isLoading: false,
+		isError: false,
+	}),
+}))
+
 const useComparisonQueryMock = vi.mocked(usePullRequestComparisonQuery)
 const useFileDiffQueryMock = vi.mocked(usePullRequestFileDiffQuery)
 const INDEX_FILE_BUTTON_NAME_REGEX = /src\/index\.ts/
