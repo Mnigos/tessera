@@ -60,8 +60,8 @@ interface ThreadResponseBody {
 	id: string
 	kind: 'top_level' | 'inline'
 	outdated: boolean
-	resolved?: { byUsername: string }
-	comments: { id: string; body: string; authorUsername: string }[]
+	resolved?: { by: { username: string } }
+	comments: { id: string; body: string; author: { username: string } }[]
 }
 
 describe('Pull request threads integration', () => {
@@ -190,7 +190,7 @@ describe('Pull request threads integration', () => {
 		)
 		expect(resolved.status).toBe(200)
 		expect(await resolved.json()).toMatchObject({
-			resolved: { byUsername: 'owner' },
+			resolved: { by: { username: 'owner', provider: 'tessera' } },
 		})
 		const unresolved = await threadAction(
 			inlineThread.id,

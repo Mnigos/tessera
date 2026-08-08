@@ -114,6 +114,7 @@ describe(PullRequestsController.name, () => {
 	test('delegates anonymous list requests', async () => {
 		const output = {
 			pullRequests: [{ ...pullRequest, reviewSummary }],
+			authority: 'tessera' as const,
 			viewerRole: 'read' as const,
 		}
 		const listSpy = vi.spyOn(service, 'list').mockResolvedValue(output)
@@ -145,6 +146,7 @@ describe(PullRequestsController.name, () => {
 				canRequestReviewers: false,
 				canRemoveReviewerRequests: false,
 			},
+			authority: 'tessera' as const,
 			viewerRole: 'read' as const,
 		}
 		const getSpy = vi.spyOn(service, 'get').mockResolvedValue(output)

@@ -10,9 +10,16 @@ import type {
 	PullRequestReviewerRequestReadModel,
 	PullRequestReviewReadModel,
 } from '../infrastructure/pull-request-reviews.repository'
+import {
+	type PullRequestActorReadModel,
+	requirePullRequestActorOutput,
+	toPullRequestActorOutput,
+} from './pull-request-actor'
 
 export interface PullRequestReviewEvaluationContext {
 	authorUserId: UserId | null
+	/** The author's GitHub identity, which is all an unmapped author has. */
+	authorActorNodeId?: string | null
 	/** Undefined when the current head cannot be resolved; nothing is stale then. */
 	currentHeadSha?: string
 }
@@ -20,50 +27,53 @@ export interface PullRequestReviewEvaluationContext {
 export function toPullRequestReviewOutput(
 	review: PullRequestReviewReadModel
 ): PullRequestReviewOutput {
-	if (!review.reviewerUsername)
-		throw new Error('pull request review reviewer username is unavailable')
 	if (!(review.outcome && review.submittedAt))
 		throw new Error('pull request review is not submitted')
 
 	return {
 		id: review.id,
-		reviewerUserId: review.reviewerUserId ?? undefined,
-		reviewerUsername: review.reviewerUsername,
+		reviewer: requirePullRequestActorOutput(
+			review.reviewer,
+			'pull request reviewer'
+		),
+		state: review.state,
 		outcome: review.outcome,
 		body: review.body,
 		headSha: review.headSha,
 		submittedAt: review.submittedAt,
+		dismissedAt: review.dismissedAt ?? undefined,
+		dismissedBy: toPullRequestActorOutput(review.dismissedBy),
+		sourceUrl: review.sourceUrl ?? undefined,
 	}
 }
 
 /**
- * Whether Tessera can attribute the review to an account it knows. A synced
- * review whose reviewer has no Tessera user cannot take part in native review
- * state yet (TES-67), so it is left out of the history, the effective states,
- * and the summary counts alike rather than counted in some of them.
+ * Whether the review can be attributed to anybody at all. Both a Tessera
+ * account and a GitHub actor snapshot count — a synchronized reviewer Tessera
+ * never linked still reviewed the pull request — but a row with neither has
+ * nobody to show and is left out of history, effective state, and counts alike.
  */
 export function isAttributableReview({
-	reviewerUsername,
+	reviewer,
 }: {
-	reviewerUsername: string | null
+	reviewer: PullRequestActorReadModel
 }): boolean {
-	return reviewerUsername !== null
+	return toPullRequestActorOutput(reviewer) !== undefined
 }
 
 export function toPullRequestReviewerRequestOutput(
 	request: PullRequestReviewerRequestReadModel
 ): PullRequestReviewerRequestOutput {
-	if (!request.reviewerUsername)
-		throw new Error('pull request reviewer username is unavailable')
-	if (!request.requestedByUsername)
-		throw new Error('pull request reviewer requester username is unavailable')
-
 	return {
 		id: request.id,
-		reviewerUserId: request.reviewerUserId ?? undefined,
-		reviewerUsername: request.reviewerUsername,
-		requestedByUserId: request.requestedByUserId ?? undefined,
-		requestedByUsername: request.requestedByUsername,
+		targetKind: request.targetKind,
+		reviewer: requirePullRequestActorOutput(
+			request.reviewer,
+			'pull request requested reviewer'
+		),
+		// REST only reports who is requested, never who asked, so a request
+		// recovered by reconciliation has no requester to name.
+		requestedBy: toPullRequestActorOutput(request.requestedBy),
 		createdAt: request.createdAt,
 	}
 }
@@ -72,37 +82,53 @@ export function toPullRequestReviewerRequestOutput(
  * Reduces the submitted review history to one effective state per reviewer:
  * the latest submission wins, ties break on review id, and the pull request
  * author never counts as a reviewer of their own pull request.
+ *
+ * Dismissed reviews drop out here. They stay in the history so the record of
+ * the decision survives, but a dismissed verdict no longer describes the pull
+ * request.
  */
 export function toPullRequestEffectiveReviewStates(
 	reviews: PullRequestReviewReadModel[],
-	{ authorUserId, currentHeadSha }: PullRequestReviewEvaluationContext
+	{
+		authorActorNodeId,
+		authorUserId,
+		currentHeadSha,
+	}: PullRequestReviewEvaluationContext
 ): PullRequestEffectiveReviewState[] {
 	const latestByReviewer = new Map<string, PullRequestReviewReadModel>()
 
 	for (const review of reviews) {
-		if (!(review.outcome && review.submittedAt && isAttributableReview(review)))
-			continue
-		if (authorUserId && review.reviewerUserId === authorUserId) continue
+		if (review.state !== 'submitted') continue
+		if (!(review.outcome && review.submittedAt)) continue
 
-		const reviewerKey = toReviewerKey(review)
-		const latestReview = latestByReviewer.get(reviewerKey)
+		const reviewer = toPullRequestActorOutput(review.reviewer)
+
+		if (!reviewer) continue
+		if (isPullRequestAuthor(reviewer, { authorActorNodeId, authorUserId }))
+			continue
+
+		const latestReview = latestByReviewer.get(reviewer.key)
 
 		if (!latestReview || supersedes(review, latestReview))
-			latestByReviewer.set(reviewerKey, review)
+			latestByReviewer.set(reviewer.key, review)
 	}
 
 	return [...latestByReviewer.values()]
 		.map(review => {
-			const { body: _body, id, ...output } = toPullRequestReviewOutput(review)
+			const { headSha, id, outcome, reviewer, submittedAt } =
+				toPullRequestReviewOutput(review)
 
 			return {
-				...output,
 				reviewId: id,
+				reviewer,
+				outcome,
+				headSha,
+				submittedAt,
 				stale: isStaleReviewHead(review.headSha, currentHeadSha),
 			}
 		})
 		.sort((left, right) =>
-			left.reviewerUsername.localeCompare(right.reviewerUsername)
+			left.reviewer.username.localeCompare(right.reviewer.username)
 		)
 }
 
@@ -128,6 +154,28 @@ export function toPullRequestReviewSummary(
 	return { requestedCount, approvedCount, changeRequestCount, staleCount }
 }
 
+/**
+ * A pull request author cannot review their own work — including when they
+ * reach it through GitHub, where the same person may be the unmapped author
+ * actor rather than a Tessera account.
+ */
+function isPullRequestAuthor(
+	reviewer: { externalNodeId?: string; userId?: UserId },
+	{
+		authorActorNodeId,
+		authorUserId,
+	}: Pick<
+		PullRequestReviewEvaluationContext,
+		'authorActorNodeId' | 'authorUserId'
+	>
+): boolean {
+	if (authorUserId && reviewer.userId === authorUserId) return true
+
+	return Boolean(
+		authorActorNodeId && reviewer.externalNodeId === authorActorNodeId
+	)
+}
+
 function isStaleReviewHead(
 	reviewHeadSha: string,
 	currentHeadSha: string | undefined
@@ -135,10 +183,6 @@ function isStaleReviewHead(
 	if (!currentHeadSha) return false
 
 	return reviewHeadSha !== currentHeadSha
-}
-
-function toReviewerKey(review: PullRequestReviewReadModel): string {
-	return review.reviewerUserId ?? `username:${review.reviewerUsername}`
 }
 
 function supersedes(

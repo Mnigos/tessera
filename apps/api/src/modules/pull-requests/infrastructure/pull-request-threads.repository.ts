@@ -6,6 +6,9 @@ import {
 	asc,
 	type DrizzleTransaction,
 	eq,
+	gitHubActors,
+	gitHubPullRequestCommentMappings,
+	gitHubPullRequestThreadMappings,
 	inArray,
 	isNotNull,
 	isNull,
@@ -28,6 +31,7 @@ import type {
 	UserId,
 } from '@repo/domain'
 import { alias } from 'drizzle-orm/pg-core'
+import type { PullRequestActorReadModel } from '../domain/pull-request-actor'
 
 interface PullRequestParams {
 	pullRequestId: PullRequestId
@@ -93,12 +97,15 @@ interface ResolveThreadParams extends ThreadResolutionParams {
 type PullRequestThreadDatabase = Database | DrizzleTransaction
 
 export interface PullRequestCommentReadModel extends PullRequestComment {
-	authorUsername: string | null
+	author: PullRequestActorReadModel
+	sourceUrl: string | null
 }
 
 export interface PullRequestThreadReadModel extends PullRequestThread {
 	comments: PullRequestCommentReadModel[]
-	resolvedByUsername: string | null
+	resolvedBy: PullRequestActorReadModel
+	/** GitHub's own verdict on the anchor, which outlives a base/head comparison. */
+	providerOutdated: boolean | null
 }
 
 type PullRequestThreadResolutionFailure =
@@ -110,7 +117,7 @@ export type PullRequestThreadResolutionResult =
 	| PullRequestThreadResolutionFailure
 
 export interface PullRequestCommentContext {
-	authorUserId: UserId
+	authorUserId: UserId | null
 	id: PullRequestCommentId
 	pullRequestId: PullRequestId
 	threadId: PullRequestThreadId
@@ -118,10 +125,19 @@ export interface PullRequestCommentContext {
 
 const resolvedByUser = alias(user, 'pull_request_thread_resolved_by_user')
 const commentAuthorUser = alias(user, 'pull_request_comment_author_user')
+const resolvedByGitHubActor = alias(
+	gitHubActors,
+	'pull_request_thread_resolved_by_github_actor'
+)
+const commentAuthorGitHubActor = alias(
+	gitHubActors,
+	'pull_request_comment_author_github_actor'
+)
 
 const THREAD_READ_COLUMNS = {
 	id: pullRequestThreads.id,
 	pullRequestId: pullRequestThreads.pullRequestId,
+	provider: pullRequestThreads.provider,
 	kind: pullRequestThreads.kind,
 	path: pullRequestThreads.path,
 	side: pullRequestThreads.side,
@@ -134,12 +150,21 @@ const THREAD_READ_COLUMNS = {
 	resolvedByUserId: pullRequestThreads.resolvedByUserId,
 	createdAt: pullRequestThreads.createdAt,
 	updatedAt: pullRequestThreads.updatedAt,
-	resolvedByUsername: resolvedByUser.username,
+	resolvedBy: {
+		userId: pullRequestThreads.resolvedByUserId,
+		username: resolvedByUser.username,
+		externalNodeId: resolvedByGitHubActor.externalNodeId,
+		externalLogin: resolvedByGitHubActor.login,
+		externalAvatarUrl: resolvedByGitHubActor.avatarUrl,
+		externalHtmlUrl: resolvedByGitHubActor.htmlUrl,
+	},
+	providerOutdated: gitHubPullRequestThreadMappings.providerOutdated,
 }
 
 const COMMENT_READ_COLUMNS = {
 	id: pullRequestComments.id,
 	threadId: pullRequestComments.threadId,
+	provider: pullRequestComments.provider,
 	authorUserId: pullRequestComments.authorUserId,
 	body: pullRequestComments.body,
 	state: pullRequestComments.state,
@@ -147,7 +172,15 @@ const COMMENT_READ_COLUMNS = {
 	createdAt: pullRequestComments.createdAt,
 	updatedAt: pullRequestComments.updatedAt,
 	editedAt: pullRequestComments.editedAt,
-	authorUsername: commentAuthorUser.username,
+	author: {
+		userId: pullRequestComments.authorUserId,
+		username: commentAuthorUser.username,
+		externalNodeId: commentAuthorGitHubActor.externalNodeId,
+		externalLogin: commentAuthorGitHubActor.login,
+		externalAvatarUrl: commentAuthorGitHubActor.avatarUrl,
+		externalHtmlUrl: commentAuthorGitHubActor.htmlUrl,
+	},
+	sourceUrl: gitHubPullRequestCommentMappings.htmlUrl,
 }
 
 const THREAD_EVENT_COLUMNS = {
@@ -174,6 +207,20 @@ export class PullRequestThreadsRepository {
 			.leftJoin(
 				resolvedByUser,
 				eq(resolvedByUser.id, pullRequestThreads.resolvedByUserId)
+			)
+			.leftJoin(
+				gitHubPullRequestThreadMappings,
+				eq(
+					gitHubPullRequestThreadMappings.pullRequestThreadId,
+					pullRequestThreads.id
+				)
+			)
+			.leftJoin(
+				resolvedByGitHubActor,
+				eq(
+					resolvedByGitHubActor.id,
+					gitHubPullRequestThreadMappings.resolvedByActorId
+				)
 			)
 			.where(and(...conditions))
 			.orderBy(asc(pullRequestThreads.createdAt))
@@ -334,9 +381,23 @@ export class PullRequestThreadsRepository {
 		const [editedComment] = await this.db
 			.select(COMMENT_READ_COLUMNS)
 			.from(pullRequestComments)
-			.innerJoin(
+			.leftJoin(
 				commentAuthorUser,
 				eq(commentAuthorUser.id, pullRequestComments.authorUserId)
+			)
+			.leftJoin(
+				gitHubPullRequestCommentMappings,
+				eq(
+					gitHubPullRequestCommentMappings.pullRequestCommentId,
+					pullRequestComments.id
+				)
+			)
+			.leftJoin(
+				commentAuthorGitHubActor,
+				eq(
+					commentAuthorGitHubActor.id,
+					gitHubPullRequestCommentMappings.authorActorId
+				)
 			)
 			.where(
 				and(
@@ -585,6 +646,20 @@ export class PullRequestThreadsRepository {
 				resolvedByUser,
 				eq(resolvedByUser.id, pullRequestThreads.resolvedByUserId)
 			)
+			.leftJoin(
+				gitHubPullRequestThreadMappings,
+				eq(
+					gitHubPullRequestThreadMappings.pullRequestThreadId,
+					pullRequestThreads.id
+				)
+			)
+			.leftJoin(
+				resolvedByGitHubActor,
+				eq(
+					resolvedByGitHubActor.id,
+					gitHubPullRequestThreadMappings.resolvedByActorId
+				)
+			)
 			.where(eq(pullRequestThreads.id, threadId))
 			.limit(1)
 
@@ -614,9 +689,23 @@ export class PullRequestThreadsRepository {
 		const comments = await db
 			.select(COMMENT_READ_COLUMNS)
 			.from(pullRequestComments)
-			.innerJoin(
+			.leftJoin(
 				commentAuthorUser,
 				eq(commentAuthorUser.id, pullRequestComments.authorUserId)
+			)
+			.leftJoin(
+				gitHubPullRequestCommentMappings,
+				eq(
+					gitHubPullRequestCommentMappings.pullRequestCommentId,
+					pullRequestComments.id
+				)
+			)
+			.leftJoin(
+				commentAuthorGitHubActor,
+				eq(
+					commentAuthorGitHubActor.id,
+					gitHubPullRequestCommentMappings.authorActorId
+				)
 			)
 			.where(
 				and(

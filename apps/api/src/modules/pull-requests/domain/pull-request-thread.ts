@@ -8,6 +8,10 @@ import type {
 	PullRequestCommentReadModel,
 	PullRequestThreadReadModel,
 } from '../infrastructure/pull-request-threads.repository'
+import {
+	requirePullRequestActorOutput,
+	toPullRequestActorOutput,
+} from './pull-request-actor'
 
 export interface PullRequestThreadComparison {
 	baseSha: string
@@ -17,18 +21,18 @@ export interface PullRequestThreadComparison {
 export function toPullRequestCommentOutput(
 	comment: PullRequestCommentReadModel
 ): PullRequestCommentOutput {
-	if (!comment.authorUsername)
-		throw new Error('pull request comment author username is unavailable')
-
 	return {
 		id: comment.id,
 		threadId: comment.threadId,
-		authorUserId: comment.authorUserId,
-		authorUsername: comment.authorUsername,
+		author: requirePullRequestActorOutput(
+			comment.author,
+			'pull request comment author'
+		),
 		body: comment.body,
 		state: comment.state,
 		createdAt: comment.createdAt,
 		editedAt: comment.editedAt ?? undefined,
+		sourceUrl: comment.sourceUrl ?? undefined,
 	}
 }
 
@@ -47,11 +51,17 @@ export function toPullRequestThreadOutput(
 	}
 }
 
+/**
+ * GitHub decides outdatedness for the threads it owns — it can see history a
+ * mirrored comparison cannot — so its verdict stands on its own, and the local
+ * base/head comparison still catches anchors that aged after the last sync.
+ */
 export function isPullRequestThreadOutdated(
 	thread: PullRequestThreadReadModel,
 	comparison: PullRequestThreadComparison
 ): boolean {
 	if (thread.kind !== 'inline') return false
+	if (thread.providerOutdated) return true
 
 	return (
 		thread.baseSha !== comparison.baseSha ||
@@ -86,15 +96,15 @@ function toPullRequestThreadAnchor(
 	return { anchorSha, baseSha, headSha, line, lineExcerpt, path, side }
 }
 
+/**
+ * A resolution needs somebody to attribute it to. A synchronized thread whose
+ * resolver GitHub never reported reads as unresolved rather than failing the
+ * whole page, and the next reconciliation repairs it.
+ */
 function toPullRequestThreadResolution(thread: PullRequestThreadReadModel) {
-	if (!(thread.resolvedAt && thread.resolvedByUserId)) return undefined
+	if (!thread.resolvedAt) return undefined
 
-	if (!thread.resolvedByUsername)
-		throw new Error('pull request thread resolver username is unavailable')
+	const by = toPullRequestActorOutput(thread.resolvedBy)
 
-	return {
-		at: thread.resolvedAt,
-		byUserId: thread.resolvedByUserId,
-		byUsername: thread.resolvedByUsername,
-	}
+	return by ? { at: thread.resolvedAt, by } : undefined
 }

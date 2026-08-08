@@ -258,7 +258,7 @@ export class PullRequestReviewsService {
 				this.pullRequestReviewsRepository.listActiveReviewerRequests({
 					pullRequestId: pullRequest.id,
 				}),
-				this.pullRequestReviewsRepository.listSubmittedReviews({
+				this.pullRequestReviewsRepository.listReviewHistory({
 					pullRequestId: pullRequest.id,
 				}),
 				viewerUserId && !isAuthor
@@ -289,6 +289,7 @@ export class PullRequestReviewsService {
 				.map(toPullRequestReviewOutput),
 			effectiveReviewStates: toPullRequestEffectiveReviewStates(reviews, {
 				authorUserId: pullRequest.authorUserId,
+				authorActorNodeId: pullRequest.authorActorNodeId,
 				currentHeadSha,
 			}),
 			viewerPendingReview: pendingReview,

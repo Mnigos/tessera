@@ -86,7 +86,11 @@ describe(PullRequestThreadsRepository.name, () => {
 			returning: returningMock,
 			for: forMock,
 		})
-		joinMock.mockReturnValue({ where: whereMock })
+		joinMock.mockReturnValue({
+			leftJoin: joinMock,
+			innerJoin: joinMock,
+			where: whereMock,
+		})
 		fromMock.mockReturnValue({
 			leftJoin: joinMock,
 			innerJoin: joinMock,

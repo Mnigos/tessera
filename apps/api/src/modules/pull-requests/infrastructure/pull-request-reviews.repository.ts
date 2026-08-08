@@ -1,6 +1,10 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
-import type { PullRequestReviewOutcome } from '@repo/contracts'
+import type {
+	PullRequestReviewerTargetKind,
+	PullRequestReviewOutcome,
+	PullRequestReviewState,
+} from '@repo/contracts'
 import {
 	and,
 	asc,
@@ -8,6 +12,10 @@ import {
 	type DrizzleTransaction,
 	desc,
 	eq,
+	gitHubActors,
+	gitHubPullRequestMappings,
+	gitHubPullRequestReviewerRequestMappings,
+	gitHubPullRequestReviewMappings,
 	inArray,
 	isNull,
 	type PullRequestEvent,
@@ -28,7 +36,8 @@ import type {
 	PullRequestThreadId,
 	UserId,
 } from '@repo/domain'
-import { alias } from 'drizzle-orm/pg-core'
+import { alias, type PgColumn } from 'drizzle-orm/pg-core'
+import type { PullRequestActorReadModel } from '../domain/pull-request-actor'
 
 interface PullRequestParams {
 	pullRequestId: PullRequestId
@@ -74,20 +83,22 @@ export type PullRequestReviewerRequestResult =
 
 export interface PullRequestReviewReadModel {
 	id: PullRequestReviewId
-	reviewerUserId: UserId | null
-	reviewerUsername: string | null
+	reviewer: PullRequestActorReadModel
+	state: PullRequestReviewState
 	outcome: PullRequestReviewOutcome | null
 	body: string
 	headSha: string
 	submittedAt: Date | null
+	dismissedAt: Date | null
+	dismissedBy: PullRequestActorReadModel
+	sourceUrl: string | null
 }
 
 export interface PullRequestReviewerRequestReadModel {
 	id: PullRequestReviewerRequestId
-	reviewerUserId: UserId | null
-	reviewerUsername: string | null
-	requestedByUserId: UserId | null
-	requestedByUsername: string | null
+	targetKind: PullRequestReviewerTargetKind
+	reviewer: PullRequestActorReadModel
+	requestedBy: PullRequestActorReadModel
 	createdAt: Date
 }
 
@@ -99,8 +110,7 @@ export interface PullRequestPendingReviewReadModel {
 
 export interface PullRequestEffectiveReviewRow {
 	pullRequestId: PullRequestId
-	reviewerUserId: UserId | null
-	reviewerUsername: string | null
+	reviewer: PullRequestActorReadModel
 	outcome: PullRequestReviewOutcome | null
 	headSha: string
 }
@@ -114,35 +124,107 @@ type PullRequestReviewDatabase = Database | DrizzleTransaction
 
 const reviewerUser = alias(user, 'pull_request_review_reviewer_user')
 const requestedByUser = alias(user, 'pull_request_reviewer_request_requester')
+const dismissedByUser = alias(user, 'pull_request_review_dismissed_by_user')
+const reviewerGitHubActor = alias(
+	gitHubActors,
+	'pull_request_review_reviewer_github_actor'
+)
+const dismissedByGitHubActor = alias(
+	gitHubActors,
+	'pull_request_review_dismissed_by_github_actor'
+)
+const requestTargetGitHubActor = alias(
+	gitHubActors,
+	'pull_request_reviewer_request_target_github_actor'
+)
+const requestedByGitHubActor = alias(
+	gitHubActors,
+	'pull_request_reviewer_request_requester_github_actor'
+)
+
+/**
+ * Groups a reviewer's submissions under one identity. Native reviewers key on
+ * their account; a GitHub reviewer Tessera never linked keys on the actor node
+ * ID, because every one of them has a null user ID and collapsing on that would
+ * merge unrelated people into a single verdict.
+ */
+const EFFECTIVE_REVIEWER_KEY = sql`coalesce(${pullRequestReviews.reviewerUserId}::text, ${reviewerGitHubActor.externalNodeId})`
 
 const REVIEW_READ_COLUMNS = {
 	id: pullRequestReviews.id,
-	reviewerUserId: pullRequestReviews.reviewerUserId,
-	reviewerUsername: reviewerUser.username,
+	reviewer: {
+		userId: pullRequestReviews.reviewerUserId,
+		username: reviewerUser.username,
+		externalNodeId: reviewerGitHubActor.externalNodeId,
+		externalLogin: reviewerGitHubActor.login,
+		externalAvatarUrl: reviewerGitHubActor.avatarUrl,
+		externalHtmlUrl: reviewerGitHubActor.htmlUrl,
+	},
+	state: pullRequestReviews.state,
 	outcome: pullRequestReviews.outcome,
 	body: pullRequestReviews.body,
 	headSha: pullRequestReviews.headSha,
 	submittedAt: pullRequestReviews.submittedAt,
+	dismissedAt: pullRequestReviews.dismissedAt,
+	dismissedBy: {
+		userId: pullRequestReviews.dismissedByUserId,
+		username: dismissedByUser.username,
+		externalNodeId: dismissedByGitHubActor.externalNodeId,
+		externalLogin: dismissedByGitHubActor.login,
+		externalAvatarUrl: dismissedByGitHubActor.avatarUrl,
+		externalHtmlUrl: dismissedByGitHubActor.htmlUrl,
+	},
+	sourceUrl: gitHubPullRequestReviewMappings.htmlUrl,
+}
+
+const REVIEWER_REQUEST_READ_COLUMNS = {
+	id: pullRequestReviewerRequests.id,
+	targetKind: sql<PullRequestReviewerTargetKind>`coalesce(${gitHubPullRequestReviewerRequestMappings.targetKind}, 'user')`,
+	reviewer: {
+		userId: pullRequestReviewerRequests.reviewerUserId,
+		username: reviewerUser.username,
+		// A team has no actor row, so its snapshot on the mapping stands in for one.
+		externalNodeId: sql<
+			string | null
+		>`coalesce(${requestTargetGitHubActor.externalNodeId}, ${gitHubPullRequestReviewerRequestMappings.targetNodeId})`,
+		externalLogin: sql<
+			string | null
+		>`coalesce(${requestTargetGitHubActor.login}, ${gitHubPullRequestReviewerRequestMappings.teamSlug})`,
+		externalAvatarUrl: sql<
+			string | null
+		>`coalesce(${requestTargetGitHubActor.avatarUrl}, ${gitHubPullRequestReviewerRequestMappings.teamAvatarUrl})`,
+		externalHtmlUrl: sql<
+			string | null
+		>`coalesce(${requestTargetGitHubActor.htmlUrl}, ${gitHubPullRequestReviewerRequestMappings.teamHtmlUrl})`,
+	},
+	requestedBy: {
+		userId: pullRequestReviewerRequests.requestedByUserId,
+		username: requestedByUser.username,
+		externalNodeId: requestedByGitHubActor.externalNodeId,
+		externalLogin: requestedByGitHubActor.login,
+		externalAvatarUrl: requestedByGitHubActor.avatarUrl,
+		externalHtmlUrl: requestedByGitHubActor.htmlUrl,
+	},
+	createdAt: pullRequestReviewerRequests.createdAt,
 }
 
 @Injectable()
 export class PullRequestReviewsRepository {
 	constructor(private readonly db: Database) {}
 
-	async listSubmittedReviews({
+	/**
+	 * Every review that became public, dismissals included: a dismissed review
+	 * keeps its place in the history even though it no longer counts towards the
+	 * pull request's state.
+	 */
+	async listReviewHistory({
 		pullRequestId,
 	}: PullRequestParams): Promise<PullRequestReviewReadModel[]> {
-		return await this.db
-			.select(REVIEW_READ_COLUMNS)
-			.from(pullRequestReviews)
-			.leftJoin(
-				reviewerUser,
-				eq(reviewerUser.id, pullRequestReviews.reviewerUserId)
-			)
+		return await this.reviewQuery(this.db)
 			.where(
 				and(
 					eq(pullRequestReviews.pullRequestId, pullRequestId),
-					eq(pullRequestReviews.state, 'submitted')
+					inArray(pullRequestReviews.state, ['submitted', 'dismissed'])
 				)
 			)
 			.orderBy(asc(pullRequestReviews.submittedAt), asc(pullRequestReviews.id))
@@ -151,24 +233,7 @@ export class PullRequestReviewsRepository {
 	async listActiveReviewerRequests({
 		pullRequestId,
 	}: PullRequestParams): Promise<PullRequestReviewerRequestReadModel[]> {
-		return await this.db
-			.select({
-				id: pullRequestReviewerRequests.id,
-				reviewerUserId: pullRequestReviewerRequests.reviewerUserId,
-				reviewerUsername: reviewerUser.username,
-				requestedByUserId: pullRequestReviewerRequests.requestedByUserId,
-				requestedByUsername: requestedByUser.username,
-				createdAt: pullRequestReviewerRequests.createdAt,
-			})
-			.from(pullRequestReviewerRequests)
-			.leftJoin(
-				reviewerUser,
-				eq(reviewerUser.id, pullRequestReviewerRequests.reviewerUserId)
-			)
-			.leftJoin(
-				requestedByUser,
-				eq(requestedByUser.id, pullRequestReviewerRequests.requestedByUserId)
-			)
+		return await this.reviewerRequestQuery(this.db)
 			.where(
 				and(
 					eq(pullRequestReviewerRequests.pullRequestId, pullRequestId),
@@ -210,6 +275,9 @@ export class PullRequestReviewsRepository {
 	/**
 	 * Latest submitted review per reviewer for every requested pull request, with
 	 * the pull request author excluded. Batched so list views never query per row.
+	 *
+	 * Dismissed reviews are left out: the state is `submitted` only until GitHub
+	 * dismisses it, and a dismissed verdict must stop counting.
 	 */
 	async listEffectiveReviews(
 		pullRequestIds: PullRequestId[]
@@ -218,11 +286,17 @@ export class PullRequestReviewsRepository {
 
 		return await this.db
 			.selectDistinctOn(
-				[pullRequestReviews.pullRequestId, pullRequestReviews.reviewerUserId],
+				[pullRequestReviews.pullRequestId, EFFECTIVE_REVIEWER_KEY],
 				{
 					pullRequestId: pullRequestReviews.pullRequestId,
-					reviewerUserId: pullRequestReviews.reviewerUserId,
-					reviewerUsername: reviewerUser.username,
+					reviewer: {
+						userId: pullRequestReviews.reviewerUserId,
+						username: reviewerUser.username,
+						externalNodeId: reviewerGitHubActor.externalNodeId,
+						externalLogin: reviewerGitHubActor.login,
+						externalAvatarUrl: reviewerGitHubActor.avatarUrl,
+						externalHtmlUrl: reviewerGitHubActor.htmlUrl,
+					},
 					outcome: pullRequestReviews.outcome,
 					headSha: pullRequestReviews.headSha,
 				}
@@ -236,16 +310,41 @@ export class PullRequestReviewsRepository {
 				reviewerUser,
 				eq(reviewerUser.id, pullRequestReviews.reviewerUserId)
 			)
+			.leftJoin(
+				gitHubPullRequestReviewMappings,
+				eq(
+					gitHubPullRequestReviewMappings.pullRequestReviewId,
+					pullRequestReviews.id
+				)
+			)
+			.leftJoin(
+				reviewerGitHubActor,
+				eq(
+					reviewerGitHubActor.id,
+					gitHubPullRequestReviewMappings.reviewerActorId
+				)
+			)
+			.leftJoin(
+				gitHubPullRequestMappings,
+				eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+			)
 			.where(
 				and(
 					inArray(pullRequestReviews.pullRequestId, pullRequestIds),
 					eq(pullRequestReviews.state, 'submitted'),
-					sql`${pullRequestReviews.reviewerUserId} is distinct from ${pullRequests.authorUserId}`
+					isNotSameActor(
+						pullRequestReviews.reviewerUserId,
+						pullRequests.authorUserId
+					),
+					isNotSameActor(
+						gitHubPullRequestReviewMappings.reviewerActorId,
+						gitHubPullRequestMappings.authorActorId
+					)
 				)
 			)
 			.orderBy(
 				pullRequestReviews.pullRequestId,
-				pullRequestReviews.reviewerUserId,
+				EFFECTIVE_REVIEWER_KEY,
 				desc(pullRequestReviews.submittedAt),
 				desc(pullRequestReviews.id)
 			)
@@ -562,19 +661,49 @@ export class PullRequestReviewsRepository {
 		return threads.map(thread => thread.id)
 	}
 
-	private async findReviewerRequestIn(
-		tx: DrizzleTransaction,
-		requestId: PullRequestReviewerRequestId
-	): Promise<PullRequestReviewerRequestReadModel | undefined> {
-		const [request] = await tx
-			.select({
-				id: pullRequestReviewerRequests.id,
-				reviewerUserId: pullRequestReviewerRequests.reviewerUserId,
-				reviewerUsername: reviewerUser.username,
-				requestedByUserId: pullRequestReviewerRequests.requestedByUserId,
-				requestedByUsername: requestedByUser.username,
-				createdAt: pullRequestReviewerRequests.createdAt,
-			})
+	/**
+	 * Reviews with their actor, wherever that actor lives. A native review joins
+	 * its Tessera account; a synchronized one reaches its GitHub actor through the
+	 * review mapping, which also carries the link back to github.com.
+	 */
+	private reviewQuery(db: PullRequestReviewDatabase) {
+		return db
+			.select(REVIEW_READ_COLUMNS)
+			.from(pullRequestReviews)
+			.leftJoin(
+				reviewerUser,
+				eq(reviewerUser.id, pullRequestReviews.reviewerUserId)
+			)
+			.leftJoin(
+				dismissedByUser,
+				eq(dismissedByUser.id, pullRequestReviews.dismissedByUserId)
+			)
+			.leftJoin(
+				gitHubPullRequestReviewMappings,
+				eq(
+					gitHubPullRequestReviewMappings.pullRequestReviewId,
+					pullRequestReviews.id
+				)
+			)
+			.leftJoin(
+				reviewerGitHubActor,
+				eq(
+					reviewerGitHubActor.id,
+					gitHubPullRequestReviewMappings.reviewerActorId
+				)
+			)
+			.leftJoin(
+				dismissedByGitHubActor,
+				eq(
+					dismissedByGitHubActor.id,
+					gitHubPullRequestReviewMappings.dismissedByActorId
+				)
+			)
+	}
+
+	private reviewerRequestQuery(db: PullRequestReviewDatabase) {
+		return db
+			.select(REVIEWER_REQUEST_READ_COLUMNS)
 			.from(pullRequestReviewerRequests)
 			.leftJoin(
 				reviewerUser,
@@ -584,6 +713,34 @@ export class PullRequestReviewsRepository {
 				requestedByUser,
 				eq(requestedByUser.id, pullRequestReviewerRequests.requestedByUserId)
 			)
+			.leftJoin(
+				gitHubPullRequestReviewerRequestMappings,
+				eq(
+					gitHubPullRequestReviewerRequestMappings.pullRequestReviewerRequestId,
+					pullRequestReviewerRequests.id
+				)
+			)
+			.leftJoin(
+				requestTargetGitHubActor,
+				eq(
+					requestTargetGitHubActor.id,
+					gitHubPullRequestReviewerRequestMappings.targetActorId
+				)
+			)
+			.leftJoin(
+				requestedByGitHubActor,
+				eq(
+					requestedByGitHubActor.id,
+					gitHubPullRequestReviewerRequestMappings.requestedByActorId
+				)
+			)
+	}
+
+	private async findReviewerRequestIn(
+		tx: DrizzleTransaction,
+		requestId: PullRequestReviewerRequestId
+	): Promise<PullRequestReviewerRequestReadModel | undefined> {
+		const [request] = await this.reviewerRequestQuery(tx)
 			.where(eq(pullRequestReviewerRequests.id, requestId))
 			.limit(1)
 
@@ -594,13 +751,7 @@ export class PullRequestReviewsRepository {
 		tx: DrizzleTransaction,
 		reviewId: PullRequestReviewId
 	): Promise<PullRequestReviewReadModel | undefined> {
-		const [review] = await tx
-			.select(REVIEW_READ_COLUMNS)
-			.from(pullRequestReviews)
-			.leftJoin(
-				reviewerUser,
-				eq(reviewerUser.id, pullRequestReviews.reviewerUserId)
-			)
+		const [review] = await this.reviewQuery(tx)
 			.where(eq(pullRequestReviews.id, reviewId))
 			.limit(1)
 
@@ -629,13 +780,7 @@ export class PullRequestReviewsRepository {
 			reviewerUserId: UserId
 		}
 	): Promise<PullRequestReviewReadModel | undefined> {
-		const [latestReview] = await tx
-			.select(REVIEW_READ_COLUMNS)
-			.from(pullRequestReviews)
-			.leftJoin(
-				reviewerUser,
-				eq(reviewerUser.id, pullRequestReviews.reviewerUserId)
-			)
+		const [latestReview] = await this.reviewQuery(tx)
 			.where(
 				and(
 					eq(pullRequestReviews.pullRequestId, pullRequestId),
@@ -783,4 +928,13 @@ export class PullRequestReviewsRepository {
 	) {
 		await db.insert(pullRequestEvents).values(params)
 	}
+}
+
+/**
+ * Two identities are the same person only when both sides are known and equal.
+ * `is distinct from` would call a pair of nulls a match, which would drop every
+ * review whose reviewer and author are unattributed on the same side.
+ */
+function isNotSameActor(left: PgColumn, right: PgColumn) {
+	return sql`(${left} is null or ${right} is null or ${left} <> ${right})`
 }

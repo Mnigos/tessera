@@ -25,6 +25,7 @@ export default defineConfig({
 			AUTH_SECRET: 'test-auth-secret',
 			GITHUB_CLIENT_ID: 'test-github-client-id',
 			GITHUB_CLIENT_SECRET: 'test-github-client-secret',
+			GITHUB_WEBHOOK_SECRET: 'test-github-webhook-secret',
 			REDIS_URL: 'redis://localhost:6379',
 			INTERNAL_API_TOKEN: 'test-internal-token',
 		},

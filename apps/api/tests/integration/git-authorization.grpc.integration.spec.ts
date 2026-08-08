@@ -74,7 +74,7 @@ const ownerFingerprintSha256 = 'SHA256:owner-key'
 const otherFingerprintSha256 = 'SHA256:other-key'
 const collaboratorFingerprintSha256 = 'SHA256:collaborator-key'
 const GITHUB_SOURCE_OF_TRUTH_MESSAGE =
-	'GitHub is the source of truth for this repository. Push to GitHub instead.'
+	'GitHub is the source of truth for this repository. Make this change on GitHub.'
 
 interface ClosableGrpcClient extends ClientGrpc {
 	close(): Promise<void>

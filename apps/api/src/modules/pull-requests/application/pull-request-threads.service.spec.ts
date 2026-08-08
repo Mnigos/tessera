@@ -67,21 +67,37 @@ const pullRequest: PullRequest = {
 	closedAt: null,
 	mergedAt: null,
 }
+const unknownActor = {
+	userId: null,
+	username: null,
+	externalNodeId: null,
+	externalLogin: null,
+	externalAvatarUrl: null,
+	externalHtmlUrl: null,
+}
+
+function nativeActor(userId: UserId, username: string) {
+	return { ...unknownActor, userId, username }
+}
+
 const comment = {
 	id: commentId,
 	threadId,
+	provider: 'tessera' as const,
 	authorUserId: mockUserId,
-	authorUsername: 'marta',
+	author: nativeActor(mockUserId, 'marta'),
 	body: 'Comment',
 	state: 'published' as const,
 	reviewId: null,
 	createdAt,
 	updatedAt: createdAt,
 	editedAt: null,
+	sourceUrl: null,
 }
 const thread: PullRequestThreadReadModel = {
 	id: threadId,
 	pullRequestId,
+	provider: 'tessera',
 	kind: 'inline',
 	path: 'src/index.ts',
 	side: 'right',
@@ -92,7 +108,8 @@ const thread: PullRequestThreadReadModel = {
 	lineExcerpt: 'const value = 1',
 	resolvedAt: null,
 	resolvedByUserId: null,
-	resolvedByUsername: null,
+	resolvedBy: unknownActor,
+	providerOutdated: null,
 	createdAt,
 	updatedAt: createdAt,
 	comments: [comment],
@@ -521,7 +538,13 @@ describe(PullRequestThreadsService.name, () => {
 		})
 		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue({
 			...thread,
-			comments: [{ ...comment, authorUserId: otherUserId }],
+			comments: [
+				{
+					...comment,
+					authorUserId: otherUserId,
+					author: nativeActor(otherUserId, 'otter'),
+				},
+			],
 		})
 		const resolveThreadSpy = vi
 			.spyOn(threadsRepository, 'resolveThread')
@@ -576,7 +599,13 @@ describe(PullRequestThreadsService.name, () => {
 		})
 		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue({
 			...thread,
-			comments: [{ ...comment, authorUserId: otherUserId }],
+			comments: [
+				{
+					...comment,
+					authorUserId: otherUserId,
+					author: nativeActor(otherUserId, 'otter'),
+				},
+			],
 		})
 
 		await expect(
