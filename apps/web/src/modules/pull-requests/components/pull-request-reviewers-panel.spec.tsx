@@ -44,11 +44,16 @@ const FULL_VIEWER: PullRequestReviewViewer = {
 	canRemoveReviewerRequests: true,
 }
 
+function actor(username: string): PullRequestReviewerRequest['reviewer'] {
+	return { key: `tessera:${username}`, provider: 'tessera', username }
+}
+
 function request(reviewerUsername: string): PullRequestReviewerRequest {
 	return {
 		id: crypto.randomUUID() as PullRequestReviewerRequest['id'],
-		reviewerUsername,
-		requestedByUsername: 'marta',
+		targetKind: 'user',
+		reviewer: actor(reviewerUsername),
+		requestedBy: actor('marta'),
 		createdAt,
 	}
 }
@@ -61,7 +66,7 @@ function state(
 	return {
 		reviewId:
 			crypto.randomUUID() as PullRequestEffectiveReviewState['reviewId'],
-		reviewerUsername,
+		reviewer: actor(reviewerUsername),
 		outcome,
 		headSha: 'a'.repeat(40),
 		stale,

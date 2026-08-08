@@ -55,8 +55,8 @@ export function canResolvePullRequestThread(
 	return (
 		permissions.canComment &&
 		(permissions.canResolveAnyThread ||
-			thread.comments.some(
-				comment => comment.authorUserId === permissions.viewerUserId
+			thread.comments.some(comment =>
+				isPullRequestCommentAuthor(comment, permissions.viewerUserId)
 			))
 	)
 }
@@ -69,7 +69,8 @@ export function canEditPullRequestComment(
 	comment: PullRequestComment
 ) {
 	return (
-		permissions.canComment && comment.authorUserId === permissions.viewerUserId
+		permissions.canComment &&
+		isPullRequestCommentAuthor(comment, permissions.viewerUserId)
 	)
 }
 
@@ -82,7 +83,18 @@ export function canDeletePullRequestComment(
 ) {
 	return (
 		permissions.canComment &&
-		(comment.authorUserId === permissions.viewerUserId ||
+		(isPullRequestCommentAuthor(comment, permissions.viewerUserId) ||
 			permissions.canDeleteAnyComment)
 	)
+}
+
+/**
+ * A synchronized comment whose author has no Tessera account belongs to nobody
+ * the viewer could be, so an absent identity on either side never matches.
+ */
+function isPullRequestCommentAuthor(
+	comment: PullRequestComment,
+	viewerUserId: SessionUser['id'] | undefined
+) {
+	return Boolean(viewerUserId) && comment.author.userId === viewerUserId
 }

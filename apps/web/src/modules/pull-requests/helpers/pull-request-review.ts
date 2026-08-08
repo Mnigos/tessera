@@ -1,4 +1,5 @@
 import type {
+	PullRequestActor,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
 	PullRequestReviewerRequest,
@@ -104,7 +105,9 @@ export const PULL_REQUEST_REVIEW_OUTCOME_OPTIONS = [
 }[]
 
 export interface PullRequestReviewerEntry {
-	username: string
+	/** Stable across renames and unmapped GitHub reviewers; keys the rows. */
+	key: string
+	reviewer: PullRequestActor
 	isRequested: boolean
 	requestedAt?: Date
 	outcome?: PullRequestReviewOutcome
@@ -116,6 +119,10 @@ export interface PullRequestReviewerEntry {
  * Merges active reviewer requests with the latest effective review per reviewer
  * into one row per reviewer. A reviewer who was re-requested after reviewing
  * keeps their outcome and is marked as requested again.
+ *
+ * Rows are grouped by the reviewer's stable key rather than their login: a
+ * GitHub reviewer with no Tessera account still has to stay one row, and logins
+ * can be renamed under the same identity.
  */
 export function getPullRequestReviewerEntries(
 	reviewerRequests: readonly PullRequestReviewerRequest[],
@@ -124,8 +131,9 @@ export function getPullRequestReviewerEntries(
 	const entries = new Map<string, PullRequestReviewerEntry>()
 
 	for (const state of effectiveReviewStates)
-		entries.set(state.reviewerUsername, {
-			username: state.reviewerUsername,
+		entries.set(state.reviewer.key, {
+			key: state.reviewer.key,
+			reviewer: state.reviewer,
 			isRequested: false,
 			outcome: state.outcome,
 			stale: state.stale,
@@ -133,10 +141,11 @@ export function getPullRequestReviewerEntries(
 		})
 
 	for (const request of reviewerRequests) {
-		const entry = entries.get(request.reviewerUsername)
+		const entry = entries.get(request.reviewer.key)
 
-		entries.set(request.reviewerUsername, {
-			username: request.reviewerUsername,
+		entries.set(request.reviewer.key, {
+			key: request.reviewer.key,
+			reviewer: request.reviewer,
 			stale: entry?.stale ?? false,
 			outcome: entry?.outcome,
 			submittedAt: entry?.submittedAt,
@@ -160,7 +169,7 @@ function comparePullRequestReviewerEntries(
 
 	return (
 		(firstDate?.getTime() ?? 0) - (secondDate?.getTime() ?? 0) ||
-		first.username.localeCompare(second.username)
+		first.reviewer.username.localeCompare(second.reviewer.username)
 	)
 }
 

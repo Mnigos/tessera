@@ -38,6 +38,7 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	thread_unresolved: 'Comment thread unresolved',
 	review_request_removed: 'Pull request review request removed',
 	review_submitted: 'Pull request review submitted',
+	review_dismissed: 'Pull request review dismissed',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [

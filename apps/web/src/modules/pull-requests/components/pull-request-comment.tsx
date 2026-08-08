@@ -16,6 +16,7 @@ import {
 import { useDeletePullRequestCommentMutation } from '../hooks/use-delete-pull-request-comment.mutation'
 import { useEditPullRequestCommentMutation } from '../hooks/use-edit-pull-request-comment.mutation'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
+import { PullRequestSourceLink } from './pull-request-source-link'
 
 interface PullRequestCommentProps {
 	username: string
@@ -54,7 +55,7 @@ export function PullRequestComment({
 	return (
 		<li className="flex flex-col gap-2">
 			<div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-				<span className="font-medium text-sm">{comment.authorUsername}</span>
+				<span className="font-medium text-sm">{comment.author.username}</span>
 				<time
 					className="text-muted-foreground text-xs"
 					dateTime={formatPullRequestDateTime(comment.createdAt)}
@@ -63,6 +64,12 @@ export function PullRequestComment({
 				</time>
 				{comment.editedAt && (
 					<span className="text-muted-foreground text-xs">edited</span>
+				)}
+				{comment.sourceUrl && (
+					<PullRequestSourceLink
+						className="text-muted-foreground text-xs"
+						href={comment.sourceUrl}
+					/>
 				)}
 				{comment.state === 'pending' && (
 					<span

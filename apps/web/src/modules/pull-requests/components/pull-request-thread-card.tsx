@@ -190,7 +190,7 @@ function PullRequestThreadHeader({
 			{thread.resolved && (
 				<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
 					<Check aria-hidden className="size-3.5" />
-					Resolved by {thread.resolved.byUsername}
+					Resolved by {thread.resolved.by.username}
 				</span>
 			)}
 			{thread.outdated && (
