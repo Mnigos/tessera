@@ -1,5 +1,5 @@
 {
-  "id": "c26ee4e7-c096-44c0-a54c-1841d6d99d85",
+  "id": "4213c604-520f-47b8-a967-5bf73f4cf715",
   "prevId": "ee0f3a73-9c6a-4b08-96d7-7bf4fd145853",
   "version": "7",
   "dialect": "postgresql",
@@ -2014,6 +2014,12 @@
           "primaryKey": false,
           "notNull": true
         },
+        "conversation_synced_at": {
+          "name": "conversation_synced_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -2035,6 +2041,33 @@
           "columns": [
             {
               "expression": "author_actor_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "github_pull_request_mappings_conversation_synced_at_idx": {
+          "name": "github_pull_request_mappings_conversation_synced_at_idx",
+          "columns": [
+            {
+              "expression": "repository_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "conversation_synced_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "first"
+            },
+            {
+              "expression": "external_number",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -2166,6 +2199,43 @@
         "subject_number": {
           "name": "subject_number",
           "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "issue_number": {
+          "name": "issue_number",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_resource_kind": {
+          "name": "target_resource_kind",
+          "type": "github_webhook_target_resource_kind",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_resource_node_id": {
+          "name": "target_resource_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_resource_numeric_id": {
+          "name": "target_resource_numeric_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_team_node_id": {
+          "name": "target_team_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "target_team_slug": {
+          "name": "target_team_slug",
+          "type": "text",
           "primaryKey": false,
           "notNull": false
         },
@@ -3141,7 +3211,7 @@
         },
         "pull_request_reviews_state_check": {
           "name": "pull_request_reviews_state_check",
-          "value": "(\n\t\t\t\t(\"pull_request_reviews\".\"state\"::text = 'pending' and \"pull_request_reviews\".\"outcome\" is null and \"pull_request_reviews\".\"submitted_at\" is null and \"pull_request_reviews\".\"dismissed_at\" is null and \"pull_request_reviews\".\"dismissed_by_user_id\" is null)\n\t\t\t\tor (\"pull_request_reviews\".\"state\"::text = 'submitted' and \"pull_request_reviews\".\"outcome\" is not null and \"pull_request_reviews\".\"submitted_at\" is not null and \"pull_request_reviews\".\"dismissed_at\" is null and \"pull_request_reviews\".\"dismissed_by_user_id\" is null)\n\t\t\t\tor (\"pull_request_reviews\".\"state\"::text = 'dismissed' and \"pull_request_reviews\".\"outcome\" is not null and \"pull_request_reviews\".\"submitted_at\" is not null and \"pull_request_reviews\".\"dismissed_at\" is not null and (\"pull_request_reviews\".\"provider\"::text = 'github' or \"pull_request_reviews\".\"dismissed_by_user_id\" is not null))\n\t\t\t)"
+          "value": "(\n\t\t\t\t(\"pull_request_reviews\".\"state\"::text = 'pending' and \"pull_request_reviews\".\"outcome\" is null and \"pull_request_reviews\".\"submitted_at\" is null and \"pull_request_reviews\".\"dismissed_at\" is null and \"pull_request_reviews\".\"dismissed_by_user_id\" is null)\n\t\t\t\tor (\"pull_request_reviews\".\"state\"::text = 'submitted' and \"pull_request_reviews\".\"outcome\" is not null and \"pull_request_reviews\".\"submitted_at\" is not null and \"pull_request_reviews\".\"dismissed_at\" is null and \"pull_request_reviews\".\"dismissed_by_user_id\" is null)\n\t\t\t\tor (\"pull_request_reviews\".\"state\"::text = 'dismissed' and \"pull_request_reviews\".\"submitted_at\" is not null and \"pull_request_reviews\".\"dismissed_at\" is not null and (\"pull_request_reviews\".\"provider\"::text = 'github' or (\"pull_request_reviews\".\"outcome\" is not null and \"pull_request_reviews\".\"dismissed_by_user_id\" is not null)))\n\t\t\t)"
         }
       },
       "isRLSEnabled": false
@@ -5190,6 +5260,17 @@
       "schema": "public",
       "values": ["received", "processed", "failed", "ignored"]
     },
+    "public.github_webhook_target_resource_kind": {
+      "name": "github_webhook_target_resource_kind",
+      "schema": "public",
+      "values": [
+        "pull_request",
+        "issue_comment",
+        "review_comment",
+        "review",
+        "review_thread"
+      ]
+    },
     "public.invitation_status": {
       "name": "invitation_status",
       "schema": "public",
@@ -5245,7 +5326,8 @@
         "thread_resolved",
         "thread_unresolved",
         "review_request_removed",
-        "review_submitted"
+        "review_submitted",
+        "review_dismissed"
       ]
     },
     "public.pull_request_provider": {

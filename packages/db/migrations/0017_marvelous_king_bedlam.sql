@@ -1,7 +1,9 @@
 CREATE TYPE "public"."github_pull_request_comment_kind" AS ENUM('issue', 'review');--> statement-breakpoint
 CREATE TYPE "public"."github_pull_request_comment_subject_type" AS ENUM('line', 'file');--> statement-breakpoint
 CREATE TYPE "public"."github_pull_request_reviewer_target_kind" AS ENUM('user', 'team');--> statement-breakpoint
+CREATE TYPE "public"."github_webhook_target_resource_kind" AS ENUM('pull_request', 'issue_comment', 'review_comment', 'review', 'review_thread');--> statement-breakpoint
 ALTER TYPE "public"."pull_request_review_state" ADD VALUE 'dismissed';--> statement-breakpoint
+ALTER TYPE "public"."pull_request_event_type" ADD VALUE 'review_dismissed';--> statement-breakpoint
 CREATE TABLE "github_pull_request_comment_mappings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"pull_request_mapping_id" uuid NOT NULL,
@@ -109,6 +111,13 @@ CREATE TABLE "github_pull_request_thread_mappings" (
 ALTER TABLE "pull_request_reviews" DROP CONSTRAINT "pull_request_reviews_state_check";--> statement-breakpoint
 ALTER TABLE "pull_request_threads" DROP CONSTRAINT "pull_request_threads_resolution_check";--> statement-breakpoint
 ALTER TABLE "pull_request_comments" ALTER COLUMN "author_user_id" DROP NOT NULL;--> statement-breakpoint
+ALTER TABLE "github_pull_request_mappings" ADD COLUMN "conversation_synced_at" timestamp;--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "issue_number" integer;--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "target_resource_kind" "github_webhook_target_resource_kind";--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "target_resource_node_id" text;--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "target_resource_numeric_id" bigint;--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "target_team_node_id" text;--> statement-breakpoint
+ALTER TABLE "github_webhook_deliveries" ADD COLUMN "target_team_slug" text;--> statement-breakpoint
 ALTER TABLE "pull_request_reviews" ADD COLUMN "dismissed_at" timestamp;--> statement-breakpoint
 ALTER TABLE "pull_request_reviews" ADD COLUMN "dismissed_by_user_id" uuid;--> statement-breakpoint
 ALTER TABLE "pull_request_comments" ADD COLUMN "provider" "pull_request_provider" DEFAULT 'tessera' NOT NULL;--> statement-breakpoint
@@ -151,10 +160,11 @@ CREATE UNIQUE INDEX "github_pull_request_thread_mappings_thread_id_unique" ON "g
 CREATE INDEX "github_pull_request_thread_mappings_pull_request_mapping_idx" ON "github_pull_request_thread_mappings" USING btree ("pull_request_mapping_id");--> statement-breakpoint
 CREATE INDEX "github_pull_request_thread_mappings_resolved_by_actor_idx" ON "github_pull_request_thread_mappings" USING btree ("resolved_by_actor_id");--> statement-breakpoint
 ALTER TABLE "pull_request_reviews" ADD CONSTRAINT "pull_request_reviews_dismissed_by_user_id_user_id_fk" FOREIGN KEY ("dismissed_by_user_id") REFERENCES "public"."user"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE INDEX "github_pull_request_mappings_conversation_synced_at_idx" ON "github_pull_request_mappings" USING btree ("repository_id","conversation_synced_at" NULLS FIRST,"external_number");--> statement-breakpoint
 ALTER TABLE "pull_request_reviews" ADD CONSTRAINT "pull_request_reviews_state_check" CHECK ((
 				("pull_request_reviews"."state"::text = 'pending' and "pull_request_reviews"."outcome" is null and "pull_request_reviews"."submitted_at" is null and "pull_request_reviews"."dismissed_at" is null and "pull_request_reviews"."dismissed_by_user_id" is null)
 				or ("pull_request_reviews"."state"::text = 'submitted' and "pull_request_reviews"."outcome" is not null and "pull_request_reviews"."submitted_at" is not null and "pull_request_reviews"."dismissed_at" is null and "pull_request_reviews"."dismissed_by_user_id" is null)
-				or ("pull_request_reviews"."state"::text = 'dismissed' and "pull_request_reviews"."outcome" is not null and "pull_request_reviews"."submitted_at" is not null and "pull_request_reviews"."dismissed_at" is not null and ("pull_request_reviews"."provider"::text = 'github' or "pull_request_reviews"."dismissed_by_user_id" is not null))
+				or ("pull_request_reviews"."state"::text = 'dismissed' and "pull_request_reviews"."submitted_at" is not null and "pull_request_reviews"."dismissed_at" is not null and ("pull_request_reviews"."provider"::text = 'github' or ("pull_request_reviews"."outcome" is not null and "pull_request_reviews"."dismissed_by_user_id" is not null)))
 			));--> statement-breakpoint
 ALTER TABLE "pull_request_comments" ADD CONSTRAINT "pull_request_comments_author_check" CHECK ("pull_request_comments"."provider"::text = 'github' or "pull_request_comments"."author_user_id" is not null);--> statement-breakpoint
 ALTER TABLE "pull_request_threads" ADD CONSTRAINT "pull_request_threads_resolution_check" CHECK ((
