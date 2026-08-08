@@ -71,6 +71,8 @@ export class GitHubWebhookService {
 			targetResourceKind: target.kind,
 			targetResourceNodeId: target.nodeId,
 			targetResourceNumericId: target.numericId,
+			targetSha: target.sha,
+			targetContext: target.context,
 			targetTeamNodeId: payload.requested_team?.node_id,
 			targetTeamSlug: payload.requested_team?.slug,
 			sender: payload.sender ? toGitHubSyncActor(payload.sender) : undefined,
@@ -123,6 +125,8 @@ interface GitHubWebhookTarget {
 	nodeId?: string
 	numericId?: bigint
 	pullRequestNumber?: number
+	sha?: string
+	context?: string
 }
 
 function toGitHubWebhookTarget(
@@ -166,6 +170,34 @@ function toGitHubWebhookTarget(
 				kind: 'review_thread',
 				nodeId: payload.thread?.node_id,
 				pullRequestNumber,
+			}
+		// Checks report against a commit. The pull requests a check event embeds
+		// are hints GitHub itself computes, so the SHA is the only target worth
+		// recording: it stays reconcilable when no pull request references it.
+		case 'check_run':
+			return {
+				kind: 'check_run',
+				nodeId: payload.check_run?.node_id,
+				numericId: payload.check_run ? BigInt(payload.check_run.id) : undefined,
+				sha: payload.check_run?.head_sha,
+				context: payload.check_run?.name,
+			}
+		case 'check_suite':
+			return {
+				kind: 'check_suite',
+				nodeId: payload.check_suite?.node_id,
+				numericId: payload.check_suite
+					? BigInt(payload.check_suite.id)
+					: undefined,
+				sha: payload.check_suite?.head_sha,
+			}
+		case 'status':
+			return {
+				kind: 'commit_status',
+				nodeId: payload.node_id,
+				numericId: payload.id ? BigInt(payload.id) : undefined,
+				sha: payload.sha,
+				context: payload.context,
 			}
 		default:
 			return { pullRequestNumber }

@@ -66,8 +66,15 @@ describe('parseGitHubWebhookPayload', () => {
 		['pull_request_review_comment', 'deleted'],
 		['pull_request_review_thread', 'resolved'],
 		['pull_request_review_thread', 'unresolved'],
+		['check_run', 'created'],
+		['check_run', 'completed'],
+		['check_suite', 'completed'],
 	])('allowlists %s.%s', (eventName, action) => {
 		expect(isSupportedGitHubWebhookEvent({ eventName, action })).toBeTruthy()
+	})
+
+	test('allowlists the actionless status event', () => {
+		expect(isSupportedGitHubWebhookEvent({ eventName: 'status' })).toBeTruthy()
 	})
 
 	test.each([
@@ -75,8 +82,59 @@ describe('parseGitHubWebhookPayload', () => {
 		['issue_comment', 'pinned'],
 		['pull_request_review', 'created'],
 		['pull_request_review_thread', 'created'],
+		// Both announce a rerun only Checks write permission could answer.
+		['check_run', 'rerequested'],
+		['check_run', 'requested_action'],
+		['check_suite', 'rerequested'],
+		['check_suite', 'requested'],
 	])('rejects non-allowlisted %s.%s', (eventName, action) => {
 		expect(isSupportedGitHubWebhookEvent({ eventName, action })).toBeFalsy()
+	})
+
+	test('parses check run routing identity', () => {
+		expect(
+			parseGitHubWebhookPayload(
+				Buffer.from(
+					JSON.stringify({
+						action: 'completed',
+						check_run: {
+							id: 21,
+							node_id: 'check-run-node',
+							head_sha: 'head-sha',
+							name: 'build',
+							status: 'completed',
+							conclusion: 'success',
+						},
+					})
+				)
+			).check_run
+		).toEqual({
+			id: 21,
+			node_id: 'check-run-node',
+			head_sha: 'head-sha',
+			name: 'build',
+		})
+	})
+
+	test('parses a flat status event as the payload root', () => {
+		expect(
+			parseGitHubWebhookPayload(
+				Buffer.from(
+					JSON.stringify({
+						id: 33,
+						node_id: 'status-node',
+						sha: 'head-sha',
+						context: 'ci/lint',
+						state: 'success',
+					})
+				)
+			)
+		).toMatchObject({
+			id: 33,
+			node_id: 'status-node',
+			sha: 'head-sha',
+			context: 'ci/lint',
+		})
 	})
 
 	test('parses issue comment pull request identity', () => {

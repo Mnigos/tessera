@@ -63,6 +63,11 @@ describe(GitHubSyncClient.name, () => {
 	const listReviewComments = vi.fn()
 	const listReviews = vi.fn()
 	const listRequestedReviewers = vi.fn()
+	const listSuitesForRef = vi.fn()
+	const listForSuite = vi.fn()
+	const listForRef = vi.fn()
+	const listCommitStatusesForRef = vi.fn()
+	const getCombinedStatusForRef = vi.fn()
 	const graphql = vi.fn()
 
 	beforeEach(() => {
@@ -86,6 +91,8 @@ describe(GitHubSyncClient.name, () => {
 						listReviews,
 						listRequestedReviewers,
 					},
+					checks: { listSuitesForRef, listForSuite, listForRef },
+					repos: { listCommitStatusesForRef, getCombinedStatusForRef },
 				}
 			} as never
 		)
@@ -336,7 +343,172 @@ describe(GitHubSyncClient.name, () => {
 			})
 		).toMatchObject({ reviewThreads: [] })
 	})
+
+	test('reads every suite, its runs, and the posted statuses for a commit', async () => {
+		paginate.mockImplementation((endpoint, options) => {
+			if (endpoint === listSuitesForRef)
+				return Promise.resolve([checkSuite(41), checkSuite(42)])
+			if (endpoint === listForSuite)
+				return Promise.resolve([
+					checkRun(Number(options.check_suite_id) * 10, options.check_suite_id),
+				])
+			if (endpoint === listCommitStatusesForRef)
+				return Promise.resolve([
+					{
+						id: 33,
+						node_id: 'status-node',
+						context: 'ci/lint',
+						state: 'success',
+						target_url: 'https://ci.example.com/lint',
+						description: 'Lint passed',
+						creator: actor('status-author', 17),
+						created_at: '2026-08-08T10:00:00Z',
+						updated_at: '2026-08-08T10:00:00Z',
+					},
+				])
+			throw new Error('unexpected pagination endpoint')
+		})
+
+		const snapshot = await new GitHubSyncClient().getChecksForRef({
+			accessToken: 'installation-token',
+			owner: 'org',
+			repo: 'repo',
+			ref: 'head-sha',
+		})
+
+		expect(snapshot).toMatchObject({
+			sha: 'head-sha',
+			suites: [{ numericId: 41n }, { numericId: 42n }],
+			runs: [
+				{
+					numericId: 410n,
+					suiteNumericId: 41n,
+					name: 'build',
+					status: 'completed',
+					conclusion: 'success',
+					app: { slug: 'github-actions', numericId: 15368n },
+				},
+				{ numericId: 420n, suiteNumericId: 42n },
+			],
+			statuses: [
+				{
+					numericId: 33n,
+					context: 'ci/lint',
+					state: 'success',
+					creator: { login: 'status-author' },
+				},
+			],
+		})
+		expect(paginate).toHaveBeenCalledWith(
+			listForSuite,
+			expect.objectContaining({ filter: 'all', per_page: 100 })
+		)
+		expect(listForRef).not.toHaveBeenCalled()
+		expect(getCombinedStatusForRef).not.toHaveBeenCalled()
+	})
+
+	test('keeps a commit reconcilable when a provider link is malformed', async () => {
+		paginate.mockImplementation(endpoint => {
+			if (endpoint === listSuitesForRef)
+				return Promise.resolve([checkSuite(41)])
+			if (endpoint === listForSuite)
+				return Promise.resolve([
+					{ ...checkRun(410, 41), details_url: 'not-a-url' },
+				])
+			return Promise.resolve([])
+		})
+
+		expect(
+			await new GitHubSyncClient().getChecksForRef({
+				accessToken: 'installation-token',
+				owner: 'org',
+				repo: 'repo',
+				ref: 'head-sha',
+			})
+		).toMatchObject({ runs: [{ numericId: 410n, detailsUrl: undefined }] })
+	})
+
+	test('marks which listing failed so a pruned suite is not read as a lost commit', async () => {
+		const notFound = Object.assign(new Error('Not Found'), { status: 404 })
+		paginate.mockImplementation(endpoint => {
+			if (endpoint === listSuitesForRef)
+				return Promise.resolve([checkSuite(41)])
+			if (endpoint === listForSuite) return Promise.reject(notFound)
+			return Promise.resolve([])
+		})
+
+		await expect(
+			new GitHubSyncClient().getChecksForRef({
+				accessToken: 'installation-token',
+				owner: 'org',
+				repo: 'repo',
+				ref: 'head-sha',
+			})
+		).rejects.toMatchObject({
+			context: { scope: 'suite', statusCode: 404 },
+		})
+	})
+
+	test('marks a commit-addressed listing as speaking for the commit itself', async () => {
+		const notFound = Object.assign(new Error('Not Found'), { status: 404 })
+		paginate.mockImplementation(endpoint =>
+			endpoint === listSuitesForRef
+				? Promise.reject(notFound)
+				: Promise.resolve([])
+		)
+
+		await expect(
+			new GitHubSyncClient().getChecksForRef({
+				accessToken: 'installation-token',
+				owner: 'org',
+				repo: 'repo',
+				ref: 'head-sha',
+			})
+		).rejects.toMatchObject({ context: { scope: 'ref', statusCode: 404 } })
+	})
 })
+
+function checkApp() {
+	return {
+		id: 15_368,
+		node_id: 'app-node',
+		slug: 'github-actions',
+		name: 'GitHub Actions',
+		html_url: 'https://github.com/apps/github-actions',
+	}
+}
+
+function checkSuite(id: number) {
+	return {
+		id,
+		node_id: `check-suite-${id}`,
+		head_sha: 'head-sha',
+		status: 'completed',
+		conclusion: 'success',
+		app: checkApp(),
+		created_at: '2026-08-08T10:00:00Z',
+		updated_at: '2026-08-08T10:05:00Z',
+	}
+}
+
+function checkRun(id: number, suiteId: number) {
+	return {
+		id,
+		node_id: `check-run-${id}`,
+		head_sha: 'head-sha',
+		name: 'build',
+		status: 'completed',
+		conclusion: 'success',
+		external_id: `external-${id}`,
+		details_url: 'https://github.com/org/repo/actions/runs/1',
+		html_url: 'https://github.com/org/repo/runs/1',
+		output: { title: 'Build passed', summary: 'All green' },
+		check_suite: { id: suiteId, node_id: `check-suite-${suiteId}` },
+		app: checkApp(),
+		started_at: '2026-08-08T10:00:00Z',
+		completed_at: '2026-08-08T10:05:00Z',
+	}
+}
 
 function actor(login: string, id: number) {
 	return {

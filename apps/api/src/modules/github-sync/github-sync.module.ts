@@ -1,3 +1,4 @@
+import { ChecksModule } from '@modules/checks'
 import { PullRequestsModule } from '@modules/pull-requests'
 import { BullModule, getQueueToken } from '@nestjs/bullmq'
 import { Module } from '@nestjs/common'
@@ -12,11 +13,13 @@ import {
 	GitHubSyncQueue,
 } from './infrastructure/github-sync.queue'
 import { GitHubSyncRepository } from './infrastructure/github-sync.repository'
+import { GitHubSyncChecksRepository } from './infrastructure/github-sync-checks.repository'
 import { GitHubSyncConversationsRepository } from './infrastructure/github-sync-conversations.repository'
 import { GitHubWebhookController } from './presentation/github-webhook.controller'
 
 @Module({
 	imports: [
+		ChecksModule,
 		PullRequestsModule,
 		BullModule.registerQueue({ name: GITHUB_SYNC_QUEUE_NAME }),
 	],
@@ -26,6 +29,7 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 		GitHubSyncProcessor,
 		GitHubSyncScheduler,
 		GitHubAppAuthService,
+		GitHubSyncChecksRepository,
 		GitHubSyncClient,
 		GitHubSyncConversationsRepository,
 		GitHubSyncRepository,

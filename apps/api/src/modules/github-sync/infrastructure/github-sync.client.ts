@@ -3,10 +3,16 @@ import { Octokit } from '@octokit/rest'
 import { z } from 'zod'
 import { GitHubSyncExternalServiceError } from '../domain/github-sync.errors'
 import type {
+	GitHubChecksRequestScope,
+	GitHubChecksSnapshot,
 	GitHubPullRequestConversation,
 	GitHubRepositoryReconciliation,
 	GitHubSyncActor,
 	GitHubSyncActorType,
+	GitHubSyncCheckApp,
+	GitHubSyncCheckRun,
+	GitHubSyncCheckSuite,
+	GitHubSyncCommitStatus,
 	GitHubSyncDiffSide,
 	GitHubSyncIssueComment,
 	GitHubSyncPullRequest,
@@ -131,6 +137,71 @@ const gitHubRequestedReviewersSchema = z.object({
 			})
 		)
 		.nullish(),
+})
+
+/**
+ * A provider link Tessera only ever renders. GitHub allows values its own API
+ * will not round-trip as URLs, and one malformed link must not fail the whole
+ * commit's reconciliation.
+ */
+const gitHubOptionalLinkSchema = z.url().nullish().catch(undefined)
+
+const gitHubCheckAppSchema = z.object({
+	id: z.number().int().positive(),
+	node_id: z.string().min(1),
+	slug: z.string().min(1).nullish(),
+	name: z.string().min(1).nullish(),
+	html_url: gitHubOptionalLinkSchema,
+})
+
+const gitHubCheckSuiteSchema = z.object({
+	id: z.number().int().positive(),
+	node_id: z.string().min(1),
+	head_sha: z.string().min(1),
+	status: z.string().min(1).nullish(),
+	conclusion: z.string().min(1).nullish(),
+	app: gitHubCheckAppSchema.nullish(),
+	created_at: z.string().nullish(),
+	updated_at: z.string().nullish(),
+})
+
+const gitHubCheckRunSchema = z.object({
+	id: z.number().int().positive(),
+	node_id: z.string().min(1),
+	head_sha: z.string().min(1),
+	name: z.string().min(1),
+	status: z.string().min(1).nullish(),
+	conclusion: z.string().min(1).nullish(),
+	external_id: z.string().nullish(),
+	details_url: gitHubOptionalLinkSchema,
+	html_url: gitHubOptionalLinkSchema,
+	output: z
+		.object({
+			title: z.string().nullish(),
+			summary: z.string().nullish(),
+		})
+		.nullish(),
+	check_suite: z
+		.object({
+			id: z.number().int().positive(),
+			node_id: z.string().min(1).nullish(),
+		})
+		.nullish(),
+	app: gitHubCheckAppSchema.nullish(),
+	started_at: z.string().nullish(),
+	completed_at: z.string().nullish(),
+})
+
+const gitHubCommitStatusSchema = z.object({
+	id: z.number().int().positive(),
+	node_id: z.string().min(1),
+	context: z.string().min(1),
+	state: z.string().min(1),
+	target_url: gitHubOptionalLinkSchema,
+	description: z.string().nullish(),
+	creator: gitHubActorSchema.nullish(),
+	created_at: z.string(),
+	updated_at: z.string(),
 })
 
 const gitHubGraphQlActorSchema = z.object({
@@ -378,6 +449,194 @@ export class GitHubSyncClient {
 		}
 	}
 
+	/**
+	 * Everything GitHub reports for one commit. Suites are listed first and their
+	 * runs read per suite because `checks.listForRef` only reaches runs from the
+	 * thousand most recent suites, which is a repair source that quietly stops
+	 * repairing. The combined status endpoint is never used: it collapses a
+	 * context's history to its newest entry and omits check runs entirely.
+	 */
+	async getChecksForRef({
+		accessToken,
+		owner,
+		ref,
+		repo,
+	}: {
+		accessToken: string
+		owner: string
+		ref: string
+		repo: string
+	}): Promise<GitHubChecksSnapshot> {
+		const octokit = new Octokit({ auth: accessToken })
+		const target = { owner, ref, repo }
+		const suites = await this.requestChecks(target, 'ref', () =>
+			this.listCheckSuites({ octokit, owner, ref, repo })
+		)
+		const runs: GitHubSyncCheckRun[] = []
+
+		// A suite GitHub pruned between the listing and this page reads as a 404 of
+		// its own, which says nothing about the commit — hence the narrower scope.
+		for (const suite of suites)
+			runs.push(
+				...(await this.requestChecks(target, 'suite', () =>
+					this.listCheckRuns({
+						octokit,
+						owner,
+						repo,
+						suiteNumericId: suite.numericId,
+					})
+				))
+			)
+
+		return {
+			sha: ref,
+			suites,
+			runs,
+			statuses: await this.requestChecks(target, 'ref', () =>
+				this.listCommitStatuses({ octokit, owner, ref, repo })
+			),
+		}
+	}
+
+	/**
+	 * Fails one checks request with enough context to tell two different kinds of
+	 * 404 apart.
+	 *
+	 * The status travels in the context because a commit GitHub does not have is a
+	 * permanent gap the projection has to be able to record, while every other
+	 * failure has to fail the run and retry. The scope travels with it because
+	 * only the ref-level listings speak for the commit: a missing child resource
+	 * means this snapshot is incomplete, not that the commit is gone.
+	 */
+	private async requestChecks<TResult>(
+		{ owner, ref, repo }: { owner: string; ref: string; repo: string },
+		scope: GitHubChecksRequestScope,
+		request: () => Promise<TResult>
+	): Promise<TResult> {
+		try {
+			return await request()
+		} catch (error) {
+			this.logger.warn(`GitHub ${scope} checks request failed`)
+
+			throw new GitHubSyncExternalServiceError(
+				{ owner, repo, ref, scope, statusCode: toHttpStatusCode(error) },
+				{ cause: error }
+			)
+		}
+	}
+
+	private async listCheckSuites({
+		octokit,
+		owner,
+		ref,
+		repo,
+	}: GitHubRefTarget): Promise<GitHubSyncCheckSuite[]> {
+		const suites = await octokit.paginate(
+			octokit.rest.checks.listSuitesForRef,
+			{
+				owner,
+				repo,
+				ref,
+				per_page: GITHUB_PAGE_SIZE,
+			}
+		)
+
+		return suites.map(suite => {
+			const parsed = gitHubCheckSuiteSchema.parse(suite)
+
+			return {
+				nodeId: parsed.node_id,
+				numericId: BigInt(parsed.id),
+				headSha: parsed.head_sha,
+				status: parsed.status ?? undefined,
+				conclusion: parsed.conclusion ?? undefined,
+				app: toGitHubSyncCheckApp(parsed.app),
+				createdAt: toOptionalDate(parsed.created_at),
+				updatedAt: toOptionalDate(parsed.updated_at),
+			}
+		})
+	}
+
+	private async listCheckRuns({
+		octokit,
+		owner,
+		repo,
+		suiteNumericId,
+	}: {
+		octokit: Octokit
+		owner: string
+		repo: string
+		suiteNumericId: bigint
+	}): Promise<GitHubSyncCheckRun[]> {
+		const runs = await octokit.paginate(octokit.rest.checks.listForSuite, {
+			owner,
+			repo,
+			check_suite_id: Number(suiteNumericId),
+			// The default omits everything but the latest run per name, which is the
+			// history this ledger exists to keep.
+			filter: 'all',
+			per_page: GITHUB_PAGE_SIZE,
+		})
+
+		return runs.map(run => {
+			const parsed = gitHubCheckRunSchema.parse(run)
+
+			return {
+				nodeId: parsed.node_id,
+				numericId: BigInt(parsed.id),
+				suiteNodeId: parsed.check_suite?.node_id ?? undefined,
+				suiteNumericId: parsed.check_suite
+					? BigInt(parsed.check_suite.id)
+					: suiteNumericId,
+				name: parsed.name,
+				headSha: parsed.head_sha,
+				status: parsed.status ?? undefined,
+				conclusion: parsed.conclusion ?? undefined,
+				externalId: parsed.external_id ?? undefined,
+				detailsUrl: parsed.details_url ?? undefined,
+				htmlUrl: parsed.html_url ?? undefined,
+				outputTitle: parsed.output?.title ?? undefined,
+				outputSummary: parsed.output?.summary ?? undefined,
+				app: toGitHubSyncCheckApp(parsed.app),
+				startedAt: toOptionalDate(parsed.started_at),
+				completedAt: toOptionalDate(parsed.completed_at),
+			}
+		})
+	}
+
+	private async listCommitStatuses({
+		octokit,
+		owner,
+		ref,
+		repo,
+	}: GitHubRefTarget): Promise<GitHubSyncCommitStatus[]> {
+		const statuses = await octokit.paginate(
+			octokit.rest.repos.listCommitStatusesForRef,
+			{
+				owner,
+				repo,
+				ref,
+				per_page: GITHUB_PAGE_SIZE,
+			}
+		)
+
+		return statuses.map(status => {
+			const parsed = gitHubCommitStatusSchema.parse(status)
+
+			return {
+				nodeId: parsed.node_id,
+				numericId: BigInt(parsed.id),
+				context: parsed.context,
+				state: parsed.state,
+				targetUrl: parsed.target_url ?? undefined,
+				description: parsed.description ?? undefined,
+				creator: parsed.creator ? toGitHubSyncActor(parsed.creator) : undefined,
+				createdAt: new Date(parsed.created_at),
+				updatedAt: new Date(parsed.updated_at),
+			}
+		})
+	}
+
 	private async listIssueComments({
 		octokit,
 		owner,
@@ -617,6 +876,35 @@ interface GitHubPullRequestTarget {
 	owner: string
 	pullRequestNumber: number
 	repo: string
+}
+
+interface GitHubRefTarget {
+	octokit: Octokit
+	owner: string
+	ref: string
+	repo: string
+}
+
+/** Octokit reports the HTTP status on the error it throws; anything else has none. */
+function toHttpStatusCode(error: unknown): number | undefined {
+	if (!(error && typeof error === 'object' && 'status' in error))
+		return undefined
+
+	return typeof error.status === 'number' ? error.status : undefined
+}
+
+function toGitHubSyncCheckApp(
+	app: z.infer<typeof gitHubCheckAppSchema> | null | undefined
+): GitHubSyncCheckApp | undefined {
+	if (!app) return undefined
+
+	return {
+		nodeId: app.node_id,
+		numericId: BigInt(app.id),
+		slug: app.slug ?? undefined,
+		name: app.name ?? undefined,
+		htmlUrl: app.html_url ?? undefined,
+	}
 }
 
 function toGitHubSyncReviewThread(
