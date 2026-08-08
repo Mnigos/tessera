@@ -26,6 +26,7 @@ import {
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import {
+	isAttributableReview,
 	toPullRequestEffectiveReviewStates,
 	toPullRequestReviewerRequestOutput,
 	toPullRequestReviewOutput,
@@ -103,7 +104,7 @@ export class PullRequestReviewsService {
 			pullRequest,
 			reviewerUsername
 		)
-		const request =
+		const result =
 			await this.pullRequestReviewsRepository.createReviewerRequest({
 				pullRequestId: pullRequest.id,
 				reviewerUserId,
@@ -111,13 +112,20 @@ export class PullRequestReviewsService {
 				reviewerUsername,
 			})
 
-		if (!request)
+		if (result.status === 'pull_request_closed')
+			throw new PullRequestStateConflictError({
+				pullRequestId: pullRequest.id,
+				state: pullRequest.state,
+				action: 'request reviewer',
+			})
+
+		if (result.status === 'already_requested')
 			throw new PullRequestReviewerAlreadyRequestedError({
 				pullRequestId: pullRequest.id,
 				reviewerUsername,
 			})
 
-		return toPullRequestReviewerRequestOutput(request)
+		return toPullRequestReviewerRequestOutput(result.request)
 	}
 
 	async removeReviewerRequest(
@@ -276,7 +284,9 @@ export class PullRequestReviewsService {
 			reviewerRequests: reviewerRequests.map(
 				toPullRequestReviewerRequestOutput
 			),
-			reviews: reviews.map(toPullRequestReviewOutput),
+			reviews: reviews
+				.filter(isAttributableReview)
+				.map(toPullRequestReviewOutput),
 			effectiveReviewStates: toPullRequestEffectiveReviewStates(reviews, {
 				authorUserId: pullRequest.authorUserId,
 				currentHeadSha,

@@ -67,6 +67,11 @@ export type PullRequestReviewSubmissionResult =
 	| { status: 'pull_request_closed' }
 	| { status: 'pending_review_conflict' }
 
+export type PullRequestReviewerRequestResult =
+	| { status: 'created'; request: PullRequestReviewerRequestReadModel }
+	| { status: 'pull_request_closed' }
+	| { status: 'already_requested' }
+
 export interface PullRequestReviewReadModel {
 	id: PullRequestReviewId
 	reviewerUserId: UserId | null
@@ -291,18 +296,22 @@ export class PullRequestReviewsRepository {
 		})
 	}
 
+	/**
+	 * Requests a reviewer under the pull request row lock. The partial unique
+	 * index only covers requests that are neither removed nor fulfilled, so a
+	 * conflict means the reviewer is currently requested — and the same reviewer
+	 * can be asked again once an earlier request is removed or fulfilled.
+	 */
 	async createReviewerRequest({
 		pullRequestId,
 		requestedByUserId,
 		reviewerUserId,
 		reviewerUsername,
-	}: CreateReviewerRequestParams): Promise<
-		PullRequestReviewerRequestReadModel | undefined
-	> {
+	}: CreateReviewerRequestParams): Promise<PullRequestReviewerRequestResult> {
 		return await this.db.transaction(async tx => {
 			const openPullRequest = await this.lockOpenPullRequest(tx, pullRequestId)
 
-			if (!openPullRequest) return undefined
+			if (!openPullRequest) return { status: 'pull_request_closed' }
 
 			const [request] = await tx
 				.insert(pullRequestReviewerRequests)
@@ -310,7 +319,7 @@ export class PullRequestReviewsRepository {
 				.onConflictDoNothing()
 				.returning({ id: pullRequestReviewerRequests.id })
 
-			if (!request) return undefined
+			if (!request) return { status: 'already_requested' }
 
 			await this.createEvent(tx, {
 				pullRequestId,
@@ -319,7 +328,14 @@ export class PullRequestReviewsRepository {
 				payload: { reviewerUserId, reviewerUsername },
 			})
 
-			return await this.findReviewerRequestIn(tx, request.id)
+			const createdRequest = await this.findReviewerRequestIn(tx, request.id)
+
+			if (!createdRequest)
+				throw new Error(
+					'pull request reviewer request is missing after creation'
+				)
+
+			return { status: 'created', request: createdRequest }
 		})
 	}
 

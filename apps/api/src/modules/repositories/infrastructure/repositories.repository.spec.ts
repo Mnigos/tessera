@@ -2,12 +2,21 @@ import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import {
 	and,
+	asc,
 	eq,
+	inArray,
 	isNotNull,
+	member,
 	repositories,
 	repositoryExternalSources,
+	user,
 } from '@repo/db'
-import type { RepositoryId, RepositoryName, RepositorySlug } from '@repo/domain'
+import type {
+	RepositoryId,
+	RepositoryName,
+	RepositorySlug,
+	UserId,
+} from '@repo/domain'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import { mockUserId } from '~/shared/test-utils'
@@ -50,7 +59,9 @@ describe(RepositoriesRepository.name, () => {
 	const updateMock = vi.fn()
 	const deleteMock = vi.fn()
 	const selectMock = vi.fn()
+	const selectDistinctMock = vi.fn()
 	const fromMock = vi.fn()
+	const subqueryWhereMock = vi.fn()
 	const innerJoinMock = vi.fn()
 	const leftJoinMock = vi.fn()
 	const selectWhereMock = vi.fn()
@@ -93,6 +104,7 @@ describe(RepositoriesRepository.name, () => {
 			update: updateMock,
 			delete: deleteMock,
 			select: selectMock,
+			selectDistinct: selectDistinctMock,
 			$with: withBuilderMock,
 			with: withMock,
 			transaction: transactionMock,
@@ -138,11 +150,16 @@ describe(RepositoriesRepository.name, () => {
 			innerJoin: innerJoinMock,
 			where: selectWhereMock,
 		})
+		// A `where` straight off `from` belongs to a nested sub-select; the outer
+		// query always joins first and lands on `selectWhereMock` instead.
+		subqueryWhereMock.mockReturnValue({ userId: 'sub-select' })
 		fromMock.mockReturnValue({
 			innerJoin: innerJoinMock,
 			leftJoin: leftJoinMock,
+			where: subqueryWhereMock,
 		})
 		selectMock.mockReturnValue({ from: fromMock })
+		selectDistinctMock.mockReturnValue({ from: fromMock })
 
 		moduleRef = await Test.createTestingModule({
 			providers: [
@@ -935,5 +952,42 @@ describe(RepositoriesRepository.name, () => {
 		expect(claimReturningMock).toHaveBeenCalledWith({
 			repositoryId: repositoryExternalSources.repositoryId,
 		})
+	})
+
+	/**
+	 * An organization-owned repository has no owner user to fall back on, so its
+	 * owners and admins reach the privileged list through the member sub-select.
+	 */
+	test('offers organization owners and admins as privileged users', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		const organizationAdmin = {
+			userId: '00000000-0000-4000-8000-000000000009' as UserId,
+			username: 'admin',
+		}
+		limitMock.mockResolvedValueOnce([organizationAdmin])
+
+		expect(
+			await repositoriesRepository.listPrivilegedUsers({
+				repositoryId,
+				limit: 10,
+			})
+		).toEqual([organizationAdmin])
+
+		expect(selectDistinctMock).toHaveBeenCalledWith({
+			userId: user.id,
+			username: user.username,
+		})
+		expect(fromMock).toHaveBeenCalledWith(repositories)
+		expect(subqueryWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(member.organizationId, repositories.ownerOrganizationId),
+				inArray(member.role, ['owner', 'admin'])
+			)
+		)
+		expect(selectWhereMock).toHaveBeenCalledWith(
+			eq(repositories.id, repositoryId)
+		)
+		expect(orderByMock).toHaveBeenCalledWith(asc(user.username))
+		expect(limitMock).toHaveBeenCalledWith(10)
 	})
 })

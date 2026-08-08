@@ -36,6 +36,20 @@ export function toPullRequestReviewOutput(
 	}
 }
 
+/**
+ * Whether Tessera can attribute the review to an account it knows. A synced
+ * review whose reviewer has no Tessera user cannot take part in native review
+ * state yet (TES-67), so it is left out of the history, the effective states,
+ * and the summary counts alike rather than counted in some of them.
+ */
+export function isAttributableReview({
+	reviewerUsername,
+}: {
+	reviewerUsername: string | null
+}): boolean {
+	return reviewerUsername !== null
+}
+
 export function toPullRequestReviewerRequestOutput(
 	request: PullRequestReviewerRequestReadModel
 ): PullRequestReviewerRequestOutput {
@@ -66,7 +80,7 @@ export function toPullRequestEffectiveReviewStates(
 	const latestByReviewer = new Map<string, PullRequestReviewReadModel>()
 
 	for (const review of reviews) {
-		if (!(review.outcome && review.submittedAt && review.reviewerUsername))
+		if (!(review.outcome && review.submittedAt && isAttributableReview(review)))
 			continue
 		if (authorUserId && review.reviewerUserId === authorUserId) continue
 
@@ -102,6 +116,8 @@ export function toPullRequestReviewSummary(
 	let staleCount = 0
 
 	for (const review of effectiveReviews) {
+		if (!isAttributableReview(review)) continue
+
 		const stale = isStaleReviewHead(review.headSha, currentHeadSha)
 
 		if (stale) staleCount += 1

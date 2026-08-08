@@ -17,6 +17,7 @@ import {
 } from '@repo/db'
 import type {
 	PullRequestId,
+	PullRequestReviewerRequestId,
 	PullRequestReviewId,
 	PullRequestThreadId,
 	UserId,
@@ -28,6 +29,8 @@ const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
 const reviewerUserId = '00000000-0000-4000-8000-000000000055' as UserId
 const reviewId = '00000000-0000-4000-8000-000000000066' as PullRequestReviewId
 const threadId = '00000000-0000-4000-8000-000000000077' as PullRequestThreadId
+const requestId =
+	'00000000-0000-4000-8000-000000000088' as PullRequestReviewerRequestId
 const submittedAt = new Date('2026-08-08T10:00:00Z')
 const submittedReview = {
 	id: reviewId,
@@ -37,6 +40,14 @@ const submittedReview = {
 	body: 'Please revise',
 	headSha: 'reviewed-head',
 	submittedAt,
+}
+const reviewerRequest = {
+	id: requestId,
+	reviewerUserId,
+	reviewerUsername: 'reviewer',
+	requestedByUserId: mockUserId,
+	requestedByUsername: 'marta',
+	createdAt: submittedAt,
 }
 
 describe(PullRequestReviewsRepository.name, () => {
@@ -387,7 +398,7 @@ describe(PullRequestReviewsRepository.name, () => {
 		expect(deleteMock).not.toHaveBeenCalled()
 	})
 
-	test('maps active-request uniqueness to no created request', async () => {
+	test('maps active-request uniqueness to an already-requested reviewer', async () => {
 		forMock.mockResolvedValueOnce([{ id: pullRequestId, state: 'open' }])
 		returningMock.mockResolvedValueOnce([])
 
@@ -398,9 +409,50 @@ describe(PullRequestReviewsRepository.name, () => {
 				requestedByUserId: mockUserId,
 				reviewerUsername: 'reviewer',
 			})
-		).toBeUndefined()
+		).toEqual({ status: 'already_requested' })
 		expect(onConflictDoNothingMock).toHaveBeenCalledOnce()
 		expect(insertMock).not.toHaveBeenCalledWith(pullRequestEvents)
+	})
+
+	test('refuses to request a reviewer once the pull request is no longer open', async () => {
+		forMock.mockResolvedValueOnce([{ id: pullRequestId, state: 'merged' }])
+
+		expect(
+			await repository.createReviewerRequest({
+				pullRequestId,
+				reviewerUserId,
+				requestedByUserId: mockUserId,
+				reviewerUsername: 'reviewer',
+			})
+		).toEqual({ status: 'pull_request_closed' })
+		expect(insertMock).not.toHaveBeenCalled()
+	})
+
+	/**
+	 * The partial unique only covers requests that are neither removed nor
+	 * fulfilled, so a reviewer whose earlier request was removed inserts cleanly.
+	 */
+	test('re-requests a reviewer whose earlier request was removed or fulfilled', async () => {
+		forMock.mockResolvedValueOnce([{ id: pullRequestId, state: 'open' }])
+		returningMock.mockResolvedValueOnce([{ id: requestId }])
+		limitMock.mockResolvedValueOnce([reviewerRequest])
+
+		expect(
+			await repository.createReviewerRequest({
+				pullRequestId,
+				reviewerUserId,
+				requestedByUserId: mockUserId,
+				reviewerUsername: 'reviewer',
+			})
+		).toEqual({ status: 'created', request: reviewerRequest })
+		expect(insertMock).toHaveBeenNthCalledWith(1, pullRequestReviewerRequests)
+		expect(insertMock).toHaveBeenNthCalledWith(2, pullRequestEvents)
+		expect(valuesMock).toHaveBeenNthCalledWith(2, {
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'review_requested',
+			payload: { reviewerUserId, reviewerUsername: 'reviewer' },
+		})
 	})
 
 	/**
