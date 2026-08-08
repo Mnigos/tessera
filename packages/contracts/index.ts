@@ -1,4 +1,5 @@
 export * from './src/auth.contract'
+export * from './src/checks.contract'
 export * from './src/git-access-tokens.contract'
 export * from './src/github-import.contract'
 export * from './src/gpg-public-keys.contract'
