@@ -128,11 +128,17 @@ the allowlist are recorded for audit and ignored rather than rejected, so GitHub
 redeliver work Tessera does not act on. The allowlist covers the installation, repository, and Git
 reference events above; every `pull_request` action; `issue_comment` and
 `pull_request_review_comment` `created`/`edited`/`deleted`; `pull_request_review`
-`submitted`/`edited`/`dismissed`; and `pull_request_review_thread` `resolved`/`unresolved`. The
-`check_suite`, `check_run`, and `status` subscriptions remain for future check reporting and are
-ignored today. Conversation deliveries record the target resource kind, its provider node and
-numeric IDs, and the originating issue number so reconciliation reconciles the affected pull
-request even when the incremental cursor page omits it.
+`submitted`/`edited`/`dismissed`; `pull_request_review_thread` `resolved`/`unresolved`;
+`check_run` `created`/`completed`; `check_suite` `completed`; and the actionless `status` event.
+`check_run` `rerequested`/`requested_action` and `check_suite` `rerequested`/`requested` stay
+outside the allowlist: answering them would require Checks write permission, and reconciliation
+discovers a rerun through the events it does subscribe to. Conversation deliveries record the
+target resource kind, its provider node and numeric IDs, and the originating issue number so
+reconciliation reconciles the affected pull request even when the incremental cursor page omits
+it. Check deliveries record the commit SHA and the status context or check-run name instead,
+because a check reports against a commit that may belong to no pull request Tessera tracks or to
+one whose head has already moved; such a delivery forces that commit into the next run and is
+consumed only once the commit has been reconciled or proven unreconcilable.
 
 ### Cutover
 

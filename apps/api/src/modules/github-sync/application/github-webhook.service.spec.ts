@@ -120,6 +120,8 @@ describe(GitHubWebhookService.name, () => {
 			targetResourceKind: 'pull_request',
 			targetResourceNodeId: undefined,
 			targetResourceNumericId: undefined,
+			targetSha: undefined,
+			targetContext: undefined,
 			targetTeamNodeId: undefined,
 			targetTeamSlug: undefined,
 			sender: {
@@ -201,6 +203,84 @@ describe(GitHubWebhookService.name, () => {
 				},
 				subjectNodeId: 'pull-request-node',
 				subjectNumber: 7,
+			})
+		)
+	})
+
+	test.each([
+		{
+			eventName: 'check_run',
+			body: {
+				action: 'completed',
+				check_run: {
+					id: 21,
+					node_id: 'check-run-node',
+					head_sha: 'head-sha',
+					name: 'build',
+				},
+			},
+			expected: {
+				targetResourceKind: 'check_run',
+				targetResourceNodeId: 'check-run-node',
+				targetResourceNumericId: 21n,
+				targetSha: 'head-sha',
+				targetContext: 'build',
+			},
+		},
+		{
+			eventName: 'check_suite',
+			body: {
+				action: 'completed',
+				check_suite: {
+					id: 22,
+					node_id: 'check-suite-node',
+					head_sha: 'head-sha',
+				},
+			},
+			expected: {
+				targetResourceKind: 'check_suite',
+				targetResourceNodeId: 'check-suite-node',
+				targetResourceNumericId: 22n,
+				targetSha: 'head-sha',
+				targetContext: undefined,
+			},
+		},
+		{
+			eventName: 'status',
+			body: {
+				id: 33,
+				node_id: 'status-node',
+				sha: 'head-sha',
+				context: 'ci/lint',
+				state: 'success',
+			},
+			expected: {
+				targetResourceKind: 'commit_status',
+				targetResourceNodeId: 'status-node',
+				targetResourceNumericId: 33n,
+				targetSha: 'head-sha',
+				targetContext: 'ci/lint',
+			},
+		},
+	])('targets the commit a $eventName delivery names', async params => {
+		vi.spyOn(repository, 'recordWebhookDelivery').mockResolvedValue({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [],
+		})
+		const rawBody = Buffer.from(JSON.stringify({ ...payload, ...params.body }))
+
+		await service.receive({
+			deliveryId,
+			eventName: params.eventName,
+			rawBody,
+			signature: sign(rawBody),
+		})
+
+		expect(repository.recordWebhookDelivery).toHaveBeenCalledWith(
+			expect.objectContaining({
+				...params.expected,
+				subjectNumber: undefined,
 			})
 		)
 	})

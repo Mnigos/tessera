@@ -42,6 +42,7 @@ const FINALIZE_SYNC = {
 	pullRequestSyncCursorAt: new Date('2026-08-08T10:00:00Z'),
 	completedAt: new Date('2026-08-08T11:00:00Z'),
 	nextSyncAt: new Date('2026-08-08T12:00:00Z'),
+	projectedShas: [],
 }
 const DELETED_INSTALLATION: GitHubInstallationInput = {
 	externalInstallationId: 123n,
@@ -84,6 +85,12 @@ describe(GitHubSyncRepository.name, () => {
 					})),
 				})),
 			})),
+		})
+	}
+
+	function mockPendingDeliveryRows(rows: unknown[]) {
+		selectMock.mockReturnValue({
+			from: vi.fn(() => ({ where: vi.fn().mockResolvedValue(rows) })),
 		})
 	}
 
@@ -399,6 +406,64 @@ describe(GitHubSyncRepository.name, () => {
 		expect(condition).toContain('"subject_number" is null')
 		expect(condition).toContain('"subject_number" in ($')
 		expect(condition).toContain('not exists')
+		expect(condition).toContain('"target_sha" is null')
+		expect(condition).not.toContain('"target_sha" in ($')
+	})
+
+	test('consumes a check delivery only once its commit was projected', async () => {
+		mockFinalizeSyncSource()
+
+		await repository.finalizeSync({
+			...FINALIZE_SYNC,
+			projectedNumbers: [],
+			projectedShas: ['head-sha'],
+		})
+
+		const deliveryUpdateIndex = updateMock.mock.calls.findIndex(
+			([table]) => table === gitHubWebhookDeliveries
+		)
+		const condition = toSqlText(
+			updateWhereMock.mock.calls[deliveryUpdateIndex]?.[0]
+		)
+
+		expect(condition).toContain('"target_sha" in ($')
+	})
+
+	test('forces every delivered commit into the run', async () => {
+		mockPendingDeliveryRows([
+			{
+				deliveryId: DELIVERY_ID,
+				eventName: 'status',
+				action: null,
+				targetSha: 'head-sha',
+				targetResourceKind: 'commit_status',
+				targetResourceNodeId: 'status-node',
+				targetResourceNumericId: 33n,
+				targetContext: 'ci/lint',
+				actorId: ACTOR_ID,
+				receivedAt: new Date('2026-08-08T10:30:00Z'),
+			},
+		])
+
+		expect(
+			await repository.listPendingCheckDeliveries({
+				repositoryId: REPOSITORY_ID,
+				requestedSyncVersion: 5,
+			})
+		).toEqual([
+			{
+				deliveryId: DELIVERY_ID,
+				eventName: 'status',
+				action: undefined,
+				targetSha: 'head-sha',
+				targetResourceKind: 'commit_status',
+				targetResourceNodeId: 'status-node',
+				targetResourceNumericId: 33n,
+				targetContext: 'ci/lint',
+				actorId: ACTOR_ID,
+				receivedAt: new Date('2026-08-08T10:30:00Z'),
+			},
+		])
 	})
 
 	test('blocks synchronized sources for the GitHub suspend action', async () => {

@@ -34,7 +34,6 @@ import {
 	pullRequestReviewerRequests,
 	pullRequestReviews,
 	pullRequestThreads,
-	repositoryExternalSources,
 	sql,
 } from '@repo/db'
 import type {
@@ -58,6 +57,7 @@ import type {
 	GitHubConversationTarget,
 	GitHubPendingConversationDelivery,
 } from './github-sync.repository'
+import { assertGitHubSyncAuthority } from './github-sync-authority'
 
 export interface GitHubConversationAnchor {
 	path: string
@@ -149,7 +149,7 @@ export class GitHubSyncConversationsRepository {
 			await transaction.execute(
 				sql`select pg_advisory_xact_lock(hashtextextended(${params.target.externalNodeId}, 0))`
 			)
-			await this.assertSyncAuthority(transaction, params)
+			await assertGitHubSyncAuthority(transaction, params)
 
 			const context: ProjectionContext = {
 				...params,
@@ -187,34 +187,6 @@ export class GitHubSyncConversationsRepository {
 					eq(gitHubPullRequestMappings.id, params.target.pullRequestMappingId)
 				)
 		})
-	}
-
-	private async assertSyncAuthority(
-		transaction: DrizzleTransaction,
-		{
-			authorityGeneration,
-			leaseOwner,
-			repositoryId,
-		}: ProjectPullRequestConversationParams
-	): Promise<void> {
-		const [source] = await transaction
-			.select({ id: repositoryExternalSources.id })
-			.from(repositoryExternalSources)
-			.where(
-				and(
-					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(
-						repositoryExternalSources.authorityGeneration,
-						authorityGeneration
-					),
-					eq(repositoryExternalSources.syncLeaseOwner, leaseOwner),
-					eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
-				)
-			)
-			.limit(1)
-			.for('update')
-
-		if (!source) throw new Error('GitHub synchronization authority changed')
 	}
 
 	private async findActorUserIds(

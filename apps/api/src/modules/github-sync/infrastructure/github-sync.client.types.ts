@@ -136,6 +136,84 @@ export interface GitHubSyncReviewThread {
 	comments: GitHubSyncReviewThreadComment[]
 }
 
+/**
+ * The GitHub App that reported a check. An app is not a person and never
+ * becomes an actor, so its identity travels as a snapshot.
+ */
+export interface GitHubSyncCheckApp {
+	nodeId: string
+	numericId: bigint
+	slug?: string
+	name?: string
+	htmlUrl?: string
+}
+
+/**
+ * Provider status and conclusion stay as GitHub wrote them. Normalizing to a
+ * native state is the projection's job, and the raw pair has to survive for a
+ * value Tessera does not recognize yet to remain readable.
+ */
+export interface GitHubSyncCheckSuite {
+	nodeId: string
+	numericId: bigint
+	headSha: string
+	status?: string
+	conclusion?: string
+	app?: GitHubSyncCheckApp
+	createdAt?: Date
+	updatedAt?: Date
+}
+
+export interface GitHubSyncCheckRun {
+	nodeId: string
+	numericId: bigint
+	suiteNodeId?: string
+	suiteNumericId?: bigint
+	name: string
+	headSha: string
+	status?: string
+	conclusion?: string
+	/** The provider's own correlation key, opaque to Tessera. */
+	externalId?: string
+	detailsUrl?: string
+	htmlUrl?: string
+	outputTitle?: string
+	outputSummary?: string
+	app?: GitHubSyncCheckApp
+	startedAt?: Date
+	completedAt?: Date
+}
+
+export interface GitHubSyncCommitStatus {
+	nodeId: string
+	numericId: bigint
+	context: string
+	state: string
+	targetUrl?: string
+	description?: string
+	creator?: GitHubSyncActor
+	createdAt: Date
+	updatedAt: Date
+}
+
+/**
+ * Which request in a checks snapshot failed. `ref` is a listing addressed by the
+ * commit itself, so a 404 there is the commit being gone; `suite` is a child
+ * resource GitHub may prune under a snapshot that is otherwise fine.
+ */
+export type GitHubChecksRequestScope = 'ref' | 'suite'
+
+/**
+ * Everything GitHub reports for one commit, listed exhaustively rather than
+ * combined: a rollup would drop the history the append-only ledger is for.
+ */
+export interface GitHubChecksSnapshot {
+	sha: string
+	suites: GitHubSyncCheckSuite[]
+	runs: GitHubSyncCheckRun[]
+	statuses: GitHubSyncCommitStatus[]
+}
+
 export interface GitHubPullRequestConversation {
 	issueComments: GitHubSyncIssueComment[]
 	reviewComments: GitHubSyncReviewComment[]

@@ -24,6 +24,7 @@ import {
 	type GitHubSyncClaim,
 	GitHubSyncRepository,
 } from '../infrastructure/github-sync.repository'
+import { GitHubSyncChecksRepository } from '../infrastructure/github-sync-checks.repository'
 import { GitHubSyncConversationsRepository } from '../infrastructure/github-sync-conversations.repository'
 import { GitHubSyncProcessor } from './github-sync.processor'
 
@@ -92,9 +93,14 @@ describe(GitHubSyncProcessor.name, () => {
 				{
 					provide: GitHubSyncClient,
 					useValue: {
+						getChecksForRef: vi.fn(),
 						getPullRequestConversation: vi.fn(),
 						getRepositoryReconciliation: vi.fn(),
 					},
+				},
+				{
+					provide: GitHubSyncChecksRepository,
+					useValue: { projectChecksForSha: vi.fn() },
 				},
 				{
 					provide: GitHubSyncConversationsRepository,
@@ -109,6 +115,8 @@ describe(GitHubSyncProcessor.name, () => {
 						listPendingPullRequestEvents: vi.fn(),
 						listPendingConversationDeliveries: vi.fn(async () => []),
 						listConversationTargets: vi.fn(async () => []),
+						listPendingCheckDeliveries: vi.fn(async () => []),
+						listCheckTargets: vi.fn(async () => []),
 						finalizeSync: vi.fn(),
 						failSync: vi.fn(),
 						requestDueReconciliations: vi.fn(),
@@ -408,6 +416,93 @@ describe(GitHubSyncProcessor.name, () => {
 			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
 		).rejects.toThrow('GitHub synchronization authority changed')
 		expect(client.getPullRequestConversation).not.toHaveBeenCalled()
+		expect(repository.finalizeSync).not.toHaveBeenCalled()
+	})
+
+	test('deduplicates delivered and reconciled check SHAs and projects each once', async () => {
+		const checksRepository = moduleRef.get(GitHubSyncChecksRepository)
+		vi.spyOn(repository, 'listPendingCheckDeliveries').mockResolvedValue([
+			{
+				deliveryId:
+					'00000000-0000-4000-8000-000000000090' as GitHubWebhookDeliveryId,
+				eventName: 'status',
+				targetSha: 'shared-head',
+				targetResourceKind: 'commit_status',
+				targetResourceNodeId: 'status-node',
+				targetResourceNumericId: 90n,
+				receivedAt: new Date('2026-08-08T10:00:00Z'),
+			},
+		])
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
+			'shared-head',
+			'cursor-head',
+		])
+		vi.spyOn(client, 'getChecksForRef').mockImplementation(({ ref }) =>
+			Promise.resolve({ sha: ref, suites: [], runs: [], statuses: [] })
+		)
+		vi.spyOn(checksRepository, 'projectChecksForSha').mockResolvedValue({
+			appendedObservations: 0,
+			unrecognizedResults: [],
+		})
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(repository.listCheckTargets).toHaveBeenCalledWith({
+			deliveredShas: ['shared-head'],
+			limit: 50,
+			repositoryId,
+			updatedShas: [],
+		})
+		expect(client.getChecksForRef).toHaveBeenCalledTimes(2)
+		expect(checksRepository.projectChecksForSha).toHaveBeenCalledTimes(2)
+		expect(repository.finalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				projectedShas: ['shared-head', 'cursor-head'],
+			})
+		)
+	})
+
+	test('settles a delivery SHA a ref-level 404 proves unprojectable', async () => {
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue(['missing-head'])
+		vi.spyOn(client, 'getChecksForRef').mockRejectedValue(
+			new ExternalServiceError('GitHub', { scope: 'ref', statusCode: 404 })
+		)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(repository.finalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({ projectedShas: ['missing-head'] })
+		)
+	})
+
+	test('leaves a SHA unsettled when only a resource under it went missing', async () => {
+		const checksRepository = moduleRef.get(GitHubSyncChecksRepository)
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue(['pruned-suite'])
+		vi.spyOn(client, 'getChecksForRef').mockRejectedValue(
+			new ExternalServiceError('GitHub', { scope: 'suite', statusCode: 404 })
+		)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		// Nothing was projected and nothing was written off, so the deliveries
+		// naming this commit stay pending for the next run.
+		expect(checksRepository.projectChecksForSha).not.toHaveBeenCalled()
+		expect(repository.finalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({ projectedShas: [] })
+		)
+	})
+
+	test('aborts before a check fetch when the authority heartbeat changes', async () => {
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue(['head-sha'])
+		vi.spyOn(repository, 'heartbeatSync')
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(false)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('GitHub synchronization authority changed')
+		expect(client.getChecksForRef).not.toHaveBeenCalled()
 		expect(repository.finalizeSync).not.toHaveBeenCalled()
 	})
 })

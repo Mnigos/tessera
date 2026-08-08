@@ -32,6 +32,7 @@ import {
 import type { PullRequestId, RepositoryId } from '@repo/domain'
 import type { SQL } from 'drizzle-orm'
 import {
+	GITHUB_CHECK_WEBHOOK_EVENTS,
 	GITHUB_CONVERSATION_WEBHOOK_EVENTS,
 	type GitHubWebhookTargetResourceKind,
 	isSupportedGitHubWebhookEvent,
@@ -77,6 +78,8 @@ interface RecordWebhookDeliveryParams {
 	targetResourceKind?: GitHubWebhookTargetResourceKind
 	targetResourceNodeId?: string
 	targetResourceNumericId?: bigint
+	targetSha?: string
+	targetContext?: string
 	targetTeamNodeId?: string
 	targetTeamSlug?: string
 	sender?: GitHubSyncActor
@@ -133,6 +136,19 @@ export interface GitHubPendingConversationDelivery {
 	receivedAt: Date
 }
 
+export interface GitHubPendingCheckDelivery {
+	deliveryId: GitHubWebhookDeliveryId
+	eventName: string
+	action?: string
+	targetSha: string
+	targetResourceKind?: GitHubWebhookTargetResourceKind
+	targetResourceNodeId?: string
+	targetResourceNumericId?: bigint
+	targetContext?: string
+	actorId?: GitHubActorId
+	receivedAt: Date
+}
+
 export interface GitHubConversationTarget {
 	pullRequestMappingId: GitHubPullRequestMappingId
 	pullRequestId: PullRequestId
@@ -167,6 +183,11 @@ interface FinalizeSyncParams
 	pullRequestSyncCursorAt: Date
 	/** Pull request numbers whose conversation this run actually projected. */
 	projectedNumbers: number[]
+	/**
+	 * Commit SHAs this run projected checks for, or proved it never could. A
+	 * check delivery is consumed on that evidence alone.
+	 */
+	projectedShas: string[]
 	completedAt: Date
 	nextSyncAt: Date
 }
@@ -309,6 +330,65 @@ export class GitHubSyncRepository {
 	}
 
 	/**
+	 * Check deliveries whose commit this run must reconcile. A check names a SHA
+	 * that may sit outside the pull request cursor, belong to no pull request
+	 * Tessera tracks, or already be a superseded head, so the delivery is the only
+	 * thing that can force it into the run.
+	 */
+	async listPendingCheckDeliveries({
+		repositoryId,
+		requestedSyncVersion,
+	}: Pick<GitHubSyncClaim, 'repositoryId' | 'requestedSyncVersion'>): Promise<
+		GitHubPendingCheckDelivery[]
+	> {
+		const rows = await this.db
+			.select({
+				deliveryId: gitHubWebhookDeliveries.id,
+				eventName: gitHubWebhookDeliveries.eventName,
+				action: gitHubWebhookDeliveries.action,
+				targetSha: gitHubWebhookDeliveries.targetSha,
+				targetResourceKind: gitHubWebhookDeliveries.targetResourceKind,
+				targetResourceNodeId: gitHubWebhookDeliveries.targetResourceNodeId,
+				targetResourceNumericId:
+					gitHubWebhookDeliveries.targetResourceNumericId,
+				targetContext: gitHubWebhookDeliveries.targetContext,
+				actorId: gitHubWebhookDeliveries.senderActorId,
+				receivedAt: gitHubWebhookDeliveries.receivedAt,
+			})
+			.from(gitHubWebhookDeliveries)
+			.where(
+				and(
+					eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
+					inArray(gitHubWebhookDeliveries.eventName, [
+						...GITHUB_CHECK_WEBHOOK_EVENTS,
+					]),
+					eq(gitHubWebhookDeliveries.status, 'received'),
+					isNotNull(gitHubWebhookDeliveries.targetSha),
+					lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion)
+				)
+			)
+
+		return rows.flatMap(row =>
+			row.targetSha
+				? [
+						{
+							deliveryId: row.deliveryId,
+							eventName: row.eventName,
+							action: row.action ?? undefined,
+							targetSha: row.targetSha,
+							targetResourceKind: row.targetResourceKind ?? undefined,
+							targetResourceNodeId: row.targetResourceNodeId ?? undefined,
+							targetResourceNumericId: row.targetResourceNumericId ?? undefined,
+							targetContext: row.targetContext ?? undefined,
+							actorId: row.actorId ?? undefined,
+							receivedAt: row.receivedAt,
+						},
+					]
+				: []
+		)
+	}
+
+	/**
 	 * Pull requests whose conversation this run projects, in the order their
 	 * evidence would be lost. A delivery is the only record of what it carried, so
 	 * its pull request is projected before the incremental page and before the
@@ -352,6 +432,66 @@ export class GitHubSyncRepository {
 				selectedIds.add(target.pullRequestMappingId)
 				selected.push(target)
 			}
+		}
+
+		return selected
+	}
+
+	/**
+	 * Commits whose checks this run projects, in the order their evidence would be
+	 * lost. A delivery names a commit that may sit outside every cursor, so it is
+	 * reconciled first; heads the reconciliation page just reported come next; the
+	 * rotation over the least recently reconciled open pull request heads spends
+	 * whatever budget is left, which repairs missed webhooks and backfills a fresh
+	 * mirror. A commit several pull requests share is projected once.
+	 */
+	async listCheckTargets({
+		deliveredShas,
+		limit,
+		repositoryId,
+		updatedShas,
+	}: {
+		deliveredShas: string[]
+		limit: number
+		repositoryId: RepositoryId
+		updatedShas: string[]
+	}): Promise<string[]> {
+		if (limit <= 0) return []
+
+		const selected: string[] = []
+		const selectedShas = new Set<string>()
+
+		for (const sha of [...deliveredShas, ...updatedShas]) {
+			if (selected.length >= limit) break
+			if (selectedShas.has(sha)) continue
+
+			selectedShas.add(sha)
+			selected.push(sha)
+		}
+
+		if (selected.length >= limit) return selected
+
+		const rotated = await this.db
+			.select({ headSha: gitHubPullRequestMappings.headSha })
+			.from(gitHubPullRequestMappings)
+			.where(
+				and(
+					eq(gitHubPullRequestMappings.repositoryId, repositoryId),
+					isNull(gitHubPullRequestMappings.providerClosedAt)
+				)
+			)
+			.orderBy(
+				sql`${gitHubPullRequestMappings.checksSyncedAt} asc nulls first`,
+				asc(gitHubPullRequestMappings.externalNumber)
+			)
+			.limit(limit + selected.length)
+
+		for (const { headSha } of rotated) {
+			if (selected.length >= limit) break
+			if (selectedShas.has(headSha)) continue
+
+			selectedShas.add(headSha)
+			selected.push(headSha)
 		}
 
 		return selected
@@ -541,6 +681,8 @@ export class GitHubSyncRepository {
 				targetResourceKind: params.targetResourceKind,
 				targetResourceNodeId: params.targetResourceNodeId,
 				targetResourceNumericId: params.targetResourceNumericId,
+				targetSha: params.targetSha,
+				targetContext: params.targetContext,
 				targetTeamNodeId: params.targetTeamNodeId,
 				targetTeamSlug: params.targetTeamSlug,
 				senderActorId,
@@ -890,6 +1032,7 @@ export class GitHubSyncRepository {
 		nextSyncAt,
 		ownerLogin,
 		projectedNumbers,
+		projectedShas,
 		pullRequestSyncCursorAt,
 		repositoryId,
 		requestedSyncVersion,
@@ -956,32 +1099,47 @@ export class GitHubSyncRepository {
 						eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
 						eq(gitHubWebhookDeliveries.status, 'received'),
 						lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion),
-						// A delivery carries the only record of what it announced, so it
-						// is consumed once its pull request has been projected. One
-						// naming a pull request this mirror does not have is unprojectable
-						// and would otherwise stay pending forever.
 						or(
-							isNull(gitHubWebhookDeliveries.subjectNumber),
-							projectedNumbers.length > 0
-								? inArray(
-										gitHubWebhookDeliveries.subjectNumber,
-										projectedNumbers
-									)
-								: undefined,
-							notExists(
-								transaction
-									.select({ id: gitHubPullRequestMappings.id })
-									.from(gitHubPullRequestMappings)
-									.where(
-										and(
-											eq(gitHubPullRequestMappings.repositoryId, repositoryId),
-											eq(
-												gitHubPullRequestMappings.externalNumber,
-												gitHubWebhookDeliveries.subjectNumber
+							// A delivery carries the only record of what it announced, so it
+							// is consumed once its pull request has been projected. One
+							// naming a pull request this mirror does not have is
+							// unprojectable and would otherwise stay pending forever.
+							and(
+								isNull(gitHubWebhookDeliveries.targetSha),
+								or(
+									isNull(gitHubWebhookDeliveries.subjectNumber),
+									projectedNumbers.length > 0
+										? inArray(
+												gitHubWebhookDeliveries.subjectNumber,
+												projectedNumbers
 											)
-										)
+										: undefined,
+									notExists(
+										transaction
+											.select({ id: gitHubPullRequestMappings.id })
+											.from(gitHubPullRequestMappings)
+											.where(
+												and(
+													eq(
+														gitHubPullRequestMappings.repositoryId,
+														repositoryId
+													),
+													eq(
+														gitHubPullRequestMappings.externalNumber,
+														gitHubWebhookDeliveries.subjectNumber
+													)
+												)
+											)
 									)
-							)
+								)
+							),
+							// A check delivery names a commit and carries no pull request
+							// number, so the rule above would consume it before its SHA was
+							// ever reconciled. It waits for the projection to report that
+							// SHA instead.
+							projectedShas.length > 0
+								? inArray(gitHubWebhookDeliveries.targetSha, projectedShas)
+								: undefined
 						)
 					)
 				)

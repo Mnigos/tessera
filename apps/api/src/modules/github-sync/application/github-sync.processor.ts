@@ -16,6 +16,8 @@ import {
 import { GitHubAppAuthService } from '../infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from '../infrastructure/github-sync.client'
 import type {
+	GitHubChecksRequestScope,
+	GitHubChecksSnapshot,
 	GitHubPullRequestConversation,
 	GitHubSyncActor,
 	GitHubSyncRepository as GitHubSyncRepositoryDetails,
@@ -32,12 +34,14 @@ import {
 	GitHubSyncRepository,
 	type GitHubSyncRequest,
 } from '../infrastructure/github-sync.repository'
+import { GitHubSyncChecksRepository } from '../infrastructure/github-sync-checks.repository'
 import {
 	type GitHubConversationThreadProjection,
 	GitHubSyncConversationsRepository,
 } from '../infrastructure/github-sync-conversations.repository'
 
 const GITHUB_SYNC_FAILURE_RETRY_MINUTES = 15
+const HTTP_NOT_FOUND = 404
 /**
  * Conversations cost five listings and a GraphQL page each, so a run projects
  * at most this many pull requests. Named targets come first and the rotation
@@ -45,6 +49,23 @@ const GITHUB_SYNC_FAILURE_RETRY_MINUTES = 15
  * which both repairs missed webhooks and backfills a freshly imported mirror.
  */
 const GITHUB_CONVERSATION_PROJECTION_LIMIT = 50
+/**
+ * Checks cost a suite listing, a run listing per suite and a status listing per
+ * commit, so a run reconciles at most this many commits. Commits a delivery
+ * named come first and the rotation over the least recently reconciled open
+ * pull request heads spends the rest.
+ */
+const GITHUB_CHECK_PROJECTION_LIMIT = 50
+/** The only scope whose 404 speaks for the commit rather than a resource under it. */
+const GITHUB_CHECKS_REF_SCOPE: GitHubChecksRequestScope = 'ref'
+
+/**
+ * What one commit's reconciliation produced: results to project, settled
+ * evidence that the commit is gone, or a read too incomplete to conclude either.
+ */
+type GitHubChecksSnapshotOutcome =
+	| { outcome: 'projected'; snapshot: GitHubChecksSnapshot }
+	| { outcome: 'unprojectable' | 'incomplete'; snapshot?: undefined }
 
 @Injectable()
 @Processor(GITHUB_SYNC_QUEUE_NAME, { concurrency: 2 })
@@ -54,6 +75,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 	constructor(
 		private readonly envService: EnvService,
 		private readonly gitHubAppAuthService: GitHubAppAuthService,
+		private readonly gitHubSyncChecksRepository: GitHubSyncChecksRepository,
 		private readonly gitHubSyncClient: GitHubSyncClient,
 		private readonly gitHubSyncConversationsRepository: GitHubSyncConversationsRepository,
 		private readonly gitHubSyncRepository: GitHubSyncRepository,
@@ -118,6 +140,14 @@ export class GitHubSyncProcessor extends WorkerHost {
 				repository: reconciliation.repository,
 				storagePath: importResult.storagePath,
 			})
+			const projectedShas = await this.projectChecks({
+				accessToken: mirrorToken.token,
+				claim,
+				headShas: reconciliation.pullRequests.map(
+					pullRequest => pullRequest.headSha
+				),
+				repository: reconciliation.repository,
+			})
 			const completedAt = new Date()
 			const followUp = await this.gitHubSyncRepository.finalizeSync({
 				repositoryId: claim.repositoryId,
@@ -135,6 +165,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				sourceDefaultBranch: reconciliation.repository.defaultBranch,
 				pullRequestSyncCursorAt: reconciliation.pullRequestCursorAt,
 				projectedNumbers,
+				projectedShas,
 				completedAt,
 				nextSyncAt: addMinutes(
 					completedAt,
@@ -265,6 +296,132 @@ export class GitHubSyncProcessor extends WorkerHost {
 		}
 
 		return projectedNumbers
+	}
+
+	/**
+	 * Checks belong to a commit rather than a pull request, so this stage picks
+	 * commits: the ones a delivery named, the heads the reconciliation page just
+	 * reported, and a rotation over the open pull request heads reconciled least
+	 * recently. Each is re-read whole, because a rerun GitHub never delivered is
+	 * only discoverable by asking.
+	 *
+	 * The commits it returns are the ones whose pending check deliveries this run
+	 * may consume — including a commit GitHub no longer has, which is settled
+	 * evidence rather than a result.
+	 */
+	private async projectChecks({
+		accessToken,
+		claim,
+		headShas,
+		repository,
+	}: {
+		accessToken: string
+		claim: GitHubSyncClaim
+		headShas: string[]
+		repository: GitHubSyncRepositoryDetails
+	}): Promise<string[]> {
+		const deliveries =
+			await this.gitHubSyncRepository.listPendingCheckDeliveries(claim)
+		const targets = await this.gitHubSyncRepository.listCheckTargets({
+			deliveredShas: [
+				...new Set(deliveries.map(delivery => delivery.targetSha)),
+			],
+			limit: GITHUB_CHECK_PROJECTION_LIMIT,
+			repositoryId: claim.repositoryId,
+			updatedShas: [...new Set(headShas)],
+		})
+		const projectedShas: string[] = []
+
+		for (const sha of targets) {
+			await this.requireHeartbeat(claim)
+
+			const { outcome, snapshot } = await this.findChecksSnapshot({
+				accessToken,
+				repository,
+				sha,
+			})
+
+			// An incomplete snapshot proves nothing either way, so the commit is
+			// neither projected nor written off: its deliveries stay pending and the
+			// next run asks again.
+			if (outcome === 'incomplete') continue
+
+			if (!snapshot) {
+				projectedShas.push(sha)
+				continue
+			}
+
+			const { unrecognizedResults } =
+				await this.gitHubSyncChecksRepository.projectChecksForSha({
+					actorIds: await this.gitHubSyncRepository.upsertActors(
+						collectCheckActors(snapshot)
+					),
+					authorityGeneration: claim.authorityGeneration,
+					deliveries: deliveries.filter(delivery => delivery.targetSha === sha),
+					leaseOwner: claim.leaseOwner,
+					repositoryId: claim.repositoryId,
+					sha,
+					snapshot,
+					syncedAt: new Date(),
+					syncVersion: claim.requestedSyncVersion,
+				})
+
+			for (const result of unrecognizedResults)
+				this.logger.warn(
+					`GitHub reported ${result.kind} ${result.context} on ${sha} as ${result.unrecognized}, which Tessera reads as a failure`
+				)
+
+			projectedShas.push(sha)
+		}
+
+		return projectedShas
+	}
+
+	/**
+	 * The snapshot for one commit, or the reason there is none.
+	 *
+	 * Only the listings addressed by the commit itself can say a commit is gone. A
+	 * 404 from one of them is a permanent gap: a force push or a deleted fork
+	 * leaves deliveries naming a commit nobody can reconcile, and retrying them
+	 * forever would stall every later delivery behind them. A 404 from a suite's
+	 * own page is GitHub pruning a child resource mid-read, which leaves this
+	 * snapshot short of runs the commit still has — projecting it would record an
+	 * absence that never happened.
+	 */
+	private async findChecksSnapshot({
+		accessToken,
+		repository,
+		sha,
+	}: {
+		accessToken: string
+		repository: GitHubSyncRepositoryDetails
+		sha: string
+	}): Promise<GitHubChecksSnapshotOutcome> {
+		try {
+			return {
+				outcome: 'projected',
+				snapshot: await this.gitHubSyncClient.getChecksForRef({
+					accessToken,
+					owner: repository.ownerLogin,
+					ref: sha,
+					repo: repository.name,
+				}),
+			}
+		} catch (error) {
+			if (!isMissingGitHubRefError(error)) throw error
+
+			if (isMissingGitHubChecksChildError(error)) {
+				this.logger.debug(
+					`GitHub stopped reporting a check suite of ${sha} mid-read`
+				)
+
+				return { outcome: 'incomplete' }
+			}
+
+			this.logger.debug(`GitHub no longer reports checks for ${sha}`)
+
+			return { outcome: 'unprojectable' }
+		}
 	}
 
 	private async resolveThreadAnchors({
@@ -411,6 +568,37 @@ function isMissingGitObjectError(error: unknown): boolean {
 	if (!(error instanceof DomainError)) return false
 
 	return Number(error.context?.grpcCode) === status.NOT_FOUND
+}
+
+/** A commit GitHub does not have, as opposed to GitHub being unable to answer. */
+function isMissingGitHubRefError(error: unknown): boolean {
+	if (!(error instanceof DomainError)) return false
+
+	return Number(error.context?.statusCode) === HTTP_NOT_FOUND
+}
+
+/** A resource under the commit rather than the commit, so it says nothing about it. */
+function isMissingGitHubChecksChildError(error: unknown): boolean {
+	if (!(error instanceof DomainError)) return false
+
+	return error.context?.scope !== GITHUB_CHECKS_REF_SCOPE
+}
+
+/**
+ * A commit status is posted by an account, which is a real identity worth
+ * resolving. A check run is reported by a GitHub App, which is never a person
+ * and travels as a snapshot on the mapping instead.
+ */
+function collectCheckActors({
+	statuses,
+}: GitHubChecksSnapshot): GitHubSyncActor[] {
+	const actors = new Map<string, GitHubSyncActor>()
+
+	for (const commitStatus of statuses)
+		if (commitStatus.creator)
+			actors.set(commitStatus.creator.nodeId, commitStatus.creator)
+
+	return [...actors.values()]
 }
 
 function collectActors(
