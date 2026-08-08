@@ -5,6 +5,8 @@ import { BadRequestError, UnauthorizedError } from '~/shared/errors'
 import {
 	type GitHubWebhookActor,
 	type GitHubWebhookInstallation,
+	type GitHubWebhookPayload,
+	type GitHubWebhookTargetResourceKind,
 	parseGitHubWebhookPayload,
 } from '../domain/github-webhook.schema'
 import { verifyGitHubWebhookSignature } from '../helpers/github-webhook-signature'
@@ -51,6 +53,7 @@ export class GitHubWebhookService {
 
 		const payload = parseGitHubWebhookPayload(rawBody)
 		const targetActor = payload.assignee ?? payload.requested_reviewer
+		const target = toGitHubWebhookTarget(eventName, payload)
 		const result = await this.githubSyncRepository.recordWebhookDelivery({
 			deliveryId,
 			eventName,
@@ -63,7 +66,13 @@ export class GitHubWebhookService {
 				? BigInt(payload.repository.id)
 				: undefined,
 			subjectNodeId: payload.pull_request?.node_id,
-			subjectNumber: payload.pull_request?.number,
+			subjectNumber: target.pullRequestNumber,
+			issueNumber: payload.issue?.number,
+			targetResourceKind: target.kind,
+			targetResourceNodeId: target.nodeId,
+			targetResourceNumericId: target.numericId,
+			targetTeamNodeId: payload.requested_team?.node_id,
+			targetTeamSlug: payload.requested_team?.slug,
 			sender: payload.sender ? toGitHubSyncActor(payload.sender) : undefined,
 			targetActor: targetActor ? toGitHubSyncActor(targetActor) : undefined,
 			labelNodeId: payload.label?.node_id,
@@ -106,6 +115,60 @@ function toGitHubInstallationInput(
 			(installation.target_type ?? installation.account.type) === 'Organization'
 				? 'organization'
 				: 'user',
+	}
+}
+
+interface GitHubWebhookTarget {
+	kind?: GitHubWebhookTargetResourceKind
+	nodeId?: string
+	numericId?: bigint
+	pullRequestNumber?: number
+}
+
+function toGitHubWebhookTarget(
+	eventName: string,
+	payload: GitHubWebhookPayload
+): GitHubWebhookTarget {
+	const pullRequestNumber =
+		payload.pull_request?.number ??
+		(payload.issue?.pull_request ? payload.issue.number : undefined)
+
+	switch (eventName) {
+		case 'pull_request':
+			return {
+				kind: 'pull_request',
+				nodeId: payload.pull_request?.node_id,
+				pullRequestNumber,
+			}
+		case 'issue_comment':
+			return {
+				kind: 'issue_comment',
+				nodeId: payload.comment?.node_id,
+				numericId: payload.comment ? BigInt(payload.comment.id) : undefined,
+				pullRequestNumber,
+			}
+		case 'pull_request_review_comment':
+			return {
+				kind: 'review_comment',
+				nodeId: payload.comment?.node_id,
+				numericId: payload.comment ? BigInt(payload.comment.id) : undefined,
+				pullRequestNumber,
+			}
+		case 'pull_request_review':
+			return {
+				kind: 'review',
+				nodeId: payload.review?.node_id,
+				numericId: payload.review ? BigInt(payload.review.id) : undefined,
+				pullRequestNumber,
+			}
+		case 'pull_request_review_thread':
+			return {
+				kind: 'review_thread',
+				nodeId: payload.thread?.node_id,
+				pullRequestNumber,
+			}
+		default:
+			return { pullRequestNumber }
 	}
 }
 

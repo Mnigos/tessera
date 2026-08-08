@@ -12,6 +12,7 @@ import {
 	GitHubSyncQueue,
 } from './infrastructure/github-sync.queue'
 import { GitHubSyncRepository } from './infrastructure/github-sync.repository'
+import { GitHubSyncConversationsRepository } from './infrastructure/github-sync-conversations.repository'
 import { GitHubWebhookController } from './presentation/github-webhook.controller'
 
 @Module({
@@ -26,6 +27,7 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 		GitHubSyncScheduler,
 		GitHubAppAuthService,
 		GitHubSyncClient,
+		GitHubSyncConversationsRepository,
 		GitHubSyncRepository,
 		{
 			provide: GitHubSyncJobQueue,

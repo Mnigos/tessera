@@ -118,9 +118,21 @@ IDs and delivery IDs but redact credentials and sensitive payload content.
 The GitHub App requests repository metadata plus read-only Contents, Pull requests, Issues,
 Checks, and Commit statuses permissions. It subscribes only to `installation`,
 `installation_repositories`, `repository`, `push`, `create`, `delete`, `pull_request`,
-`pull_request_review`, `pull_request_review_comment`, `issue_comment`, `check_suite`,
-`check_run`, and `status` events. Adding a permission or event requires updating this ADR and the downstream
+`pull_request_review`, `pull_request_review_comment`, `pull_request_review_thread`,
+`issue_comment`, `check_suite`, `check_run`, and `status` events. Adding a permission or event
+requires updating this ADR and the downstream
 integration coverage; Tessera never requests GitHub write permissions for synchronization.
+
+Signature verification is followed by an explicit event and action allowlist. Deliveries outside
+the allowlist are recorded for audit and ignored rather than rejected, so GitHub is never asked to
+redeliver work Tessera does not act on. The allowlist covers the installation, repository, and Git
+reference events above; every `pull_request` action; `issue_comment` and
+`pull_request_review_comment` `created`/`edited`/`deleted`; `pull_request_review`
+`submitted`/`edited`/`dismissed`; and `pull_request_review_thread` `resolved`/`unresolved`. The
+`check_suite`, `check_run`, and `status` subscriptions remain for future check reporting and are
+ignored today. Conversation deliveries record the target resource kind, its provider node and
+numeric IDs, and the originating issue number so reconciliation reconciles the affected pull
+request even when the incremental cursor page omits it.
 
 ### Cutover
 

@@ -49,3 +49,97 @@ export interface GitHubRepositoryReconciliation {
 	pullRequests: GitHubSyncPullRequest[]
 	pullRequestCursorAt: Date
 }
+
+export type GitHubSyncDiffSide = 'left' | 'right'
+export type GitHubSyncCommentSubjectType = 'line' | 'file'
+export type GitHubSyncReviewOutcome = 'approve' | 'request_changes' | 'comment'
+
+export interface GitHubSyncIssueComment {
+	nodeId: string
+	numericId: bigint
+	author: GitHubSyncActor
+	body: string
+	htmlUrl: string
+	createdAt: Date
+	updatedAt: Date
+}
+
+export interface GitHubSyncReviewComment {
+	nodeId: string
+	numericId: bigint
+	author: GitHubSyncActor
+	body: string
+	htmlUrl: string
+	reviewNumericId?: bigint
+	inReplyToNumericId?: bigint
+	subjectType: GitHubSyncCommentSubjectType
+	path: string
+	side?: GitHubSyncDiffSide
+	line?: number
+	originalLine?: number
+	startSide?: GitHubSyncDiffSide
+	startLine?: number
+	originalStartLine?: number
+	commitId?: string
+	originalCommitId?: string
+	diffHunk?: string
+	createdAt: Date
+	updatedAt: Date
+}
+
+export interface GitHubSyncReview {
+	nodeId: string
+	numericId: bigint
+	reviewer: GitHubSyncActor
+	body: string
+	/** Absent once GitHub reports the review as dismissed; it stops exposing the original outcome. */
+	outcome?: GitHubSyncReviewOutcome
+	dismissed: boolean
+	htmlUrl: string
+	commitId?: string
+	submittedAt: Date
+}
+
+export interface GitHubSyncRequestedUser {
+	kind: 'user'
+	actor: GitHubSyncActor
+}
+
+export interface GitHubSyncRequestedTeam {
+	kind: 'team'
+	nodeId: string
+	numericId: bigint
+	slug: string
+	name: string
+	htmlUrl?: string
+}
+
+export type GitHubSyncReviewerRequestTarget =
+	| GitHubSyncRequestedUser
+	| GitHubSyncRequestedTeam
+
+export interface GitHubSyncReviewThreadComment {
+	nodeId: string
+	replyToNodeId?: string
+	originalCommitSha?: string
+}
+
+export interface GitHubSyncReviewThread {
+	nodeId: string
+	resolved: boolean
+	resolvedBy?: GitHubSyncActor
+	outdated: boolean
+	subjectType: GitHubSyncCommentSubjectType
+	path?: string
+	line?: number
+	side?: GitHubSyncDiffSide
+	comments: GitHubSyncReviewThreadComment[]
+}
+
+export interface GitHubPullRequestConversation {
+	issueComments: GitHubSyncIssueComment[]
+	reviewComments: GitHubSyncReviewComment[]
+	reviews: GitHubSyncReview[]
+	requestedReviewers: GitHubSyncReviewerRequestTarget[]
+	reviewThreads: GitHubSyncReviewThread[]
+}
