@@ -112,6 +112,23 @@ describe('pull request review submission', () => {
 		)
 	})
 
+	test('disables the trigger and shows why when the comparison is unavailable', () => {
+		render(
+			<PullRequestReviewDialog
+				{...repositoryProps}
+				triggerLabel="Review changes"
+			/>
+		)
+
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Review changes' })
+				.disabled
+		).toBeTruthy()
+		expect(
+			screen.getByText('The comparison for this review is unavailable.')
+		).toBeTruthy()
+	})
+
 	test('offers submit and discard while the viewer can still review', () => {
 		render(
 			<PullRequestPendingReviewBanner

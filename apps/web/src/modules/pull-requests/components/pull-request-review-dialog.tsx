@@ -73,15 +73,19 @@ export function PullRequestReviewDialog({
 
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={isOpen}>
-			<DialogTrigger
-				disabled={!headSha}
-				render={<Button size="sm" variant={triggerVariant} />}
-				title={
-					headSha ? undefined : 'The comparison for this review is unavailable.'
-				}
-			>
-				{triggerLabel}
-			</DialogTrigger>
+			<div className="flex flex-col items-start gap-1">
+				<DialogTrigger
+					disabled={!headSha}
+					render={<Button size="sm" variant={triggerVariant} />}
+				>
+					{triggerLabel}
+				</DialogTrigger>
+				{!headSha && (
+					<p className="text-muted-foreground text-xs">
+						The comparison for this review is unavailable.
+					</p>
+				)}
+			</div>
 			<DialogContent>
 				<DialogHeader>
 					<DialogTitle>Review changes</DialogTitle>

@@ -31,10 +31,6 @@ export function PullRequestRequestReviewerForm({
 		.filter(candidate => !listedUsernames.includes(candidate.username))
 		.slice(0, SUGGESTION_LIMIT)
 
-	function requestReviewerByUsername(reviewerUsername: string) {
-		requestReviewer.mutate({ username, slug, number, reviewerUsername })
-	}
-
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()
 		const form = event.currentTarget
@@ -51,11 +47,7 @@ export function PullRequestRequestReviewerForm({
 	}
 
 	return (
-		<form
-			aria-describedby={requestReviewer.isError ? REVIEWER_ERROR_ID : undefined}
-			className="flex flex-col gap-2"
-			onSubmit={handleSubmit}
-		>
+		<form className="flex flex-col gap-2" onSubmit={handleSubmit}>
 			<Label
 				className="text-muted-foreground text-xs"
 				htmlFor={REVIEWER_INPUT_ID}
@@ -64,6 +56,9 @@ export function PullRequestRequestReviewerForm({
 			</Label>
 			<div className="flex items-center gap-2">
 				<input
+					aria-describedby={
+						requestReviewer.isError ? REVIEWER_ERROR_ID : undefined
+					}
 					autoComplete="off"
 					className="h-8 min-w-0 flex-1 rounded-md border border-input bg-transparent px-2.5 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
 					id={REVIEWER_INPUT_ID}
@@ -89,7 +84,14 @@ export function PullRequestRequestReviewerForm({
 							className="h-6 rounded-full px-2 text-muted-foreground text-xs"
 							disabled={requestReviewer.isPending}
 							key={candidate.userId}
-							onClick={() => requestReviewerByUsername(candidate.username)}
+							onClick={() =>
+								requestReviewer.mutate({
+									username,
+									slug,
+									number,
+									reviewerUsername: candidate.username,
+								})
+							}
 							size="sm"
 							type="button"
 							variant="outline"
