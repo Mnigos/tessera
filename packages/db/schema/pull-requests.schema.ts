@@ -53,6 +53,7 @@ export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'thread_unresolved',
 	'review_request_removed',
 	'review_submitted',
+	'review_dismissed',
 ])
 
 export interface PullRequestThreadEventPayload {

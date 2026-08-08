@@ -11,6 +11,7 @@ export {
 	lt,
 	lte,
 	ne,
+	notExists,
 	or,
 	sql,
 } from 'drizzle-orm'
