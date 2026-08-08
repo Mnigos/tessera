@@ -53,6 +53,11 @@ export const gitHubWebhookDeliveryStatusEnum = pgEnum(
 	['received', 'processed', 'failed', 'ignored']
 )
 
+export const gitHubWebhookTargetResourceKindEnum = pgEnum(
+	'github_webhook_target_resource_kind',
+	['pull_request', 'issue_comment', 'review_comment', 'review', 'review_thread']
+)
+
 export const gitHubActors = pgTable(
 	'github_actors',
 	{
@@ -98,6 +103,16 @@ export const gitHubWebhookDeliveries = pgTable(
 		}),
 		subjectNodeId: text('subject_node_id'),
 		subjectNumber: integer('subject_number'),
+		issueNumber: integer('issue_number'),
+		targetResourceKind: gitHubWebhookTargetResourceKindEnum(
+			'target_resource_kind'
+		),
+		targetResourceNodeId: text('target_resource_node_id'),
+		targetResourceNumericId: bigint('target_resource_numeric_id', {
+			mode: 'bigint',
+		}),
+		targetTeamNodeId: text('target_team_node_id'),
+		targetTeamSlug: text('target_team_slug'),
 		senderActorId: uuid('sender_actor_id')
 			.$type<GitHubActorId>()
 			.references(() => gitHubActors.id, { onDelete: 'set null' }),
@@ -168,6 +183,8 @@ export const gitHubPullRequestMappings = pgTable(
 		providerClosedAt: timestamp('provider_closed_at'),
 		providerMergedAt: timestamp('provider_merged_at'),
 		lastSyncedAt: timestamp('last_synced_at').notNull(),
+		/** Rotation cursor for the bounded conversation repair sweep. */
+		conversationSyncedAt: timestamp('conversation_synced_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -185,6 +202,10 @@ export const gitHubPullRequestMappings = pgTable(
 		),
 		index('github_pull_request_mappings_author_actor_id_idx').on(
 			table.authorActorId
+		),
+		index('github_pull_request_mappings_conversation_synced_at_idx').on(
+			table.repositoryId,
+			table.conversationSyncedAt
 		),
 	]
 )

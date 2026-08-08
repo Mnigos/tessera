@@ -18,7 +18,7 @@ import {
 } from 'drizzle-orm/pg-core'
 import { user } from './auth.schema'
 import { pullRequestReviews } from './pull-request-reviews.schema'
-import { pullRequests } from './pull-requests.schema'
+import { pullRequestProviderEnum, pullRequests } from './pull-requests.schema'
 
 export const pullRequestThreadKindEnum = pgEnum('pull_request_thread_kind', [
 	'top_level',
@@ -43,6 +43,7 @@ export const pullRequestThreads = pgTable(
 			.notNull()
 			.$type<PullRequestId>()
 			.references(() => pullRequests.id, { onDelete: 'cascade' }),
+		provider: pullRequestProviderEnum('provider').default('tessera').notNull(),
 		kind: pullRequestThreadKindEnum('kind').notNull(),
 		path: text('path'),
 		side: pullRequestThreadSideEnum('side'),
@@ -79,7 +80,10 @@ export const pullRequestThreads = pgTable(
 		),
 		check(
 			'pull_request_threads_resolution_check',
-			sql`(${table.resolvedAt} is null) = (${table.resolvedByUserId} is null)`
+			sql`(
+				(${table.resolvedAt} is null and ${table.resolvedByUserId} is null)
+				or (${table.resolvedAt} is not null and (${table.provider}::text = 'github' or ${table.resolvedByUserId} is not null))
+			)`
 		),
 	]
 )
@@ -92,8 +96,8 @@ export const pullRequestComments = pgTable(
 			.notNull()
 			.$type<PullRequestThreadId>()
 			.references(() => pullRequestThreads.id, { onDelete: 'cascade' }),
+		provider: pullRequestProviderEnum('provider').default('tessera').notNull(),
 		authorUserId: uuid('author_user_id')
-			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
 		body: text('body').notNull(),
@@ -117,6 +121,10 @@ export const pullRequestComments = pgTable(
 		check(
 			'pull_request_comments_body_check',
 			sql`length(btrim(${table.body})) > 0`
+		),
+		check(
+			'pull_request_comments_author_check',
+			sql`${table.provider}::text = 'github' or ${table.authorUserId} is not null`
 		),
 		check(
 			'pull_request_comments_pending_review_check',

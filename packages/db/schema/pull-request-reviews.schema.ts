@@ -21,6 +21,7 @@ import { pullRequestProviderEnum, pullRequests } from './pull-requests.schema'
 export const pullRequestReviewStateEnum = pgEnum('pull_request_review_state', [
 	'pending',
 	'submitted',
+	'dismissed',
 ])
 
 export const pullRequestReviewOutcomeEnum = pgEnum(
@@ -50,6 +51,10 @@ export const pullRequestReviews = pgTable(
 			.$onUpdate(() => new Date())
 			.notNull(),
 		submittedAt: timestamp('submitted_at'),
+		dismissedAt: timestamp('dismissed_at'),
+		dismissedByUserId: uuid('dismissed_by_user_id')
+			.$type<UserId>()
+			.references(() => user.id, { onDelete: 'restrict' }),
 	},
 	table => [
 		uniqueIndex('pull_request_reviews_pending_reviewer_unique')
@@ -71,8 +76,9 @@ export const pullRequestReviews = pgTable(
 		check(
 			'pull_request_reviews_state_check',
 			sql`(
-				(${table.state}::text = 'pending' and ${table.outcome} is null and ${table.submittedAt} is null)
-				or (${table.state}::text = 'submitted' and ${table.outcome} is not null and ${table.submittedAt} is not null)
+				(${table.state}::text = 'pending' and ${table.outcome} is null and ${table.submittedAt} is null and ${table.dismissedAt} is null and ${table.dismissedByUserId} is null)
+				or (${table.state}::text = 'submitted' and ${table.outcome} is not null and ${table.submittedAt} is not null and ${table.dismissedAt} is null and ${table.dismissedByUserId} is null)
+				or (${table.state}::text = 'dismissed' and ${table.outcome} is not null and ${table.submittedAt} is not null and ${table.dismissedAt} is not null and (${table.provider}::text = 'github' or ${table.dismissedByUserId} is not null))
 			)`
 		),
 	]
@@ -147,6 +153,11 @@ export const pullRequestReviewRelations = relations(
 			fields: [pullRequestReviews.reviewerUserId],
 			references: [user.id],
 			relationName: 'pull_request_review_reviewer',
+		}),
+		dismissedByUser: one(user, {
+			fields: [pullRequestReviews.dismissedByUserId],
+			references: [user.id],
+			relationName: 'pull_request_review_dismisser',
 		}),
 	})
 )
