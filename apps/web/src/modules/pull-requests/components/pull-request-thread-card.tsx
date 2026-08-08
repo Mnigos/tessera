@@ -5,6 +5,10 @@ import { Check, History } from 'lucide-react'
 import { useState } from 'react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
+	getPullRequestReviewComposerLabel,
+	getPullRequestReviewMarker,
+} from '../helpers/pull-request-review'
+import {
 	canResolvePullRequestThread,
 	type PullRequestThreadPermissions,
 } from '../helpers/pull-request-thread-permissions'
@@ -33,6 +37,9 @@ export function PullRequestThreadCard({
 }: Readonly<PullRequestThreadCardProps>) {
 	const [expandedOverride, setExpandedOverride] = useState<boolean>()
 	const [isReplying, setIsReplying] = useState(false)
+	// The head the open reply was started against, held so a background refetch
+	// cannot move it under a draft in progress.
+	const [replyHeadSha, setReplyHeadSha] = useState<string>()
 	const replyMutation = useReplyPullRequestThreadMutation()
 	const resolveMutation = useResolvePullRequestThreadMutation()
 	const unresolveMutation = useUnresolvePullRequestThreadMutation()
@@ -40,6 +47,18 @@ export function PullRequestThreadCard({
 	const isExpanded = expandedOverride ?? !thread.resolved
 	const resolveError = resolveMutation.error ?? unresolveMutation.error
 	const input = { username, slug, number, threadId: thread.id }
+	const reviewMarker = getPullRequestReviewMarker(
+		permissions.review,
+		replyHeadSha
+	)
+	const reviewLabel = permissions.review
+		? getPullRequestReviewComposerLabel(permissions.review)
+		: undefined
+
+	function startReply() {
+		setReplyHeadSha(permissions.review?.headSha)
+		setIsReplying(true)
+	}
 
 	function handleToggleResolved() {
 		// The card keeps its current shape until the server confirms; clearing the
@@ -61,6 +80,13 @@ export function PullRequestThreadCard({
 	function handleReply(body: string) {
 		replyMutation.mutate(
 			{ ...input, body },
+			{ onSuccess: () => setIsReplying(false) }
+		)
+	}
+
+	function handleReplyToReview(body: string) {
+		replyMutation.mutate(
+			{ ...input, body, review: reviewMarker },
 			{ onSuccess: () => setIsReplying(false) }
 		)
 	}
@@ -111,9 +137,11 @@ export function PullRequestThreadCard({
 							isPending={replyMutation.isPending}
 							label="Reply to thread"
 							onCancel={() => setIsReplying(false)}
+							onSecondarySubmit={reviewMarker ? handleReplyToReview : undefined}
 							onSubmit={handleReply}
 							pendingLabel="Replying"
 							placeholder="Write a reply"
+							secondarySubmitLabel={reviewLabel}
 							shouldFocusOnMount
 							submitLabel="Reply"
 						/>
@@ -124,9 +152,7 @@ export function PullRequestThreadCard({
 							isResolvePending={
 								resolveMutation.isPending || unresolveMutation.isPending
 							}
-							onReply={
-								permissions.canComment ? () => setIsReplying(true) : undefined
-							}
+							onReply={permissions.canComment ? startReply : undefined}
 							onToggleResolved={handleToggleResolved}
 						/>
 					)}

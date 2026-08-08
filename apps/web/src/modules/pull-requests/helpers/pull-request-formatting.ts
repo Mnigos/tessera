@@ -1,4 +1,18 @@
-import type { PullRequestEventType, PullRequestState } from '@repo/contracts'
+import type {
+	PullRequestEvent,
+	PullRequestEventType,
+	PullRequestState,
+} from '@repo/contracts'
+import { getPullRequestReviewerEventPayload } from './pull-request-review'
+
+const REVIEWER_TARGETED_EVENT_DESCRIPTIONS: Partial<
+	Record<PullRequestEventType, (reviewerUsername: string) => string>
+> = {
+	review_requested: reviewerUsername =>
+		`Review requested from ${reviewerUsername}`,
+	review_request_removed: reviewerUsername =>
+		`Review request for ${reviewerUsername} removed`,
+}
 
 const PULL_REQUEST_STATE_LABELS: Record<PullRequestState, string> = {
 	open: 'Open',
@@ -22,6 +36,8 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	commented: 'Pull request commented',
 	thread_resolved: 'Comment thread resolved',
 	thread_unresolved: 'Comment thread unresolved',
+	review_request_removed: 'Pull request review request removed',
+	review_submitted: 'Pull request review submitted',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [
@@ -51,6 +67,21 @@ export function getPullRequestStateLabel(state: PullRequestState) {
  */
 export function getPullRequestEventLabel(type: PullRequestEventType) {
 	return PULL_REQUEST_EVENT_LABELS[type]
+}
+
+/**
+ * Describes an event for the timeline, naming the targeted reviewer when the
+ * event carries one. Provider-synchronized history has no payload, so the
+ * generic label stays the fallback.
+ */
+export function getPullRequestEventDescription(event: PullRequestEvent) {
+	const describeReviewer = REVIEWER_TARGETED_EVENT_DESCRIPTIONS[event.type]
+	const reviewer = getPullRequestReviewerEventPayload(event)
+
+	if (describeReviewer && reviewer)
+		return describeReviewer(reviewer.reviewerUsername)
+
+	return getPullRequestEventLabel(event.type)
 }
 
 /**

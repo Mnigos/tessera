@@ -16,6 +16,7 @@ const COMMENT = {
 	authorUserId: VIEWER_ID,
 	authorUsername: 'marta',
 	body: 'Review',
+	state: 'published',
 	createdAt: new Date('2026-08-06T10:00:00Z'),
 } as PullRequestComment
 const THREAD = {
@@ -69,5 +70,24 @@ describe('pull request thread permissions', () => {
 		expect(canResolvePullRequestThread(administrator, THREAD)).toBeTruthy()
 		expect(canDeletePullRequestComment(administrator, COMMENT)).toBeTruthy()
 		expect(canEditPullRequestComment(administrator, COMMENT)).toBeFalsy()
+	})
+
+	test('offers no resolution on a thread holding only pending draft comments', () => {
+		const author = getPullRequestThreadPermissions({
+			viewer: {
+				canComment: true,
+				canResolveAnyThread: true,
+				canDeleteAnyComment: true,
+			},
+			viewerUserId: VIEWER_ID,
+		})
+		const draftComment = { ...COMMENT, state: 'pending' } as PullRequestComment
+		const draftThread = {
+			...THREAD,
+			comments: [draftComment],
+		} as PullRequestThread
+
+		expect(canResolvePullRequestThread(author, draftThread)).toBeFalsy()
+		expect(canEditPullRequestComment(author, draftComment)).toBeTruthy()
 	})
 })

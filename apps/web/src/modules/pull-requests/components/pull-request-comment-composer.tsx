@@ -12,7 +12,9 @@ interface PullRequestCommentComposerProps {
 	defaultValue?: string
 	errorMessage?: string
 	onCancel?: () => void
+	onSecondarySubmit?: (body: string) => void
 	placeholder?: string
+	secondarySubmitLabel?: string
 	shouldFocusOnMount?: boolean
 }
 
@@ -26,7 +28,9 @@ export function PullRequestCommentComposer({
 	defaultValue,
 	errorMessage,
 	onCancel,
+	onSecondarySubmit,
 	placeholder,
+	secondarySubmitLabel,
 	shouldFocusOnMount,
 }: Readonly<PullRequestCommentComposerProps>) {
 	const [body, setBody] = useState(defaultValue ?? '')
@@ -41,6 +45,12 @@ export function PullRequestCommentComposer({
 		if (isEmpty || isPending) return
 
 		onSubmit(body.trim())
+	}
+
+	function handleSecondarySubmit() {
+		if (isEmpty || isPending || !onSecondarySubmit) return
+
+		onSecondarySubmit(body.trim())
 	}
 
 	return (
@@ -66,6 +76,17 @@ export function PullRequestCommentComposer({
 				<Button disabled={isEmpty || isPending} size="sm" type="submit">
 					{isPending ? pendingLabel : submitLabel}
 				</Button>
+				{onSecondarySubmit && secondarySubmitLabel && (
+					<Button
+						disabled={isEmpty || isPending}
+						onClick={handleSecondarySubmit}
+						size="sm"
+						type="button"
+						variant="outline"
+					>
+						{secondarySubmitLabel}
+					</Button>
+				)}
 				{onCancel && (
 					<Button
 						onClick={onCancel}

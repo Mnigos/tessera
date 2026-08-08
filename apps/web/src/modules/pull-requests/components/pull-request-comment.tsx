@@ -1,6 +1,6 @@
 import type { PullRequestComment as PullRequestCommentData } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { Pencil, Trash2 } from 'lucide-react'
+import { EyeOff, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { MarkdownContent } from '@/shared/components/markdown-content'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
@@ -63,6 +63,15 @@ export function PullRequestComment({
 				</time>
 				{comment.editedAt && (
 					<span className="text-muted-foreground text-xs">edited</span>
+				)}
+				{comment.state === 'pending' && (
+					<span
+						className="inline-flex items-center gap-1 rounded-full border border-amber-500/30 bg-amber-500/10 px-2 py-0.5 font-medium text-amber-400 text-xs"
+						title="Only you can see this comment until you submit your review."
+					>
+						<EyeOff aria-hidden className="size-3" />
+						Pending
+					</span>
 				)}
 				{(canEdit || canDelete) && !isEditing && (
 					<span className="ml-auto flex items-center gap-1">

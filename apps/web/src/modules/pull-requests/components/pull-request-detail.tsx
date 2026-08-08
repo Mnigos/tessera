@@ -1,34 +1,36 @@
 import { ORPCError } from '@orpc/client'
 import type {
 	PullRequest,
+	PullRequestEffectiveReviewState,
 	PullRequestEvent,
+	PullRequestPendingReview,
+	PullRequestReview,
+	PullRequestReviewerCandidate,
+	PullRequestReviewerRequest,
+	PullRequestReviewViewer,
 	SessionUser,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
-import { MarkdownContent } from '@/shared/components/markdown-content'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
-import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestEditForm } from './pull-request-edit-form'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
-import { PullRequestMergePanel } from './pull-request-merge-panel'
 import {
 	type PullRequestDetailTab,
 	PullRequestNavigation,
 } from './pull-request-navigation'
+import { PullRequestOverview } from './pull-request-overview'
 import { PullRequestStateBadge } from './pull-request-state-badge'
-import { PullRequestTimeline } from './pull-request-timeline'
 import { PullRequestsMessage } from './pull-requests-message'
 
 interface PullRequestDetailProps {
@@ -87,11 +89,17 @@ export function PullRequestDetail({
 	return (
 		<PullRequestDetailContent
 			canWrite={canWriteRepository(data.viewerRole)}
+			effectiveReviewStates={data.effectiveReviewStates}
 			events={data.events}
 			pullRequest={data.pullRequest}
+			reviewerCandidates={data.reviewerCandidates}
+			reviewerRequests={data.reviewerRequests}
+			reviews={data.reviews}
+			reviewViewer={data.viewer}
 			slug={slug}
 			tab={tab}
 			username={username}
+			viewerPendingReview={data.viewerPendingReview}
 			viewerUserId={user?.id}
 		/>
 	)
@@ -102,6 +110,12 @@ interface PullRequestDetailContentProps {
 	slug: string
 	pullRequest: PullRequest
 	events: PullRequestEvent[]
+	reviewerRequests: PullRequestReviewerRequest[]
+	reviews: PullRequestReview[]
+	effectiveReviewStates: PullRequestEffectiveReviewState[]
+	reviewerCandidates: PullRequestReviewerCandidate[]
+	viewerPendingReview?: PullRequestPendingReview
+	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
@@ -112,15 +126,17 @@ function PullRequestDetailContent({
 	slug,
 	pullRequest,
 	events,
+	reviewerRequests,
+	reviews,
+	effectiveReviewStates,
+	reviewerCandidates,
+	viewerPendingReview,
+	reviewViewer,
 	canWrite,
 	viewerUserId,
 	tab,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
-	const comparisonQuery = usePullRequestComparisonQuery(
-		{ username, slug, number: pullRequest.number },
-		canWrite && pullRequest.state === 'open' && tab === 'overview'
-	)
 
 	return (
 		<section className="flex flex-col gap-6">
@@ -204,41 +220,27 @@ function PullRequestDetailContent({
 				username={username}
 			/>
 			{tab === 'overview' ? (
-				<>
-					<Card className="gap-2">
-						<h2 className="font-semibold text-base tracking-normal">
-							Description
-						</h2>
-						{pullRequest.body ? (
-							<MarkdownContent>{pullRequest.body}</MarkdownContent>
-						) : (
-							<p className="text-muted-foreground text-sm italic">
-								No description provided.
-							</p>
-						)}
-					</Card>
-					{canWrite && (
-						<PullRequestMergePanel
-							comparison={comparisonQuery.data}
-							isComparisonError={comparisonQuery.isError}
-							isComparisonLoading={comparisonQuery.isLoading}
-							onRefreshComparison={() => comparisonQuery.refetch()}
-							pullRequest={pullRequest}
-							slug={slug}
-							username={username}
-						/>
-					)}
-					<PullRequestTimeline
-						events={events}
-						number={String(pullRequest.number)}
-						slug={slug}
-						username={username}
-						viewerUserId={viewerUserId}
-					/>
-				</>
+				<PullRequestOverview
+					canWrite={canWrite}
+					effectiveReviewStates={effectiveReviewStates}
+					events={events}
+					pullRequest={pullRequest}
+					reviewerCandidates={reviewerCandidates}
+					reviewerRequests={reviewerRequests}
+					reviews={reviews}
+					reviewViewer={reviewViewer}
+					slug={slug}
+					username={username}
+					viewerPendingReview={viewerPendingReview}
+					viewerUserId={viewerUserId}
+				/>
 			) : (
 				<PullRequestComparison
 					number={String(pullRequest.number)}
+					review={{
+						canSubmitReview: reviewViewer.canSubmitReview,
+						hasPendingReview: Boolean(viewerPendingReview),
+					}}
 					slug={slug}
 					tab={tab}
 					username={username}
