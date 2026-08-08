@@ -66,15 +66,16 @@ export function PullRequestReviewersPanel({
 							entry={entry}
 							isRemoving={
 								removeRequest.isPending &&
-								removeRequest.variables?.reviewerUsername === entry.username
+								removeRequest.variables?.reviewerUsername ===
+									entry.reviewer.username
 							}
-							key={entry.username}
+							key={entry.key}
 							onRemove={() =>
 								removeRequest.mutate({
 									username,
 									slug,
 									number,
-									reviewerUsername: entry.username,
+									reviewerUsername: entry.reviewer.username,
 								})
 							}
 						/>
@@ -92,7 +93,7 @@ export function PullRequestReviewersPanel({
 			{viewer.canRequestReviewers && isOpen && (
 				<PullRequestRequestReviewerForm
 					candidates={reviewerCandidates}
-					listedUsernames={entries.map(entry => entry.username)}
+					listedUsernames={entries.map(entry => entry.reviewer.username)}
 					number={number}
 					slug={slug}
 					username={username}
@@ -129,6 +130,7 @@ function PullRequestReviewerRow({
 }: Readonly<PullRequestReviewerRowProps>) {
 	const presentation = getPullRequestReviewOutcomePresentation(entry.outcome)
 	const reviewedAt = entry.submittedAt
+	const { reviewer } = entry
 
 	return (
 		<li className="flex min-w-0 items-start gap-2">
@@ -137,8 +139,22 @@ function PullRequestReviewerRow({
 				className={cn('mt-0.5 size-4 shrink-0', presentation.iconClassName)}
 			/>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<span className="truncate font-medium text-sm" title={entry.username}>
-					{entry.username}
+				<span
+					className="truncate font-medium text-sm"
+					title={reviewer.username}
+				>
+					{reviewer.htmlUrl ? (
+						<a
+							className="hover:underline"
+							href={reviewer.htmlUrl}
+							rel="noreferrer"
+							target="_blank"
+						>
+							{reviewer.username}
+						</a>
+					) : (
+						reviewer.username
+					)}
 				</span>
 				<span
 					className="text-muted-foreground text-xs"
@@ -171,7 +187,7 @@ function PullRequestReviewerRow({
 			</div>
 			{canRemove && entry.isRequested && (
 				<Button
-					aria-label={`Remove review request for ${entry.username}`}
+					aria-label={`Remove review request for ${reviewer.username}`}
 					className="size-7 shrink-0 text-muted-foreground"
 					disabled={isRemoving}
 					onClick={onRemove}

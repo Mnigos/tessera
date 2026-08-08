@@ -69,9 +69,14 @@ const useFileDiffQueryMock = vi.mocked(usePullRequestFileDiffQuery)
 const useThreadsQueryMock = vi.mocked(usePullRequestThreadsQuery)
 const useResolveMutationMock = vi.mocked(useResolvePullRequestThreadMutation)
 
-type ThreadAuthorId = PullRequestThread['comments'][number]['authorUserId']
+type ThreadAuthor = PullRequestThread['comments'][number]['author']
+type ThreadAuthorId = NonNullable<ThreadAuthor['userId']>
 
 const AUTHOR_USER_ID = '00000000-0000-4000-8000-0000000000a1' as ThreadAuthorId
+
+function threadAuthor(userId: ThreadAuthorId, username: string): ThreadAuthor {
+	return { key: userId, provider: 'tessera', userId, username }
+}
 const createdAt = new Date('2026-08-06T10:00:00.000Z')
 const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
@@ -138,11 +143,7 @@ function thread({
 				}
 			: undefined,
 		resolved: resolved
-			? {
-					at: createdAt,
-					byUserId: AUTHOR_USER_ID,
-					byUsername: 'marta',
-				}
+			? { at: createdAt, by: threadAuthor(AUTHOR_USER_ID, 'marta') }
 			: undefined,
 		outdated: false,
 		createdAt,
@@ -150,8 +151,7 @@ function thread({
 			{
 				id: `${id}-comment` as PullRequestCommentId,
 				threadId: id as PullRequestThreadId,
-				authorUserId: AUTHOR_USER_ID,
-				authorUsername: 'marta',
+				author: threadAuthor(AUTHOR_USER_ID, 'marta'),
 				body,
 				state: commentState,
 				createdAt,
@@ -529,8 +529,7 @@ describe('pull request threads', () => {
 					...openThread,
 					resolved: {
 						at: createdAt,
-						byUserId: AUTHOR_USER_ID,
-						byUsername: 'marta',
+						by: threadAuthor(AUTHOR_USER_ID, 'marta'),
 					},
 				}}
 			/>
@@ -573,8 +572,10 @@ describe('pull request threads', () => {
 		topLevelThread.comments.push({
 			id: '00000000-0000-4000-8000-000000000007' as PullRequestCommentId,
 			threadId: topLevelThread.id,
-			authorUserId: '00000000-0000-4000-8000-0000000000b2' as ThreadAuthorId,
-			authorUsername: 'jan',
+			author: threadAuthor(
+				'00000000-0000-4000-8000-0000000000b2' as ThreadAuthorId,
+				'jan'
+			),
 			body: 'Reply body',
 			state: 'published',
 			createdAt: new Date('2026-08-06T11:30:00Z'),

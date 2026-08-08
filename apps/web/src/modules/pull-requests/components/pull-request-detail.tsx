@@ -30,6 +30,8 @@ import {
 	PullRequestNavigation,
 } from './pull-request-navigation'
 import { PullRequestOverview } from './pull-request-overview'
+import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
+import { PullRequestSourceLink } from './pull-request-source-link'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 import { PullRequestsMessage } from './pull-requests-message'
 
@@ -86,11 +88,16 @@ export function PullRequestDetail({
 			/>
 		)
 
+	// Authority, not the pull request's provider: a GitHub-origin pull request
+	// becomes writable again once the repository cuts over to Tessera.
+	const isReadOnly = data.authority === 'github'
+
 	return (
 		<PullRequestDetailContent
-			canWrite={canWriteRepository(data.viewerRole)}
+			canWrite={canWriteRepository(data.viewerRole) && !isReadOnly}
 			effectiveReviewStates={data.effectiveReviewStates}
 			events={data.events}
+			isReadOnly={isReadOnly}
 			pullRequest={data.pullRequest}
 			reviewerCandidates={data.reviewerCandidates}
 			reviewerRequests={data.reviewerRequests}
@@ -117,6 +124,7 @@ interface PullRequestDetailContentProps {
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
+	isReadOnly: boolean
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
 }
@@ -133,10 +141,12 @@ function PullRequestDetailContent({
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
+	isReadOnly,
 	viewerUserId,
 	tab,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
+	const sourceUrl = pullRequest.github?.htmlUrl
 
 	return (
 		<section className="flex flex-col gap-6">
@@ -192,6 +202,7 @@ function PullRequestDetailContent({
 								</time>{' '}
 								by {pullRequest.authorUsername}
 							</span>
+							{sourceUrl && <PullRequestSourceLink href={sourceUrl} />}
 						</div>
 						{canWrite && (
 							<div className="flex flex-wrap items-start gap-2">
@@ -212,6 +223,7 @@ function PullRequestDetailContent({
 						)}
 					</>
 				)}
+				{isReadOnly && <PullRequestReadOnlyBanner sourceUrl={sourceUrl} />}
 			</header>
 			<PullRequestNavigation
 				number={String(pullRequest.number)}

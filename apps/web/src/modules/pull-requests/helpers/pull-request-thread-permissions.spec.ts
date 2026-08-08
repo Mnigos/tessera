@@ -6,15 +6,27 @@ import {
 	getPullRequestThreadPermissions,
 } from './pull-request-thread-permissions'
 
+type PullRequestCommentAuthorId = NonNullable<
+	PullRequestComment['author']['userId']
+>
+
 const VIEWER_ID =
-	'00000000-0000-4000-8000-000000000001' as PullRequestComment['authorUserId']
+	'00000000-0000-4000-8000-000000000001' as PullRequestCommentAuthorId
 const OTHER_ID =
-	'00000000-0000-4000-8000-000000000002' as PullRequestComment['authorUserId']
+	'00000000-0000-4000-8000-000000000002' as PullRequestCommentAuthorId
+
+function author(
+	userId: PullRequestCommentAuthorId,
+	username: string
+): PullRequestComment['author'] {
+	return { key: userId, provider: 'tessera', userId, username }
+}
+
 const COMMENT = {
-	id: '00000000-0000-4000-8000-000000000003',
-	threadId: '00000000-0000-4000-8000-000000000004',
-	authorUserId: VIEWER_ID,
-	authorUsername: 'marta',
+	id: '00000000-0000-4000-8000-000000000003' as PullRequestComment['id'],
+	threadId:
+		'00000000-0000-4000-8000-000000000004' as PullRequestComment['threadId'],
+	author: author(VIEWER_ID, 'marta'),
 	body: 'Review',
 	state: 'published',
 	createdAt: new Date('2026-08-06T10:00:00Z'),

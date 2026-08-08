@@ -42,7 +42,12 @@ describe('pull request review timeline', () => {
 				reviewEvent.payload && 'reviewId' in reviewEvent.payload
 					? reviewEvent.payload.reviewId
 					: (crypto.randomUUID() as PullRequestReview['id']),
-			reviewerUsername: 'marta',
+			reviewer: {
+				key: 'tessera:marta',
+				provider: 'tessera',
+				username: 'marta',
+			},
+			state: 'submitted',
 			outcome,
 			body: '**Important review**',
 			headSha: 'a'.repeat(40),
@@ -62,7 +67,7 @@ describe('pull request review timeline', () => {
 			<PullRequestEventRow
 				event={event('review_requested', {
 					reviewerUserId: crypto.randomUUID() as NonNullable<
-						PullRequestReviewerRequest['reviewerUserId']
+						PullRequestReviewerRequest['reviewer']['userId']
 					>,
 					reviewerUsername: 'jan',
 				})}
@@ -74,7 +79,7 @@ describe('pull request review timeline', () => {
 			<PullRequestEventRow
 				event={event('review_request_removed', {
 					reviewerUserId: crypto.randomUUID() as NonNullable<
-						PullRequestReviewerRequest['reviewerUserId']
+						PullRequestReviewerRequest['reviewer']['userId']
 					>,
 					reviewerUsername: 'jan',
 				})}

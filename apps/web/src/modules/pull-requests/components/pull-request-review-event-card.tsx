@@ -10,6 +10,7 @@ import {
 	getPullRequestReviewEventPayload,
 	getPullRequestReviewOutcomePresentation,
 } from '../helpers/pull-request-review'
+import { PullRequestSourceLink } from './pull-request-source-link'
 
 interface PullRequestReviewEventCardProps {
 	event: PullRequestEvent
@@ -44,6 +45,11 @@ export function PullRequestReviewEventCard({
 				<span className="font-medium text-sm">
 					{event.actorUsername} {presentation?.timelineLabel ?? 'left a review'}
 				</span>
+				{review?.state === 'dismissed' && (
+					<span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">
+						Dismissed
+					</span>
+				)}
 				<time
 					className="ml-auto text-muted-foreground text-xs"
 					dateTime={formatPullRequestDateTime(event.createdAt)}
@@ -52,6 +58,12 @@ export function PullRequestReviewEventCard({
 				</time>
 			</div>
 			{review?.body && <MarkdownContent>{review.body}</MarkdownContent>}
+			{review?.sourceUrl && (
+				<PullRequestSourceLink
+					className="text-muted-foreground text-xs"
+					href={review.sourceUrl}
+				/>
+			)}
 		</div>
 	)
 }
