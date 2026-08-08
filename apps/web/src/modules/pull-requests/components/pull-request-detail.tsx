@@ -1,5 +1,6 @@
 import { ORPCError } from '@orpc/client'
 import type {
+	ChecksSummary,
 	PullRequest,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
@@ -95,6 +96,7 @@ export function PullRequestDetail({
 	return (
 		<PullRequestDetailContent
 			canWrite={canWriteRepository(data.viewerRole) && !isReadOnly}
+			checksSummary={data.checksSummary}
 			effectiveReviewStates={data.effectiveReviewStates}
 			events={data.events}
 			isReadOnly={isReadOnly}
@@ -121,6 +123,7 @@ interface PullRequestDetailContentProps {
 	reviews: PullRequestReview[]
 	effectiveReviewStates: PullRequestEffectiveReviewState[]
 	reviewerCandidates: PullRequestReviewerCandidate[]
+	checksSummary?: ChecksSummary
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
@@ -138,6 +141,7 @@ function PullRequestDetailContent({
 	reviews,
 	effectiveReviewStates,
 	reviewerCandidates,
+	checksSummary,
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
@@ -234,6 +238,7 @@ function PullRequestDetailContent({
 			{tab === 'overview' ? (
 				<PullRequestOverview
 					canWrite={canWrite}
+					checksSummary={checksSummary}
 					effectiveReviewStates={effectiveReviewStates}
 					events={events}
 					pullRequest={pullRequest}

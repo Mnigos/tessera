@@ -5,6 +5,7 @@ import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
+import { PullRequestChecksSummaryBadge } from './pull-request-checks-summary-badge'
 import { PullRequestReviewSummaryBadges } from './pull-request-review-summary-badges'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 
@@ -57,7 +58,10 @@ export function PullRequestListItem({
 			</div>
 			<div className="flex shrink-0 flex-col items-end gap-2">
 				<PullRequestStateBadge state={pullRequest.state} />
-				<PullRequestReviewSummaryBadges summary={pullRequest.reviewSummary} />
+				<span className="flex shrink-0 items-center gap-2">
+					<PullRequestChecksSummaryBadge summary={pullRequest.checksSummary} />
+					<PullRequestReviewSummaryBadges summary={pullRequest.reviewSummary} />
+				</span>
 			</div>
 		</li>
 	)

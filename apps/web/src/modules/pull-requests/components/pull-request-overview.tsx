@@ -1,4 +1,5 @@
 import type {
+	ChecksSummary,
 	PullRequest,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
@@ -15,6 +16,7 @@ import { MarkdownContent } from '@/shared/components/markdown-content'
 import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
+import { PullRequestChecksPanel } from './pull-request-checks-panel'
 import { PullRequestMergePanel } from './pull-request-merge-panel'
 import { PullRequestPendingReviewBanner } from './pull-request-pending-review-banner'
 import { PullRequestReviewersPanel } from './pull-request-reviewers-panel'
@@ -29,6 +31,7 @@ interface PullRequestOverviewProps {
 	reviews: PullRequestReview[]
 	effectiveReviewStates: PullRequestEffectiveReviewState[]
 	reviewerCandidates: PullRequestReviewerCandidate[]
+	checksSummary?: ChecksSummary
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
@@ -44,6 +47,7 @@ export function PullRequestOverview({
 	reviews,
 	effectiveReviewStates,
 	reviewerCandidates,
+	checksSummary,
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
@@ -91,6 +95,12 @@ export function PullRequestOverview({
 						</p>
 					)}
 				</Card>
+				<PullRequestChecksPanel
+					checksSummary={checksSummary}
+					number={number}
+					slug={slug}
+					username={username}
+				/>
 				{canWrite && (
 					<PullRequestMergePanel
 						comparison={comparisonQuery.data}

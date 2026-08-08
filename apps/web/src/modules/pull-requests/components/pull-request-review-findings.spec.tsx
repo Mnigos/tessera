@@ -70,6 +70,14 @@ vi.mock('../hooks/use-pull-request-threads.query', () => ({
 	}),
 }))
 
+vi.mock('../hooks/use-pull-request-checks.query', () => ({
+	usePullRequestChecksQuery: () => ({
+		data: undefined,
+		isLoading: false,
+		isError: false,
+	}),
+}))
+
 const useClosePullRequestMutationMock = vi.mocked(useClosePullRequestMutation)
 const useEditPullRequestMutationMock = vi.mocked(useEditPullRequestMutation)
 const useMergePullRequestMutationMock = vi.mocked(useMergePullRequestMutation)

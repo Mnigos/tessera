@@ -16,6 +16,7 @@ import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
+import { PullRequestChecksStatusDot } from './pull-request-checks-status-dot'
 import { PullRequestFileDiffView } from './pull-request-file-diff'
 import { PullRequestOutdatedThreads } from './pull-request-file-threads'
 import { PullRequestsMessage } from './pull-requests-message'
@@ -120,6 +121,7 @@ function PullRequestCommits({ comparison }: Readonly<PullRequestCommitsProps>) {
 									{commit.author?.name ?? 'Unknown author'}
 								</p>
 							</div>
+							<PullRequestChecksStatusDot summary={commit.checksSummary} />
 							<code className="rounded bg-muted px-2 py-1 text-xs">
 								{commit.shortSha}
 							</code>
