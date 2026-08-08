@@ -242,8 +242,8 @@ export class GitHubSyncConversationsRepository {
 	/**
 	 * GitHub stops reporting the outcome of a review once it is dismissed, so a
 	 * dismissal keeps whatever decision Tessera already recorded. A review first
-	 * seen in that state has no recoverable decision and stays a mapping-only
-	 * record rather than inventing one.
+	 * seen in that state has no recoverable decision and is projected without one
+	 * rather than inventing a verdict nobody gave.
 	 */
 	private async projectReview(
 		context: ProjectionContext,
@@ -283,16 +283,17 @@ export class GitHubSyncConversationsRepository {
 				dismissal?.receivedAt ??
 				syncedAt)
 			: undefined
-		const reviewId = outcome
-			? await this.upsertNativeReview(context, {
-					dismissal,
-					dismissedAt,
-					outcome,
-					review,
-					reviewerActorId,
-					reviewId: existingMapping?.pullRequestReviewId ?? undefined,
-				})
-			: undefined
+		const reviewId =
+			outcome || review.dismissed
+				? await this.upsertNativeReview(context, {
+						dismissal,
+						dismissedAt,
+						outcome,
+						review,
+						reviewerActorId,
+						reviewId: existingMapping?.pullRequestReviewId ?? undefined,
+					})
+				: undefined
 
 		if (reviewId) context.reviewIdsByNumericId.set(review.numericId, reviewId)
 
@@ -312,7 +313,7 @@ export class GitHubSyncConversationsRepository {
 			lastSeenSyncVersion: syncVersion,
 		})
 
-		if (!(reviewId && outcome)) return
+		if (!reviewId) return
 
 		const payload = {
 			reviewId,
@@ -373,7 +374,7 @@ export class GitHubSyncConversationsRepository {
 		}: {
 			dismissal?: GitHubPendingConversationDelivery
 			dismissedAt?: Date
-			outcome: 'approve' | 'request_changes' | 'comment'
+			outcome?: 'approve' | 'request_changes' | 'comment'
 			review: GitHubSyncReview
 			reviewerActorId: GitHubActorId
 			reviewId?: PullRequestReviewId
@@ -384,7 +385,7 @@ export class GitHubSyncConversationsRepository {
 			provider: 'github' as const,
 			reviewerUserId: userIdsByActorId.get(reviewerActorId) ?? null,
 			state: review.dismissed ? ('dismissed' as const) : ('submitted' as const),
-			outcome,
+			outcome: outcome ?? null,
 			headSha: review.commitId ?? target.headSha,
 			body: review.body,
 			createdAt: review.submittedAt,
@@ -821,6 +822,12 @@ export class GitHubSyncConversationsRepository {
 		params: CommentProjectionParams
 	): Promise<void> {
 		const { transaction } = context
+
+		// A body GitHub cleared leaves nothing to render, so the mapping keeps its
+		// older sync stamp and the tombstone sweep takes the native comment with it.
+		// Refreshing the stamp here would carry the stale body through every sweep.
+		if (!params.body.trim()) return
+
 		const [existingMapping] = await transaction
 			.select({
 				id: gitHubPullRequestCommentMappings.id,
@@ -872,9 +879,9 @@ export class GitHubSyncConversationsRepository {
 			reviewId?: PullRequestReviewId
 		}
 	): Promise<PullRequestCommentId | undefined> {
-		// The native body must not be blank, and a comment whose thread the native
-		// model could not anchor stays a mapping-only record.
-		if (!(threadId && body.trim())) return commentId
+		// A comment whose thread the native model could not anchor stays a
+		// mapping-only record.
+		if (!threadId) return commentId
 
 		const editedAt =
 			updatedAt.getTime() > createdAt.getTime() ? updatedAt : null

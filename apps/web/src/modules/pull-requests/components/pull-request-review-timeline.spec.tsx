@@ -62,6 +62,32 @@ describe('pull request review timeline', () => {
 		expect(container.firstElementChild?.className).toContain(className)
 	})
 
+	test('renders a dismissed review whose original outcome GitHub replaced', () => {
+		const reviewId = crypto.randomUUID() as PullRequestReview['id']
+		const reviewEvent = event('review_submitted', {
+			reviewId,
+			headSha: 'a'.repeat(40),
+		})
+		const review: PullRequestReview = {
+			id: reviewId,
+			reviewer: {
+				key: 'github:octo',
+				provider: 'github',
+				username: 'octo',
+			},
+			state: 'dismissed',
+			body: 'Needs a rename',
+			headSha: 'a'.repeat(40),
+			submittedAt: createdAt,
+			dismissedAt: createdAt,
+		}
+
+		render(<PullRequestReviewEventCard event={reviewEvent} review={review} />)
+
+		expect(screen.getByText('marta left a review')).toBeTruthy()
+		expect(screen.getByText('Dismissed')).toBeTruthy()
+	})
+
 	test('names reviewer targets in request lifecycle rows', () => {
 		const { rerender } = render(
 			<PullRequestEventRow

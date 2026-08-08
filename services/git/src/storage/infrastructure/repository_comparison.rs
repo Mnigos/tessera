@@ -200,14 +200,14 @@ impl RepositoryStorage {
     ) -> Result<(String, String, String), RepositoryError> {
         let base_ref = validated_comparison_ref(base_ref)?;
         let head_ref = validated_comparison_ref(head_ref)?;
-        let base_sha = resolve_commit_ref(self, repository_path, &base_ref).await?;
-        let head_sha = resolve_commit_ref(self, repository_path, &head_ref).await?;
+        let base_sha = resolve_existing_commit(self, repository_path, &base_ref).await?;
+        let head_sha = resolve_existing_commit(self, repository_path, &head_ref).await?;
         let output = self
             .git(repository_path, ["merge-base", &base_sha, &head_sha])
             .await?;
 
         if !output.status.success() {
-            return Err(RepositoryError::InvalidRepositoryRef);
+            return Err(RepositoryError::RepositoryObjectNotFound);
         }
 
         let merge_base_sha = utf8_trimmed(&output.stdout)?;
@@ -397,6 +397,22 @@ fn complete_nul_output(output: &[u8], is_truncated: bool) -> &[u8] {
         .rposition(|byte| *byte == 0)
         .map_or(0, |index| index + 1);
     &output[..end]
+}
+
+/// The ref shape is already validated, so a revision that fails to resolve is a
+/// commit the mirror never received. Callers tell that apart from a malformed
+/// request by its status, and a missing object must not read as invalid input.
+async fn resolve_existing_commit(
+    storage: &RepositoryStorage,
+    repository_path: &Path,
+    qualified_ref: &str,
+) -> Result<String, RepositoryError> {
+    resolve_commit_ref(storage, repository_path, qualified_ref)
+        .await
+        .map_err(|error| match error {
+            RepositoryError::InvalidRepositoryRef => RepositoryError::RepositoryObjectNotFound,
+            error => error,
+        })
 }
 
 fn validated_comparison_ref(value: &str) -> Result<String, RepositoryError> {

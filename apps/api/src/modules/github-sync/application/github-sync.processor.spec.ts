@@ -371,6 +371,30 @@ describe(GitHubSyncProcessor.name, () => {
 		expect(repository.failSync).toHaveBeenCalledOnce()
 	})
 
+	test('fails the run when git storage rejects a comparison request', async () => {
+		const conversationsRepository = moduleRef.get(
+			GitHubSyncConversationsRepository
+		)
+		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
+			conversationTarget(7),
+		])
+		vi.spyOn(client, 'getPullRequestConversation').mockResolvedValue(
+			outdatedLeftThreadConversation()
+		)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.INVALID_ARGUMENT,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('git storage request failed')
+		expect(
+			conversationsRepository.projectPullRequestConversation
+		).not.toHaveBeenCalled()
+	})
+
 	test('aborts before conversation fetch when authority heartbeat changes', async () => {
 		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
 			conversationTarget(7),

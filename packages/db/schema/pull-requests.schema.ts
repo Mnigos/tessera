@@ -70,7 +70,8 @@ export interface PullRequestReviewerEventPayload {
 
 export interface PullRequestReviewEventPayload {
 	reviewId: PullRequestReviewId
-	outcome: 'approve' | 'request_changes' | 'comment'
+	/** Absent on a synchronized review the provider dismissed before Tessera saw it. */
+	outcome?: 'approve' | 'request_changes' | 'comment'
 	headSha: string
 }
 

@@ -24,11 +24,18 @@ export interface PullRequestReviewEvaluationContext {
 	currentHeadSha?: string
 }
 
+/**
+ * A dismissed review may carry no outcome: the provider had already replaced it
+ * with the dismissal before the review was ever synchronized, and inventing one
+ * would put a verdict nobody gave into history.
+ */
 export function toPullRequestReviewOutput(
 	review: PullRequestReviewReadModel
 ): PullRequestReviewOutput {
-	if (!(review.outcome && review.submittedAt))
+	if (!review.submittedAt)
 		throw new Error('pull request review is not submitted')
+	if (!(review.outcome || review.state === 'dismissed'))
+		throw new Error('pull request review has no outcome')
 
 	return {
 		id: review.id,
@@ -37,7 +44,7 @@ export function toPullRequestReviewOutput(
 			'pull request reviewer'
 		),
 		state: review.state,
-		outcome: review.outcome,
+		outcome: review.outcome ?? undefined,
 		body: review.body,
 		headSha: review.headSha,
 		submittedAt: review.submittedAt,
@@ -114,18 +121,23 @@ export function toPullRequestEffectiveReviewStates(
 	}
 
 	return [...latestByReviewer.values()]
-		.map(review => {
+		.flatMap(review => {
 			const { headSha, id, outcome, reviewer, submittedAt } =
 				toPullRequestReviewOutput(review)
 
-			return {
-				reviewId: id,
-				reviewer,
-				outcome,
-				headSha,
-				submittedAt,
-				stale: isStaleReviewHead(review.headSha, currentHeadSha),
-			}
+			// Only submitted reviews reach this point, and those always decided.
+			if (!outcome) return []
+
+			return [
+				{
+					reviewId: id,
+					reviewer,
+					outcome,
+					headSha,
+					submittedAt,
+					stale: isStaleReviewHead(review.headSha, currentHeadSha),
+				},
+			]
 		})
 		.sort((left, right) =>
 			left.reviewer.username.localeCompare(right.reviewer.username)

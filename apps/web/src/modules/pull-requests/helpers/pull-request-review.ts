@@ -219,7 +219,8 @@ export function getPullRequestReviewerEventPayload(
 
 interface PullRequestReviewEventPayload {
 	reviewId: PullRequestReviewId
-	outcome: PullRequestReviewOutcome
+	/** Absent on a synchronized review the provider dismissed before Tessera saw it. */
+	outcome?: PullRequestReviewOutcome
 	headSha: string
 }
 

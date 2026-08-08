@@ -3,21 +3,25 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import type {
 	GitHubActorId,
 	GitHubPullRequestMappingId,
+	GitHubPullRequestReviewMappingId,
 	GitHubPullRequestThreadMappingId,
 	GitHubWebhookDeliveryId,
 } from '@repo/db'
 import {
 	gitHubActors,
 	gitHubPullRequestCommentMappings,
+	gitHubPullRequestReviewMappings,
 	gitHubPullRequestThreadMappings,
 	pullRequestComments,
 	pullRequestEvents,
+	pullRequestReviews,
 	pullRequestThreads,
 	repositoryExternalSources,
 } from '@repo/db'
 import type {
 	PullRequestCommentId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 	RepositoryId,
 	UserId,
@@ -26,7 +30,10 @@ import { getTableName, type SQL } from 'drizzle-orm'
 import type { PgTable } from 'drizzle-orm/pg-core'
 import { PgDialect } from 'drizzle-orm/pg-core'
 import type { GitHubGroupedReviewThread } from '../helpers/github-pull-request-conversation'
-import type { GitHubSyncReviewComment } from './github-sync.client.types'
+import type {
+	GitHubSyncReview,
+	GitHubSyncReviewComment,
+} from './github-sync.client.types'
 import type { GitHubConversationTarget } from './github-sync.repository'
 import {
 	type GitHubConversationAnchor,
@@ -45,6 +52,9 @@ const THREAD_MAPPING_ID =
 	'00000000-0000-4000-8000-000000000006' as GitHubPullRequestThreadMappingId
 const DELIVERY_ID =
 	'00000000-0000-4000-8000-000000000007' as GitHubWebhookDeliveryId
+const REVIEW_ID = '00000000-0000-4000-8000-000000000011' as PullRequestReviewId
+const REVIEW_MAPPING_ID =
+	'00000000-0000-4000-8000-000000000012' as GitHubPullRequestReviewMappingId
 const TARGET: GitHubConversationTarget = {
 	pullRequestMappingId:
 		'00000000-0000-4000-8000-000000000008' as GitHubPullRequestMappingId,
@@ -325,6 +335,87 @@ describe(GitHubSyncConversationsRepository.name, () => {
 			0
 		)
 	})
+
+	test('keeps the recorded outcome when a submitted review is dismissed', async () => {
+		db.queueSelect(gitHubPullRequestReviewMappings, [
+			{
+				id: REVIEW_MAPPING_ID,
+				pullRequestReviewId: REVIEW_ID,
+				providerDismissedAt: null,
+			},
+		])
+		db.queueSelect(pullRequestReviews, [
+			{ outcome: 'approve', state: 'submitted' },
+		])
+		db.queueInsert(pullRequestEvents, [{ id: 'event' }])
+
+		await repository.projectPullRequestConversation(
+			projectionParams({ conversation: conversation([dismissedReview()]) })
+		)
+
+		expect(db.written('update', pullRequestReviews)).toMatchObject([
+			{ state: 'dismissed', outcome: 'approve', dismissedAt: SYNCED_AT },
+		])
+	})
+
+	test('projects a review dismissed before Tessera saw it without an outcome', async () => {
+		db.queueInsert(pullRequestReviews, [{ id: REVIEW_ID }])
+		db.queueInsert(pullRequestEvents, [{ id: 'event' }])
+
+		await repository.projectPullRequestConversation(
+			projectionParams({ conversation: conversation([dismissedReview()]) })
+		)
+
+		expect(db.written('insert', pullRequestReviews)).toMatchObject([
+			{ state: 'dismissed', outcome: null, dismissedAt: SYNCED_AT },
+		])
+
+		const [event] = db.written('insert', pullRequestEvents)
+
+		expect(event?.type).toBe('review_submitted')
+		expect(event?.payload).toEqual({
+			reviewId: REVIEW_ID,
+			outcome: undefined,
+			headSha: TARGET.headSha,
+		})
+	})
+
+	test('tombstones a review comment whose body GitHub cleared', async () => {
+		db.queueSelect(gitHubPullRequestThreadMappings, [
+			{
+				id: THREAD_MAPPING_ID,
+				pullRequestThreadId: THREAD_ID,
+				providerResolved: false,
+				providerResolvedAt: null,
+				providerOutdated: false,
+				resolvedByActorId: null,
+				deliveryId: null,
+			},
+		])
+		db.queueSelect(gitHubPullRequestCommentMappings, [
+			{ id: 'comment-mapping', pullRequestCommentId: COMMENT_ID },
+		])
+		db.queueDelete(pullRequestComments, [{ threadId: THREAD_ID }])
+
+		await repository.projectPullRequestConversation(
+			projectionParams({
+				threads: [
+					{
+						anchor: ANCHOR,
+						thread: groupedThread({ root: reviewComment({ body: '   ' }) }),
+					},
+				],
+			})
+		)
+
+		expect(db.written('update', pullRequestComments)).toHaveLength(0)
+		expect(
+			db.written('update', gitHubPullRequestCommentMappings)
+		).toMatchObject([
+			{ providerDeletedAt: SYNCED_AT, pullRequestCommentId: null },
+		])
+		expect(db.deleted(pullRequestThreads)).toHaveLength(1)
+	})
 })
 
 function projectionParams(
@@ -351,6 +442,34 @@ function projectionParams(
 		syncVersion: 5,
 		target: TARGET,
 		threads: [],
+		...overrides,
+	}
+}
+
+function conversation(
+	reviews: GitHubSyncReview[]
+): ProjectPullRequestConversationParams['conversation'] {
+	return {
+		issueComments: [],
+		reviewComments: [],
+		reviews,
+		requestedReviewers: [],
+		reviewThreads: [],
+	}
+}
+
+function dismissedReview(
+	overrides: Partial<GitHubSyncReview> = {}
+): GitHubSyncReview {
+	return {
+		nodeId: 'review-node',
+		numericId: 41n,
+		reviewer: RESOLVER,
+		body: 'Please rework this',
+		outcome: undefined,
+		dismissed: true,
+		htmlUrl: 'https://github.com/org/repo/pull/7#pullrequestreview-41',
+		submittedAt: new Date('2026-08-07T10:00:00Z'),
 		...overrides,
 	}
 }
