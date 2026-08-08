@@ -153,8 +153,9 @@ describe('Pull request reviews integration', () => {
 		})
 		expect(requested.status).toBe(200)
 		expect(await requested.json()).toMatchObject({
-			reviewerUsername: reviewer.username,
-			requestedByUsername: owner.username,
+			targetKind: 'user',
+			reviewer: { username: reviewer.username, provider: 'tessera' },
+			requestedBy: { username: owner.username, provider: 'tessera' },
 		})
 		const requestEvent = await db.query.pullRequestEvents.findFirst({
 			where: (events, { eq }) => eq(events.type, 'review_requested'),

@@ -92,6 +92,8 @@ type PullRequestDatabase = Database | DrizzleTransaction
 
 export interface PullRequestReadModel extends PullRequest {
 	authorUsername?: string
+	/** The author's GitHub identity, present whether or not it maps to a user. */
+	authorActorNodeId?: string
 	github?: {
 		nodeId: string
 		htmlUrl: string
@@ -108,6 +110,7 @@ export interface PullRequestEventReadModel extends PullRequestEvent {
 
 interface PullRequestReadRow extends PullRequest {
 	authorUsername: string
+	authorActorNodeId: string | null
 	githubNodeId: string | null
 	githubHtmlUrl: string | null
 	githubDraft: boolean | null
@@ -152,6 +155,7 @@ const eventGitHubActor = alias(gitHubActors, 'pull_request_event_github_actor')
 const PULL_REQUEST_READ_COLUMNS = {
 	...PULL_REQUEST_COLUMNS,
 	authorUsername: sql<string>`coalesce(${authorUser.username}, ${authorGitHubActor.login})`,
+	authorActorNodeId: authorGitHubActor.externalNodeId,
 	githubNodeId: gitHubPullRequestMappings.externalNodeId,
 	githubHtmlUrl: gitHubPullRequestMappings.htmlUrl,
 	githubDraft: gitHubPullRequestMappings.draft,
@@ -843,6 +847,7 @@ function toPullRequestReadModel(
 		number: pullRequest.number,
 		authorUserId: pullRequest.authorUserId,
 		authorUsername: pullRequest.authorUsername,
+		authorActorNodeId: pullRequest.authorActorNodeId ?? undefined,
 		sourceBranch: pullRequest.sourceBranch,
 		targetBranch: pullRequest.targetBranch,
 		openingBaseSha: pullRequest.openingBaseSha,

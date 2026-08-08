@@ -1,3 +1,4 @@
+import { REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE } from '@repo/contracts'
 import {
 	BadRequestError,
 	ConflictError,
@@ -93,7 +94,7 @@ export class RepositoryGitHubSourceOfTruthWriteForbiddenError extends ForbiddenE
 		super(
 			'repository git write',
 			context,
-			'GitHub is the source of truth for this repository. Push to GitHub instead.'
+			REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE
 		)
 	}
 }

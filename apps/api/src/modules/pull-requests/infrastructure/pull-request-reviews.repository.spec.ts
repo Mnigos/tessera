@@ -5,6 +5,8 @@ import {
 	asc,
 	desc,
 	eq,
+	gitHubPullRequestMappings,
+	gitHubPullRequestReviewMappings,
 	inArray,
 	isNull,
 	pullRequestComments,
@@ -534,9 +536,15 @@ describe(PullRequestReviewsRepository.name, () => {
 		await repository.countActiveReviewerRequests([pullRequestId])
 
 		expect(selectDistinctOnMock).toHaveBeenCalledOnce()
+		// The reviewer key is an expression, not the reviewer column: every
+		// unmapped GitHub reviewer holds a null user ID and would otherwise
+		// collapse into one verdict.
 		expect(selectDistinctOnMock).toHaveBeenCalledWith(
-			[pullRequestReviews.pullRequestId, pullRequestReviews.reviewerUserId],
+			[pullRequestReviews.pullRequestId, expect.anything()],
 			expect.any(Object)
+		)
+		expect(selectDistinctOnMock.mock.calls[0]?.[0]?.[1]).not.toBe(
+			pullRequestReviews.reviewerUserId
 		)
 		expect(selectMock).toHaveBeenCalledOnce()
 		expect(whereMock).toHaveBeenNthCalledWith(
@@ -544,12 +552,13 @@ describe(PullRequestReviewsRepository.name, () => {
 			and(
 				inArray(pullRequestReviews.pullRequestId, [pullRequestId]),
 				eq(pullRequestReviews.state, 'submitted'),
-				sql`${pullRequestReviews.reviewerUserId} is distinct from ${pullRequests.authorUserId}`
+				sql`(${pullRequestReviews.reviewerUserId} is null or ${pullRequests.authorUserId} is null or ${pullRequestReviews.reviewerUserId} <> ${pullRequests.authorUserId})`,
+				sql`(${gitHubPullRequestReviewMappings.reviewerActorId} is null or ${gitHubPullRequestMappings.authorActorId} is null or ${gitHubPullRequestReviewMappings.reviewerActorId} <> ${gitHubPullRequestMappings.authorActorId})`
 			)
 		)
 		expect(orderByMock).toHaveBeenCalledWith(
 			pullRequestReviews.pullRequestId,
-			pullRequestReviews.reviewerUserId,
+			expect.anything(),
 			desc(pullRequestReviews.submittedAt),
 			desc(pullRequestReviews.id)
 		)

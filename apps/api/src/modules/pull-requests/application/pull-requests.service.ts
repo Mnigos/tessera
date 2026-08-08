@@ -15,6 +15,7 @@ import type {
 	ParsedListPullRequestsInput,
 	ParsedMergePullRequestInput,
 	PullRequest,
+	PullRequestAuthority,
 	PullRequestComparison,
 	PullRequestFileDiff,
 	PullRequestListItem,
@@ -40,6 +41,7 @@ import {
 	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
 import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
@@ -68,6 +70,7 @@ export interface PullRequestMergeActor {
 
 export interface ListPullRequestsResult {
 	pullRequests: PullRequestListItem[]
+	authority: PullRequestAuthority
 	viewerRole: RepositoryViewerRole
 }
 
@@ -196,7 +199,7 @@ export class PullRequestsService {
 		viewerUserId: UserId | undefined,
 		{ slug, state, username }: ParsedListPullRequestsInput
 	): Promise<ListPullRequestsResult> {
-		const { repositoryId, storagePath, viewerRole } =
+		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{
@@ -221,6 +224,7 @@ export class PullRequestsService {
 				reviewSummary:
 					reviewSummaries.get(pullRequest.id) ?? EMPTY_REVIEW_SUMMARY,
 			})),
+			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
 		}
 	}
@@ -256,6 +260,7 @@ export class PullRequestsService {
 			pullRequest: toPullRequestOutput(pullRequest, username),
 			events: events.map(event => toPullRequestEventOutput(event, username)),
 			...reviewState,
+			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
 		}
 	}

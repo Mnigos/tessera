@@ -62,21 +62,36 @@ const pullRequest: PullRequestReadModel = {
 	mergedAt: null,
 	github: undefined,
 }
+const unknownActor = {
+	userId: null,
+	username: null,
+	externalNodeId: null,
+	externalLogin: null,
+	externalAvatarUrl: null,
+	externalHtmlUrl: null,
+}
+
+function nativeActor(userId: UserId, username: string) {
+	return { ...unknownActor, userId, username }
+}
+
 const submittedReview = {
 	id: reviewId,
-	reviewerUserId,
-	reviewerUsername: 'reviewer',
+	reviewer: nativeActor(reviewerUserId, 'reviewer'),
+	state: 'submitted' as const,
 	outcome: 'approve' as const,
 	body: '',
 	headSha: 'reviewed-head',
 	submittedAt: createdAt,
+	dismissedAt: null,
+	dismissedBy: unknownActor,
+	sourceUrl: null,
 }
 const reviewerRequest = {
 	id: requestId,
-	reviewerUserId,
-	reviewerUsername: 'reviewer',
-	requestedByUserId: mockUserId,
-	requestedByUsername: 'marta',
+	targetKind: 'user' as const,
+	reviewer: nativeActor(reviewerUserId, 'reviewer'),
+	requestedBy: nativeActor(mockUserId, 'marta'),
 	createdAt,
 }
 
@@ -101,7 +116,7 @@ describe(PullRequestReviewsService.name, () => {
 						submitReview: vi.fn(),
 						discardPendingReview: vi.fn(),
 						listActiveReviewerRequests: vi.fn().mockResolvedValue([]),
-						listSubmittedReviews: vi.fn().mockResolvedValue([]),
+						listReviewHistory: vi.fn().mockResolvedValue([]),
 						findPendingReview: vi.fn(),
 						listEffectiveReviews: vi.fn().mockResolvedValue([]),
 						countActiveReviewerRequests: vi.fn().mockResolvedValue([]),
@@ -445,12 +460,11 @@ describe(PullRequestReviewsService.name, () => {
 	 * failing the whole detail view on an unrenderable row.
 	 */
 	test('leaves reviews without a resolvable reviewer out of the history and the effective states', async () => {
-		vi.spyOn(reviewsRepository, 'listSubmittedReviews').mockResolvedValue([
+		vi.spyOn(reviewsRepository, 'listReviewHistory').mockResolvedValue([
 			{
 				...submittedReview,
 				id: '00000000-0000-4000-8000-000000000078' as PullRequestReviewId,
-				reviewerUserId: null,
-				reviewerUsername: null,
+				reviewer: unknownActor,
 			},
 			submittedReview,
 		])
@@ -475,10 +489,16 @@ describe(PullRequestReviewsService.name, () => {
 		})
 
 		expect(state.reviews).toEqual([
-			expect.objectContaining({ id: reviewId, reviewerUsername: 'reviewer' }),
+			expect.objectContaining({
+				id: reviewId,
+				reviewer: expect.objectContaining({ username: 'reviewer' }),
+			}),
 		])
 		expect(state.effectiveReviewStates).toEqual([
-			expect.objectContaining({ reviewId, reviewerUsername: 'reviewer' }),
+			expect.objectContaining({
+				reviewId,
+				reviewer: expect.objectContaining({ username: 'reviewer' }),
+			}),
 		])
 	})
 
@@ -486,8 +506,7 @@ describe(PullRequestReviewsService.name, () => {
 		vi.spyOn(reviewsRepository, 'listEffectiveReviews').mockResolvedValue([
 			{
 				pullRequestId,
-				reviewerUserId: null,
-				reviewerUsername: null,
+				reviewer: unknownActor,
 				outcome: 'approve',
 				headSha: 'reviewed-head',
 			},
@@ -520,7 +539,7 @@ describe(PullRequestReviewsService.name, () => {
 
 	test('computes latest effective state, author exclusion, staleness, candidates, pending review, and capabilities', async () => {
 		const later = new Date('2026-08-08T11:00:00Z')
-		vi.spyOn(reviewsRepository, 'listSubmittedReviews').mockResolvedValue([
+		vi.spyOn(reviewsRepository, 'listReviewHistory').mockResolvedValue([
 			{
 				...submittedReview,
 				id: '00000000-0000-4000-8000-000000000070' as PullRequestReviewId,
@@ -541,8 +560,7 @@ describe(PullRequestReviewsService.name, () => {
 			{
 				...submittedReview,
 				id: '00000000-0000-4000-8000-000000000073' as PullRequestReviewId,
-				reviewerUserId: mockUserId,
-				reviewerUsername: 'marta',
+				reviewer: nativeActor(mockUserId, 'marta'),
 			},
 		])
 		vi.spyOn(reviewsRepository, 'findPendingReview').mockResolvedValue({
@@ -596,7 +614,7 @@ describe(PullRequestReviewsService.name, () => {
 	})
 
 	test('breaks equal submittedAt timestamps by descending review id', async () => {
-		vi.spyOn(reviewsRepository, 'listSubmittedReviews').mockResolvedValue([
+		vi.spyOn(reviewsRepository, 'listReviewHistory').mockResolvedValue([
 			{
 				...submittedReview,
 				id: '00000000-0000-4000-8000-000000000070' as PullRequestReviewId,
@@ -640,8 +658,7 @@ describe(PullRequestReviewsService.name, () => {
 		vi.spyOn(reviewsRepository, 'listEffectiveReviews').mockResolvedValue([
 			{
 				pullRequestId,
-				reviewerUserId,
-				reviewerUsername: 'reviewer',
+				reviewer: nativeActor(reviewerUserId, 'reviewer'),
 				outcome: 'approve',
 				headSha: 'reviewed-head',
 			},
@@ -673,8 +690,7 @@ describe(PullRequestReviewsService.name, () => {
 		vi.spyOn(reviewsRepository, 'listEffectiveReviews').mockResolvedValue([
 			{
 				pullRequestId,
-				reviewerUserId,
-				reviewerUsername: 'reviewer',
+				reviewer: nativeActor(reviewerUserId, 'reviewer'),
 				outcome: 'approve',
 				headSha: 'reviewed-head',
 			},
@@ -706,7 +722,7 @@ describe(PullRequestReviewsService.name, () => {
 	})
 
 	test('uses the merged commit second parent as the effective review head', async () => {
-		vi.spyOn(reviewsRepository, 'listSubmittedReviews').mockResolvedValue([
+		vi.spyOn(reviewsRepository, 'listReviewHistory').mockResolvedValue([
 			{ ...submittedReview, headSha: 'merged-source-head' },
 		])
 		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({

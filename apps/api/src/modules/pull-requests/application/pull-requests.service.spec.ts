@@ -283,6 +283,7 @@ describe(PullRequestsService.name, () => {
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
 			events: [{ ...event, actorUsername: 'marta', payload: undefined }],
 			...emptyReviewState,
+			authority: 'tessera',
 			viewerRole: 'write',
 		})
 	})
