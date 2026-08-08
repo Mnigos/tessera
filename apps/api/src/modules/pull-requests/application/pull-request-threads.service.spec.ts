@@ -5,6 +5,7 @@ import type { PullRequest } from '@repo/db'
 import type {
 	PullRequestCommentId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 	RepositoryId,
 	RepositorySlug,
@@ -12,13 +13,19 @@ import type {
 } from '@repo/domain'
 import { ForbiddenError, NotFoundError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
-import { PullRequestNotFoundError } from '../domain/pull-request.errors'
+import {
+	PullRequestNotFoundError,
+	PullRequestStateConflictError,
+} from '../domain/pull-request.errors'
+import { PullRequestPendingReviewConflictError } from '../domain/pull-request-review.errors'
 import {
 	PullRequestCommentForbiddenError,
 	PullRequestCommentNotFoundError,
 	PullRequestThreadNotFoundError,
 	PullRequestThreadResolutionForbiddenError,
+	PullRequestThreadUnpublishedError,
 } from '../domain/pull-request-thread.errors'
+import { PullRequestReviewsRepository } from '../infrastructure/pull-request-reviews.repository'
 import {
 	type PullRequestThreadReadModel,
 	PullRequestThreadsRepository,
@@ -33,6 +40,7 @@ const otherPullRequestId =
 const threadId = '00000000-0000-4000-8000-000000000051' as PullRequestThreadId
 const commentId = '00000000-0000-4000-8000-000000000052' as PullRequestCommentId
 const otherUserId = '00000000-0000-4000-8000-000000000099' as UserId
+const reviewId = '00000000-0000-4000-8000-000000000053' as PullRequestReviewId
 const createdAt = new Date('2026-08-06T10:00:00Z')
 const repositoryInput = {
 	username: 'marta',
@@ -66,6 +74,7 @@ const comment = {
 	authorUsername: 'marta',
 	body: 'Comment',
 	state: 'published' as const,
+	reviewId: null,
 	createdAt,
 	updatedAt: createdAt,
 	editedAt: null,
@@ -93,6 +102,7 @@ describe(PullRequestThreadsService.name, () => {
 	let moduleRef: TestingModule
 	let service: PullRequestThreadsService
 	let threadsRepository: PullRequestThreadsRepository
+	let reviewsRepository: PullRequestReviewsRepository
 	let pullRequestsRepository: PullRequestsRepository
 	let repositoriesService: RepositoriesService
 	let gitStorageClient: GitStorageClient
@@ -120,6 +130,10 @@ describe(PullRequestThreadsService.name, () => {
 					useValue: { find: vi.fn() },
 				},
 				{
+					provide: PullRequestReviewsRepository,
+					useValue: { getOrCreatePendingReview: vi.fn() },
+				},
+				{
 					provide: RepositoriesService,
 					useValue: {
 						getReadableRepositoryContext: vi.fn(),
@@ -135,6 +149,7 @@ describe(PullRequestThreadsService.name, () => {
 
 		service = moduleRef.get(PullRequestThreadsService)
 		threadsRepository = moduleRef.get(PullRequestThreadsRepository)
+		reviewsRepository = moduleRef.get(PullRequestReviewsRepository)
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository)
 		repositoriesService = moduleRef.get(RepositoriesService)
 		gitStorageClient = moduleRef.get(GitStorageClient)
@@ -510,10 +525,10 @@ describe(PullRequestThreadsService.name, () => {
 		})
 		const resolveThreadSpy = vi
 			.spyOn(threadsRepository, 'resolveThread')
-			.mockResolvedValue(thread)
+			.mockResolvedValue({ status: 'updated', thread })
 		const unresolveThreadSpy = vi
 			.spyOn(threadsRepository, 'unresolveThread')
-			.mockResolvedValue(thread)
+			.mockResolvedValue({ status: 'updated', thread })
 
 		await service.resolveThread(mockUserId, { ...repositoryInput, threadId })
 		await service.unresolveThread(mockUserId, { ...repositoryInput, threadId })
@@ -533,8 +548,14 @@ describe(PullRequestThreadsService.name, () => {
 			tesseraWritesAllowed: true,
 		})
 		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue(thread)
-		vi.spyOn(threadsRepository, 'resolveThread').mockResolvedValue(thread)
-		vi.spyOn(threadsRepository, 'unresolveThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'resolveThread').mockResolvedValue({
+			status: 'updated',
+			thread,
+		})
+		vi.spyOn(threadsRepository, 'unresolveThread').mockResolvedValue({
+			status: 'updated',
+			thread,
+		})
 
 		await service.resolveThread(mockUserId, { ...repositoryInput, threadId })
 		await service.unresolveThread(mockUserId, { ...repositoryInput, threadId })
@@ -561,6 +582,91 @@ describe(PullRequestThreadsService.name, () => {
 		await expect(
 			service[action](mockUserId, { ...repositoryInput, threadId })
 		).rejects.toBeInstanceOf(PullRequestThreadResolutionForbiddenError)
+	})
+
+	test.each([
+		'resolveThread',
+		'unresolveThread',
+	] as const)('rejects %s on a thread holding only pending draft comments', async action => {
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue({
+			...thread,
+			comments: [{ ...comment, state: 'pending', reviewId }],
+		})
+
+		await expect(
+			service[action](mockUserId, { ...repositoryInput, threadId })
+		).rejects.toBeInstanceOf(PullRequestThreadUnpublishedError)
+		expect(threadsRepository[action]).not.toHaveBeenCalled()
+	})
+
+	test.each([
+		{
+			result: { status: 'thread_unpublished' } as const,
+			error: PullRequestThreadUnpublishedError,
+		},
+		{
+			result: { status: 'thread_not_found' } as const,
+			error: PullRequestThreadNotFoundError,
+		},
+	])('reports $result.status observed under the thread lock', async ({
+		error,
+		result,
+	}) => {
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'resolveThread').mockResolvedValue(result)
+		vi.spyOn(threadsRepository, 'unresolveThread').mockResolvedValue(result)
+
+		await expect(
+			service.resolveThread(mockUserId, { ...repositoryInput, threadId })
+		).rejects.toBeInstanceOf(error)
+		await expect(
+			service.unresolveThread(mockUserId, { ...repositoryInput, threadId })
+		).rejects.toBeInstanceOf(error)
+	})
+
+	test.each([
+		'create',
+		'reply',
+	] as const)('reports a conflict when %s loses the pending review it targeted', async action => {
+		vi.spyOn(reviewsRepository, 'getOrCreatePendingReview').mockResolvedValue(
+			reviewId
+		)
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'createThread').mockResolvedValue(undefined)
+		vi.spyOn(threadsRepository, 'createComment').mockResolvedValue(undefined)
+
+		const mutation =
+			action === 'create'
+				? service.createThread(otherUserId, {
+						...repositoryInput,
+						body: 'Draft finding',
+						review: { expectedHeadSha: 'head-current' },
+					})
+				: service.replyThread(otherUserId, {
+						...repositoryInput,
+						threadId,
+						body: 'Draft reply',
+						review: { expectedHeadSha: 'head-current' },
+					})
+
+		await expect(mutation).rejects.toBeInstanceOf(
+			PullRequestPendingReviewConflictError
+		)
+	})
+
+	test('rejects joining a pending review the pull request no longer accepts', async () => {
+		vi.spyOn(reviewsRepository, 'getOrCreatePendingReview').mockResolvedValue(
+			undefined
+		)
+
+		await expect(
+			service.createThread(otherUserId, {
+				...repositoryInput,
+				body: 'Draft finding',
+				review: { expectedHeadSha: 'head-current' },
+			})
+		).rejects.toBeInstanceOf(PullRequestStateConflictError)
+		expect(threadsRepository.createThread).not.toHaveBeenCalled()
 	})
 
 	test('rejects cross-PR thread access', async () => {

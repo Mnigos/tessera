@@ -88,6 +88,13 @@ const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
 	'repositories_owner_organization_slug_unique',
 ])
 
+const REPOSITORY_PRINCIPAL_LIMIT = 50
+
+export interface RepositoryPrincipal {
+	userId: UserId
+	username: string
+}
+
 interface CreateRepositoryMetadataParams {
 	description: string | undefined
 	name: RepositoryName
@@ -303,6 +310,41 @@ export class RepositoriesService {
 			viewerRole: role,
 			tesseraWritesAllowed: true,
 		}
+	}
+
+	/**
+	 * Whether the given user may read the repository. Callers outside this module
+	 * use it to validate participants without touching collaborator tables.
+	 */
+	async canUserReadRepository(
+		userId: UserId,
+		input: ParsedGetRepositoryInput
+	): Promise<boolean> {
+		const repository = await this.findRepository(input)
+		const role = await this.repositoryPermissionsService.resolveRole(
+			userId,
+			repository
+		)
+
+		return canReadRepository(role)
+	}
+
+	/**
+	 * Bounded list of users with explicitly granted repository access. Public
+	 * repositories are readable by everyone, so this is a suggestion list rather
+	 * than the full set of eligible participants.
+	 */
+	async listRepositoryPrincipals(
+		repositoryId: RepositoryId
+	): Promise<RepositoryPrincipal[]> {
+		const principals = await this.repositoriesRepository.listPrivilegedUsers({
+			repositoryId,
+			limit: REPOSITORY_PRINCIPAL_LIMIT,
+		})
+
+		return principals.flatMap(({ userId, username }) =>
+			username ? [{ userId, username }] : []
+		)
 	}
 
 	async assertViewerRepositoryWriteAccess(

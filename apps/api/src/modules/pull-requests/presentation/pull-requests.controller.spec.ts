@@ -7,6 +7,7 @@ import type {
 	PullRequest,
 	PullRequestComparison,
 	PullRequestFileDiff,
+	PullRequestReviewSummary,
 } from '@repo/contracts'
 import type { PullRequestId, RepositoryId } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
@@ -35,6 +36,12 @@ const pullRequest: PullRequest = {
 	updatedAt: createdAt,
 	closedAt: undefined,
 	mergedAt: undefined,
+}
+const reviewSummary: PullRequestReviewSummary = {
+	requestedCount: 0,
+	approvedCount: 0,
+	changeRequestCount: 0,
+	staleCount: 0,
 }
 const repositoryInput = { username: 'marta', slug: 'notes' as const }
 
@@ -105,7 +112,10 @@ describe(PullRequestsController.name, () => {
 	})
 
 	test('delegates anonymous list requests', async () => {
-		const output = { pullRequests: [pullRequest], viewerRole: 'read' as const }
+		const output = {
+			pullRequests: [{ ...pullRequest, reviewSummary }],
+			viewerRole: 'read' as const,
+		}
 		const listSpy = vi.spyOn(service, 'list').mockResolvedValue(output)
 		const procedure = controller.list()
 
@@ -123,7 +133,20 @@ describe(PullRequestsController.name, () => {
 	})
 
 	test('delegates get requests with an optional viewer', async () => {
-		const output = { pullRequest, events: [], viewerRole: 'read' as const }
+		const output = {
+			pullRequest,
+			events: [],
+			reviewerRequests: [],
+			reviews: [],
+			effectiveReviewStates: [],
+			reviewerCandidates: [],
+			viewer: {
+				canSubmitReview: false,
+				canRequestReviewers: false,
+				canRemoveReviewerRequests: false,
+			},
+			viewerRole: 'read' as const,
+		}
 		const getSpy = vi.spyOn(service, 'get').mockResolvedValue(output)
 		const input = { ...repositoryInput, number: 1 }
 		const procedure = controller.get(session)

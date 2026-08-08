@@ -26,6 +26,7 @@ export function toPullRequestCommentOutput(
 		authorUserId: comment.authorUserId,
 		authorUsername: comment.authorUsername,
 		body: comment.body,
+		state: comment.state,
 		createdAt: comment.createdAt,
 		editedAt: comment.editedAt ?? undefined,
 	}

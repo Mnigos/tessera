@@ -17,6 +17,8 @@ import type {
 	PullRequest,
 	PullRequestComparison,
 	PullRequestFileDiff,
+	PullRequestListItem,
+	PullRequestReviewSummary,
 	RepositoryViewerRole,
 } from '@repo/contracts'
 import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
@@ -45,11 +47,18 @@ import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
+import { PullRequestReviewsService } from './pull-request-reviews.service'
 
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
 	'pull_requests_open_branch_pair_unique',
 ])
 const MERGE_INTENT_LEASE_MS = 60_000
+const EMPTY_REVIEW_SUMMARY: PullRequestReviewSummary = {
+	requestedCount: 0,
+	approvedCount: 0,
+	changeRequestCount: 0,
+	staleCount: 0,
+}
 
 export interface PullRequestMergeActor {
 	email: string
@@ -58,7 +67,7 @@ export interface PullRequestMergeActor {
 }
 
 export interface ListPullRequestsResult {
-	pullRequests: PullRequest[]
+	pullRequests: PullRequestListItem[]
 	viewerRole: RepositoryViewerRole
 }
 
@@ -76,6 +85,7 @@ interface MergeRepositoryRefsParams {
 export class PullRequestsService {
 	constructor(
 		private readonly pullRequestsRepository: PullRequestsRepository,
+		private readonly pullRequestReviewsService: PullRequestReviewsService,
 		private readonly repositoriesService: RepositoriesService,
 		private readonly gitStorageClient: GitStorageClient
 	) {}
@@ -186,7 +196,7 @@ export class PullRequestsService {
 		viewerUserId: UserId | undefined,
 		{ slug, state, username }: ParsedListPullRequestsInput
 	): Promise<ListPullRequestsResult> {
-		const { repositoryId, viewerRole } =
+		const { repositoryId, storagePath, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{
@@ -198,11 +208,19 @@ export class PullRequestsService {
 			repositoryId,
 			state,
 		})
+		const reviewSummaries =
+			await this.pullRequestReviewsService.listReviewSummaries({
+				pullRequests,
+				repositoryId,
+				storagePath,
+			})
 
 		return {
-			pullRequests: pullRequests.map(pullRequest =>
-				toPullRequestOutput(pullRequest, username)
-			),
+			pullRequests: pullRequests.map(pullRequest => ({
+				...toPullRequestOutput(pullRequest, username),
+				reviewSummary:
+					reviewSummaries.get(pullRequest.id) ?? EMPTY_REVIEW_SUMMARY,
+			})),
 			viewerRole,
 		}
 	}
@@ -211,7 +229,7 @@ export class PullRequestsService {
 		viewerUserId: UserId | undefined,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	) {
-		const { repositoryId, viewerRole } =
+		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{
@@ -220,13 +238,24 @@ export class PullRequestsService {
 				}
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const events = await this.pullRequestsRepository.listEvents({
-			pullRequestId: pullRequest.id,
-		})
+		const [events, reviewState] = await Promise.all([
+			this.pullRequestsRepository.listEvents({
+				pullRequestId: pullRequest.id,
+			}),
+			this.pullRequestReviewsService.getReviewState({
+				pullRequest,
+				repositoryId,
+				storagePath,
+				tesseraWritesAllowed,
+				viewerRole,
+				viewerUserId,
+			}),
+		])
 
 		return {
 			pullRequest: toPullRequestOutput(pullRequest, username),
 			events: events.map(event => toPullRequestEventOutput(event, username)),
+			...reviewState,
 			viewerRole,
 		}
 	}
