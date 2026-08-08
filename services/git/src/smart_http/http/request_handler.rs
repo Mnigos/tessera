@@ -457,7 +457,7 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(body.to_vec()).unwrap(),
-            "001f# service=git-receive-pack\n00000053ERR GitHub is the source of truth for this repository. Push to GitHub instead.\n"
+            "001f# service=git-receive-pack\n00000057ERR GitHub is the source of truth for this repository. Make this change on GitHub.\n"
         );
     }
 
@@ -480,7 +480,7 @@ mod tests {
 
         assert_eq!(
             String::from_utf8(body.to_vec()).unwrap(),
-            "0053ERR GitHub is the source of truth for this repository. Push to GitHub instead.\n"
+            "0057ERR GitHub is the source of truth for this repository. Make this change on GitHub.\n"
         );
     }
 

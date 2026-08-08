@@ -1,7 +1,7 @@
 use std::fmt;
 
 pub const GITHUB_MIRROR_WRITE_DENIED_MESSAGE: &str =
-    "GitHub is the source of truth for this repository. Push to GitHub instead.";
+    "GitHub is the source of truth for this repository. Make this change on GitHub.";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SmartHttpAction {
