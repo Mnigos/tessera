@@ -5,7 +5,7 @@ import type {
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
-import { isNotNull, relations } from 'drizzle-orm'
+import { isNotNull, isNull, relations } from 'drizzle-orm'
 import {
 	bigint,
 	boolean,
@@ -55,7 +55,16 @@ export const gitHubWebhookDeliveryStatusEnum = pgEnum(
 
 export const gitHubWebhookTargetResourceKindEnum = pgEnum(
 	'github_webhook_target_resource_kind',
-	['pull_request', 'issue_comment', 'review_comment', 'review', 'review_thread']
+	[
+		'pull_request',
+		'issue_comment',
+		'review_comment',
+		'review',
+		'review_thread',
+		'check_suite',
+		'check_run',
+		'commit_status',
+	]
 )
 
 export const gitHubActors = pgTable(
@@ -113,6 +122,14 @@ export const gitHubWebhookDeliveries = pgTable(
 		}),
 		targetTeamNodeId: text('target_team_node_id'),
 		targetTeamSlug: text('target_team_slug'),
+		/**
+		 * Checks are reported against a commit, not a pull request, so a check
+		 * delivery targets the SHA it names — which may belong to no pull request
+		 * Tessera tracks, or to one whose head has already moved past it.
+		 */
+		targetSha: text('target_sha'),
+		/** The status context or check-run name, when the event carries one. */
+		targetContext: text('target_context'),
 		senderActorId: uuid('sender_actor_id')
 			.$type<GitHubActorId>()
 			.references(() => gitHubActors.id, { onDelete: 'set null' }),
@@ -185,6 +202,12 @@ export const gitHubPullRequestMappings = pgTable(
 		lastSyncedAt: timestamp('last_synced_at').notNull(),
 		/** Rotation cursor for the bounded conversation repair sweep. */
 		conversationSyncedAt: timestamp('conversation_synced_at'),
+		/**
+		 * Rotation cursor for the bounded checks repair sweep. Checks are scoped to
+		 * a commit rather than a pull request, so this records when the head this
+		 * mapping currently points at was last reconciled.
+		 */
+		checksSyncedAt: timestamp('checks_synced_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -211,6 +234,15 @@ export const gitHubPullRequestMappings = pgTable(
 			table.conversationSyncedAt.asc().nullsFirst(),
 			table.externalNumber.asc()
 		),
+		// The checks sweep rotates over open pull requests only, so the index is
+		// partial on exactly that set and carries the order the sweep reads in.
+		index('github_pull_request_mappings_checks_synced_at_idx')
+			.on(
+				table.repositoryId,
+				table.checksSyncedAt.asc().nullsFirst(),
+				table.externalNumber.asc()
+			)
+			.where(isNull(table.providerClosedAt)),
 	]
 )
 

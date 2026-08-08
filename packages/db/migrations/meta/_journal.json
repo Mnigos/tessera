@@ -127,6 +127,13 @@
       "when": 1786210742473,
       "tag": "0017_marvelous_king_bedlam",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1786218491645,
+      "tag": "0018_rich_black_widow",
+      "breakpoints": true
     }
   ]
 }

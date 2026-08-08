@@ -1,3 +1,5 @@
+export * from './src/checks/check-id'
+export * from './src/checks/check-observation-id'
 export * from './src/git-access-tokens/git-access-token-permission'
 export * from './src/gpg-public-keys/gpg-public-key-id'
 export * from './src/organizations/organization-id'
