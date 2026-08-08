@@ -1,7 +1,7 @@
 use std::fmt;
 
 pub const GITHUB_MIRROR_WRITE_DENIED_MESSAGE: &str =
-    "GitHub is the source of truth for this repository. Push to GitHub instead.";
+    "GitHub is the source of truth for this repository. Make this change on GitHub.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum SshGitError {
@@ -72,7 +72,7 @@ mod tests {
     fn github_mirror_write_denial_uses_api_client_copy() {
         assert_eq!(
             ssh_exec_failure_message(&SshGitError::GitHubMirrorWriteDenied),
-            "GitHub is the source of truth for this repository. Push to GitHub instead."
+            "GitHub is the source of truth for this repository. Make this change on GitHub."
         );
     }
 

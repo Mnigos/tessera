@@ -260,14 +260,14 @@ mod tests {
         assert_eq!(
             status_to_ssh_error(tonic::Status::new(
                 Code::Unknown,
-                "2 UNKNOWN: GitHub is the source of truth for this repository. Push to GitHub instead.",
+                "2 UNKNOWN: GitHub is the source of truth for this repository. Make this change on GitHub.",
             )),
             SshGitError::GitHubMirrorWriteDenied
         );
         assert_eq!(
             status_to_ssh_error(tonic::Status::new(
                 Code::NotFound,
-                "GitHub is the source of truth for this repository. Push to GitHub instead.",
+                "GitHub is the source of truth for this repository. Make this change on GitHub.",
             )),
             SshGitError::GitHubMirrorWriteDenied
         );

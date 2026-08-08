@@ -42,7 +42,7 @@ interface GitE2EPorts {
 type GitE2EProcesses = Awaited<ReturnType<typeof startGitE2EProcesses>>
 
 const GITHUB_SOURCE_OF_TRUTH_MESSAGE =
-	'GitHub is the source of truth for this repository. Push to GitHub instead.'
+	'GitHub is the source of truth for this repository. Make this change on GitHub.'
 
 describe('Git smart HTTP e2e', () => {
 	let ports: GitE2EPorts
