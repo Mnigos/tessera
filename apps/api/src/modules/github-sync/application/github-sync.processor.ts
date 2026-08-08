@@ -1,13 +1,25 @@
 import { randomUUID } from 'node:crypto'
 import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
+import { status } from '@grpc/grpc-js'
 import { PullRequestsService } from '@modules/pull-requests'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { Injectable, Logger } from '@nestjs/common'
+import type { RepositoryId } from '@repo/domain'
 import type { Job } from 'bullmq'
+import { DomainError } from '~/shared/errors'
+import { toGitHubPullRequestAnchorCoordinates } from '../helpers/github-pull-request-anchor'
+import {
+	type GitHubGroupedReviewThread,
+	groupGitHubReviewThreads,
+} from '../helpers/github-pull-request-conversation'
 import { GitHubAppAuthService } from '../infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from '../infrastructure/github-sync.client'
-import type { GitHubSyncActor } from '../infrastructure/github-sync.client.types'
+import type {
+	GitHubPullRequestConversation,
+	GitHubSyncActor,
+	GitHubSyncRepository as GitHubSyncRepositoryDetails,
+} from '../infrastructure/github-sync.client.types'
 import {
 	GITHUB_SYNC_DISPATCHER_JOB,
 	GITHUB_SYNC_QUEUE_NAME,
@@ -15,12 +27,28 @@ import {
 	GitHubSyncQueue,
 } from '../infrastructure/github-sync.queue'
 import {
+	type GitHubConversationTarget,
 	type GitHubSyncClaim,
 	GitHubSyncRepository,
 	type GitHubSyncRequest,
 } from '../infrastructure/github-sync.repository'
+import {
+	type GitHubConversationThreadProjection,
+	GitHubSyncConversationsRepository,
+} from '../infrastructure/github-sync-conversations.repository'
 
 const GITHUB_SYNC_FAILURE_RETRY_MINUTES = 15
+const MISSING_GIT_OBJECT_GRPC_CODES = new Set<number>([
+	status.NOT_FOUND,
+	status.INVALID_ARGUMENT,
+])
+/**
+ * Conversations cost five listings and a GraphQL page each, so a run projects
+ * at most this many pull requests. Named targets come first and the rotation
+ * over the least recently projected mappings spends whatever budget is left,
+ * which both repairs missed webhooks and backfills a freshly imported mirror.
+ */
+const GITHUB_CONVERSATION_PROJECTION_LIMIT = 50
 
 @Injectable()
 @Processor(GITHUB_SYNC_QUEUE_NAME, { concurrency: 2 })
@@ -31,6 +59,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 		private readonly envService: EnvService,
 		private readonly gitHubAppAuthService: GitHubAppAuthService,
 		private readonly gitHubSyncClient: GitHubSyncClient,
+		private readonly gitHubSyncConversationsRepository: GitHubSyncConversationsRepository,
 		private readonly gitHubSyncRepository: GitHubSyncRepository,
 		private readonly gitHubSyncQueue: GitHubSyncQueue,
 		private readonly gitStorageClient: GitStorageClient,
@@ -84,6 +113,15 @@ export class GitHubSyncProcessor extends WorkerHost {
 				actorIds,
 				pendingEvents,
 			})
+			const projectedNumbers = await this.projectConversations({
+				accessToken: mirrorToken.token,
+				claim,
+				pullRequestNumbers: reconciliation.pullRequests.map(
+					pullRequest => pullRequest.number
+				),
+				repository: reconciliation.repository,
+				storagePath: importResult.storagePath,
+			})
 			const completedAt = new Date()
 			const followUp = await this.gitHubSyncRepository.finalizeSync({
 				repositoryId: claim.repositoryId,
@@ -100,6 +138,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				sourceUrl: reconciliation.repository.htmlUrl,
 				sourceDefaultBranch: reconciliation.repository.defaultBranch,
 				pullRequestSyncCursorAt: reconciliation.pullRequestCursorAt,
+				projectedNumbers,
 				completedAt,
 				nextSyncAt: addMinutes(
 					completedAt,
@@ -157,6 +196,198 @@ export class GitHubSyncProcessor extends WorkerHost {
 			throw new Error('GitHub synchronization authority changed')
 	}
 
+	/**
+	 * Reconciliation is the authority for conversations too: each selected pull
+	 * request is re-read whole and projected in one transaction, so a delete or a
+	 * resolution whose webhook never arrived still lands. The numbers it returns
+	 * are the ones whose pending deliveries this run may consume.
+	 */
+	private async projectConversations({
+		accessToken,
+		claim,
+		pullRequestNumbers,
+		repository,
+		storagePath,
+	}: {
+		accessToken: string
+		claim: GitHubSyncClaim
+		pullRequestNumbers: number[]
+		repository: GitHubSyncRepositoryDetails
+		storagePath: string
+	}): Promise<number[]> {
+		const deliveries =
+			await this.gitHubSyncRepository.listPendingConversationDeliveries(claim)
+		const targets = await this.gitHubSyncRepository.listConversationTargets({
+			deliveredNumbers: [
+				...new Set(deliveries.map(delivery => delivery.subjectNumber)),
+			],
+			limit: GITHUB_CONVERSATION_PROJECTION_LIMIT,
+			repositoryId: claim.repositoryId,
+			updatedNumbers: [...new Set(pullRequestNumbers)],
+		})
+		const projectedNumbers: number[] = []
+
+		for (const target of targets) {
+			await this.requireHeartbeat(claim)
+
+			const conversation =
+				await this.gitHubSyncClient.getPullRequestConversation({
+					accessToken,
+					owner: repository.ownerLogin,
+					pullRequestNumber: target.externalNumber,
+					repo: repository.name,
+				})
+			const actorIds = await this.gitHubSyncRepository.upsertActors(
+				collectConversationActors(conversation)
+			)
+			const { orphanedComments, threads } =
+				groupGitHubReviewThreads(conversation)
+
+			await this.gitHubSyncConversationsRepository.projectPullRequestConversation(
+				{
+					actorIds,
+					authorityGeneration: claim.authorityGeneration,
+					conversation,
+					deliveries: deliveries.filter(
+						delivery => delivery.subjectNumber === target.externalNumber
+					),
+					leaseOwner: claim.leaseOwner,
+					orphanedComments,
+					repositoryId: claim.repositoryId,
+					syncedAt: new Date(),
+					syncVersion: claim.requestedSyncVersion,
+					target,
+					threads: await this.resolveThreadAnchors({
+						claim,
+						storagePath,
+						target,
+						threads,
+					}),
+				}
+			)
+			projectedNumbers.push(target.externalNumber)
+		}
+
+		return projectedNumbers
+	}
+
+	private async resolveThreadAnchors({
+		claim,
+		storagePath,
+		target,
+		threads,
+	}: {
+		claim: GitHubSyncClaim
+		storagePath: string
+		target: GitHubConversationTarget
+		threads: GitHubGroupedReviewThread[]
+	}): Promise<GitHubConversationThreadProjection[]> {
+		const mergeBases = new Map<string, string | undefined>()
+		const projections: GitHubConversationThreadProjection[] = []
+
+		for (const thread of threads) {
+			const coordinates = toGitHubPullRequestAnchorCoordinates(thread.root, {
+				currentHeadSha: target.headSha,
+				providerOutdated: thread.providerOutdated,
+			})
+
+			if (!coordinates) {
+				projections.push({ thread, providerOutdated: thread.providerOutdated })
+				continue
+			}
+
+			const { headSha, outdated, ...anchorLine } = coordinates
+			let providerOutdated = outdated || thread.providerOutdated
+			let anchorHeadSha = headSha
+			let anchorSha: string | undefined = headSha
+
+			// A left anchor points at the merge base, which only Git can tell us. A
+			// comparison the mirror no longer holds degrades to the current one whole:
+			// a merge base from one comparison and a head from another describe a diff
+			// that never existed.
+			if (anchorLine.side === 'left') {
+				anchorSha = await this.findMergeBase(mergeBases, {
+					baseRef: target.baseSha,
+					headRef: anchorHeadSha,
+					repositoryId: claim.repositoryId,
+					storagePath,
+				})
+
+				if (!anchorSha && anchorHeadSha !== target.headSha) {
+					anchorSha = await this.findMergeBase(mergeBases, {
+						baseRef: target.baseSha,
+						headRef: target.headSha,
+						repositoryId: claim.repositoryId,
+						storagePath,
+					})
+
+					if (anchorSha) {
+						anchorHeadSha = target.headSha
+						providerOutdated = true
+					}
+				}
+			}
+
+			if (!anchorSha) {
+				projections.push({ thread, providerOutdated })
+				continue
+			}
+
+			projections.push({
+				thread,
+				providerOutdated,
+				anchor: {
+					...anchorLine,
+					anchorSha,
+					baseSha: target.baseSha,
+					headSha: anchorHeadSha,
+				},
+			})
+		}
+
+		return projections
+	}
+
+	private async findMergeBase(
+		mergeBases: Map<string, string | undefined>,
+		{
+			baseRef,
+			headRef,
+			repositoryId,
+			storagePath,
+		}: {
+			baseRef: string
+			headRef: string
+			repositoryId: RepositoryId
+			storagePath: string
+		}
+	): Promise<string | undefined> {
+		const key = `${baseRef}...${headRef}`
+
+		if (mergeBases.has(key)) return mergeBases.get(key)
+
+		try {
+			const comparison = await this.gitStorageClient.compareRepositoryRefs({
+				baseRef,
+				headRef,
+				repositoryId,
+				storagePath,
+			})
+
+			mergeBases.set(key, comparison.mergeBaseSha || undefined)
+		} catch (error) {
+			// A commit the mirror never received is an expected gap. Storage being
+			// unreachable is not: degrading there would rewrite anchors that are
+			// still correct as stale, so the run fails and retries instead.
+			if (!isMissingGitObjectError(error)) throw error
+
+			this.logger.debug(`GitHub anchor comparison ${key} is unavailable`)
+			mergeBases.set(key, undefined)
+		}
+
+		return mergeBases.get(key)
+	}
+
 	private async dispatchDueReconciliations(): Promise<void> {
 		const requests = await this.gitHubSyncRepository.requestDueReconciliations({
 			limit: this.envService.get('GITHUB_MIRROR_SYNC_BATCH_SIZE'),
@@ -175,6 +406,13 @@ function isGitHubSyncRequest(
 	return 'repositoryId' in data
 }
 
+/** A ref the mirror does not hold, as opposed to storage that cannot answer. */
+function isMissingGitObjectError(error: unknown): boolean {
+	if (!(error instanceof DomainError)) return false
+
+	return MISSING_GIT_OBJECT_GRPC_CODES.has(Number(error.context?.grpcCode))
+}
+
 function collectActors(
 	pullRequests: { author: GitHubSyncActor; mergedBy?: GitHubSyncActor }[]
 ): GitHubSyncActor[] {
@@ -185,6 +423,35 @@ function collectActors(
 		if (pullRequest.mergedBy)
 			actors.set(pullRequest.mergedBy.nodeId, pullRequest.mergedBy)
 	}
+
+	return [...actors.values()]
+}
+
+/**
+ * Every GitHub identity a conversation names, including the ones Tessera has no
+ * account for: an unmapped actor still has to render.
+ */
+function collectConversationActors({
+	issueComments,
+	requestedReviewers,
+	reviewComments,
+	reviews,
+	reviewThreads,
+}: GitHubPullRequestConversation): GitHubSyncActor[] {
+	const actors = new Map<string, GitHubSyncActor>()
+
+	for (const comment of issueComments)
+		actors.set(comment.author.nodeId, comment.author)
+	for (const comment of reviewComments)
+		actors.set(comment.author.nodeId, comment.author)
+	for (const review of reviews)
+		actors.set(review.reviewer.nodeId, review.reviewer)
+	for (const requested of requestedReviewers)
+		if (requested.kind === 'user')
+			actors.set(requested.actor.nodeId, requested.actor)
+	for (const thread of reviewThreads)
+		if (thread.resolvedBy)
+			actors.set(thread.resolvedBy.nodeId, thread.resolvedBy)
 
 	return [...actors.values()]
 }

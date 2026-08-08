@@ -1,10 +1,17 @@
 import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
+import { status } from '@grpc/grpc-js'
 import { PullRequestsService } from '@modules/pull-requests'
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { GitHubInstallationId, RepositoryExternalSourceId } from '@repo/db'
-import type { RepositoryId } from '@repo/domain'
+import type {
+	GitHubInstallationId,
+	GitHubPullRequestMappingId,
+	GitHubWebhookDeliveryId,
+	RepositoryExternalSourceId,
+} from '@repo/db'
+import type { PullRequestId, RepositoryId } from '@repo/domain'
 import type { Job } from 'bullmq'
+import { ExternalServiceError, ServiceUnavailableError } from '~/shared/errors'
 import { GitHubAppAuthService } from '../infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from '../infrastructure/github-sync.client'
 import {
@@ -17,6 +24,7 @@ import {
 	type GitHubSyncClaim,
 	GitHubSyncRepository,
 } from '../infrastructure/github-sync.repository'
+import { GitHubSyncConversationsRepository } from '../infrastructure/github-sync-conversations.repository'
 import { GitHubSyncProcessor } from './github-sync.processor'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
@@ -83,7 +91,14 @@ describe(GitHubSyncProcessor.name, () => {
 				},
 				{
 					provide: GitHubSyncClient,
-					useValue: { getRepositoryReconciliation: vi.fn() },
+					useValue: {
+						getPullRequestConversation: vi.fn(),
+						getRepositoryReconciliation: vi.fn(),
+					},
+				},
+				{
+					provide: GitHubSyncConversationsRepository,
+					useValue: { projectPullRequestConversation: vi.fn() },
 				},
 				{
 					provide: GitHubSyncRepository,
@@ -92,6 +107,8 @@ describe(GitHubSyncProcessor.name, () => {
 						heartbeatSync: vi.fn(),
 						upsertActors: vi.fn(),
 						listPendingPullRequestEvents: vi.fn(),
+						listPendingConversationDeliveries: vi.fn(async () => []),
+						listConversationTargets: vi.fn(async () => []),
 						finalizeSync: vi.fn(),
 						failSync: vi.fn(),
 						requestDueReconciliations: vi.fn(),
@@ -103,7 +120,10 @@ describe(GitHubSyncProcessor.name, () => {
 				},
 				{
 					provide: GitStorageClient,
-					useValue: { importRepository: vi.fn() },
+					useValue: {
+						compareRepositoryRefs: vi.fn(),
+						importRepository: vi.fn(),
+					},
 				},
 				{
 					provide: PullRequestsService,
@@ -223,8 +243,240 @@ describe(GitHubSyncProcessor.name, () => {
 			})
 		)
 	})
+
+	test('projects incremental and forced webhook targets within the repair bound', async () => {
+		const incrementalPullRequest = {
+			...createPullRequestReconciliation(7),
+		}
+		vi.spyOn(client, 'getRepositoryReconciliation').mockResolvedValue({
+			...reconciliation,
+			pullRequests: [incrementalPullRequest],
+		})
+		vi.spyOn(repository, 'listPendingConversationDeliveries').mockResolvedValue(
+			[
+				{
+					deliveryId:
+						'00000000-0000-4000-8000-000000000070' as GitHubWebhookDeliveryId,
+					eventName: 'issue_comment',
+					action: 'deleted',
+					subjectNumber: 8,
+					receivedAt: new Date('2026-08-08T10:00:00Z'),
+				},
+			]
+		)
+		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
+			conversationTarget(7),
+			conversationTarget(8),
+		])
+		vi.spyOn(client, 'getPullRequestConversation').mockResolvedValue(
+			emptyConversation()
+		)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(repository.listConversationTargets).toHaveBeenCalledWith({
+			deliveredNumbers: [8],
+			limit: 50,
+			repositoryId,
+			updatedNumbers: [7],
+		})
+		expect(repository.finalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({ projectedNumbers: [7, 8] })
+		)
+		expect(client.getPullRequestConversation).toHaveBeenCalledTimes(2)
+		expect(client.getPullRequestConversation).toHaveBeenNthCalledWith(1, {
+			accessToken: 'installation-token',
+			owner: 'tessera-org',
+			repo: 'notes',
+			pullRequestNumber: 7,
+		})
+		expect(client.getPullRequestConversation).toHaveBeenNthCalledWith(2, {
+			accessToken: 'installation-token',
+			owner: 'tessera-org',
+			repo: 'notes',
+			pullRequestNumber: 8,
+		})
+	})
+
+	test('degrades a lost historical comparison to the current one whole', async () => {
+		const conversationsRepository = moduleRef.get(
+			GitHubSyncConversationsRepository
+		)
+		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
+			conversationTarget(7),
+		])
+		vi.spyOn(client, 'getPullRequestConversation').mockResolvedValue(
+			outdatedLeftThreadConversation()
+		)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockImplementation(
+			({ headRef }) => {
+				if (headRef === 'historical-head')
+					return Promise.reject(
+						new ExternalServiceError('git storage', {
+							grpcCode: status.NOT_FOUND,
+						})
+					)
+
+				return Promise.resolve({
+					mergeBaseSha: 'current-merge-base',
+				} as Awaited<ReturnType<typeof gitStorageClient.compareRepositoryRefs>>)
+			}
+		)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(
+			conversationsRepository.projectPullRequestConversation
+		).toHaveBeenCalledWith(
+			expect.objectContaining({
+				threads: [
+					expect.objectContaining({
+						providerOutdated: true,
+						anchor: expect.objectContaining({
+							anchorSha: 'current-merge-base',
+							baseSha: 'base-sha',
+							headSha: 'head-sha',
+							line: 8,
+							side: 'left',
+							lineExcerpt: 'old value',
+						}),
+					}),
+				],
+			})
+		)
+	})
+
+	test('fails the run when git storage cannot answer a comparison', async () => {
+		const conversationsRepository = moduleRef.get(
+			GitHubSyncConversationsRepository
+		)
+		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
+			conversationTarget(7),
+		])
+		vi.spyOn(client, 'getPullRequestConversation').mockResolvedValue(
+			outdatedLeftThreadConversation()
+		)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockRejectedValue(
+			new ServiceUnavailableError('git storage', {
+				grpcCode: status.UNAVAILABLE,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('git storage is unavailable')
+		expect(
+			conversationsRepository.projectPullRequestConversation
+		).not.toHaveBeenCalled()
+		expect(repository.failSync).toHaveBeenCalledOnce()
+	})
+
+	test('aborts before conversation fetch when authority heartbeat changes', async () => {
+		vi.spyOn(repository, 'listConversationTargets').mockResolvedValue([
+			conversationTarget(7),
+		])
+		vi.spyOn(repository, 'heartbeatSync')
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(true)
+			.mockResolvedValueOnce(false)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('GitHub synchronization authority changed')
+		expect(client.getPullRequestConversation).not.toHaveBeenCalled()
+		expect(repository.finalizeSync).not.toHaveBeenCalled()
+	})
 })
 
 function createJob(name: string, data: GitHubSyncJobData) {
 	return { name, data } as Job<GitHubSyncJobData>
+}
+
+function outdatedLeftThreadConversation() {
+	const comment = {
+		nodeId: 'review-comment-node',
+		numericId: 21n,
+		author: {
+			nodeId: 'author-node',
+			numericId: 7n,
+			login: 'marta',
+			type: 'user' as const,
+		},
+		body: 'Inline',
+		htmlUrl: 'https://github.com/tessera-org/notes/pull/7#discussion_r21',
+		subjectType: 'line' as const,
+		path: 'src/index.ts',
+		side: 'left' as const,
+		line: 8,
+		originalLine: 8,
+		originalCommitId: 'historical-head',
+		diffHunk: '@@ -8 +8 @@\n-old value',
+		createdAt: new Date('2026-08-08T10:00:00Z'),
+		updatedAt: new Date('2026-08-08T10:00:00Z'),
+	}
+
+	return {
+		...emptyConversation(),
+		reviewComments: [comment],
+		reviewThreads: [
+			{
+				nodeId: 'thread-node',
+				resolved: false,
+				outdated: true,
+				subjectType: 'line' as const,
+				side: 'left' as const,
+				comments: [{ nodeId: comment.nodeId }],
+			},
+		],
+	}
+}
+
+function emptyConversation() {
+	return {
+		issueComments: [],
+		reviewComments: [],
+		reviews: [],
+		requestedReviewers: [],
+		reviewThreads: [],
+	}
+}
+
+function conversationTarget(externalNumber: number) {
+	return {
+		pullRequestMappingId:
+			`00000000-0000-4000-8000-${externalNumber.toString().padStart(12, '0')}` as GitHubPullRequestMappingId,
+		pullRequestId:
+			`00000000-0000-4000-8001-${externalNumber.toString().padStart(12, '0')}` as PullRequestId,
+		externalNodeId: `pull-request-${externalNumber}`,
+		externalNumber,
+		baseSha: 'base-sha',
+		headSha: 'head-sha',
+	}
+}
+
+function createPullRequestReconciliation(number: number) {
+	return {
+		nodeId: `pull-request-${number}`,
+		numericId: BigInt(number),
+		number,
+		htmlUrl: `https://github.com/tessera-org/notes/pull/${number}`,
+		title: `Pull request ${number}`,
+		body: '',
+		state: 'open' as const,
+		draft: false,
+		author: {
+			nodeId: 'author-node',
+			numericId: 7n,
+			login: 'marta',
+			type: 'user' as const,
+		},
+		sourceBranch: 'feature',
+		targetBranch: 'main',
+		headRepositoryNodeId: 'repository-node',
+		baseRepositoryNodeId: 'repository-node',
+		headSha: 'head-sha',
+		baseSha: 'base-sha',
+		createdAt: new Date('2026-08-08T10:00:00Z'),
+		updatedAt: new Date('2026-08-08T10:00:00Z'),
+	}
 }

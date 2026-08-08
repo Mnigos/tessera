@@ -3,6 +3,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import type {
 	GitHubActorId,
 	GitHubInstallationId,
+	GitHubPullRequestMappingId,
 	GitHubWebhookDeliveryId,
 } from '@repo/db'
 import {
@@ -11,7 +12,9 @@ import {
 	gitHubWebhookDeliveries,
 	repositoryExternalSources,
 } from '@repo/db'
-import type { RepositoryId } from '@repo/domain'
+import type { PullRequestId, RepositoryId } from '@repo/domain'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import {
 	type GitHubInstallationInput,
 	GitHubSyncRepository,
@@ -23,6 +26,23 @@ const INSTALLATION_ID =
 const DELIVERY_ID =
 	'00000000-0000-4000-8000-000000000123' as GitHubWebhookDeliveryId
 const REPOSITORY_ID = '00000000-0000-4000-8000-000000000124' as RepositoryId
+const FINALIZE_SYNC = {
+	repositoryId: REPOSITORY_ID,
+	authorityGeneration: 2,
+	requestedSyncVersion: 5,
+	leaseOwner: 'lease-owner',
+	storagePath: '/var/lib/tessera/repositories/notes.git',
+	defaultBranch: 'main',
+	externalRepositoryNodeId: 'repository-node',
+	ownerLogin: 'tessera-org',
+	name: 'notes',
+	fullName: 'tessera-org/notes',
+	sourceUrl: 'https://github.com/tessera-org/notes',
+	sourceDefaultBranch: 'main',
+	pullRequestSyncCursorAt: new Date('2026-08-08T10:00:00Z'),
+	completedAt: new Date('2026-08-08T11:00:00Z'),
+	nextSyncAt: new Date('2026-08-08T12:00:00Z'),
+}
 const DELETED_INSTALLATION: GitHubInstallationInput = {
 	externalInstallationId: 123n,
 	accountNodeId: 'organization-node',
@@ -46,6 +66,38 @@ describe(GitHubSyncRepository.name, () => {
 	const setMock = vi.fn()
 	const updateWhereMock = vi.fn()
 	const returningMock = vi.fn()
+
+	/** One resolved page per query the target selection is expected to run. */
+	function mockConversationTargetPages(pages: unknown[][]) {
+		let page = 0
+
+		selectMock.mockReturnValue({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({
+					orderBy: vi.fn(() => ({
+						limit: vi.fn(() => {
+							const rows = pages[page] ?? []
+							page += 1
+
+							return Promise.resolve(rows)
+						}),
+					})),
+				})),
+			})),
+		})
+	}
+
+	function mockFinalizeSyncSource() {
+		selectMock.mockReturnValue({
+			from: vi.fn(() => ({
+				where: vi.fn(() => ({
+					limit: vi.fn(() => ({
+						for: vi.fn().mockResolvedValue([{ requestedSyncVersion: 5 }]),
+					})),
+				})),
+			})),
+		})
+	}
 
 	function mockExistingInstallationDelivery() {
 		selectMock.mockReturnValue({
@@ -104,7 +156,12 @@ describe(GitHubSyncRepository.name, () => {
 				GitHubSyncRepository,
 				{
 					provide: Database,
-					useValue: { transaction: transactionMock },
+					useValue: {
+						insert: insertMock,
+						select: selectMock,
+						transaction: transactionMock,
+						update: updateMock,
+					},
 				},
 			],
 		}).compile()
@@ -288,6 +345,59 @@ describe(GitHubSyncRepository.name, () => {
 		)
 	})
 
+	test('spends the projection budget on delivery-named pull requests first', async () => {
+		const delivered = conversationTarget(8)
+		const updated = conversationTarget(7)
+		mockConversationTargetPages([[delivered], [updated]])
+
+		expect(
+			await repository.listConversationTargets({
+				deliveredNumbers: [8],
+				limit: 1,
+				repositoryId: REPOSITORY_ID,
+				updatedNumbers: [7],
+			})
+		).toEqual([delivered])
+		expect(selectMock).toHaveBeenCalledOnce()
+	})
+
+	test('falls through to the repair rotation once the named targets run out', async () => {
+		const delivered = conversationTarget(8)
+		const swept = conversationTarget(3)
+		mockConversationTargetPages([[delivered], [delivered, swept]])
+
+		expect(
+			await repository.listConversationTargets({
+				deliveredNumbers: [8],
+				limit: 2,
+				repositoryId: REPOSITORY_ID,
+				updatedNumbers: [],
+			})
+		).toEqual([delivered, swept])
+		expect(selectMock).toHaveBeenCalledTimes(2)
+	})
+
+	test('leaves a delivery pending when its pull request was not projected', async () => {
+		mockFinalizeSyncSource()
+
+		await repository.finalizeSync({ ...FINALIZE_SYNC, projectedNumbers: [7] })
+
+		const deliveryUpdateIndex = updateMock.mock.calls.findIndex(
+			([table]) => table === gitHubWebhookDeliveries
+		)
+		const condition = toSqlText(
+			updateWhereMock.mock.calls[deliveryUpdateIndex]?.[0]
+		)
+
+		expect(setMock).toHaveBeenCalledWith({
+			status: 'processed',
+			processedAt: FINALIZE_SYNC.completedAt,
+		})
+		expect(condition).toContain('"subject_number" is null')
+		expect(condition).toContain('"subject_number" in ($')
+		expect(condition).toContain('not exists')
+	})
+
 	test('blocks synchronized sources for the GitHub suspend action', async () => {
 		mockExistingInstallationDelivery()
 		const suspendedAt = new Date('2026-08-05T10:00:00Z')
@@ -356,3 +466,21 @@ describe(GitHubSyncRepository.name, () => {
 		)
 	})
 })
+
+function conversationTarget(externalNumber: number) {
+	return {
+		pullRequestMappingId:
+			`00000000-0000-4000-8000-${externalNumber.toString().padStart(12, '0')}` as GitHubPullRequestMappingId,
+		pullRequestId:
+			`00000000-0000-4000-8001-${externalNumber.toString().padStart(12, '0')}` as PullRequestId,
+		externalNodeId: `pull-request-${externalNumber}`,
+		externalNumber,
+		baseSha: 'base-sha',
+		headSha: 'head-sha',
+	}
+}
+
+/** Renders a captured condition so the spec can read what it filters on. */
+function toSqlText(condition: unknown): string {
+	return new PgDialect().sqlToQuery(condition as SQL).sql
+}

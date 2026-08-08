@@ -4,6 +4,7 @@ import type {
 	DrizzleTransaction,
 	GitHubActorId,
 	GitHubInstallationId,
+	GitHubPullRequestMappingId,
 	GitHubWebhookDeliveryId,
 	RepositoryExternalSourceId,
 } from '@repo/db'
@@ -14,19 +15,27 @@ import {
 	eq,
 	gitHubActors,
 	gitHubInstallations,
+	gitHubPullRequestMappings,
 	gitHubWebhookDeliveries,
 	gte,
+	inArray,
 	isNotNull,
 	isNull,
 	lt,
 	lte,
+	notExists,
 	or,
 	repositories,
 	repositoryExternalSources,
 	sql,
 } from '@repo/db'
-import type { RepositoryId } from '@repo/domain'
+import type { PullRequestId, RepositoryId } from '@repo/domain'
 import type { SQL } from 'drizzle-orm'
+import {
+	GITHUB_CONVERSATION_WEBHOOK_EVENTS,
+	type GitHubWebhookTargetResourceKind,
+	isSupportedGitHubWebhookEvent,
+} from '../domain/github-webhook.schema'
 import type { GitHubSyncActor } from './github-sync.client.types'
 
 interface GitHubInstallationReferenceInput {
@@ -64,6 +73,12 @@ interface RecordWebhookDeliveryParams {
 	externalRepositoryNumericId?: bigint
 	subjectNodeId?: string
 	subjectNumber?: number
+	issueNumber?: number
+	targetResourceKind?: GitHubWebhookTargetResourceKind
+	targetResourceNodeId?: string
+	targetResourceNumericId?: bigint
+	targetTeamNodeId?: string
+	targetTeamSlug?: string
 	sender?: GitHubSyncActor
 	targetActor?: GitHubSyncActor
 	labelNodeId?: string
@@ -104,6 +119,29 @@ export interface GitHubPendingPullRequestEvent {
 	receivedAt: Date
 }
 
+export interface GitHubPendingConversationDelivery {
+	deliveryId: GitHubWebhookDeliveryId
+	eventName: string
+	action?: string
+	subjectNumber: number
+	targetResourceKind?: GitHubWebhookTargetResourceKind
+	targetResourceNodeId?: string
+	targetResourceNumericId?: bigint
+	targetActorId?: GitHubActorId
+	targetTeamNodeId?: string
+	actorId?: GitHubActorId
+	receivedAt: Date
+}
+
+export interface GitHubConversationTarget {
+	pullRequestMappingId: GitHubPullRequestMappingId
+	pullRequestId: PullRequestId
+	externalNodeId: string
+	externalNumber: number
+	baseSha: string
+	headSha: string
+}
+
 interface ClaimSyncParams extends GitHubSyncRequest {
 	leaseOwner: string
 	leaseAcquiredAt: Date
@@ -127,6 +165,8 @@ interface FinalizeSyncParams
 	sourceUrl: string
 	sourceDefaultBranch: string
 	pullRequestSyncCursorAt: Date
+	/** Pull request numbers whose conversation this run actually projected. */
+	projectedNumbers: number[]
 	completedAt: Date
 	nextSyncAt: Date
 }
@@ -140,6 +180,15 @@ interface FailSyncParams
 	failureCode: string
 	failureReason: string
 	nextSyncAt: Date
+}
+
+const CONVERSATION_TARGET_COLUMNS = {
+	pullRequestMappingId: gitHubPullRequestMappings.id,
+	pullRequestId: gitHubPullRequestMappings.pullRequestId,
+	externalNodeId: gitHubPullRequestMappings.externalNodeId,
+	externalNumber: gitHubPullRequestMappings.externalNumber,
+	baseSha: gitHubPullRequestMappings.baseSha,
+	headSha: gitHubPullRequestMappings.headSha,
 }
 
 @Injectable()
@@ -200,6 +249,141 @@ export class GitHubSyncRepository {
 		)
 	}
 
+	/**
+	 * Conversation deliveries whose pull request must be reconciled even when the
+	 * incremental cursor page does not return it, such as a deleted comment.
+	 */
+	async listPendingConversationDeliveries({
+		repositoryId,
+		requestedSyncVersion,
+	}: Pick<GitHubSyncClaim, 'repositoryId' | 'requestedSyncVersion'>): Promise<
+		GitHubPendingConversationDelivery[]
+	> {
+		const rows = await this.db
+			.select({
+				deliveryId: gitHubWebhookDeliveries.id,
+				eventName: gitHubWebhookDeliveries.eventName,
+				action: gitHubWebhookDeliveries.action,
+				subjectNumber: gitHubWebhookDeliveries.subjectNumber,
+				targetResourceKind: gitHubWebhookDeliveries.targetResourceKind,
+				targetResourceNodeId: gitHubWebhookDeliveries.targetResourceNodeId,
+				targetResourceNumericId:
+					gitHubWebhookDeliveries.targetResourceNumericId,
+				targetActorId: gitHubWebhookDeliveries.targetActorId,
+				targetTeamNodeId: gitHubWebhookDeliveries.targetTeamNodeId,
+				actorId: gitHubWebhookDeliveries.senderActorId,
+				receivedAt: gitHubWebhookDeliveries.receivedAt,
+			})
+			.from(gitHubWebhookDeliveries)
+			.where(
+				and(
+					eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
+					inArray(gitHubWebhookDeliveries.eventName, [
+						...GITHUB_CONVERSATION_WEBHOOK_EVENTS,
+					]),
+					eq(gitHubWebhookDeliveries.status, 'received'),
+					isNotNull(gitHubWebhookDeliveries.subjectNumber),
+					lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion)
+				)
+			)
+
+		return rows.flatMap(row =>
+			row.subjectNumber
+				? [
+						{
+							deliveryId: row.deliveryId,
+							eventName: row.eventName,
+							action: row.action ?? undefined,
+							subjectNumber: row.subjectNumber,
+							targetResourceKind: row.targetResourceKind ?? undefined,
+							targetResourceNodeId: row.targetResourceNodeId ?? undefined,
+							targetResourceNumericId: row.targetResourceNumericId ?? undefined,
+							targetActorId: row.targetActorId ?? undefined,
+							targetTeamNodeId: row.targetTeamNodeId ?? undefined,
+							actorId: row.actorId ?? undefined,
+							receivedAt: row.receivedAt,
+						},
+					]
+				: []
+		)
+	}
+
+	/**
+	 * Pull requests whose conversation this run projects, in the order their
+	 * evidence would be lost. A delivery is the only record of what it carried, so
+	 * its pull request is projected before the incremental page and before the
+	 * rotation over the least recently projected mappings, which repairs missed
+	 * webhooks and backfills a fresh mirror with whatever budget is left.
+	 */
+	async listConversationTargets({
+		deliveredNumbers,
+		limit,
+		repositoryId,
+		updatedNumbers,
+	}: {
+		deliveredNumbers: number[]
+		limit: number
+		repositoryId: RepositoryId
+		updatedNumbers: number[]
+	}): Promise<GitHubConversationTarget[]> {
+		if (limit <= 0) return []
+
+		const selected: GitHubConversationTarget[] = []
+		const selectedIds = new Set<GitHubPullRequestMappingId>()
+
+		for (const externalNumbers of [
+			deliveredNumbers,
+			updatedNumbers,
+			undefined,
+		]) {
+			if (selected.length >= limit) break
+			if (externalNumbers && externalNumbers.length === 0) continue
+
+			const targets = await this.findConversationTargets({
+				externalNumbers,
+				limit: limit + selected.length,
+				repositoryId,
+			})
+
+			for (const target of targets) {
+				if (selected.length >= limit) break
+				if (selectedIds.has(target.pullRequestMappingId)) continue
+
+				selectedIds.add(target.pullRequestMappingId)
+				selected.push(target)
+			}
+		}
+
+		return selected
+	}
+
+	private async findConversationTargets({
+		externalNumbers,
+		limit,
+		repositoryId,
+	}: {
+		externalNumbers?: number[]
+		limit: number
+		repositoryId: RepositoryId
+	}): Promise<GitHubConversationTarget[]> {
+		return await this.db
+			.select(CONVERSATION_TARGET_COLUMNS)
+			.from(gitHubPullRequestMappings)
+			.where(
+				and(
+					eq(gitHubPullRequestMappings.repositoryId, repositoryId),
+					externalNumbers
+						? inArray(gitHubPullRequestMappings.externalNumber, externalNumbers)
+						: undefined
+				)
+			)
+			.orderBy(
+				sql`${gitHubPullRequestMappings.conversationSyncedAt} asc nulls first`,
+				asc(gitHubPullRequestMappings.externalNumber)
+			)
+			.limit(limit)
+	}
+
 	async recordWebhookDelivery(
 		params: RecordWebhookDeliveryParams
 	): Promise<RecordWebhookDeliveryResult> {
@@ -257,6 +441,15 @@ export class GitHubSyncRepository {
 			!(params.externalRepositoryNumericId || params.externalRepositoryNodeId)
 		) {
 			await this.completeUnscopedDelivery(transaction, params)
+			return {
+				accepted: true,
+				duplicate: false,
+				syncRequests: installationSyncRequests,
+			}
+		}
+
+		if (!isSupportedGitHubWebhookEvent(params)) {
+			await this.ignoreWebhookDelivery(transaction, params.deliveryId)
 			return {
 				accepted: true,
 				duplicate: false,
@@ -344,6 +537,12 @@ export class GitHubSyncRepository {
 				externalRepositoryNumericId: params.externalRepositoryNumericId,
 				subjectNodeId: params.subjectNodeId,
 				subjectNumber: params.subjectNumber,
+				issueNumber: params.issueNumber,
+				targetResourceKind: params.targetResourceKind,
+				targetResourceNodeId: params.targetResourceNodeId,
+				targetResourceNumericId: params.targetResourceNumericId,
+				targetTeamNodeId: params.targetTeamNodeId,
+				targetTeamSlug: params.targetTeamSlug,
 				senderActorId,
 				targetActorId,
 				labelNodeId: params.labelNodeId,
@@ -690,6 +889,7 @@ export class GitHubSyncRepository {
 		name,
 		nextSyncAt,
 		ownerLogin,
+		projectedNumbers,
 		pullRequestSyncCursorAt,
 		repositoryId,
 		requestedSyncVersion,
@@ -755,7 +955,34 @@ export class GitHubSyncRepository {
 					and(
 						eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
 						eq(gitHubWebhookDeliveries.status, 'received'),
-						lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion)
+						lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion),
+						// A delivery carries the only record of what it announced, so it
+						// is consumed once its pull request has been projected. One
+						// naming a pull request this mirror does not have is unprojectable
+						// and would otherwise stay pending forever.
+						or(
+							isNull(gitHubWebhookDeliveries.subjectNumber),
+							projectedNumbers.length > 0
+								? inArray(
+										gitHubWebhookDeliveries.subjectNumber,
+										projectedNumbers
+									)
+								: undefined,
+							notExists(
+								transaction
+									.select({ id: gitHubPullRequestMappings.id })
+									.from(gitHubPullRequestMappings)
+									.where(
+										and(
+											eq(gitHubPullRequestMappings.repositoryId, repositoryId),
+											eq(
+												gitHubPullRequestMappings.externalNumber,
+												gitHubWebhookDeliveries.subjectNumber
+											)
+										)
+									)
+							)
+						)
 					)
 				)
 

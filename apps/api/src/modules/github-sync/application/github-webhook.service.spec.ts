@@ -116,6 +116,12 @@ describe(GitHubWebhookService.name, () => {
 			externalRepositoryNumericId: 456n,
 			subjectNodeId: undefined,
 			subjectNumber: undefined,
+			issueNumber: undefined,
+			targetResourceKind: 'pull_request',
+			targetResourceNodeId: undefined,
+			targetResourceNumericId: undefined,
+			targetTeamNodeId: undefined,
+			targetTeamSlug: undefined,
 			sender: {
 				nodeId: 'sender-node',
 				numericId: 7n,
