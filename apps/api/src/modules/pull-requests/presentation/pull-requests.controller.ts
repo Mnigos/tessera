@@ -46,6 +46,13 @@ export class PullRequestsController {
 		)
 	}
 
+	@Implement(contract.pullRequests.listChecks)
+	listChecks(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.listChecks).handler(({ input }) =>
+			this.pullRequestsService.listChecks(session?.user.id, input)
+		)
+	}
+
 	@RequireAuth()
 	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.edit)

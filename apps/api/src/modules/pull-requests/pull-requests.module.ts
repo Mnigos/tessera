@@ -1,6 +1,8 @@
+import { ChecksModule } from '@modules/checks'
 import { RepositoriesModule, RepositoryWriteGuard } from '@modules/repositories'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
+import { PullRequestHeadResolver } from './application/pull-request-head.resolver'
 import { PullRequestReviewsService } from './application/pull-request-reviews.service'
 import { PullRequestThreadsService } from './application/pull-request-threads.service'
 import { PullRequestsService } from './application/pull-requests.service'
@@ -12,7 +14,7 @@ import { PullRequestThreadsController } from './presentation/pull-request-thread
 import { PullRequestsController } from './presentation/pull-requests.controller'
 
 @Module({
-	imports: [RepositoriesModule, UserModule],
+	imports: [ChecksModule, RepositoriesModule, UserModule],
 	controllers: [
 		PullRequestsController,
 		PullRequestThreadsController,
@@ -22,6 +24,7 @@ import { PullRequestsController } from './presentation/pull-requests.controller'
 		PullRequestsService,
 		PullRequestThreadsService,
 		PullRequestReviewsService,
+		PullRequestHeadResolver,
 		PullRequestsRepository,
 		PullRequestThreadsRepository,
 		PullRequestReviewsRepository,

@@ -1,7 +1,6 @@
-import { GitStorageClient } from '@config/git-storage'
 import { RepositoriesService } from '@modules/repositories'
 import { UserService } from '@modules/user'
-import { Injectable, Logger } from '@nestjs/common'
+import { Injectable } from '@nestjs/common'
 import type {
 	ParsedGetPullRequestInput,
 	ParsedRequestPullRequestReviewerInput,
@@ -39,12 +38,15 @@ import {
 	PullRequestReviewerIneligibleError,
 	PullRequestReviewerRequestForbiddenError,
 } from '../domain/pull-request-review.errors'
-import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { PullRequestReviewsRepository } from '../infrastructure/pull-request-reviews.repository'
 import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
+import {
+	type PullRequestHeadRef,
+	PullRequestHeadResolver,
+} from './pull-request-head.resolver'
 
 export interface PullRequestReviewState {
 	effectiveReviewStates: PullRequestEffectiveReviewState[]
@@ -68,21 +70,18 @@ interface GetReviewStateParams extends PullRequestReviewContext {
 }
 
 interface ListReviewSummariesParams {
+	headRefs: Map<PullRequestId, PullRequestHeadRef>
 	pullRequests: PullRequestReadModel[]
-	repositoryId: RepositoryId
-	storagePath: string
 }
 
 @Injectable()
 export class PullRequestReviewsService {
-	private readonly logger = new Logger(PullRequestReviewsService.name)
-
 	constructor(
 		private readonly pullRequestReviewsRepository: PullRequestReviewsRepository,
 		private readonly pullRequestsRepository: PullRequestsRepository,
+		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
 		private readonly repositoriesService: RepositoriesService,
-		private readonly userService: UserService,
-		private readonly gitStorageClient: GitStorageClient
+		private readonly userService: UserService
 	) {}
 
 	async requestReviewer(
@@ -273,7 +272,7 @@ export class PullRequestReviewsService {
 			])
 		const currentHeadSha =
 			reviews.length > 0
-				? await this.resolveCurrentHeadSha({
+				? await this.pullRequestHeadResolver.resolveCurrentHeadSha({
 						pullRequest,
 						repositoryId,
 						storagePath,
@@ -305,9 +304,8 @@ export class PullRequestReviewsService {
 	 * list rendering never issues per-row review queries.
 	 */
 	async listReviewSummaries({
+		headRefs,
 		pullRequests,
-		repositoryId,
-		storagePath,
 	}: ListReviewSummariesParams): Promise<
 		Map<PullRequestId, PullRequestReviewSummary>
 	> {
@@ -325,13 +323,7 @@ export class PullRequestReviewsService {
 			effectiveReviews,
 			review => review.pullRequestId
 		)
-		const headShas = await this.resolveListHeadShas({
-			pullRequests: pullRequests.filter(pullRequest =>
-				reviewsByPullRequest.has(pullRequest.id)
-			),
-			repositoryId,
-			storagePath,
-		})
+		const headShas = toStalenessHeadShas(headRefs, pullRequests)
 
 		return new Map(
 			pullRequests.map(pullRequest => [
@@ -414,95 +406,6 @@ export class PullRequestReviewsService {
 		}
 	}
 
-	/**
-	 * Head the pull request currently points at, used to age out reviews. Returns
-	 * undefined when git cannot resolve it — an unresolvable head must not make
-	 * every stored review look stale.
-	 */
-	private async resolveCurrentHeadSha({
-		pullRequest,
-		repositoryId,
-		storagePath,
-	}: Pick<
-		PullRequestReviewContext,
-		'pullRequest' | 'repositoryId' | 'storagePath'
-	>): Promise<string | undefined> {
-		if (pullRequest.github) return pullRequest.github.headSha
-
-		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
-
-		try {
-			const { headSha } = await this.gitStorageClient.compareRepositoryRefs({
-				repositoryId,
-				storagePath,
-				baseRef,
-				headRef,
-			})
-
-			return headSha
-		} catch (error) {
-			this.logger.warn(
-				`Failed to resolve the current head of pull request ${pullRequest.id}`,
-				error instanceof Error ? error.stack : undefined
-			)
-
-			return undefined
-		}
-	}
-
-	/**
-	 * Current heads for a list page: one refs lookup for every native pull
-	 * request instead of a comparison per row.
-	 *
-	 * Staleness is scoped to open pull requests. Merged and closed rows report no
-	 * stale reviews because their outcomes are historical, and resolving their
-	 * real head (a merge commit's second parent) would cost a git call per row.
-	 * The detail view keeps that resolution and stays authoritative.
-	 */
-	private async resolveListHeadShas({
-		pullRequests,
-		repositoryId,
-		storagePath,
-	}: ListReviewSummariesParams): Promise<Map<PullRequestId, string>> {
-		const headShas = new Map<PullRequestId, string>()
-		const openPullRequests = pullRequests.filter(
-			pullRequest => pullRequest.state === 'open'
-		)
-		const nativePullRequests = openPullRequests.filter(
-			pullRequest => !pullRequest.github
-		)
-
-		for (const pullRequest of openPullRequests)
-			if (pullRequest.github)
-				headShas.set(pullRequest.id, pullRequest.github.headSha)
-
-		if (nativePullRequests.length === 0) return headShas
-
-		try {
-			const refs = await this.gitStorageClient.listRepositoryRefs({
-				repositoryId,
-				storagePath,
-				trustedGpgKeys: [],
-			})
-			const branchTargets = new Map(
-				refs.branches.map(branch => [branch.name, branch.target])
-			)
-
-			for (const pullRequest of nativePullRequests) {
-				const target = branchTargets.get(pullRequest.sourceBranch)
-
-				if (target) headShas.set(pullRequest.id, target)
-			}
-		} catch (error) {
-			this.logger.warn(
-				`Failed to resolve current heads for repository ${repositoryId}`,
-				error instanceof Error ? error.stack : undefined
-			)
-		}
-
-		return headShas
-	}
-
 	private async findPullRequest(
 		repositoryId: RepositoryId,
 		number: number
@@ -517,6 +420,33 @@ export class PullRequestReviewsService {
 
 		return pullRequest
 	}
+}
+
+/**
+ * Heads a staleness badge may speak for.
+ *
+ * Scoped to open pull requests: a merged or closed row's reviews are historical
+ * and never read as stale, and a head the resolver could not confirm must not
+ * age out every review stored against it.
+ */
+function toStalenessHeadShas(
+	headRefs: Map<PullRequestId, PullRequestHeadRef>,
+	pullRequests: PullRequestReadModel[]
+): Map<PullRequestId, string> {
+	const openPullRequestIds = new Set(
+		pullRequests
+			.filter(pullRequest => pullRequest.state === 'open')
+			.map(pullRequest => pullRequest.id)
+	)
+
+	return new Map(
+		[...headRefs]
+			.filter(
+				([pullRequestId, headRef]) =>
+					headRef.isCurrent && openPullRequestIds.has(pullRequestId)
+			)
+			.map(([pullRequestId, headRef]) => [pullRequestId, headRef.sha])
+	)
 }
 
 function assertPullRequestReviewer(

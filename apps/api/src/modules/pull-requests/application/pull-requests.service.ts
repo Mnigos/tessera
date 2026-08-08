@@ -3,15 +3,18 @@ import {
 	GitStorageClient,
 	type GitStorageRepositoryBlob,
 } from '@config/git-storage'
+import { ChecksReadService } from '@modules/checks'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { RepositoriesService } from '@modules/repositories'
 import { Injectable } from '@nestjs/common'
 import type {
+	ChecksList,
 	ParsedCreatePullRequestInput,
 	ParsedEditPullRequestInput,
 	ParsedGetPullRequestFileDiffInput,
 	ParsedGetPullRequestInput,
+	ParsedListPullRequestChecksInput,
 	ParsedListPullRequestsInput,
 	ParsedMergePullRequestInput,
 	PullRequest,
@@ -49,6 +52,7 @@ import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
+import { PullRequestHeadResolver } from './pull-request-head.resolver'
 import { PullRequestReviewsService } from './pull-request-reviews.service'
 
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
@@ -89,6 +93,8 @@ export class PullRequestsService {
 	constructor(
 		private readonly pullRequestsRepository: PullRequestsRepository,
 		private readonly pullRequestReviewsService: PullRequestReviewsService,
+		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
+		private readonly checksReadService: ChecksReadService,
 		private readonly repositoriesService: RepositoriesService,
 		private readonly gitStorageClient: GitStorageClient
 	) {}
@@ -211,18 +217,30 @@ export class PullRequestsService {
 			repositoryId,
 			state,
 		})
-		const reviewSummaries =
-			await this.pullRequestReviewsService.listReviewSummaries({
+		// Review staleness and check rollups both hang off the head each row points
+		// at, so the page resolves heads once and both summaries read from it.
+		const headRefs = await this.pullRequestHeadResolver.listHeadRefs({
+			pullRequests,
+			repositoryId,
+			storagePath,
+		})
+		const [reviewSummaries, checksSummaries] = await Promise.all([
+			this.pullRequestReviewsService.listReviewSummaries({
+				headRefs,
 				pullRequests,
+			}),
+			this.checksReadService.listSummaries({
+				heads: [...headRefs].map(([key, head]) => ({ ...head, key })),
 				repositoryId,
-				storagePath,
-			})
+			}),
+		])
 
 		return {
 			pullRequests: pullRequests.map(pullRequest => ({
 				...toPullRequestOutput(pullRequest, username),
 				reviewSummary:
 					reviewSummaries.get(pullRequest.id) ?? EMPTY_REVIEW_SUMMARY,
+				checksSummary: checksSummaries.get(pullRequest.id),
 			})),
 			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
@@ -242,7 +260,7 @@ export class PullRequestsService {
 				}
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const [events, reviewState] = await Promise.all([
+		const [events, reviewState, checksSummary] = await Promise.all([
 			this.pullRequestsRepository.listEvents({
 				pullRequestId: pullRequest.id,
 			}),
@@ -254,15 +272,55 @@ export class PullRequestsService {
 				viewerRole,
 				viewerUserId,
 			}),
+			this.findChecksSummary({ pullRequest, repositoryId, storagePath }),
 		])
 
 		return {
 			pullRequest: toPullRequestOutput(pullRequest, username),
 			events: events.map(event => toPullRequestEventOutput(event, username)),
 			...reviewState,
+			checksSummary,
 			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
 		}
+	}
+
+	/**
+	 * Every result reported on the pull request's head, for the detail panel that
+	 * refreshes on its own.
+	 */
+	async listChecks(
+		viewerUserId: UserId | undefined,
+		{
+			expectedHeadSha,
+			number,
+			slug,
+			username,
+		}: ParsedListPullRequestChecksInput
+	): Promise<ChecksList> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+		const head = await this.pullRequestHeadResolver.resolveHeadRef({
+			pullRequest,
+			repositoryId,
+			storagePath,
+		})
+
+		// The caller names the commit it is about to render these rows beside, so
+		// the answer describes that commit even when the head has moved on since —
+		// and says so through `headIsCurrent` rather than by quietly answering
+		// about a different commit than the one asked about.
+		return await this.checksReadService.listChecks({
+			head: {
+				sha: expectedHeadSha,
+				isCurrent: head.isCurrent && head.sha === expectedHeadSha,
+			},
+			repositoryId,
+		})
 	}
 
 	async comparison(
@@ -283,6 +341,16 @@ export class PullRequestsService {
 			baseRef,
 			headRef,
 		})
+		// One query for the whole commit list: a status dot per row must never cost
+		// a request per row.
+		const checksSummaries = await this.checksReadService.listSummaries({
+			heads: comparison.commits.map(commit => ({
+				key: commit.sha,
+				sha: commit.sha,
+				isCurrent: commit.sha === comparison.headSha,
+			})),
+			repositoryId,
+		})
 
 		return {
 			...comparison,
@@ -291,6 +359,7 @@ export class PullRequestsService {
 				author: commit.author
 					? { ...commit.author, date: new Date(commit.author.date) }
 					: undefined,
+				checksSummary: checksSummaries.get(commit.sha),
 			})),
 		}
 	}
@@ -546,6 +615,24 @@ export class PullRequestsService {
 
 			throw storageError
 		}
+	}
+
+	private async findChecksSummary({
+		pullRequest,
+		repositoryId,
+		storagePath,
+	}: {
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		storagePath: string
+	}) {
+		const head = await this.pullRequestHeadResolver.resolveHeadRef({
+			pullRequest,
+			repositoryId,
+			storagePath,
+		})
+
+		return await this.checksReadService.findSummary({ head, repositoryId })
 	}
 
 	private async getDiffBlob(
