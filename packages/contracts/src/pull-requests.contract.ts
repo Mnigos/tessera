@@ -23,6 +23,18 @@ export const pullRequestCommentIdSchema = z
 	.brand<'pull_request_comment_id'>()
 export type PullRequestCommentId = z.infer<typeof pullRequestCommentIdSchema>
 
+export const pullRequestReviewIdSchema = z
+	.uuid()
+	.brand<'pull_request_review_id'>()
+export type PullRequestReviewId = z.infer<typeof pullRequestReviewIdSchema>
+
+export const pullRequestReviewerRequestIdSchema = z
+	.uuid()
+	.brand<'pull_request_reviewer_request_id'>()
+export type PullRequestReviewerRequestId = z.infer<
+	typeof pullRequestReviewerRequestIdSchema
+>
+
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
 
@@ -42,6 +54,8 @@ export const pullRequestEventTypeSchema = z.enum([
 	'commented',
 	'thread_resolved',
 	'thread_unresolved',
+	'review_request_removed',
+	'review_submitted',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
 
@@ -50,6 +64,20 @@ export type PullRequestThreadKind = z.infer<typeof pullRequestThreadKindSchema>
 
 export const pullRequestThreadSideSchema = z.enum(['left', 'right'])
 export type PullRequestThreadSide = z.infer<typeof pullRequestThreadSideSchema>
+
+export const pullRequestCommentStateSchema = z.enum(['published', 'pending'])
+export type PullRequestCommentState = z.infer<
+	typeof pullRequestCommentStateSchema
+>
+
+export const pullRequestReviewOutcomeSchema = z.enum([
+	'approve',
+	'request_changes',
+	'comment',
+])
+export type PullRequestReviewOutcome = z.infer<
+	typeof pullRequestReviewOutcomeSchema
+>
 
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
@@ -84,12 +112,29 @@ export const pullRequestSchema = z.object({
 })
 export type PullRequest = z.infer<typeof pullRequestSchema>
 
-const pullRequestEventPayloadSchema = z.object({
+const pullRequestThreadEventPayloadSchema = z.object({
 	threadId: pullRequestThreadIdSchema,
 	commentId: pullRequestCommentIdSchema.optional(),
 	threadKind: pullRequestThreadKindSchema,
 	path: z.string().optional(),
 })
+
+const pullRequestReviewerEventPayloadSchema = z.object({
+	reviewerUserId: z.uuid().brand<'user_id'>(),
+	reviewerUsername: z.string().min(1),
+})
+
+const pullRequestReviewEventPayloadSchema = z.object({
+	reviewId: pullRequestReviewIdSchema,
+	outcome: pullRequestReviewOutcomeSchema,
+	headSha: z.string(),
+})
+
+const pullRequestEventPayloadSchema = z.union([
+	pullRequestThreadEventPayloadSchema,
+	pullRequestReviewerEventPayloadSchema,
+	pullRequestReviewEventPayloadSchema,
+])
 
 export const pullRequestEventSchema = z.object({
 	id: z.uuid().brand<'pull_request_event_id'>(),
@@ -205,6 +250,7 @@ export const pullRequestCommentSchema = z.object({
 	authorUserId: z.uuid().brand<'user_id'>(),
 	authorUsername: z.string().min(1),
 	body: z.string(),
+	state: pullRequestCommentStateSchema,
 	createdAt: z.coerce.date(),
 	editedAt: z.coerce.date().optional(),
 })
@@ -235,6 +281,83 @@ export const pullRequestThreadViewerSchema = z.object({
 export type PullRequestThreadViewer = z.infer<
 	typeof pullRequestThreadViewerSchema
 >
+
+export const pullRequestReviewerRequestSchema = z.object({
+	id: pullRequestReviewerRequestIdSchema,
+	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
+	reviewerUsername: z.string().min(1),
+	requestedByUserId: z.uuid().brand<'user_id'>().optional(),
+	requestedByUsername: z.string().min(1),
+	createdAt: z.coerce.date(),
+})
+export type PullRequestReviewerRequest = z.infer<
+	typeof pullRequestReviewerRequestSchema
+>
+
+export const pullRequestReviewSchema = z.object({
+	id: pullRequestReviewIdSchema,
+	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
+	reviewerUsername: z.string().min(1),
+	outcome: pullRequestReviewOutcomeSchema,
+	body: z.string(),
+	headSha: z.string(),
+	submittedAt: z.coerce.date(),
+})
+export type PullRequestReview = z.infer<typeof pullRequestReviewSchema>
+
+export const pullRequestEffectiveReviewStateSchema = z.object({
+	reviewId: pullRequestReviewIdSchema,
+	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
+	reviewerUsername: z.string().min(1),
+	outcome: pullRequestReviewOutcomeSchema,
+	headSha: z.string(),
+	stale: z.boolean(),
+	submittedAt: z.coerce.date(),
+})
+export type PullRequestEffectiveReviewState = z.infer<
+	typeof pullRequestEffectiveReviewStateSchema
+>
+
+export const pullRequestPendingReviewSchema = z.object({
+	id: pullRequestReviewIdSchema,
+	headSha: z.string(),
+	commentCount: z.number().int().nonnegative(),
+})
+export type PullRequestPendingReview = z.infer<
+	typeof pullRequestPendingReviewSchema
+>
+
+export const pullRequestReviewerCandidateSchema = z.object({
+	userId: z.uuid().brand<'user_id'>(),
+	username: z.string().min(1),
+})
+export type PullRequestReviewerCandidate = z.infer<
+	typeof pullRequestReviewerCandidateSchema
+>
+
+export const pullRequestReviewSummarySchema = z.object({
+	requestedCount: z.number().int().nonnegative(),
+	approvedCount: z.number().int().nonnegative(),
+	changeRequestCount: z.number().int().nonnegative(),
+	staleCount: z.number().int().nonnegative(),
+})
+export type PullRequestReviewSummary = z.infer<
+	typeof pullRequestReviewSummarySchema
+>
+
+export const pullRequestReviewViewerSchema = z.object({
+	canSubmitReview: z.boolean(),
+	canRequestReviewers: z.boolean(),
+	canRemoveReviewerRequests: z.boolean(),
+})
+export type PullRequestReviewViewer = z.infer<
+	typeof pullRequestReviewViewerSchema
+>
+
+export const pullRequestListItemSchema = pullRequestSchema.extend({
+	reviewSummary: pullRequestReviewSummarySchema,
+})
+export type PullRequestListItem = z.infer<typeof pullRequestListItemSchema>
 
 const repositoryPullRequestsInputSchema = z.object({
 	username: z.string().min(1),
@@ -314,6 +437,10 @@ export type ParsedEditPullRequestInput = z.infer<
 
 const pullRequestCommentBodySchema = z.string().trim().min(1).max(65_536)
 
+const pullRequestReviewMarkerSchema = z.object({
+	expectedHeadSha: pullRequestShaSchema,
+})
+
 export const listPullRequestThreadsInputSchema =
 	getPullRequestInputSchema.extend({
 		path: z.string().trim().min(1).max(4096).optional(),
@@ -329,6 +456,7 @@ export const createPullRequestThreadInputSchema =
 	getPullRequestInputSchema.extend({
 		body: pullRequestCommentBodySchema,
 		anchor: pullRequestThreadAnchorInputSchema.optional(),
+		review: pullRequestReviewMarkerSchema.optional(),
 	})
 export type CreatePullRequestThreadInput = z.input<
 	typeof createPullRequestThreadInputSchema
@@ -341,6 +469,7 @@ export const replyPullRequestThreadInputSchema =
 	getPullRequestInputSchema.extend({
 		threadId: pullRequestThreadIdSchema,
 		body: pullRequestCommentBodySchema,
+		review: pullRequestReviewMarkerSchema.optional(),
 	})
 export type ReplyPullRequestThreadInput = z.input<
 	typeof replyPullRequestThreadInputSchema
@@ -383,6 +512,30 @@ export type ParsedResolvePullRequestThreadInput = z.infer<
 	typeof resolvePullRequestThreadInputSchema
 >
 
+export const requestPullRequestReviewerInputSchema =
+	getPullRequestInputSchema.extend({
+		reviewerUsername: z.string().trim().min(1),
+	})
+export type RequestPullRequestReviewerInput = z.input<
+	typeof requestPullRequestReviewerInputSchema
+>
+export type ParsedRequestPullRequestReviewerInput = z.infer<
+	typeof requestPullRequestReviewerInputSchema
+>
+
+export const submitPullRequestReviewInputSchema =
+	getPullRequestInputSchema.extend({
+		outcome: pullRequestReviewOutcomeSchema,
+		body: z.string().max(65_536).optional(),
+		expectedHeadSha: pullRequestShaSchema,
+	})
+export type SubmitPullRequestReviewInput = z.input<
+	typeof submitPullRequestReviewInputSchema
+>
+export type ParsedSubmitPullRequestReviewInput = z.infer<
+	typeof submitPullRequestReviewInputSchema
+>
+
 export const pullRequestsContract = {
 	create: oc
 		.route({
@@ -399,7 +552,7 @@ export const pullRequestsContract = {
 		.input(listPullRequestsInputSchema)
 		.output(
 			z.object({
-				pullRequests: z.array(pullRequestSchema),
+				pullRequests: z.array(pullRequestListItemSchema),
 				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
@@ -413,6 +566,12 @@ export const pullRequestsContract = {
 			z.object({
 				pullRequest: pullRequestSchema,
 				events: z.array(pullRequestEventSchema),
+				reviewerRequests: z.array(pullRequestReviewerRequestSchema),
+				reviews: z.array(pullRequestReviewSchema),
+				effectiveReviewStates: z.array(pullRequestEffectiveReviewStateSchema),
+				viewerPendingReview: pullRequestPendingReviewSchema.optional(),
+				reviewerCandidates: z.array(pullRequestReviewerCandidateSchema),
+				viewer: pullRequestReviewViewerSchema,
 				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
@@ -516,4 +675,32 @@ export const pullRequestsContract = {
 		})
 		.input(resolvePullRequestThreadInputSchema)
 		.output(pullRequestThreadSchema),
+	requestReviewer: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/reviewers',
+		})
+		.input(requestPullRequestReviewerInputSchema)
+		.output(pullRequestReviewerRequestSchema),
+	removeReviewerRequest: oc
+		.route({
+			method: 'DELETE',
+			path: '/repositories/{username}/{slug}/pulls/{number}/reviewers/{reviewerUsername}',
+		})
+		.input(requestPullRequestReviewerInputSchema)
+		.output(z.object({ removed: z.boolean() })),
+	submitReview: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/reviews',
+		})
+		.input(submitPullRequestReviewInputSchema)
+		.output(pullRequestReviewSchema),
+	discardPendingReview: oc
+		.route({
+			method: 'DELETE',
+			path: '/repositories/{username}/{slug}/pulls/{number}/reviews/pending',
+		})
+		.input(getPullRequestInputSchema)
+		.output(z.object({ discarded: z.boolean() })),
 }
