@@ -89,6 +89,50 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByText('bbbbbbb')).toBeTruthy()
 	})
 
+	test('names commit check status without relying on color', () => {
+		useComparisonQueryMock.mockReturnValue({
+			data: {
+				...COMPARISON,
+				commits: [
+					{
+						...COMPARISON.commits[0],
+						checksSummary: {
+							headSha: COMPARISON.commits[0].sha,
+							overall: 'failure',
+							counts: {
+								queued: 0,
+								pending: 0,
+								success: 0,
+								failure: 1,
+								neutral: 0,
+								canceled: 0,
+								skipped: 0,
+								timed_out: 0,
+								stale: 0,
+							},
+							enforcement: 'advisory',
+							headIsCurrent: true,
+						},
+					},
+				],
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestComparison
+				number="1"
+				slug="notes"
+				tab="commits"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('1 check failed')).toBeTruthy()
+		expect(screen.getByTitle('1 check failed')).toBeTruthy()
+	})
+
 	test('fetches and renders a file diff only after expansion', async () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
