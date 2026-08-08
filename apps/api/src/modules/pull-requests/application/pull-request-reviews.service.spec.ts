@@ -16,6 +16,7 @@ import { PullRequestStateConflictError } from '../domain/pull-request.errors'
 import {
 	PullRequestPendingReviewConflictError,
 	PullRequestReviewAuthorForbiddenError,
+	PullRequestReviewerAlreadyRequestedError,
 	PullRequestReviewerIneligibleError,
 	PullRequestReviewerRequestForbiddenError,
 } from '../domain/pull-request-review.errors'
@@ -168,7 +169,7 @@ describe(PullRequestReviewsService.name, () => {
 		})
 		const createSpy = vi
 			.spyOn(reviewsRepository, 'createReviewerRequest')
-			.mockResolvedValue(reviewerRequest)
+			.mockResolvedValue({ status: 'created', request: reviewerRequest })
 		const removeSpy = vi
 			.spyOn(reviewsRepository, 'removeReviewerRequest')
 			.mockResolvedValue(true)
@@ -397,7 +398,7 @@ describe(PullRequestReviewsService.name, () => {
 	test('accepts a public repository reader resolved by exact username', async () => {
 		const createSpy = vi
 			.spyOn(reviewsRepository, 'createReviewerRequest')
-			.mockResolvedValue(reviewerRequest)
+			.mockResolvedValue({ status: 'created', request: reviewerRequest })
 
 		await service.requestReviewer(mockUserId, {
 			...repositoryInput,
@@ -410,6 +411,111 @@ describe(PullRequestReviewsService.name, () => {
 		expect(createSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ reviewerUsername: 'Reviewer.Exact' })
 		)
+	})
+
+	test('reports an already requested reviewer instead of a second request', async () => {
+		vi.spyOn(reviewsRepository, 'createReviewerRequest').mockResolvedValue({
+			status: 'already_requested',
+		})
+
+		await expect(
+			service.requestReviewer(mockUserId, {
+				...repositoryInput,
+				reviewerUsername: 'reviewer',
+			})
+		).rejects.toBeInstanceOf(PullRequestReviewerAlreadyRequestedError)
+	})
+
+	test('reports a state conflict when the pull request closed under the request', async () => {
+		vi.spyOn(reviewsRepository, 'createReviewerRequest').mockResolvedValue({
+			status: 'pull_request_closed',
+		})
+
+		await expect(
+			service.requestReviewer(mockUserId, {
+				...repositoryInput,
+				reviewerUsername: 'reviewer',
+			})
+		).rejects.toBeInstanceOf(PullRequestStateConflictError)
+	})
+
+	/**
+	 * A GitHub-synced review can outlive the account that wrote it. Until those
+	 * reviewers are mapped, such a review is dropped everywhere rather than
+	 * failing the whole detail view on an unrenderable row.
+	 */
+	test('leaves reviews without a resolvable reviewer out of the history and the effective states', async () => {
+		vi.spyOn(reviewsRepository, 'listSubmittedReviews').mockResolvedValue([
+			{
+				...submittedReview,
+				id: '00000000-0000-4000-8000-000000000078' as PullRequestReviewId,
+				reviewerUserId: null,
+				reviewerUsername: null,
+			},
+			submittedReview,
+		])
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
+			baseSha: 'base',
+			headSha: 'reviewed-head',
+			mergeBaseSha: 'base',
+			commits: [],
+			files: [],
+			isTruncated: false,
+			commitsTruncated: false,
+			commitLimit: 500,
+			fileLimit: 300,
+		})
+
+		const state = await service.getReviewState({
+			pullRequest,
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			tesseraWritesAllowed: true,
+			viewerRole: 'read',
+		})
+
+		expect(state.reviews).toEqual([
+			expect.objectContaining({ id: reviewId, reviewerUsername: 'reviewer' }),
+		])
+		expect(state.effectiveReviewStates).toEqual([
+			expect.objectContaining({ reviewId, reviewerUsername: 'reviewer' }),
+		])
+	})
+
+	test('leaves list reviews without a resolvable reviewer out of the summary counts', async () => {
+		vi.spyOn(reviewsRepository, 'listEffectiveReviews').mockResolvedValue([
+			{
+				pullRequestId,
+				reviewerUserId: null,
+				reviewerUsername: null,
+				outcome: 'approve',
+				headSha: 'reviewed-head',
+			},
+		])
+		vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
+			branches: [
+				{
+					type: 'branch',
+					name: 'feature',
+					qualifiedName: 'refs/heads/feature',
+					target: 'reviewed-head',
+				},
+			],
+			tags: [],
+		})
+
+		const summaries = await service.listReviewSummaries({
+			pullRequests: [pullRequest],
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+		})
+
+		expect(summaries.get(pullRequestId)).toEqual({
+			requestedCount: 0,
+			approvedCount: 0,
+			changeRequestCount: 0,
+			staleCount: 0,
+		})
 	})
 
 	test('computes latest effective state, author exclusion, staleness, candidates, pending review, and capabilities', async () => {
