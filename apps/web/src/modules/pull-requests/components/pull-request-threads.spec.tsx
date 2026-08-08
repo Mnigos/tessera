@@ -115,11 +115,13 @@ function thread({
 	path,
 	body,
 	resolved,
+	commentState = 'published',
 }: {
 	id: string
 	path?: string
 	body: string
 	resolved?: boolean
+	commentState?: PullRequestThread['comments'][number]['state']
 }): PullRequestThread {
 	return {
 		id: id as PullRequestThreadId,
@@ -151,7 +153,7 @@ function thread({
 				authorUserId: AUTHOR_USER_ID,
 				authorUsername: 'marta',
 				body,
-				state: 'published',
+				state: commentState,
 				createdAt,
 			},
 		],
@@ -739,6 +741,61 @@ describe('pull request threads', () => {
 		)
 	})
 
+	test('offers the review action with the loaded head when data arrives after mount', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: undefined,
+			isLoading: true,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const { rerender } = render(
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: false }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: false }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment' }),
+			'Review note'
+		)
+		await user.click(screen.getByRole('button', { name: 'Start a review' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ review: { expectedHeadSha: HEAD_SHA } }),
+			expect.anything()
+		)
+	})
+
 	test('keeps the head the line composer opened against when the branch moves mid-draft', async () => {
 		const mutate = vi.fn()
 		useCreateThreadMutationMock.mockReturnValue({
@@ -842,6 +899,60 @@ describe('pull request threads', () => {
 		)
 	})
 
+	/**
+	 * The composer only mounts once the thread capabilities have loaded, so the
+	 * head it captures is the one already on screen. A comparison that arrives
+	 * after the first render can never leave the review action inert.
+	 */
+	test('offers the review action when the threads query resolves after the first render', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: undefined,
+			isLoading: true,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const timeline = () => (
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: true }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+		const { rerender } = render(timeline())
+
+		expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(timeline())
+
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment' }),
+			'Review note'
+		)
+		await user.click(screen.getByRole('button', { name: 'Add to review' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ review: { expectedHeadSha: HEAD_SHA } }),
+			expect.anything()
+		)
+	})
+
 	test('hides the review action when review submission is not allowed', () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
@@ -870,8 +981,8 @@ describe('pull request threads', () => {
 		const pendingThread = thread({
 			id: '00000000-0000-4000-8000-000000000016',
 			body: 'Private draft',
+			commentState: 'pending',
 		})
-		pendingThread.comments[0].state = 'pending'
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [pendingThread],

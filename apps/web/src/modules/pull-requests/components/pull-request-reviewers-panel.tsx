@@ -51,10 +51,6 @@ export function PullRequestReviewersPanel({
 		effectiveReviewStates
 	)
 
-	function handleRemove(reviewerUsername: string) {
-		removeRequest.mutate({ username, slug, number, reviewerUsername })
-	}
-
 	return (
 		<Card className="gap-4">
 			<h2 className="font-semibold text-base tracking-normal">Reviewers</h2>
@@ -73,7 +69,14 @@ export function PullRequestReviewersPanel({
 								removeRequest.variables?.reviewerUsername === entry.username
 							}
 							key={entry.username}
-							onRemove={() => handleRemove(entry.username)}
+							onRemove={() =>
+								removeRequest.mutate({
+									username,
+									slug,
+									number,
+									reviewerUsername: entry.username,
+								})
+							}
 						/>
 					))}
 				</ul>

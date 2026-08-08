@@ -106,6 +106,7 @@ export function PullRequestTimeline({
 			)}
 			{permissions.canComment && (
 				<PullRequestTimelineComposer
+					key={permissions.review ? 'with-review' : 'without-review'}
 					number={number}
 					review={permissions.review}
 					slug={slug}
@@ -142,7 +143,9 @@ function PullRequestTimelineComposer({
 }: Readonly<PullRequestTimelineComposerProps>) {
 	const [composerKey, setComposerKey] = useState(0)
 	// The head the current draft was opened against. A background refetch must
-	// not move it under a comment the viewer is still writing.
+	// not move it under a comment the viewer is still writing. The parent keys
+	// this component by review presence, so the initial data load remounts it
+	// with the loaded head instead of freezing an undefined one.
 	const [draftHeadSha, setDraftHeadSha] = useState(review?.headSha)
 	const createThreadMutation = useCreatePullRequestThreadMutation()
 
