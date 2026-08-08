@@ -20,6 +20,19 @@ describe('GitHub check observations', () => {
 		expect(boundCheckOutputSummary(undefined)).toBeUndefined()
 	})
 
+	test('never cuts an emoji in half at the boundary', () => {
+		// PostgreSQL rejects a lone surrogate, so an orphaned half would fail the
+		// whole projection transaction rather than just truncating this summary.
+		const excerpt = boundCheckOutputSummary(`${'x'.repeat(3999)}😀tail`)
+
+		expect(excerpt).toHaveLength(3999)
+		expect(excerpt?.isWellFormed()).toBeTruthy()
+		// A pair that fits whole is kept whole.
+		expect(boundCheckOutputSummary(`${'x'.repeat(3998)}😀tail`)).toHaveLength(
+			4000
+		)
+	})
+
 	test('fingerprints the complete mutable check-run snapshot', () => {
 		const run = checkRun()
 

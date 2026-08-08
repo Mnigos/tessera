@@ -428,12 +428,12 @@ describe('GitHub checks sync integration', () => {
 	test('appends nothing when the same snapshot is projected again', async () => {
 		await runProjection()
 		const streams = await listCheckStreams()
-		const observations = await db.query.checkObservations.findMany()
+		const observations = await listObservations()
 
 		await runProjection()
 
 		expect(await listCheckStreams()).toEqual(streams)
-		expect(await db.query.checkObservations.findMany()).toEqual(observations)
+		expect(await listObservations()).toEqual(observations)
 		expect(await db.query.checks.findMany()).toHaveLength(5)
 	})
 
@@ -684,7 +684,7 @@ describe('GitHub checks sync integration', () => {
 
 	test('keeps results of a commit the pull request moved past and reports the new head', async () => {
 		await runProjection()
-		const observations = await db.query.checkObservations.findMany()
+		const observations = await listObservations()
 
 		reconciledPullRequests = [pullRequestSnapshot(MOVED_HEAD_SHA)]
 		snapshots.set(MOVED_HEAD_SHA, {
@@ -698,7 +698,7 @@ describe('GitHub checks sync integration', () => {
 		// Nothing computed against the old head is rewritten; it just stops speaking
 		// for the pull request.
 		expect(
-			(await db.query.checkObservations.findMany()).filter(observation =>
+			(await listObservations()).filter(observation =>
 				observations.some(existing => existing.id === observation.id)
 			)
 		).toEqual(observations)
@@ -747,7 +747,7 @@ describe('GitHub checks sync integration', () => {
 	test('never deletes native results GitHub stopped reporting', async () => {
 		await runProjection()
 		const streams = await listCheckStreams()
-		const observations = await db.query.checkObservations.findMany()
+		const observations = await listObservations()
 
 		snapshots.set(HEAD_SHA, {
 			sha: HEAD_SHA,
@@ -758,7 +758,7 @@ describe('GitHub checks sync integration', () => {
 		await runProjection()
 
 		expect(await listCheckStreams()).toEqual(streams)
-		expect(await db.query.checkObservations.findMany()).toEqual(observations)
+		expect(await listObservations()).toEqual(observations)
 		// A pruned run is still a run that happened, so the mapping records the
 		// absence and nothing else does.
 		expect(
@@ -883,7 +883,7 @@ describe('GitHub checks sync integration', () => {
 		)
 
 		expect(await db.query.checks.findMany()).toEqual([])
-		expect(await db.query.checkObservations.findMany()).toEqual([])
+		expect(await listObservations()).toEqual([])
 		expect(await db.query.gitHubCheckRunMappings.findMany()).toEqual([])
 		expect(await db.query.gitHubCheckSuiteMappings.findMany()).toEqual([])
 	})
@@ -1157,6 +1157,18 @@ describe('GitHub checks sync integration', () => {
 
 	function toStreamKey({ context, kind, states }: CheckStream) {
 		return `${context}:${kind}:${states.join(',')}`
+	}
+
+	/**
+	 * Every observation in the ledger's own append order. `findMany` has no
+	 * inherent order, so comparing two unordered reads with `toEqual` would fail
+	 * on a reshuffle rather than on a change. The sequence is a single serial
+	 * across the whole table, so it totally orders them.
+	 */
+	async function listObservations() {
+		return await db.query.checkObservations.findMany({
+			orderBy: (observation, { asc }) => asc(observation.sequence),
+		})
 	}
 
 	async function findObservations(

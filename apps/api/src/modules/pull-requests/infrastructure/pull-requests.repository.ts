@@ -375,6 +375,12 @@ export class PullRequestsRepository {
 						providerClosedAt: pullRequest.closedAt,
 						providerMergedAt: pullRequest.mergedAt,
 						lastSyncedAt: new Date(),
+						// The checks cursor records when the head this mapping points at
+						// was reconciled, so a new head has never been reconciled at all.
+						// Carrying the old commit's timestamp over would sort the moved
+						// pull request to the back of the rotation and leave the new head
+						// showing the previous one's results until its turn came around.
+						checksSyncedAt: sql`case when ${gitHubPullRequestMappings.headSha} = ${pullRequest.headSha} then ${gitHubPullRequestMappings.checksSyncedAt} else null end`,
 					},
 				})
 

@@ -24,6 +24,7 @@ import {
 	type GitHubSyncClaim,
 	GitHubSyncRepository,
 } from '../infrastructure/github-sync.repository'
+import { GitHubSyncAuthorityError } from '../infrastructure/github-sync-authority'
 import { GitHubSyncChecksRepository } from '../infrastructure/github-sync-checks.repository'
 import { GitHubSyncConversationsRepository } from '../infrastructure/github-sync-conversations.repository'
 import { GitHubSyncProcessor } from './github-sync.processor'
@@ -490,6 +491,61 @@ describe(GitHubSyncProcessor.name, () => {
 		expect(repository.finalizeSync).toHaveBeenCalledWith(
 			expect.objectContaining({ projectedShas: [] })
 		)
+	})
+
+	test('contains a transient checks failure to the commit it happened on', async () => {
+		const checksRepository = moduleRef.get(GitHubSyncChecksRepository)
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
+			'failing-head',
+			'healthy-head',
+		])
+		vi.spyOn(client, 'getChecksForRef').mockImplementation(({ ref }) =>
+			ref === 'failing-head'
+				? Promise.reject(
+						new ExternalServiceError('GitHub', {
+							scope: 'ref',
+							statusCode: 500,
+						})
+					)
+				: Promise.resolve({ sha: ref, suites: [], runs: [], statuses: [] })
+		)
+		vi.spyOn(checksRepository, 'projectChecksForSha').mockResolvedValue({
+			appendedObservations: 0,
+			unrecognizedResults: [],
+		})
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		// Checks run last, so failing the whole run here would throw away the pull
+		// requests and conversations this run already reconciled. The commit GitHub
+		// could not answer for is simply left unprojected: it is absent from
+		// projectedShas, so its deliveries stay pending for the next run.
+		expect(repository.finalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({ projectedShas: ['healthy-head'] })
+		)
+		expect(repository.failSync).not.toHaveBeenCalled()
+	})
+
+	test('aborts the run when a check projection finds authority gone', async () => {
+		const checksRepository = moduleRef.get(GitHubSyncChecksRepository)
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
+			'head-sha',
+			'later-head',
+		])
+		vi.spyOn(client, 'getChecksForRef').mockImplementation(({ ref }) =>
+			Promise.resolve({ sha: ref, suites: [], runs: [], statuses: [] })
+		)
+		vi.spyOn(checksRepository, 'projectChecksForSha').mockRejectedValue(
+			new GitHubSyncAuthorityError()
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('GitHub synchronization authority changed')
+		// Containing per-commit failures must not downgrade a lost lease into a
+		// skipped commit: another run owns the repository, so this one stops.
+		expect(checksRepository.projectChecksForSha).toHaveBeenCalledTimes(1)
+		expect(repository.finalizeSync).not.toHaveBeenCalled()
 	})
 
 	test('aborts before a check fetch when the authority heartbeat changes', async () => {

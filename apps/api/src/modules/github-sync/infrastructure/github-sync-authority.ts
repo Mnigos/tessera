@@ -7,6 +7,18 @@ import {
 import type { RepositoryId } from '@repo/domain'
 
 /**
+ * Another run owns this repository now, so nothing this one does may still be
+ * written. It carries its own type because stages that contain a single item's
+ * failure and carry on must still abort whole on this one.
+ */
+export class GitHubSyncAuthorityError extends Error {
+	constructor() {
+		super('GitHub synchronization authority changed')
+		this.name = 'GitHubSyncAuthorityError'
+	}
+}
+
+/**
  * The fence every projection commits behind. Reading the external source `for
  * update` inside the transaction means a run whose authority changed or whose
  * lease was taken over aborts before it writes anything, so no projection can
@@ -38,5 +50,5 @@ export async function assertGitHubSyncAuthority(
 		.limit(1)
 		.for('update')
 
-	if (!source) throw new Error('GitHub synchronization authority changed')
+	if (!source) throw new GitHubSyncAuthorityError()
 }

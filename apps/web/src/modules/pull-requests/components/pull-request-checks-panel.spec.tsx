@@ -167,4 +167,52 @@ describe(PullRequestChecksPanel.name, () => {
 		expect(screen.getByRole('link', { name: DETAILS_REGEX })).toBeTruthy()
 		expect(screen.getByText(EARLIER_COMMIT_REGEX)).toBeTruthy()
 	})
+
+	test('takes head currency from the read that produced the rows', () => {
+		// The summary travelled with the pull request and still calls this commit
+		// the head; only the checks read, made later, knows it no longer is.
+		useChecksQueryMock.mockReturnValue({
+			data: { checks: [CHECK], headIsCurrent: false },
+			isLoading: false,
+			isError: false,
+		} as never)
+		const props = {
+			username: 'marta',
+			slug: 'notes',
+			number: '1',
+			checksSummary: { ...SUMMARY, headIsCurrent: true },
+		}
+		const { rerender } = render(<PullRequestChecksPanel {...props} />)
+
+		expect(screen.getByText(EARLIER_COMMIT_REGEX)).toBeTruthy()
+
+		// And the other way: a summary that called the commit stale must not keep
+		// warning once the rows come back reported on the current head.
+		useChecksQueryMock.mockReturnValue({
+			data: { checks: [CHECK], headIsCurrent: true },
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(<PullRequestChecksPanel {...props} checksSummary={SUMMARY} />)
+
+		expect(screen.queryByText(EARLIER_COMMIT_REGEX)).toBeNull()
+	})
+
+	test('keeps the summary’s currency until the rows arrive', () => {
+		useChecksQueryMock.mockReturnValue({
+			isLoading: true,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestChecksPanel
+				checksSummary={SUMMARY}
+				number="1"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText(EARLIER_COMMIT_REGEX)).toBeTruthy()
+	})
 })
