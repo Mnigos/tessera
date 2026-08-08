@@ -1,4 +1,6 @@
 export * from './auth.schema'
+export * from './checks.schema'
+export * from './github-checks.schema'
 export * from './github-pull-request-conversations.schema'
 export * from './github-sync.schema'
 export * from './gpg-public-keys.schema'

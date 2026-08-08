@@ -12,6 +12,7 @@ export {
 	lte,
 	ne,
 	notExists,
+	notInArray,
 	or,
 	sql,
 } from 'drizzle-orm'
