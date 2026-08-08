@@ -1,5 +1,6 @@
 import { oc } from '@orpc/contract'
 import { z } from 'zod'
+import { checksListSchema, checksSummarySchema } from './checks.contract'
 import {
 	repositorySlugSchema,
 	repositoryViewerRoleSchema,
@@ -235,6 +236,8 @@ const pullRequestComparisonCommitSchema = z.object({
 			date: z.coerce.date(),
 		})
 		.optional(),
+	/** Absent when nothing has ever reported on the commit. */
+	checksSummary: checksSummarySchema.optional(),
 })
 
 export const pullRequestComparisonSchema = z.object({
@@ -408,6 +411,8 @@ export type PullRequestReviewViewer = z.infer<
 
 export const pullRequestListItemSchema = pullRequestSchema.extend({
 	reviewSummary: pullRequestReviewSummarySchema,
+	/** Absent when the head commit has no result to roll up yet. */
+	checksSummary: checksSummarySchema.optional(),
 })
 export type PullRequestListItem = z.infer<typeof pullRequestListItemSchema>
 
@@ -463,6 +468,20 @@ export type GetPullRequestFileDiffInput = z.input<
 >
 export type ParsedGetPullRequestFileDiffInput = z.infer<
 	typeof getPullRequestFileDiffInputSchema
+>
+
+/**
+ * The commit the caller believes the pull request points at. Results are read
+ * for that commit rather than whichever one the head has since become, so rows
+ * a client already holds can never be rendered under a newer head's rollup.
+ */
+export const listPullRequestChecksInputSchema =
+	getPullRequestInputSchema.extend({ expectedHeadSha: pullRequestShaSchema })
+export type ListPullRequestChecksInput = z.input<
+	typeof listPullRequestChecksInputSchema
+>
+export type ParsedListPullRequestChecksInput = z.infer<
+	typeof listPullRequestChecksInputSchema
 >
 
 export const mergePullRequestInputSchema = getPullRequestInputSchema.extend({
@@ -622,6 +641,7 @@ export const pullRequestsContract = {
 				reviewerRequests: z.array(pullRequestReviewerRequestSchema),
 				reviews: z.array(pullRequestReviewSchema),
 				effectiveReviewStates: z.array(pullRequestEffectiveReviewStateSchema),
+				checksSummary: checksSummarySchema.optional(),
 				viewerPendingReview: pullRequestPendingReviewSchema.optional(),
 				reviewerCandidates: z.array(pullRequestReviewerCandidateSchema),
 				viewer: pullRequestReviewViewerSchema,
@@ -643,6 +663,13 @@ export const pullRequestsContract = {
 		})
 		.input(getPullRequestFileDiffInputSchema)
 		.output(pullRequestFileDiffSchema),
+	listChecks: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/checks',
+		})
+		.input(listPullRequestChecksInputSchema)
+		.output(checksListSchema),
 	edit: oc
 		.route({
 			method: 'PATCH',
