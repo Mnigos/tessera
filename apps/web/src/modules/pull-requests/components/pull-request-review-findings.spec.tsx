@@ -109,6 +109,33 @@ const COMPARISON = {
 	fileLimit: 300,
 } satisfies PullRequestComparison
 
+const REVIEW_SUMMARY = {
+	requestedCount: 0,
+	approvedCount: 0,
+	changeRequestCount: 0,
+	staleCount: 0,
+}
+
+const REVIEW_VIEWER = {
+	canSubmitReview: false,
+	canRequestReviewers: false,
+	canRemoveReviewerRequests: false,
+}
+
+function detailData(overrides: Record<string, unknown> = {}) {
+	return {
+		pullRequest: PULL_REQUEST,
+		events: [],
+		reviewerRequests: [],
+		reviews: [],
+		effectiveReviewStates: [],
+		reviewerCandidates: [],
+		viewer: REVIEW_VIEWER,
+		viewerRole: 'read',
+		...overrides,
+	}
+}
+
 const BRANCHES = [
 	{
 		type: 'branch',
@@ -283,7 +310,7 @@ describe('pull request review findings', () => {
 
 	test('shows edit, lifecycle, and merge controls for write-role viewers', () => {
 		usePullRequestQueryMock.mockReturnValue({
-			data: { pullRequest: PULL_REQUEST, events: [], viewerRole: 'write' },
+			data: detailData({ viewerRole: 'write' }),
 			isError: false,
 			isLoading: false,
 		} as never)
@@ -330,7 +357,7 @@ describe('pull request review findings', () => {
 
 	test('hides edit, lifecycle, and merge controls for read-only viewers', () => {
 		usePullRequestQueryMock.mockReturnValue({
-			data: { pullRequest: PULL_REQUEST, events: [], viewerRole: 'read' },
+			data: detailData(),
 			isError: false,
 			isLoading: false,
 		} as never)
@@ -361,14 +388,12 @@ describe('pull request review findings', () => {
 
 	test('renders safe Markdown and exposes the current detail page', () => {
 		usePullRequestQueryMock.mockReturnValue({
-			data: {
+			data: detailData({
 				pullRequest: {
 					...PULL_REQUEST,
 					body: '## Summary\n\n- Safe item\n\n<script>unsafe()</script>',
 				},
-				events: [],
-				viewerRole: 'read',
-			},
+			}),
 			isError: false,
 			isLoading: false,
 		} as never)
@@ -398,7 +423,12 @@ describe('pull request review findings', () => {
 
 		render(
 			<PullRequestListItem
-				pullRequest={{ ...PULL_REQUEST, sourceBranch, targetBranch }}
+				pullRequest={{
+					...PULL_REQUEST,
+					sourceBranch,
+					targetBranch,
+					reviewSummary: REVIEW_SUMMARY,
+				}}
 				slug="notes"
 				username="marta"
 			/>

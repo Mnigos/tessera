@@ -12,6 +12,7 @@ import {
 	getInlineThreadsForFile,
 	getUnanchoredInlineThreads,
 } from '../helpers/pull-request-inline-threads'
+import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
@@ -26,6 +27,7 @@ interface PullRequestComparisonProps {
 	slug: string
 	number: string
 	tab: PullRequestDetailTab
+	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
 }
 
@@ -34,6 +36,7 @@ export function PullRequestComparison({
 	slug,
 	number,
 	tab,
+	review,
 	viewerUserId,
 }: Readonly<PullRequestComparisonProps>) {
 	const comparisonQuery = usePullRequestComparisonQuery(
@@ -68,6 +71,7 @@ export function PullRequestComparison({
 		<PullRequestFiles
 			comparison={comparisonQuery.data}
 			number={number}
+			review={review}
 			slug={slug}
 			username={username}
 			viewerUserId={viewerUserId}
@@ -132,6 +136,7 @@ interface PullRequestFilesProps {
 	username: string
 	slug: string
 	number: string
+	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
 }
 
@@ -140,6 +145,7 @@ function PullRequestFiles({
 	username,
 	slug,
 	number,
+	review,
 	viewerUserId,
 }: Readonly<PullRequestFilesProps>) {
 	const [expandedPaths, setExpandedPaths] = useState<string[]>([])
@@ -149,6 +155,7 @@ function PullRequestFiles({
 	const permissions = getPullRequestThreadPermissions({
 		viewer: threadsQuery.data?.viewer,
 		viewerUserId,
+		review: review && { ...review, headSha: comparison.headSha },
 	})
 	const unanchoredThreads = getUnanchoredInlineThreads(
 		threads,

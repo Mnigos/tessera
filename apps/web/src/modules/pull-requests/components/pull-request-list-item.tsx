@@ -1,16 +1,17 @@
-import type { PullRequest } from '@repo/contracts'
+import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
+import { PullRequestReviewSummaryBadges } from './pull-request-review-summary-badges'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 
 interface PullRequestListItemProps {
 	username: string
 	slug: string
-	pullRequest: PullRequest
+	pullRequest: PullRequestListItemData
 }
 
 export function PullRequestListItem({
@@ -54,7 +55,10 @@ export function PullRequestListItem({
 					</span>
 				</div>
 			</div>
-			<PullRequestStateBadge state={pullRequest.state} />
+			<div className="flex shrink-0 flex-col items-end gap-2">
+				<PullRequestStateBadge state={pullRequest.state} />
+				<PullRequestReviewSummaryBadges summary={pullRequest.reviewSummary} />
+			</div>
 		</li>
 	)
 }

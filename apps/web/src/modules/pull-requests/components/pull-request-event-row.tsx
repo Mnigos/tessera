@@ -2,7 +2,7 @@ import type { PullRequestEvent } from '@repo/contracts'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
-	getPullRequestEventLabel,
+	getPullRequestEventDescription,
 } from '../helpers/pull-request-formatting'
 
 interface PullRequestEventRowProps {
@@ -15,7 +15,7 @@ export function PullRequestEventRow({
 	return (
 		<div className="flex flex-wrap items-baseline justify-between gap-2 px-1 text-muted-foreground text-sm">
 			<span>
-				{getPullRequestEventLabel(event.type)} by {event.actorUsername}
+				{getPullRequestEventDescription(event)} by {event.actorUsername}
 			</span>
 			<time
 				className="text-xs"

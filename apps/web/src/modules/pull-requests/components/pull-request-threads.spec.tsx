@@ -75,6 +75,7 @@ const AUTHOR_USER_ID = '00000000-0000-4000-8000-0000000000a1' as ThreadAuthorId
 const createdAt = new Date('2026-08-06T10:00:00.000Z')
 const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
+const MOVED_HEAD_SHA = 'c'.repeat(40)
 const RENAMED_FILE_BUTTON_NAME_REGEX = /src\/old\.ts → src\/new\.ts/
 const COMMENTED_EVENT_REGEX = /Pull request commented/
 const RESOLVED_EVENT_REGEX = /Comment thread resolved by marta/
@@ -150,6 +151,7 @@ function thread({
 				authorUserId: AUTHOR_USER_ID,
 				authorUsername: 'marta',
 				body,
+				state: 'published',
 				createdAt,
 			},
 		],
@@ -572,6 +574,7 @@ describe('pull request threads', () => {
 			authorUserId: '00000000-0000-4000-8000-0000000000b2' as ThreadAuthorId,
 			authorUsername: 'jan',
 			body: 'Reply body',
+			state: 'published',
 			createdAt: new Date('2026-08-06T11:30:00Z'),
 		})
 		useThreadsQueryMock.mockReturnValue({
@@ -689,6 +692,209 @@ describe('pull request threads', () => {
 
 		expect(screen.queryByRole('textbox')).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
+	})
+
+	test('adds a top-level comment to a review with the displayed comparison marker', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		render(
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: false }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment' }),
+			'Review note'
+		)
+		await user.click(screen.getByRole('button', { name: 'Start a review' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			{
+				username: 'marta',
+				slug: 'notes',
+				number: '1',
+				body: 'Review note',
+				review: { expectedHeadSha: HEAD_SHA },
+			},
+			expect.anything()
+		)
+	})
+
+	test('keeps the head the line composer opened against when the branch moves mid-draft', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const comparison = () => (
+			<PullRequestComparison
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: true }}
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+		const { rerender } = render(comparison())
+
+		await user.click(
+			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
+		)
+		await user.click(
+			screen.getByRole('button', { name: 'Comment on original line 1' })
+		)
+		const composer = screen.getByRole('textbox', { name: 'Comment on line 1' })
+		fireEvent.change(composer, { target: { value: 'Line note' } })
+
+		// A background refetch lands while the comment is being written.
+		useComparisonQueryMock.mockReturnValue({
+			data: { ...COMPARISON, headSha: MOVED_HEAD_SHA },
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(comparison())
+		await user.click(screen.getByRole('button', { name: 'Add to review' }))
+
+		expect(mutate).toHaveBeenLastCalledWith(
+			expect.objectContaining({ review: { expectedHeadSha: HEAD_SHA } }),
+			expect.anything()
+		)
+	})
+
+	test('keeps the head the composer opened against when the branch moves mid-draft', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const timeline = () => (
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: true, hasPendingReview: true }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+		const { rerender } = render(timeline())
+
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment' }),
+			'Review note'
+		)
+
+		// A background refetch lands while the comment is being written.
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: MOVED_HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(timeline())
+		await user.click(screen.getByRole('button', { name: 'Add to review' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ review: { expectedHeadSha: HEAD_SHA } }),
+			expect.anything()
+		)
+	})
+
+	test('hides the review action when review submission is not allowed', () => {
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				review={{ canSubmitReview: false, hasPendingReview: false }}
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
+	})
+
+	test("marks the author's pending comment as Pending", () => {
+		const pendingThread = thread({
+			id: '00000000-0000-4000-8000-000000000016',
+			body: 'Private draft',
+		})
+		pendingThread.comments[0].state = 'pending'
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [pendingThread],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestTimeline
+				events={[]}
+				number="1"
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		expect(screen.getByText('Pending')).toBeTruthy()
+		// Resolving writes a public event, so a thread that is still a private
+		// draft offers nothing to resolve.
+		expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull()
 	})
 })
 

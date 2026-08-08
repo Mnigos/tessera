@@ -1,4 +1,4 @@
-import { pullRequestSchema } from '@repo/contracts'
+import { pullRequestListItemSchema } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
@@ -25,7 +25,17 @@ vi.mock('../hooks/use-pull-requests-list.query', () => ({
 }))
 
 const usePullRequestsListQueryMock = vi.mocked(usePullRequestsListQuery)
-const PULL_REQUEST = pullRequestSchema.parse({
+const CHANGES_BADGE_REGEX = /requested changes/
+const STALE_BADGE_REGEX = /stale/
+const ANY_REVIEW_BADGE_REGEX =
+	/approved|requested changes|awaiting review|stale/
+const PULL_REQUEST = pullRequestListItemSchema.parse({
+	reviewSummary: {
+		requestedCount: 1,
+		approvedCount: 1,
+		changeRequestCount: 0,
+		staleCount: 0,
+	},
 	id: 'd8101d74-b320-4482-a8f2-a25308fb2757',
 	repositoryId: '8426d960-d537-4bc9-9ec9-43e8acd632b0',
 	provider: 'tessera',
@@ -118,5 +128,55 @@ describe(PullRequestsList.name, () => {
 		)
 
 		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
+	})
+
+	test('renders non-zero review summary badges and omits zero counts', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: { pullRequests: [PULL_REQUEST], viewerRole: 'read' },
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByTitle('1 approved')).toBeTruthy()
+		expect(screen.getByTitle('1 awaiting review')).toBeTruthy()
+		expect(screen.queryByTitle(CHANGES_BADGE_REGEX)).toBeNull()
+		expect(screen.queryByTitle(STALE_BADGE_REGEX)).toBeNull()
+	})
+
+	test('renders no review badges for a zero summary', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: {
+				pullRequests: [
+					{
+						...PULL_REQUEST,
+						reviewSummary: {
+							requestedCount: 0,
+							approvedCount: 0,
+							changeRequestCount: 0,
+							staleCount: 0,
+						},
+					},
+				],
+				viewerRole: 'read',
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByTitle(ANY_REVIEW_BADGE_REGEX)).toBeNull()
 	})
 })

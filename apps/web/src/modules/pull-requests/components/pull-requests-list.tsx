@@ -1,4 +1,7 @@
-import type { PullRequest, PullRequestState } from '@repo/contracts'
+import type {
+	PullRequestListItem as PullRequestListItemData,
+	PullRequestState,
+} from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { Link } from '@tanstack/react-router'
 import { GitPullRequest, Plus } from 'lucide-react'
@@ -69,7 +72,7 @@ interface PullRequestsListContentProps {
 	slug: string
 	isError: boolean
 	isLoading: boolean
-	pullRequests?: PullRequest[]
+	pullRequests?: PullRequestListItemData[]
 }
 
 function PullRequestsListContent({

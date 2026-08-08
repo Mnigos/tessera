@@ -4,9 +4,11 @@ import type {
 	PullRequestThreadViewer,
 	SessionUser,
 } from '@repo/contracts'
+import type { PullRequestReviewContext } from './pull-request-review'
 
 export interface PullRequestThreadPermissions extends PullRequestThreadViewer {
 	viewerUserId?: SessionUser['id']
+	review?: PullRequestReviewContext
 }
 
 export const READ_ONLY_PULL_REQUEST_THREAD_PERMISSIONS: PullRequestThreadPermissions =
@@ -19,6 +21,7 @@ export const READ_ONLY_PULL_REQUEST_THREAD_PERMISSIONS: PullRequestThreadPermiss
 interface GetPullRequestThreadPermissionsInput {
 	viewer?: PullRequestThreadViewer
 	viewerUserId?: SessionUser['id']
+	review?: PullRequestReviewContext
 }
 
 /**
@@ -29,20 +32,26 @@ interface GetPullRequestThreadPermissionsInput {
 export function getPullRequestThreadPermissions({
 	viewer,
 	viewerUserId,
+	review,
 }: GetPullRequestThreadPermissionsInput): PullRequestThreadPermissions {
 	if (!viewer) return READ_ONLY_PULL_REQUEST_THREAD_PERMISSIONS
 
-	return { ...viewer, viewerUserId }
+	return { ...viewer, viewerUserId, review }
 }
 
 /**
  * Write collaborators may resolve any thread; everyone else may only resolve
- * threads they participate in.
+ * threads they participate in. A thread the viewer only sees through their own
+ * pending draft has nothing public to resolve, and the server refuses until the
+ * review is submitted.
  */
 export function canResolvePullRequestThread(
 	permissions: PullRequestThreadPermissions,
 	thread: PullRequestThread
 ) {
+	if (!thread.comments.some(comment => comment.state === 'published'))
+		return false
+
 	return (
 		permissions.canComment &&
 		(permissions.canResolveAnyThread ||
