@@ -2,6 +2,13 @@ import { oc } from '@orpc/contract'
 import { repositoryRoles } from '@repo/domain'
 import { z } from 'zod'
 
+/**
+ * Refused because GitHub owns the repository. It answers a push and a comment
+ * alike, so the wording names no particular action.
+ */
+export const REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE =
+	'GitHub is the source of truth for this repository. Make this change on GitHub.'
+
 export const repositorySlugSchema = z
 	.string()
 	.min(1)

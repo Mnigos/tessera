@@ -38,6 +38,37 @@ export type PullRequestReviewerRequestId = z.infer<
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
 
+export const pullRequestProviderSchema = z.enum(['tessera', 'github'])
+export type PullRequestProvider = z.infer<typeof pullRequestProviderSchema>
+
+/**
+ * Which system owns the pull request surface. Tessera rejects every mutation on
+ * a GitHub-authoritative repository, so this is what the UI must hide controls
+ * on. It is deliberately separate from `pullRequest.provider`: after cutover a
+ * GitHub-origin pull request stays provider-attributed while Tessera writes.
+ */
+export const pullRequestAuthoritySchema = z.enum(['tessera', 'github'])
+export type PullRequestAuthority = z.infer<typeof pullRequestAuthoritySchema>
+
+/**
+ * Whoever performed an action on a pull request, native or synchronized. A
+ * GitHub actor that was never linked to a Tessera account has no `userId` but
+ * always has a login snapshot, so `username` stays required. `key` is stable
+ * across reconciliations — native user ID when mapped, GitHub node ID
+ * otherwise — and is what list rows must be keyed and grouped by, because
+ * logins are renameable and unmapped actors share a null user ID.
+ */
+export const pullRequestActorSchema = z.object({
+	key: z.string().min(1),
+	provider: pullRequestProviderSchema,
+	userId: z.uuid().brand<'user_id'>().optional(),
+	username: z.string().min(1),
+	externalNodeId: z.string().min(1).optional(),
+	avatarUrl: z.url().optional(),
+	htmlUrl: z.url().optional(),
+})
+export type PullRequestActor = z.infer<typeof pullRequestActorSchema>
+
 export const pullRequestEventTypeSchema = z.enum([
 	'opened',
 	'edited',
@@ -56,6 +87,7 @@ export const pullRequestEventTypeSchema = z.enum([
 	'thread_unresolved',
 	'review_request_removed',
 	'review_submitted',
+	'review_dismissed',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
 
@@ -79,10 +111,29 @@ export type PullRequestReviewOutcome = z.infer<
 	typeof pullRequestReviewOutcomeSchema
 >
 
+/**
+ * A dismissed review keeps the outcome it was submitted with; dismissal is a
+ * lifecycle state, never an outcome, so the original approval or change request
+ * stays readable in history.
+ */
+export const pullRequestReviewStateSchema = z.enum([
+	'pending',
+	'submitted',
+	'dismissed',
+])
+export type PullRequestReviewState = z.infer<
+	typeof pullRequestReviewStateSchema
+>
+
+export const pullRequestReviewerTargetKindSchema = z.enum(['user', 'team'])
+export type PullRequestReviewerTargetKind = z.infer<
+	typeof pullRequestReviewerTargetKindSchema
+>
+
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
 	repositoryId: z.uuid().brand<'repository_id'>(),
-	provider: z.enum(['tessera', 'github']),
+	provider: pullRequestProviderSchema,
 	number: z.number().int().positive(),
 	authorUserId: z.uuid().brand<'user_id'>().optional(),
 	authorUsername: z.string().min(1),
@@ -139,7 +190,7 @@ const pullRequestEventPayloadSchema = z.union([
 export const pullRequestEventSchema = z.object({
 	id: z.uuid().brand<'pull_request_event_id'>(),
 	pullRequestId: pullRequestIdSchema,
-	provider: z.enum(['tessera', 'github']),
+	provider: pullRequestProviderSchema,
 	actorUserId: z.uuid().brand<'user_id'>().optional(),
 	actorUsername: z.string().min(1),
 	type: pullRequestEventTypeSchema,
@@ -247,12 +298,12 @@ export type PullRequestThreadAnchor = z.infer<
 export const pullRequestCommentSchema = z.object({
 	id: pullRequestCommentIdSchema,
 	threadId: pullRequestThreadIdSchema,
-	authorUserId: z.uuid().brand<'user_id'>(),
-	authorUsername: z.string().min(1),
+	author: pullRequestActorSchema,
 	body: z.string(),
 	state: pullRequestCommentStateSchema,
 	createdAt: z.coerce.date(),
 	editedAt: z.coerce.date().optional(),
+	sourceUrl: z.url().optional(),
 })
 export type PullRequestComment = z.infer<typeof pullRequestCommentSchema>
 
@@ -263,8 +314,7 @@ export const pullRequestThreadSchema = z.object({
 	resolved: z
 		.object({
 			at: z.coerce.date(),
-			byUserId: z.uuid().brand<'user_id'>(),
-			byUsername: z.string().min(1),
+			by: pullRequestActorSchema,
 		})
 		.optional(),
 	outdated: z.boolean(),
@@ -284,10 +334,9 @@ export type PullRequestThreadViewer = z.infer<
 
 export const pullRequestReviewerRequestSchema = z.object({
 	id: pullRequestReviewerRequestIdSchema,
-	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
-	reviewerUsername: z.string().min(1),
-	requestedByUserId: z.uuid().brand<'user_id'>().optional(),
-	requestedByUsername: z.string().min(1),
+	targetKind: pullRequestReviewerTargetKindSchema,
+	reviewer: pullRequestActorSchema,
+	requestedBy: pullRequestActorSchema.optional(),
 	createdAt: z.coerce.date(),
 })
 export type PullRequestReviewerRequest = z.infer<
@@ -296,19 +345,21 @@ export type PullRequestReviewerRequest = z.infer<
 
 export const pullRequestReviewSchema = z.object({
 	id: pullRequestReviewIdSchema,
-	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
-	reviewerUsername: z.string().min(1),
+	reviewer: pullRequestActorSchema,
+	state: pullRequestReviewStateSchema,
 	outcome: pullRequestReviewOutcomeSchema,
 	body: z.string(),
 	headSha: z.string(),
 	submittedAt: z.coerce.date(),
+	dismissedAt: z.coerce.date().optional(),
+	dismissedBy: pullRequestActorSchema.optional(),
+	sourceUrl: z.url().optional(),
 })
 export type PullRequestReview = z.infer<typeof pullRequestReviewSchema>
 
 export const pullRequestEffectiveReviewStateSchema = z.object({
 	reviewId: pullRequestReviewIdSchema,
-	reviewerUserId: z.uuid().brand<'user_id'>().optional(),
-	reviewerUsername: z.string().min(1),
+	reviewer: pullRequestActorSchema,
 	outcome: pullRequestReviewOutcomeSchema,
 	headSha: z.string(),
 	stale: z.boolean(),
@@ -553,6 +604,7 @@ export const pullRequestsContract = {
 		.output(
 			z.object({
 				pullRequests: z.array(pullRequestListItemSchema),
+				authority: pullRequestAuthoritySchema,
 				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
@@ -572,6 +624,7 @@ export const pullRequestsContract = {
 				viewerPendingReview: pullRequestPendingReviewSchema.optional(),
 				reviewerCandidates: z.array(pullRequestReviewerCandidateSchema),
 				viewer: pullRequestReviewViewerSchema,
+				authority: pullRequestAuthoritySchema,
 				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
