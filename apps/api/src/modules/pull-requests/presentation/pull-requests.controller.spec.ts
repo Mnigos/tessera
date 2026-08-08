@@ -141,6 +141,23 @@ describe(PullRequestsController.name, () => {
 			reviews: [],
 			effectiveReviewStates: [],
 			reviewerCandidates: [],
+			checksSummary: {
+				headSha: 'b'.repeat(40),
+				overall: 'none' as const,
+				counts: {
+					queued: 0,
+					pending: 0,
+					success: 0,
+					failure: 0,
+					neutral: 0,
+					canceled: 0,
+					skipped: 0,
+					timed_out: 0,
+					stale: 0,
+				},
+				enforcement: 'advisory' as const,
+				headIsCurrent: true,
+			},
 			viewer: {
 				canSubmitReview: false,
 				canRequestReviewers: false,

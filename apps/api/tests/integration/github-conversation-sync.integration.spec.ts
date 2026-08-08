@@ -6,6 +6,7 @@ import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
+import { ChecksModule } from '@modules/checks'
 import { GitHubSyncProcessor } from '@modules/github-sync/application/github-sync.processor'
 import { GitHubWebhookService } from '@modules/github-sync/application/github-webhook.service'
 import { GitHubAppAuthService } from '@modules/github-sync/infrastructure/github-app-auth.service'
@@ -29,6 +30,7 @@ import {
 	GitHubSyncRepository,
 	type GitHubSyncRequest,
 } from '@modules/github-sync/infrastructure/github-sync.repository'
+import { GitHubSyncChecksRepository } from '@modules/github-sync/infrastructure/github-sync-checks.repository'
 import { GitHubSyncConversationsRepository } from '@modules/github-sync/infrastructure/github-sync-conversations.repository'
 import { GitHubWebhookController } from '@modules/github-sync/presentation/github-webhook.controller'
 import { PullRequestsModule } from '@modules/pull-requests'
@@ -197,12 +199,14 @@ describe('GitHub conversation sync integration', () => {
 				AuthModule,
 				RepositoriesModule,
 				PullRequestsModule,
+				ChecksModule,
 			],
 			controllers: [GitHubWebhookController],
 			providers: [
 				GitHubWebhookService,
 				GitHubSyncProcessor,
 				GitHubSyncRepository,
+				GitHubSyncChecksRepository,
 				GitHubSyncConversationsRepository,
 				{ provide: GitHubSyncQueue, useValue: { enqueue } },
 				{
@@ -217,6 +221,13 @@ describe('GitHub conversation sync integration', () => {
 				{
 					provide: GitHubSyncClient,
 					useValue: {
+						getChecksForRef: vi.fn((({ ref }: { ref: string }) =>
+							Promise.resolve({
+								sha: ref,
+								suites: [],
+								runs: [],
+								statuses: [],
+							})) satisfies GitHubSyncClient['getChecksForRef']),
 						getPullRequestConversation,
 						getRepositoryReconciliation: vi.fn(() =>
 							Promise.resolve({
@@ -797,7 +808,11 @@ describe('GitHub conversation sync integration', () => {
 		reconciledPullRequests = []
 		const deliveryId = crypto.randomUUID()
 
-		const received = await postWebhook(deliveryId, issueCommentDelivery())
+		const received = await postWebhook(
+			deliveryId,
+			'issue_comment',
+			issueCommentDelivery()
+		)
 		expect(received.status).toBe(202)
 		expect(await received.json()).toEqual({ accepted: true, duplicate: false })
 		expect(enqueue).toHaveBeenCalledTimes(1)
@@ -830,10 +845,14 @@ describe('GitHub conversation sync integration', () => {
 	test('treats a repeated delivery identifier as a no-op', async () => {
 		await runProjection()
 		const deliveryId = crypto.randomUUID()
-		await postWebhook(deliveryId, issueCommentDelivery())
+		await postWebhook(deliveryId, 'issue_comment', issueCommentDelivery())
 		enqueue.mockClear()
 
-		const repeated = await postWebhook(deliveryId, issueCommentDelivery())
+		const repeated = await postWebhook(
+			deliveryId,
+			'issue_comment',
+			issueCommentDelivery()
+		)
 
 		expect(repeated.status).toBe(202)
 		expect(await repeated.json()).toEqual({ accepted: true, duplicate: true })
@@ -1084,12 +1103,12 @@ describe('GitHub conversation sync integration', () => {
 		return (await response.json()) as PullRequestResponseBody
 	}
 
-	function postWebhook(deliveryId: string, payload: object) {
+	function postWebhook(deliveryId: string, eventName: string, payload: object) {
 		const body = JSON.stringify(payload)
 		const headers = new Headers({
 			'content-type': 'application/json',
 			'x-github-delivery': deliveryId,
-			'x-github-event': 'issue_comment',
+			'x-github-event': eventName,
 			'x-hub-signature-256': `sha256=${createHmac('sha256', WEBHOOK_SECRET)
 				.update(body)
 				.digest('hex')}`,

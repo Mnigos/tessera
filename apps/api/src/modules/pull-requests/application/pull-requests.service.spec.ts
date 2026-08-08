@@ -1,5 +1,6 @@
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
+import { ChecksReadService } from '@modules/checks'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { PullRequest, PullRequestEvent } from '@repo/db'
@@ -20,6 +21,7 @@ import {
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
+import { PullRequestHeadResolver } from './pull-request-head.resolver'
 import {
 	type PullRequestReviewState,
 	PullRequestReviewsService,
@@ -114,6 +116,15 @@ describe(PullRequestsService.name, () => {
 					useValue: {
 						getReviewState: vi.fn().mockResolvedValue(emptyReviewState),
 						listReviewSummaries: vi.fn().mockResolvedValue(new Map()),
+					},
+				},
+				PullRequestHeadResolver,
+				{
+					provide: ChecksReadService,
+					useValue: {
+						findSummary: vi.fn(),
+						listSummaries: vi.fn().mockResolvedValue(new Map()),
+						listChecks: vi.fn(),
 					},
 				},
 				{
@@ -694,5 +705,53 @@ describe(PullRequestsService.name, () => {
 				attemptId: expect.any(String),
 			})
 		)
+	})
+	test('reads checks for the commit the caller named, not the head it resolved', async () => {
+		const checksReadService = moduleRef.get(ChecksReadService)
+		const expectedHeadSha = 'c'.repeat(40)
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const listChecksSpy = vi
+			.spyOn(checksReadService, 'listChecks')
+			.mockResolvedValue({
+				checks: [],
+				headSha: expectedHeadSha,
+				headIsCurrent: false,
+			})
+
+		await service.listChecks(mockUserId, {
+			...repositoryInput,
+			number: 1,
+			expectedHeadSha,
+		})
+
+		// 'head-sha' is where the branch actually points; the caller asked about an
+		// older commit and must be told about that one, marked as no longer current.
+		expect(listChecksSpy).toHaveBeenCalledWith({
+			repositoryId,
+			head: { sha: expectedHeadSha, isCurrent: false },
+		})
+	})
+
+	test('keeps the checks answer current when the caller named the live head', async () => {
+		const checksReadService = moduleRef.get(ChecksReadService)
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		const listChecksSpy = vi
+			.spyOn(checksReadService, 'listChecks')
+			.mockResolvedValue({
+				checks: [],
+				headSha: 'head-sha',
+				headIsCurrent: true,
+			})
+
+		await service.listChecks(mockUserId, {
+			...repositoryInput,
+			number: 1,
+			expectedHeadSha: 'head-sha',
+		})
+
+		expect(listChecksSpy).toHaveBeenCalledWith({
+			repositoryId,
+			head: { sha: 'head-sha', isCurrent: true },
+		})
 	})
 })

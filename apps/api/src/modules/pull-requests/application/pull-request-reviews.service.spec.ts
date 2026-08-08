@@ -25,6 +25,7 @@ import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
+import { PullRequestHeadResolver } from './pull-request-head.resolver'
 import { PullRequestReviewsService } from './pull-request-reviews.service'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
@@ -75,6 +76,10 @@ function nativeActor(userId: UserId, username: string) {
 	return { ...unknownActor, userId, username }
 }
 
+function currentHeadRefs(sha: string) {
+	return new Map([[pullRequestId, { sha, isCurrent: true }]])
+}
+
 const submittedReview = {
 	id: reviewId,
 	reviewer: nativeActor(reviewerUserId, 'reviewer'),
@@ -108,6 +113,7 @@ describe(PullRequestReviewsService.name, () => {
 		moduleRef = await Test.createTestingModule({
 			providers: [
 				PullRequestReviewsService,
+				PullRequestHeadResolver,
 				{
 					provide: PullRequestReviewsRepository,
 					useValue: {
@@ -511,22 +517,9 @@ describe(PullRequestReviewsService.name, () => {
 				headSha: 'reviewed-head',
 			},
 		])
-		vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
-			branches: [
-				{
-					type: 'branch',
-					name: 'feature',
-					qualifiedName: 'refs/heads/feature',
-					target: 'reviewed-head',
-				},
-			],
-			tags: [],
-		})
-
 		const summaries = await service.listReviewSummaries({
+			headRefs: currentHeadRefs('reviewed-head'),
 			pullRequests: [pullRequest],
-			repositoryId,
-			storagePath: '/repositories/notes.git',
 		})
 
 		expect(summaries.get(pullRequestId)).toEqual({
@@ -672,9 +665,8 @@ describe(PullRequestReviewsService.name, () => {
 		}
 
 		const summaries = await service.listReviewSummaries({
+			headRefs: currentHeadRefs('moved-head'),
 			pullRequests: [mergedPullRequest],
-			repositoryId,
-			storagePath: '/repositories/notes.git',
 		})
 
 		expect(summaries.get(pullRequestId)).toEqual({
@@ -683,7 +675,6 @@ describe(PullRequestReviewsService.name, () => {
 			changeRequestCount: 0,
 			staleCount: 0,
 		})
-		expect(gitStorageClient.listRepositoryRefs).not.toHaveBeenCalled()
 	})
 
 	test('ages out list reviews against the current head of an open pull request', async () => {
@@ -695,22 +686,9 @@ describe(PullRequestReviewsService.name, () => {
 				headSha: 'reviewed-head',
 			},
 		])
-		vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
-			branches: [
-				{
-					type: 'branch',
-					name: 'feature',
-					qualifiedName: 'refs/heads/feature',
-					target: 'moved-head',
-				},
-			],
-			tags: [],
-		})
-
 		const summaries = await service.listReviewSummaries({
+			headRefs: currentHeadRefs('moved-head'),
 			pullRequests: [pullRequest],
-			repositoryId,
-			storagePath: '/repositories/notes.git',
 		})
 
 		expect(summaries.get(pullRequestId)).toEqual({
