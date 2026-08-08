@@ -14,10 +14,24 @@ const CHECK_OUTPUT_SUMMARY_LIMIT = 4000
 
 export function boundCheckOutputSummary(summary?: string): string | undefined {
 	if (!summary) return undefined
+	if (summary.length <= CHECK_OUTPUT_SUMMARY_LIMIT) return summary
 
-	return summary.length > CHECK_OUTPUT_SUMMARY_LIMIT
-		? summary.slice(0, CHECK_OUTPUT_SUMMARY_LIMIT)
-		: summary
+	return dropTrailingLoneSurrogate(summary.slice(0, CHECK_OUTPUT_SUMMARY_LIMIT))
+}
+
+/**
+ * The limit counts UTF-16 units, so a cut can land between the two halves of an
+ * astral character — an emoji, usually. PostgreSQL rejects a lone surrogate
+ * outright, so keeping the orphaned half would fail the entire projection
+ * transaction over one truncated summary. A character lost at the boundary of
+ * an excerpt costs nothing.
+ */
+function dropTrailingLoneSurrogate(excerpt: string): string {
+	const lastUnit = excerpt.charCodeAt(excerpt.length - 1)
+
+	return lastUnit >= 0xd8_00 && lastUnit <= 0xdb_ff
+		? excerpt.slice(0, -1)
+		: excerpt
 }
 
 /**

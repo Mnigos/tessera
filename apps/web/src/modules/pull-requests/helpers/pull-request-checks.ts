@@ -77,18 +77,20 @@ const CHECK_ROLLUP_PRESENTATIONS: Record<
 		icon: CircleDashed,
 		iconClassName: 'text-muted-foreground',
 	},
+	// Each rollup stands for a group of states rather than a single one, so its
+	// label names the group — the same wording the descriptions read out.
 	pending: {
-		label: 'Checks running',
+		label: 'Checks pending',
 		icon: CircleDashed,
 		iconClassName: 'text-amber-400',
 	},
 	success: {
-		label: 'Checks passed',
+		label: 'Checks completed',
 		icon: CircleCheck,
 		iconClassName: 'text-emerald-400',
 	},
 	failure: {
-		label: 'Checks failed',
+		label: 'Checks require attention',
 		icon: CircleX,
 		iconClassName: 'text-rose-400',
 	},
@@ -119,18 +121,29 @@ export function getCheckRollupCount({ counts, overall }: ChecksSummary) {
 	return counts.success + counts.neutral + counts.skipped
 }
 
-/** Reads a rollup out loud, for a badge that would otherwise be an icon and a number. */
+/**
+ * Reads a rollup out loud, for a badge that would otherwise be an icon and a
+ * number.
+ *
+ * A rollup counts every state it groups, not only the one it is named after: a
+ * canceled, timed-out or stale result is counted as a failure and a neutral or
+ * skipped one as a success. Calling those "failed" and "passed" would tell a
+ * reader — and a screen reader, which gets this and nothing else — something
+ * about the run that never happened, so the wording stays at the altitude the
+ * count is actually at.
+ */
 export function getCheckRollupDescription(summary: ChecksSummary) {
 	const count = getCheckRollupCount(summary)
 	const checks = count === 1 ? 'check' : 'checks'
 
 	if (summary.overall === 'none') return 'No checks have reported'
 
-	if (summary.overall === 'failure') return `${count} ${checks} failed`
+	if (summary.overall === 'failure')
+		return `${count} ${checks} ${count === 1 ? 'requires' : 'require'} attention`
 
-	if (summary.overall === 'pending') return `${count} ${checks} running`
+	if (summary.overall === 'pending') return `${count} ${checks} pending`
 
-	return `${count} ${checks} passed`
+	return `${count} ${checks} completed`
 }
 
 /**

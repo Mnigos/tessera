@@ -34,6 +34,7 @@ import {
 	GitHubSyncRepository,
 	type GitHubSyncRequest,
 } from '../infrastructure/github-sync.repository'
+import { GitHubSyncAuthorityError } from '../infrastructure/github-sync-authority'
 import { GitHubSyncChecksRepository } from '../infrastructure/github-sync-checks.repository'
 import {
 	type GitHubConversationThreadProjection,
@@ -219,8 +220,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 			),
 		})
 
-		if (!didHeartbeat)
-			throw new Error('GitHub synchronization authority changed')
+		if (!didHeartbeat) throw new GitHubSyncAuthorityError()
 	}
 
 	/**
@@ -335,43 +335,60 @@ export class GitHubSyncProcessor extends WorkerHost {
 		for (const sha of targets) {
 			await this.requireHeartbeat(claim)
 
-			const { outcome, snapshot } = await this.findChecksSnapshot({
-				accessToken,
-				repository,
-				sha,
-			})
-
-			// An incomplete snapshot proves nothing either way, so the commit is
-			// neither projected nor written off: its deliveries stay pending and the
-			// next run asks again.
-			if (outcome === 'incomplete') continue
-
-			if (!snapshot) {
-				projectedShas.push(sha)
-				continue
-			}
-
-			const { unrecognizedResults } =
-				await this.gitHubSyncChecksRepository.projectChecksForSha({
-					actorIds: await this.gitHubSyncRepository.upsertActors(
-						collectCheckActors(snapshot)
-					),
-					authorityGeneration: claim.authorityGeneration,
-					deliveries: deliveries.filter(delivery => delivery.targetSha === sha),
-					leaseOwner: claim.leaseOwner,
-					repositoryId: claim.repositoryId,
+			try {
+				const { outcome, snapshot } = await this.findChecksSnapshot({
+					accessToken,
+					repository,
 					sha,
-					snapshot,
-					syncedAt: new Date(),
-					syncVersion: claim.requestedSyncVersion,
 				})
 
-			for (const result of unrecognizedResults)
-				this.logger.warn(
-					`GitHub reported ${result.kind} ${result.context} on ${sha} as ${result.unrecognized}, which Tessera reads as a failure`
-				)
+				// An incomplete snapshot proves nothing either way, so the commit is
+				// neither projected nor written off: its deliveries stay pending and the
+				// next run asks again.
+				if (outcome === 'incomplete') continue
 
-			projectedShas.push(sha)
+				if (!snapshot) {
+					projectedShas.push(sha)
+					continue
+				}
+
+				const { unrecognizedResults } =
+					await this.gitHubSyncChecksRepository.projectChecksForSha({
+						actorIds: await this.gitHubSyncRepository.upsertActors(
+							collectCheckActors(snapshot)
+						),
+						authorityGeneration: claim.authorityGeneration,
+						deliveries: deliveries.filter(
+							delivery => delivery.targetSha === sha
+						),
+						leaseOwner: claim.leaseOwner,
+						repositoryId: claim.repositoryId,
+						sha,
+						snapshot,
+						syncedAt: new Date(),
+						syncVersion: claim.requestedSyncVersion,
+					})
+
+				for (const result of unrecognizedResults)
+					this.logger.warn(
+						`GitHub reported ${result.kind} ${result.context} on ${sha} as ${result.unrecognized}, which Tessera reads as a failure`
+					)
+
+				projectedShas.push(sha)
+			} catch (error) {
+				// Checks are the last stage of a run that has already reconciled pull
+				// requests and finalized conversations. One commit GitHub could not
+				// answer for must not discard all of that, so the commit is left
+				// unprojected — its deliveries stay pending and the next run asks
+				// again — while the run finalizes what did succeed. Losing authority
+				// is not one commit's problem and still aborts everything.
+				if (error instanceof GitHubSyncAuthorityError) throw error
+
+				this.logger.warn(
+					`GitHub checks reconciliation for ${sha} failed`,
+					error instanceof Error ? error.stack : undefined
+				)
+			}
 		}
 
 		return projectedShas

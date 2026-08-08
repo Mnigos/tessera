@@ -129,8 +129,8 @@ describe(PullRequestComparison.name, () => {
 			/>
 		)
 
-		expect(screen.getByText('1 check failed')).toBeTruthy()
-		expect(screen.getByTitle('1 check failed')).toBeTruthy()
+		expect(screen.getByText('1 check requires attention')).toBeTruthy()
+		expect(screen.getByTitle('1 check requires attention')).toBeTruthy()
 	})
 
 	test('fetches and renders a file diff only after expansion', async () => {

@@ -3,6 +3,7 @@ import type { EffectiveCheckRow } from '../infrastructure/checks.repository'
 
 const GITHUB_PROVIDER_FALLBACK_NAME = 'GitHub'
 const NATIVE_PROVIDER_NAME = 'Tessera'
+const NAVIGABLE_URL_PROTOCOLS = new Set(['http:', 'https:'])
 
 export function toCheckOutput(row: EffectiveCheckRow): Check {
 	return {
@@ -73,11 +74,17 @@ function toOptionalText(value: string | null): string | undefined {
 }
 
 /**
- * Provider links reach the read model unvalidated. One malformed URL must cost
- * its own link, not the whole response.
+ * Provider links reach the read model unvalidated and render as anchors the
+ * reader clicks, so a `javascript:` or `data:` URL would run in their page
+ * under Tessera's origin. Only the two web schemes are navigable; anything
+ * else — malformed or merely not a link — costs its own link, not the whole
+ * response.
  */
 function toOptionalUrl(value: string | null): string | undefined {
 	if (!value) return undefined
+	if (!URL.canParse(value)) return undefined
 
-	return URL.canParse(value) ? value : undefined
+	return NAVIGABLE_URL_PROTOCOLS.has(new URL(value).protocol)
+		? value
+		: undefined
 }

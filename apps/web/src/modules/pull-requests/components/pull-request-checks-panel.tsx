@@ -77,7 +77,17 @@ function ChecksPanel({
 						{getCheckRollupDescription(checksSummary)}
 					</span>
 				</div>
-				<ChecksPanelMeta summary={checksSummary} />
+				<ChecksPanelMeta
+					// The warning is about the rows rendered below, so it follows the
+					// read that produced them. The summary travelled with the pull
+					// request and only says whether the commit was still the head then;
+					// a head that has moved since would otherwise render its stale rows
+					// with no warning at all until the page was reloaded.
+					headIsCurrent={
+						checksQuery.data?.headIsCurrent ?? checksSummary.headIsCurrent
+					}
+					lastResultAt={checksSummary.lastResultAt}
+				/>
 			</div>
 			<ChecksPanelBody
 				checks={checksQuery.data?.checks}
@@ -88,19 +98,27 @@ function ChecksPanel({
 	)
 }
 
-function ChecksPanelMeta({ summary }: Readonly<{ summary: ChecksSummary }>) {
+interface ChecksPanelMetaProps {
+	headIsCurrent: boolean
+	lastResultAt?: Date
+}
+
+function ChecksPanelMeta({
+	headIsCurrent,
+	lastResultAt,
+}: Readonly<ChecksPanelMetaProps>) {
 	return (
 		<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
-			{!summary.headIsCurrent && (
+			{!headIsCurrent && (
 				<span className="text-amber-400">
 					Reported on an earlier commit than the current head.
 				</span>
 			)}
-			{summary.lastResultAt && (
+			{lastResultAt && (
 				<span>
 					Last result{' '}
-					<time dateTime={formatPullRequestDateTime(summary.lastResultAt)}>
-						{formatPullRequestDate(summary.lastResultAt)}
+					<time dateTime={formatPullRequestDateTime(lastResultAt)}>
+						{formatPullRequestDate(lastResultAt)}
 					</time>
 				</span>
 			)}

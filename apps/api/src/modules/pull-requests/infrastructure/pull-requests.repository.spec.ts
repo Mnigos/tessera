@@ -4,6 +4,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import type { GitHubActorId } from '@repo/db'
 import {
 	asc,
+	gitHubPullRequestMappings,
 	pullRequestEvents,
 	pullRequestMergeIntents,
 	pullRequests,
@@ -14,6 +15,7 @@ import type {
 	PullRequestId,
 	RepositoryId,
 } from '@repo/domain'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import { mockUserId } from '~/shared/test-utils'
 import { PullRequestsRepository } from './pull-requests.repository'
 
@@ -103,6 +105,9 @@ describe(PullRequestsRepository.name, () => {
 	const mergeIntentValuesMock = vi.fn()
 	const pullRequestReturningMock = vi.fn()
 	const eventValuesMock = vi.fn()
+	const mappingValuesMock = vi.fn()
+	const mappingConflictMock = vi.fn()
+	const eventMappingFindMock = vi.fn()
 	const counterUpdateSetMock = vi.fn()
 	const counterUpdateWhereMock = vi.fn()
 	const counterUpdateReturningMock = vi.fn()
@@ -142,12 +147,21 @@ describe(PullRequestsRepository.name, () => {
 		})
 		mergeIntentValuesMock.mockResolvedValue(undefined)
 		eventValuesMock.mockResolvedValue(undefined)
+		mappingConflictMock.mockResolvedValue(undefined)
+		// Lifecycle events are already recorded, so reconciliation appends none and
+		// the mapping upsert is what these tests are about.
+		eventMappingFindMock.mockResolvedValue({ id: 'event-mapping' })
+		mappingValuesMock.mockReturnValue({
+			onConflictDoUpdate: mappingConflictMock,
+		})
 		insertMock.mockImplementation(table => {
 			if (table === repositoryPullRequestCounters)
 				return { values: counterValuesMock }
 			if (table === pullRequests) return { values: pullRequestValuesMock }
 			if (table === pullRequestMergeIntents)
 				return { values: mergeIntentValuesMock }
+			if (table === gitHubPullRequestMappings)
+				return { values: mappingValuesMock }
 
 			return { values: eventValuesMock }
 		})
@@ -184,6 +198,9 @@ describe(PullRequestsRepository.name, () => {
 			insert: insertMock,
 			select: selectMock,
 			update: updateMock,
+			query: {
+				gitHubPullRequestEventMappings: { findFirst: eventMappingFindMock },
+			},
 		}
 		transactionMock.mockImplementation(callback => callback(tx))
 
@@ -305,6 +322,29 @@ describe(PullRequestsRepository.name, () => {
 		expect(pullRequestValuesMock).not.toHaveBeenCalled()
 		expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
 		expect(executeMock).toHaveBeenCalledOnce()
+	})
+
+	test('clears the checks cursor when a reconciled head moves', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([{ pullRequestId, repositoryId }])
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: { ...gitHubPullRequest, headSha: 'moved-head' },
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		const [upsert] = mappingConflictMock.mock.calls.at(0) ?? []
+		const cursor = new PgDialect().sqlToQuery(upsert.set.checksSyncedAt)
+
+		// The checks rotation reads this cursor to decide which heads still need
+		// reconciling. Carrying the previous commit's timestamp onto a new head
+		// would present it as already reconciled, so the panel would keep showing
+		// the old commit's results until the rotation came back around.
+		expect(upsert.set.headSha).toBe('moved-head')
+		expect(cursor.sql).toContain('else null end')
+		expect(cursor.params).toContain('moved-head')
 	})
 
 	test('edits a pull request and records an edited event', async () => {
