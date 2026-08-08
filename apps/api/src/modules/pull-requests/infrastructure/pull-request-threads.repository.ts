@@ -9,18 +9,21 @@ import {
 	inArray,
 	isNotNull,
 	isNull,
+	or,
 	type PullRequestComment,
 	type PullRequestEvent,
 	type PullRequestEventPayload,
 	type PullRequestThread,
 	pullRequestComments,
 	pullRequestEvents,
+	pullRequestReviews,
 	pullRequestThreads,
 	user,
 } from '@repo/db'
 import type {
 	PullRequestCommentId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 	UserId,
 } from '@repo/domain'
@@ -30,7 +33,15 @@ interface PullRequestParams {
 	pullRequestId: PullRequestId
 }
 
-interface ListParams extends PullRequestParams {
+/**
+ * Reads are scoped to a viewer because pending review comments are visible only
+ * to their author until the review is submitted.
+ */
+interface ViewerParams {
+	viewerUserId?: UserId
+}
+
+interface ListParams extends PullRequestParams, ViewerParams {
 	path?: string
 }
 
@@ -42,18 +53,29 @@ interface CommentParams {
 	commentId: PullRequestCommentId
 }
 
-interface CreateThreadParams extends PullRequestParams {
+interface FindThreadParams extends ThreadParams, ViewerParams {}
+
+interface FindCommentParams extends CommentParams, ViewerParams {}
+
+interface PendingCommentParams {
+	reviewId?: PullRequestReviewId
+}
+
+interface CreateThreadParams extends PullRequestParams, PendingCommentParams {
 	anchor?: PullRequestThreadAnchor
 	authorUserId: UserId
 	body: string
 }
 
-interface CreateCommentParams extends PullRequestParams, ThreadParams {
+interface CreateCommentParams
+	extends PullRequestParams,
+		ThreadParams,
+		PendingCommentParams {
 	authorUserId: UserId
 	body: string
 }
 
-interface EditCommentParams extends CommentParams {
+interface EditCommentParams extends CommentParams, ViewerParams {
 	body: string
 	editedAt: Date
 }
@@ -78,6 +100,14 @@ export interface PullRequestThreadReadModel extends PullRequestThread {
 	comments: PullRequestCommentReadModel[]
 	resolvedByUsername: string | null
 }
+
+type PullRequestThreadResolutionFailure =
+	| { status: 'thread_not_found' }
+	| { status: 'thread_unpublished' }
+
+export type PullRequestThreadResolutionResult =
+	| { status: 'updated'; thread: PullRequestThreadReadModel }
+	| PullRequestThreadResolutionFailure
 
 export interface PullRequestCommentContext {
 	authorUserId: UserId
@@ -113,6 +143,7 @@ const COMMENT_READ_COLUMNS = {
 	authorUserId: pullRequestComments.authorUserId,
 	body: pullRequestComments.body,
 	state: pullRequestComments.state,
+	reviewId: pullRequestComments.reviewId,
 	createdAt: pullRequestComments.createdAt,
 	updatedAt: pullRequestComments.updatedAt,
 	editedAt: pullRequestComments.editedAt,
@@ -131,6 +162,7 @@ export class PullRequestThreadsRepository {
 	async list({
 		path,
 		pullRequestId,
+		viewerUserId,
 	}: ListParams): Promise<PullRequestThreadReadModel[]> {
 		const conditions = [eq(pullRequestThreads.pullRequestId, pullRequestId)]
 
@@ -145,19 +177,28 @@ export class PullRequestThreadsRepository {
 			)
 			.where(and(...conditions))
 			.orderBy(asc(pullRequestThreads.createdAt))
+		const threadsWithComments = await this.withComments(
+			this.db,
+			threads,
+			viewerUserId
+		)
 
-		return await this.withComments(this.db, threads)
+		// A thread whose comments are all somebody else's pending draft must not
+		// leak as an empty thread.
+		return threadsWithComments.filter(thread => thread.comments.length > 0)
 	}
 
 	async findThread({
 		threadId,
-	}: ThreadParams): Promise<PullRequestThreadReadModel | undefined> {
-		return await this.findThreadIn(this.db, threadId)
+		viewerUserId,
+	}: FindThreadParams): Promise<PullRequestThreadReadModel | undefined> {
+		return await this.findThreadIn(this.db, threadId, viewerUserId)
 	}
 
 	async findComment({
 		commentId,
-	}: CommentParams): Promise<PullRequestCommentContext | undefined> {
+		viewerUserId,
+	}: FindCommentParams): Promise<PullRequestCommentContext | undefined> {
 		const [comment] = await this.db
 			.select({
 				id: pullRequestComments.id,
@@ -173,7 +214,7 @@ export class PullRequestThreadsRepository {
 			.where(
 				and(
 					eq(pullRequestComments.id, commentId),
-					eq(pullRequestComments.state, 'published')
+					visibleToViewer(viewerUserId)
 				)
 			)
 			.limit(1)
@@ -186,8 +227,12 @@ export class PullRequestThreadsRepository {
 		authorUserId,
 		body,
 		pullRequestId,
-	}: CreateThreadParams): Promise<PullRequestThreadReadModel> {
+		reviewId,
+	}: CreateThreadParams): Promise<PullRequestThreadReadModel | undefined> {
 		return await this.db.transaction(async tx => {
+			if (reviewId && !(await this.lockPendingReview(tx, reviewId)))
+				return undefined
+
 			const [thread] = await tx
 				.insert(pullRequestThreads)
 				.values({
@@ -209,21 +254,25 @@ export class PullRequestThreadsRepository {
 				threadId: thread.id,
 				authorUserId,
 				body,
+				reviewId,
 			})
 
-			await this.createEvent(tx, {
-				pullRequestId,
-				actorUserId: authorUserId,
-				type: 'commented',
-				payload: {
-					threadId: thread.id,
-					commentId,
-					threadKind: thread.kind,
-					path: thread.path ?? undefined,
-				},
-			})
+			// Pending review comments stay sealed until submission, so they emit no
+			// timeline event.
+			if (!reviewId)
+				await this.createEvent(tx, {
+					pullRequestId,
+					actorUserId: authorUserId,
+					type: 'commented',
+					payload: {
+						threadId: thread.id,
+						commentId,
+						threadKind: thread.kind,
+						path: thread.path ?? undefined,
+					},
+				})
 
-			return await this.requireThread(tx, thread.id)
+			return await this.requireThread(tx, thread.id, authorUserId)
 		})
 	}
 
@@ -231,27 +280,33 @@ export class PullRequestThreadsRepository {
 		authorUserId,
 		body,
 		pullRequestId,
+		reviewId,
 		threadId,
-	}: CreateCommentParams): Promise<PullRequestThreadReadModel> {
+	}: CreateCommentParams): Promise<PullRequestThreadReadModel | undefined> {
 		return await this.db.transaction(async tx => {
+			if (reviewId && !(await this.lockPendingReview(tx, reviewId)))
+				return undefined
+
 			const commentId = await this.insertComment(tx, {
 				threadId,
 				authorUserId,
 				body,
+				reviewId,
 			})
-			const thread = await this.requireThread(tx, threadId)
+			const thread = await this.requireThread(tx, threadId, authorUserId)
 
-			await this.createEvent(tx, {
-				pullRequestId,
-				actorUserId: authorUserId,
-				type: 'commented',
-				payload: {
-					threadId,
-					commentId,
-					threadKind: thread.kind,
-					path: thread.path ?? undefined,
-				},
-			})
+			if (!reviewId)
+				await this.createEvent(tx, {
+					pullRequestId,
+					actorUserId: authorUserId,
+					type: 'commented',
+					payload: {
+						threadId,
+						commentId,
+						threadKind: thread.kind,
+						path: thread.path ?? undefined,
+					},
+				})
 
 			return thread
 		})
@@ -261,6 +316,7 @@ export class PullRequestThreadsRepository {
 		body,
 		commentId,
 		editedAt,
+		viewerUserId,
 	}: EditCommentParams): Promise<PullRequestCommentReadModel | undefined> {
 		const [comment] = await this.db
 			.update(pullRequestComments)
@@ -268,7 +324,7 @@ export class PullRequestThreadsRepository {
 			.where(
 				and(
 					eq(pullRequestComments.id, commentId),
-					eq(pullRequestComments.state, 'published')
+					visibleToViewer(viewerUserId)
 				)
 			)
 			.returning({ id: pullRequestComments.id })
@@ -285,7 +341,7 @@ export class PullRequestThreadsRepository {
 			.where(
 				and(
 					eq(pullRequestComments.id, commentId),
-					eq(pullRequestComments.state, 'published')
+					visibleToViewer(viewerUserId)
 				)
 			)
 			.limit(1)
@@ -331,8 +387,12 @@ export class PullRequestThreadsRepository {
 		pullRequestId,
 		resolvedAt,
 		threadId,
-	}: ResolveThreadParams): Promise<PullRequestThreadReadModel> {
+	}: ResolveThreadParams): Promise<PullRequestThreadResolutionResult> {
 		return await this.db.transaction(async tx => {
+			const failure = await this.lockResolvableThread(tx, threadId)
+
+			if (failure) return failure
+
 			const [thread] = await tx
 				.update(pullRequestThreads)
 				.set({ resolvedAt, resolvedByUserId: actorUserId })
@@ -356,7 +416,10 @@ export class PullRequestThreadsRepository {
 					},
 				})
 
-			return await this.requireThread(tx, threadId)
+			return {
+				status: 'updated',
+				thread: await this.requireThread(tx, threadId, actorUserId),
+			}
 		})
 	}
 
@@ -364,8 +427,12 @@ export class PullRequestThreadsRepository {
 		actorUserId,
 		pullRequestId,
 		threadId,
-	}: ThreadResolutionParams): Promise<PullRequestThreadReadModel> {
+	}: ThreadResolutionParams): Promise<PullRequestThreadResolutionResult> {
 		return await this.db.transaction(async tx => {
+			const failure = await this.lockResolvableThread(tx, threadId)
+
+			if (failure) return failure
+
 			const [thread] = await tx
 				.update(pullRequestThreads)
 				.set({ resolvedAt: null, resolvedByUserId: null })
@@ -389,21 +456,92 @@ export class PullRequestThreadsRepository {
 					},
 				})
 
-			return await this.requireThread(tx, threadId)
+			return {
+				status: 'updated',
+				thread: await this.requireThread(tx, threadId, actorUserId),
+			}
 		})
+	}
+
+	/**
+	 * Holds the thread for the rest of the resolution and re-checks that it still
+	 * carries a published comment. The caller's earlier check can go stale: a
+	 * concurrent deletion of the last published comment would otherwise announce
+	 * a resolution over somebody's private draft, or over a thread that the same
+	 * deletion has already removed.
+	 */
+	private async lockResolvableThread(
+		tx: DrizzleTransaction,
+		threadId: PullRequestThreadId
+	): Promise<PullRequestThreadResolutionFailure | undefined> {
+		const [thread] = await tx
+			.select({ id: pullRequestThreads.id })
+			.from(pullRequestThreads)
+			.where(eq(pullRequestThreads.id, threadId))
+			.for('update')
+
+		if (!thread) return { status: 'thread_not_found' }
+
+		const [publishedComment] = await tx
+			.select({ id: pullRequestComments.id })
+			.from(pullRequestComments)
+			.where(
+				and(
+					eq(pullRequestComments.threadId, threadId),
+					eq(pullRequestComments.state, 'published')
+				)
+			)
+			.limit(1)
+
+		return publishedComment ? undefined : { status: 'thread_unpublished' }
+	}
+
+	/**
+	 * Holds the pending review for the rest of the insert so a concurrent
+	 * submission cannot seal the envelope between the check and the comment
+	 * landing in it. A review that is no longer pending stops the write.
+	 */
+	private async lockPendingReview(
+		tx: DrizzleTransaction,
+		reviewId: PullRequestReviewId
+	): Promise<boolean> {
+		const [review] = await tx
+			.select({ id: pullRequestReviews.id })
+			.from(pullRequestReviews)
+			.where(
+				and(
+					eq(pullRequestReviews.id, reviewId),
+					eq(pullRequestReviews.state, 'pending')
+				)
+			)
+			.for('update')
+
+		return Boolean(review)
 	}
 
 	private async insertComment(
 		tx: DrizzleTransaction,
-		values: {
+		{
+			authorUserId,
+			body,
+			reviewId,
+			threadId,
+		}: {
 			authorUserId: UserId
 			body: string
+			reviewId?: PullRequestReviewId
 			threadId: PullRequestThreadId
 		}
 	): Promise<PullRequestCommentId> {
 		const [comment] = await tx
 			.insert(pullRequestComments)
-			.values(values)
+			.values({
+				threadId,
+				authorUserId,
+				body,
+				reviewId,
+				state: reviewId ? 'pending' : 'published',
+			})
 			.returning({ id: pullRequestComments.id })
 
 		if (!comment) throw new Error('failed to create pull request comment')
@@ -425,9 +563,10 @@ export class PullRequestThreadsRepository {
 
 	private async requireThread(
 		db: PullRequestThreadDatabase,
-		threadId: PullRequestThreadId
+		threadId: PullRequestThreadId,
+		viewerUserId?: UserId
 	): Promise<PullRequestThreadReadModel> {
-		const thread = await this.findThreadIn(db, threadId)
+		const thread = await this.findThreadIn(db, threadId, viewerUserId)
 
 		if (!thread) throw new Error('pull request thread is missing after write')
 
@@ -436,7 +575,8 @@ export class PullRequestThreadsRepository {
 
 	private async findThreadIn(
 		db: PullRequestThreadDatabase,
-		threadId: PullRequestThreadId
+		threadId: PullRequestThreadId,
+		viewerUserId?: UserId
 	): Promise<PullRequestThreadReadModel | undefined> {
 		const [thread] = await db
 			.select(THREAD_READ_COLUMNS)
@@ -450,14 +590,24 @@ export class PullRequestThreadsRepository {
 
 		if (!thread) return undefined
 
-		const [threadWithComments] = await this.withComments(db, [thread])
+		const [threadWithComments] = await this.withComments(
+			db,
+			[thread],
+			viewerUserId
+		)
+
+		// A thread whose every comment belongs to somebody else's pending review
+		// does not exist for this viewer: mutating it would leak the draft.
+		if (!threadWithComments || threadWithComments.comments.length === 0)
+			return undefined
 
 		return threadWithComments
 	}
 
 	private async withComments(
 		db: PullRequestThreadDatabase,
-		threads: Omit<PullRequestThreadReadModel, 'comments'>[]
+		threads: Omit<PullRequestThreadReadModel, 'comments'>[],
+		viewerUserId?: UserId
 	): Promise<PullRequestThreadReadModel[]> {
 		if (threads.length === 0) return []
 
@@ -474,7 +624,7 @@ export class PullRequestThreadsRepository {
 						pullRequestComments.threadId,
 						threads.map(thread => thread.id)
 					),
-					eq(pullRequestComments.state, 'published')
+					visibleToViewer(viewerUserId)
 				)
 			)
 			.orderBy(asc(pullRequestComments.createdAt))
@@ -484,4 +634,22 @@ export class PullRequestThreadsRepository {
 			comments: comments.filter(comment => comment.threadId === thread.id),
 		}))
 	}
+}
+
+/**
+ * Published comments are public; a pending review comment is visible only to the
+ * reviewer drafting it.
+ */
+function visibleToViewer(viewerUserId: UserId | undefined) {
+	const published = eq(pullRequestComments.state, 'published')
+
+	if (!viewerUserId) return published
+
+	return or(
+		published,
+		and(
+			eq(pullRequestComments.state, 'pending'),
+			eq(pullRequestComments.authorUserId, viewerUserId)
+		)
+	)
 }

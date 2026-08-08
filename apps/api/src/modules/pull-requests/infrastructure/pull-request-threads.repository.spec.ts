@@ -4,13 +4,16 @@ import {
 	and,
 	eq,
 	inArray,
+	or,
 	pullRequestComments,
 	pullRequestEvents,
+	pullRequestReviews,
 	pullRequestThreads,
 } from '@repo/db'
 import type {
 	PullRequestCommentId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 } from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
@@ -19,6 +22,7 @@ import { PullRequestThreadsRepository } from './pull-request-threads.repository'
 const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
 const threadId = '00000000-0000-4000-8000-000000000051' as PullRequestThreadId
 const commentId = '00000000-0000-4000-8000-000000000052' as PullRequestCommentId
+const reviewId = '00000000-0000-4000-8000-000000000053' as PullRequestReviewId
 const createdAt = new Date('2026-08-06T10:00:00Z')
 const thread = {
 	id: threadId,
@@ -44,6 +48,7 @@ const comment = {
 	authorUsername: 'marta',
 	body: 'Comment',
 	state: 'published' as const,
+	reviewId: null,
 	createdAt,
 	updatedAt: createdAt,
 	editedAt: null,
@@ -164,6 +169,8 @@ describe(PullRequestThreadsRepository.name, () => {
 			threadId,
 			authorUserId: mockUserId,
 			body: comment.body,
+			reviewId: undefined,
+			state: 'published',
 		})
 		expect(insertMock).toHaveBeenNthCalledWith(3, pullRequestEvents)
 		expect(valuesMock).toHaveBeenNthCalledWith(3, {
@@ -213,26 +220,32 @@ describe(PullRequestThreadsRepository.name, () => {
 		action,
 		type,
 	}) => {
+		forMock.mockResolvedValueOnce([{ id: threadId }])
+		limitMock.mockResolvedValueOnce([comment]).mockResolvedValueOnce([thread])
 		returningMock.mockResolvedValueOnce([{ kind: 'inline', path: thread.path }])
-		limitMock.mockResolvedValueOnce([thread])
 		orderByMock.mockResolvedValueOnce([comment])
 
-		if (action === 'resolveThread')
-			await repository.resolveThread({
-				pullRequestId,
-				threadId,
-				actorUserId: mockUserId,
-				resolvedAt: createdAt,
-			})
-		else
-			await repository.unresolveThread({
-				pullRequestId,
-				threadId,
-				actorUserId: mockUserId,
-			})
+		const result =
+			action === 'resolveThread'
+				? await repository.resolveThread({
+						pullRequestId,
+						threadId,
+						actorUserId: mockUserId,
+						resolvedAt: createdAt,
+					})
+				: await repository.unresolveThread({
+						pullRequestId,
+						threadId,
+						actorUserId: mockUserId,
+					})
 
+		expect(result).toEqual({
+			status: 'updated',
+			thread: { ...thread, comments: [comment] },
+		})
 		expect(transactionMock).toHaveBeenCalledOnce()
 		expect(databaseInsertMock).not.toHaveBeenCalled()
+		expect(forMock).toHaveBeenCalledWith('update')
 		expect(valuesMock).toHaveBeenCalledWith({
 			pullRequestId,
 			actorUserId: mockUserId,
@@ -243,6 +256,63 @@ describe(PullRequestThreadsRepository.name, () => {
 				path: thread.path,
 			},
 		})
+
+		const [lockOrder = 0] = forMock.mock.invocationCallOrder
+		const [updateOrder = 0] = updateMock.mock.invocationCallOrder
+		expect(lockOrder).toBeLessThan(updateOrder)
+	})
+
+	test.each([
+		{
+			action: 'resolveThread' as const,
+			status: 'thread_unpublished' as const,
+			lockedThreads: [{ id: threadId }],
+			publishedComments: [],
+		},
+		{
+			action: 'unresolveThread' as const,
+			status: 'thread_unpublished' as const,
+			lockedThreads: [{ id: threadId }],
+			publishedComments: [],
+		},
+		{
+			action: 'resolveThread' as const,
+			status: 'thread_not_found' as const,
+			lockedThreads: [],
+			publishedComments: [],
+		},
+		{
+			action: 'unresolveThread' as const,
+			status: 'thread_not_found' as const,
+			lockedThreads: [],
+			publishedComments: [],
+		},
+	])('reports $status from $action once the thread lock is held', async ({
+		action,
+		lockedThreads,
+		publishedComments,
+		status,
+	}) => {
+		forMock.mockResolvedValueOnce(lockedThreads)
+		limitMock.mockResolvedValueOnce(publishedComments)
+
+		const result =
+			action === 'resolveThread'
+				? await repository.resolveThread({
+						pullRequestId,
+						threadId,
+						actorUserId: mockUserId,
+						resolvedAt: createdAt,
+					})
+				: await repository.unresolveThread({
+						pullRequestId,
+						threadId,
+						actorUserId: mockUserId,
+					})
+
+		expect(result).toEqual({ status })
+		expect(updateMock).not.toHaveBeenCalled()
+		expect(insertMock).not.toHaveBeenCalled()
 	})
 
 	test('lists path-filtered threads and only published comments', async () => {
@@ -267,6 +337,115 @@ describe(PullRequestThreadsRepository.name, () => {
 			)
 		)
 		expect(orderByMock).toHaveBeenCalledTimes(2)
+	})
+
+	test('shows a reviewer their pending comments and hides them from everyone else', async () => {
+		const pendingComment = {
+			...comment,
+			state: 'pending' as const,
+			reviewId,
+		}
+		orderByMock
+			.mockResolvedValueOnce([thread])
+			.mockResolvedValueOnce([pendingComment])
+
+		expect(
+			await repository.list({ pullRequestId, viewerUserId: mockUserId })
+		).toEqual([{ ...thread, comments: [pendingComment] }])
+		expect(whereMock).toHaveBeenNthCalledWith(
+			2,
+			and(
+				inArray(pullRequestComments.threadId, [threadId]),
+				or(
+					eq(pullRequestComments.state, 'published'),
+					and(
+						eq(pullRequestComments.state, 'pending'),
+						eq(pullRequestComments.authorUserId, mockUserId)
+					)
+				)
+			)
+		)
+
+		vi.clearAllMocks()
+		orderByMock.mockResolvedValueOnce([thread]).mockResolvedValueOnce([])
+		whereMock.mockReturnValue({
+			orderBy: orderByMock,
+			limit: limitMock,
+			returning: returningMock,
+			for: forMock,
+		})
+
+		expect(await repository.list({ pullRequestId })).toEqual([])
+	})
+
+	test('inserts pending review comments without emitting timeline events', async () => {
+		forMock.mockResolvedValueOnce([{ id: reviewId }])
+		returningMock
+			.mockResolvedValueOnce([{ id: threadId, kind: 'top_level', path: null }])
+			.mockResolvedValueOnce([{ id: commentId }])
+		limitMock.mockResolvedValueOnce([thread])
+		orderByMock.mockResolvedValueOnce([
+			{ ...comment, state: 'pending', reviewId },
+		])
+
+		await repository.createThread({
+			pullRequestId,
+			authorUserId: mockUserId,
+			body: 'Draft finding',
+			reviewId,
+		})
+
+		expect(whereMock).toHaveBeenNthCalledWith(
+			1,
+			and(
+				eq(pullRequestReviews.id, reviewId),
+				eq(pullRequestReviews.state, 'pending')
+			)
+		)
+		expect(forMock).toHaveBeenCalledWith('update')
+		expect(valuesMock).toHaveBeenNthCalledWith(2, {
+			threadId,
+			authorUserId: mockUserId,
+			body: 'Draft finding',
+			reviewId,
+			state: 'pending',
+		})
+		expect(insertMock).not.toHaveBeenCalledWith(pullRequestEvents)
+	})
+
+	test.each([
+		{ action: 'createThread' as const },
+		{ action: 'createComment' as const },
+	])('refuses $action once the pending review is no longer pending', async ({
+		action,
+	}) => {
+		forMock.mockResolvedValueOnce([])
+
+		const result =
+			action === 'createThread'
+				? await repository.createThread({
+						pullRequestId,
+						authorUserId: mockUserId,
+						body: 'Draft finding',
+						reviewId,
+					})
+				: await repository.createComment({
+						pullRequestId,
+						threadId,
+						authorUserId: mockUserId,
+						body: 'Draft reply',
+						reviewId,
+					})
+
+		expect(result).toBeUndefined()
+		expect(insertMock).not.toHaveBeenCalled()
+	})
+
+	test('hides a thread whose comments are all somebody else pending draft', async () => {
+		limitMock.mockResolvedValueOnce([thread])
+		orderByMock.mockResolvedValueOnce([])
+
+		expect(await repository.findThread({ threadId })).toBeUndefined()
 	})
 
 	test('reads back only the published comment after an edit', async () => {

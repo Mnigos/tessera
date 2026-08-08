@@ -15,6 +15,7 @@ import {
 	account,
 	pullRequestComments,
 	pullRequestEvents,
+	pullRequestReviews,
 	pullRequests,
 	pullRequestThreads,
 	repositories,
@@ -294,14 +295,27 @@ describe('Pull request threads integration', () => {
 		).toBe(404)
 	})
 
-	test('filters pending comments from thread responses', async () => {
+	test('filters other users pending comments from thread responses', async () => {
+		const reviewer = await createIntegrationUser('reviewer')
 		const created = await createThread({ body: 'Published' }, owner.headers)
 		const thread = (await created.json()) as ThreadResponseBody
+		const [pullRequest] = await db.select().from(pullRequests)
+		if (!pullRequest) throw new Error('Failed to find pull request')
+		const [review] = await db
+			.insert(pullRequestReviews)
+			.values({
+				pullRequestId: pullRequest.id,
+				reviewerUserId: reviewer.id,
+				headSha: HEAD_SHA,
+			})
+			.returning()
+		if (!review) throw new Error('Failed to create pending review')
 		await db.insert(pullRequestComments).values({
 			threadId: thread.id as never,
-			authorUserId: owner.id,
+			authorUserId: reviewer.id,
 			body: 'Pending',
 			state: 'pending',
+			reviewId: review.id,
 		})
 
 		const response = (await (await listThreads(owner.headers)).json()) as {

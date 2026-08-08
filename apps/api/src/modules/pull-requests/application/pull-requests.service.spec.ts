@@ -20,8 +20,23 @@ import {
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
+import {
+	type PullRequestReviewState,
+	PullRequestReviewsService,
+} from './pull-request-reviews.service'
 import { PullRequestsService } from './pull-requests.service'
 
+const emptyReviewState: PullRequestReviewState = {
+	reviewerRequests: [],
+	reviews: [],
+	effectiveReviewStates: [],
+	reviewerCandidates: [],
+	viewer: {
+		canSubmitReview: false,
+		canRequestReviewers: false,
+		canRemoveReviewerRequests: false,
+	},
+}
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
 const createdAt = new Date('2026-07-11T00:00:00Z')
@@ -92,6 +107,13 @@ describe(PullRequestsService.name, () => {
 						claimMerge: vi.fn(),
 						completeMerge: vi.fn(),
 						releaseMerge: vi.fn(),
+					},
+				},
+				{
+					provide: PullRequestReviewsService,
+					useValue: {
+						getReviewState: vi.fn().mockResolvedValue(emptyReviewState),
+						listReviewSummaries: vi.fn().mockResolvedValue(new Map()),
 					},
 				},
 				{
@@ -260,6 +282,7 @@ describe(PullRequestsService.name, () => {
 		).toEqual({
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
 			events: [{ ...event, actorUsername: 'marta', payload: undefined }],
+			...emptyReviewState,
 			viewerRole: 'write',
 		})
 	})

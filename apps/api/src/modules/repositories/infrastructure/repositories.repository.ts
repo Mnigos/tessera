@@ -142,6 +142,15 @@ export interface UpsertGitHubExternalSourceParams extends RepositoryIdParams {
 	syncFailureCount?: number
 }
 
+interface ListPrivilegedUsersParams extends RepositoryIdParams {
+	limit: number
+}
+
+export interface PrivilegedUserRow {
+	userId: UserId
+	username: string | null
+}
+
 export interface GitHubAccountCredentials {
 	accessToken: string | null
 }
@@ -310,6 +319,48 @@ export class RepositoriesRepository {
 			.limit(1)
 
 		return row?.role
+	}
+
+	/**
+	 * Users with explicitly granted access: the owner, stored collaborators and
+	 * organization owners/admins. Public-repository readers are unbounded and
+	 * therefore intentionally absent.
+	 */
+	async listPrivilegedUsers({
+		limit,
+		repositoryId,
+	}: ListPrivilegedUsersParams): Promise<PrivilegedUserRow[]> {
+		return await this.db
+			.selectDistinct({ userId: user.id, username: user.username })
+			.from(repositories)
+			.innerJoin(
+				user,
+				or(
+					eq(user.id, repositories.ownerUserId),
+					inArray(
+						user.id,
+						this.db
+							.select({ userId: repositoryCollaborators.userId })
+							.from(repositoryCollaborators)
+							.where(eq(repositoryCollaborators.repositoryId, repositoryId))
+					),
+					inArray(
+						user.id,
+						this.db
+							.select({ userId: member.userId })
+							.from(member)
+							.where(
+								and(
+									eq(member.organizationId, repositories.ownerOrganizationId),
+									inArray(member.role, ['owner', 'admin'])
+								)
+							)
+					)
+				)
+			)
+			.where(eq(repositories.id, repositoryId))
+			.orderBy(asc(user.username))
+			.limit(limit)
 	}
 
 	async findOrganizationMemberRole({
