@@ -2,6 +2,7 @@ import type {
 	PullRequestCommentId,
 	PullRequestEventId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 	RepositoryId,
 	UserId,
@@ -50,14 +51,32 @@ export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'commented',
 	'thread_resolved',
 	'thread_unresolved',
+	'review_request_removed',
+	'review_submitted',
 ])
 
-export interface PullRequestEventPayload {
+export interface PullRequestThreadEventPayload {
 	threadId: PullRequestThreadId
 	commentId?: PullRequestCommentId
 	threadKind: 'top_level' | 'inline'
 	path?: string
 }
+
+export interface PullRequestReviewerEventPayload {
+	reviewerUserId: UserId
+	reviewerUsername: string
+}
+
+export interface PullRequestReviewEventPayload {
+	reviewId: PullRequestReviewId
+	outcome: 'approve' | 'request_changes' | 'comment'
+	headSha: string
+}
+
+export type PullRequestEventPayload =
+	| PullRequestThreadEventPayload
+	| PullRequestReviewerEventPayload
+	| PullRequestReviewEventPayload
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',

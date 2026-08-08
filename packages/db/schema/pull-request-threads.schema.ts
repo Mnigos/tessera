@@ -1,6 +1,7 @@
 import type {
 	PullRequestCommentId,
 	PullRequestId,
+	PullRequestReviewId,
 	PullRequestThreadId,
 	UserId,
 } from '@repo/domain'
@@ -16,6 +17,7 @@ import {
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { user } from './auth.schema'
+import { pullRequestReviews } from './pull-request-reviews.schema'
 import { pullRequests } from './pull-requests.schema'
 
 export const pullRequestThreadKindEnum = pgEnum('pull_request_thread_kind', [
@@ -96,6 +98,9 @@ export const pullRequestComments = pgTable(
 			.references(() => user.id, { onDelete: 'restrict' }),
 		body: text('body').notNull(),
 		state: pullRequestCommentStateEnum('state').default('published').notNull(),
+		reviewId: uuid('review_id')
+			.$type<PullRequestReviewId>()
+			.references(() => pullRequestReviews.id, { onDelete: 'restrict' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -108,9 +113,14 @@ export const pullRequestComments = pgTable(
 			table.threadId,
 			table.createdAt
 		),
+		index('pull_request_comments_review_id_idx').on(table.reviewId),
 		check(
 			'pull_request_comments_body_check',
 			sql`length(btrim(${table.body})) > 0`
+		),
+		check(
+			'pull_request_comments_pending_review_check',
+			sql`${table.state}::text <> 'pending' or ${table.reviewId} is not null`
 		),
 	]
 )
@@ -147,6 +157,10 @@ export const pullRequestCommentRelations = relations(
 			fields: [pullRequestComments.authorUserId],
 			references: [user.id],
 			relationName: 'pull_request_comment_author',
+		}),
+		review: one(pullRequestReviews, {
+			fields: [pullRequestComments.reviewId],
+			references: [pullRequestReviews.id],
 		}),
 	})
 )
