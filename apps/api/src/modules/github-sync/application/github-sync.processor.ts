@@ -38,10 +38,6 @@ import {
 } from '../infrastructure/github-sync-conversations.repository'
 
 const GITHUB_SYNC_FAILURE_RETRY_MINUTES = 15
-const MISSING_GIT_OBJECT_GRPC_CODES = new Set<number>([
-	status.NOT_FOUND,
-	status.INVALID_ARGUMENT,
-])
 /**
  * Conversations cost five listings and a GraphQL page each, so a run projects
  * at most this many pull requests. Named targets come first and the rotation
@@ -406,11 +402,15 @@ function isGitHubSyncRequest(
 	return 'repositoryId' in data
 }
 
-/** A ref the mirror does not hold, as opposed to storage that cannot answer. */
+/**
+ * A ref the mirror does not hold, as opposed to storage that cannot answer or a
+ * request storage refused: git storage reports an unresolvable revision as
+ * NOT_FOUND and keeps INVALID_ARGUMENT for inputs it considers malformed.
+ */
 function isMissingGitObjectError(error: unknown): boolean {
 	if (!(error instanceof DomainError)) return false
 
-	return MISSING_GIT_OBJECT_GRPC_CODES.has(Number(error.context?.grpcCode))
+	return Number(error.context?.grpcCode) === status.NOT_FOUND
 }
 
 function collectActors(

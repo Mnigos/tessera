@@ -652,6 +652,30 @@ describe('GitHub conversation sync integration', () => {
 		])
 	})
 
+	test('records a review first seen dismissed without inventing an outcome', async () => {
+		conversation = {
+			...conversation,
+			reviews: [{ ...submittedReview(), outcome: undefined, dismissed: true }],
+		}
+
+		await runProjection()
+
+		expect(await db.query.pullRequestReviews.findMany()).toEqual([
+			expect.objectContaining({
+				provider: 'github',
+				state: 'dismissed',
+				outcome: null,
+				dismissedAt: expect.any(Date),
+			}),
+		])
+		const detail = await getPullRequestDetail()
+		expect(detail.effectiveReviewStates).toEqual([])
+		expect(detail.reviews).toEqual([
+			expect.objectContaining({ state: 'dismissed' }),
+		])
+		expect(detail.reviews[0]?.outcome).toBeUndefined()
+	})
+
 	test('keeps two unmapped reviewers distinct in the effective state', async () => {
 		conversation = {
 			...conversation,

@@ -10,6 +10,7 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { PullRequestActor } from '@repo/contracts'
 import { db } from '@repo/db/client'
 import {
 	account,
@@ -60,8 +61,8 @@ interface ThreadResponseBody {
 	id: string
 	kind: 'top_level' | 'inline'
 	outdated: boolean
-	resolved?: { by: { username: string } }
-	comments: { id: string; body: string; author: { username: string } }[]
+	resolved?: { by: PullRequestActor }
+	comments: { id: string; body: string; author: PullRequestActor }[]
 }
 
 describe('Pull request threads integration', () => {

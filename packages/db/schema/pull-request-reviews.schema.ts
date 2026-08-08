@@ -73,12 +73,15 @@ export const pullRequestReviews = pgTable(
 			'pull_request_reviews_reviewer_check',
 			sql`${table.provider}::text = 'github' or ${table.reviewerUserId} is not null`
 		),
+		// GitHub replaces the state of a dismissed review with the dismissal itself,
+		// so a review Tessera first sees dismissed has no outcome left to recover:
+		// synchronized dismissals may keep it null, Tessera's own never can.
 		check(
 			'pull_request_reviews_state_check',
 			sql`(
 				(${table.state}::text = 'pending' and ${table.outcome} is null and ${table.submittedAt} is null and ${table.dismissedAt} is null and ${table.dismissedByUserId} is null)
 				or (${table.state}::text = 'submitted' and ${table.outcome} is not null and ${table.submittedAt} is not null and ${table.dismissedAt} is null and ${table.dismissedByUserId} is null)
-				or (${table.state}::text = 'dismissed' and ${table.outcome} is not null and ${table.submittedAt} is not null and ${table.dismissedAt} is not null and (${table.provider}::text = 'github' or ${table.dismissedByUserId} is not null))
+				or (${table.state}::text = 'dismissed' and ${table.submittedAt} is not null and ${table.dismissedAt} is not null and (${table.provider}::text = 'github' or (${table.outcome} is not null and ${table.dismissedByUserId} is not null)))
 			)`
 		),
 	]

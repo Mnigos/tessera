@@ -385,6 +385,9 @@ describe(GitHubSyncRepository.name, () => {
 		const deliveryUpdateIndex = updateMock.mock.calls.findIndex(
 			([table]) => table === gitHubWebhookDeliveries
 		)
+
+		expect(deliveryUpdateIndex).toBeGreaterThanOrEqual(0)
+
 		const condition = toSqlText(
 			updateWhereMock.mock.calls[deliveryUpdateIndex]?.[0]
 		)

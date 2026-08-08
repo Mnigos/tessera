@@ -203,9 +203,13 @@ export const gitHubPullRequestMappings = pgTable(
 		index('github_pull_request_mappings_author_actor_id_idx').on(
 			table.authorActorId
 		),
+		// The rotation reads the least recently projected mappings first and treats
+		// a mapping never projected as the oldest, so the index carries that exact
+		// order — including the number it breaks ties on — and the scan needs no sort.
 		index('github_pull_request_mappings_conversation_synced_at_idx').on(
 			table.repositoryId,
-			table.conversationSyncedAt
+			table.conversationSyncedAt.asc().nullsFirst(),
+			table.externalNumber.asc()
 		),
 	]
 )

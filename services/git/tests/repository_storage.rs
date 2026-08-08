@@ -1948,6 +1948,36 @@ async fn repository_commits_grpc_maps_response_and_invalid_ref() {
 }
 
 #[tokio::test]
+async fn repository_comparison_separates_a_missing_revision_from_a_malformed_ref() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+
+    let missing = storage
+        .compare_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            &"a".repeat(40),
+        )
+        .await
+        .unwrap_err();
+    let malformed = storage
+        .compare_repository_refs(REPOSITORY_ID, &repository.storage_path, "main", "../main")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(missing, RepositoryError::RepositoryObjectNotFound));
+    assert!(matches!(malformed, RepositoryError::InvalidRepositoryRef));
+}
+
+#[tokio::test]
 async fn repository_comparison_returns_commits_files_hunks_renames_and_binary_state() {
     let temp_dir = TempDir::new().unwrap();
     let storage = storage(temp_dir.path(), "git");

@@ -114,7 +114,8 @@ export type PullRequestReviewOutcome = z.infer<
 /**
  * A dismissed review keeps the outcome it was submitted with; dismissal is a
  * lifecycle state, never an outcome, so the original approval or change request
- * stays readable in history.
+ * stays readable in history. Only a synchronized review first seen dismissed has
+ * none: the provider had already replaced it before Tessera ever saw the review.
  */
 export const pullRequestReviewStateSchema = z.enum([
 	'pending',
@@ -177,7 +178,7 @@ const pullRequestReviewerEventPayloadSchema = z.object({
 
 const pullRequestReviewEventPayloadSchema = z.object({
 	reviewId: pullRequestReviewIdSchema,
-	outcome: pullRequestReviewOutcomeSchema,
+	outcome: pullRequestReviewOutcomeSchema.optional(),
 	headSha: z.string(),
 })
 
@@ -347,7 +348,7 @@ export const pullRequestReviewSchema = z.object({
 	id: pullRequestReviewIdSchema,
 	reviewer: pullRequestActorSchema,
 	state: pullRequestReviewStateSchema,
-	outcome: pullRequestReviewOutcomeSchema,
+	outcome: pullRequestReviewOutcomeSchema.optional(),
 	body: z.string(),
 	headSha: z.string(),
 	submittedAt: z.coerce.date(),
