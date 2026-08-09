@@ -1,0 +1,132 @@
+import type { MergeQueueStatus } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
+import { ListOrdered, LogOut, RotateCcw } from 'lucide-react'
+import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
+import {
+	getMergeBlockingReasonMessage,
+	getMergeQueueStateLabel,
+} from '../helpers/merge-blocking-reason'
+import { useJoinMergeQueueMutation } from '../hooks/use-join-merge-queue.mutation'
+import { useLeaveMergeQueueMutation } from '../hooks/use-leave-merge-queue.mutation'
+import { useRetryMergeQueueEntryMutation } from '../hooks/use-retry-merge-queue-entry.mutation'
+
+interface PullRequestMergeQueuePanelProps {
+	username: string
+	slug: string
+	number: number
+	mergeQueue: MergeQueueStatus
+}
+
+/**
+ * Where this pull request stands in its repository's merge queue, and the three
+ * things that can be done about it.
+ *
+ * The place shown is counted among the entries that can still run, so a paused
+ * entry ahead of this one does not inflate it — nothing is waiting behind a
+ * paused entry.
+ */
+export function PullRequestMergeQueuePanel({
+	username,
+	slug,
+	number,
+	mergeQueue,
+}: Readonly<PullRequestMergeQueuePanelProps>) {
+	const joinQueue = useJoinMergeQueueMutation()
+	const leaveQueue = useLeaveMergeQueueMutation()
+	const retryEntry = useRetryMergeQueueEntryMutation()
+	const input = { username, slug, number }
+	const { entry } = mergeQueue
+	const failedMutation = [joinQueue, leaveQueue, retryEntry].find(
+		mutation => mutation.isError
+	)
+
+	return (
+		<div className="flex flex-col gap-3 border-border/60 border-t pt-4">
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<span className="inline-flex items-center gap-2 font-medium text-sm">
+					<ListOrdered aria-hidden className="size-4 text-muted-foreground" />
+					Merge queue
+				</span>
+				<span className="text-muted-foreground text-xs">
+					{mergeQueue.runnableCount === 1
+						? '1 pull request waiting'
+						: `${mergeQueue.runnableCount} pull requests waiting`}
+				</span>
+			</div>
+			{entry ? (
+				<div className="flex flex-col gap-2">
+					<p className="text-sm">
+						{getMergeQueueStateLabel(entry.state)}
+						{entry.position !== undefined && (
+							<span className="text-muted-foreground">
+								{' '}
+								— number {entry.position} in line
+							</span>
+						)}
+					</p>
+					{entry.blockingReasons && entry.blockingReasons.length > 0 && (
+						<ul className="flex list-disc flex-col gap-1 pl-4 text-muted-foreground text-xs">
+							{entry.blockingReasons.map(reason => (
+								<li key={reason.code}>
+									{getMergeBlockingReasonMessage(reason)}
+								</li>
+							))}
+						</ul>
+					)}
+					<div className="flex flex-wrap gap-2">
+						{entry.state === 'paused' && (
+							<Button
+								disabled={retryEntry.isPending}
+								onClick={() => retryEntry.mutate(input)}
+								size="sm"
+								variant="outline"
+							>
+								<RotateCcw className="size-4" />
+								{retryEntry.isPending ? 'Retrying' : 'Retry'}
+							</Button>
+						)}
+						{/* Git has the branch by the time an entry is merging, and the
+						server refuses to withdraw it from under that. Offering the
+						button anyway would only be a way to be told no. */}
+						{entry.state !== 'merging' && (
+							<Button
+								disabled={leaveQueue.isPending}
+								onClick={() => leaveQueue.mutate(input)}
+								size="sm"
+								variant="outline"
+							>
+								<LogOut className="size-4" />
+								{leaveQueue.isPending ? 'Leaving' : 'Leave queue'}
+							</Button>
+						)}
+					</div>
+				</div>
+			) : (
+				<div className="flex flex-col gap-2">
+					<p className="text-muted-foreground text-sm">
+						Queued pull requests merge one at a time, each re-checked against
+						the target branch as it moves.
+					</p>
+					<Button
+						className="w-fit"
+						disabled={joinQueue.isPending}
+						onClick={() => joinQueue.mutate(input)}
+						size="sm"
+						variant="outline"
+					>
+						<ListOrdered className="size-4" />
+						{joinQueue.isPending ? 'Joining' : 'Join merge queue'}
+					</Button>
+				</div>
+			)}
+			{failedMutation?.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					{getPullRequestErrorMessage(
+						failedMutation.error,
+						'The merge queue could not be updated.'
+					)}
+				</p>
+			)}
+		</div>
+	)
+}

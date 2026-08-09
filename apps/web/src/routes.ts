@@ -49,4 +49,8 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug/settings/collaborators',
 		'modules/repository-collaborators/routes/repository.$username.$slug.settings.collaborators.route.tsx'
 	),
+	route(
+		'/$username/$slug/settings/branch-protection',
+		'modules/branch-protection/routes/repository.$username.$slug.settings.branch-protection.route.tsx'
+	),
 ])

@@ -1,5 +1,6 @@
 import type {
 	ChecksSummary,
+	MergeQueueStatus,
 	PullRequest,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
@@ -14,7 +15,6 @@ import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { MarkdownContent } from '@/shared/components/markdown-content'
 import type { PullRequestReviewContext } from '../helpers/pull-request-review'
-import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestChecksPanel } from './pull-request-checks-panel'
 import { PullRequestMergePanel } from './pull-request-merge-panel'
@@ -32,6 +32,7 @@ interface PullRequestOverviewProps {
 	effectiveReviewStates: PullRequestEffectiveReviewState[]
 	reviewerCandidates: PullRequestReviewerCandidate[]
 	checksSummary?: ChecksSummary
+	mergeQueue: MergeQueueStatus
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
@@ -48,6 +49,7 @@ export function PullRequestOverview({
 	effectiveReviewStates,
 	reviewerCandidates,
 	checksSummary,
+	mergeQueue,
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
@@ -55,10 +57,6 @@ export function PullRequestOverview({
 }: Readonly<PullRequestOverviewProps>) {
 	const number = String(pullRequest.number)
 	const isOpen = pullRequest.state === 'open'
-	const comparisonQuery = usePullRequestComparisonQuery(
-		{ username, slug, number },
-		canWrite && isOpen
-	)
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
 
 	// The reviewed head is whichever comparison the viewer is reading, never a
@@ -103,10 +101,7 @@ export function PullRequestOverview({
 				/>
 				{canWrite && (
 					<PullRequestMergePanel
-						comparison={comparisonQuery.data}
-						isComparisonError={comparisonQuery.isError}
-						isComparisonLoading={comparisonQuery.isLoading}
-						onRefreshComparison={() => comparisonQuery.refetch()}
+						mergeQueue={mergeQueue}
 						pullRequest={pullRequest}
 						slug={slug}
 						username={username}

@@ -39,6 +39,12 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	review_request_removed: 'Pull request review request removed',
 	review_submitted: 'Pull request review submitted',
 	review_dismissed: 'Pull request review dismissed',
+	merge_blocked: 'Merge blocked by branch protection',
+	merge_bypassed: 'Merge requirements bypassed',
+	queue_entered: 'Added to the merge queue',
+	queue_paused: 'Merge queue entry paused',
+	queue_resumed: 'Merge queue entry resumed',
+	queue_removed: 'Removed from the merge queue',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [
