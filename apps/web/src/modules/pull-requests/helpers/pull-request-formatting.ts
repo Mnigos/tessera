@@ -14,6 +14,20 @@ const REVIEWER_TARGETED_EVENT_DESCRIPTIONS: Partial<
 		`Review request for ${reviewerUsername} removed`,
 }
 
+/**
+ * How a branch movement is worded once the event says where the branch went.
+ * Only native push events carry that payload, so the labels below stay the
+ * fallback for provider-synchronized history.
+ */
+const PULL_REQUEST_HEAD_UPDATE_VERBS: Partial<
+	Record<PullRequestEventType, string>
+> = {
+	head_updated: 'Updated',
+	force_pushed: 'Force-pushed',
+}
+
+const HEADS_REF_PREFIX = 'refs/heads/'
+
 const PULL_REQUEST_STATE_LABELS: Record<PullRequestState, string> = {
 	open: 'Open',
 	closed: 'Closed',
@@ -45,6 +59,8 @@ const PULL_REQUEST_EVENT_LABELS: Record<PullRequestEventType, string> = {
 	queue_paused: 'Merge queue entry paused',
 	queue_resumed: 'Merge queue entry resumed',
 	queue_removed: 'Removed from the merge queue',
+	head_updated: 'Source branch updated',
+	force_pushed: 'Source branch force-pushed',
 }
 
 const PULL_REQUEST_MONTH_LABELS = [
@@ -89,6 +105,27 @@ export function getPullRequestEventDescription(event: PullRequestEvent) {
 		return describeReviewer(reviewer.reviewerUsername)
 
 	return getPullRequestEventLabel(event.type)
+}
+
+/**
+ * Reads where a push moved the pull request's source branch, so the timeline
+ * can name the branch and both commits instead of only saying it moved. Absent
+ * for every event that is not a native push.
+ */
+export function getPullRequestHeadUpdate(event: PullRequestEvent) {
+	const verb = PULL_REQUEST_HEAD_UPDATE_VERBS[event.type]
+	const { payload } = event
+
+	if (!(verb && payload && 'ref' in payload)) return undefined
+
+	return {
+		verb,
+		branch: payload.ref.startsWith(HEADS_REF_PREFIX)
+			? payload.ref.slice(HEADS_REF_PREFIX.length)
+			: payload.ref,
+		oldSha: payload.oldSha,
+		newSha: payload.newSha,
+	}
 }
 
 /**
