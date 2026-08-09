@@ -21,6 +21,7 @@ import { CheckStatusProvidersRepository } from '../infrastructure/check-status-p
 import { CheckStatusProvidersService } from './check-status-providers.service'
 
 const createdAt = new Date('2026-08-08T10:00:00Z')
+const keyExpiresAt = new Date('2026-09-08T10:00:00Z')
 const apiKeyId = '00000000-0000-4000-8000-000000000010' as ApiKeyId
 const repositoryId = '00000000-0000-4000-8000-000000000011' as RepositoryId
 const providerId =
@@ -42,10 +43,10 @@ const credential = {
 	id: credentialId,
 	providerId,
 	apiKeyId,
-	start: null,
+	start: 'tes_status_abc',
 	enabled: true,
 	revokedAt: null,
-	expiresAt: null,
+	expiresAt: keyExpiresAt,
 	lastUsedAt: null,
 	createdAt,
 }
@@ -69,7 +70,7 @@ describe(CheckStatusProvidersService.name, () => {
 								id: apiKeyId,
 								key: 'tes_status_raw-secret',
 								start: 'tes_status_abc',
-								expiresAt: null,
+								expiresAt: keyExpiresAt,
 							}),
 							verifyApiKey: vi.fn(),
 						},
@@ -134,6 +135,46 @@ describe(CheckStatusProvidersService.name, () => {
 
 		expect(providers[0]?.credentials[0]).not.toHaveProperty('token')
 		expect(JSON.stringify(providers)).not.toContain('raw-secret')
+	})
+
+	test('hands the minted key’s own expiry back with the secret', async () => {
+		// The row records only the reference; the expiry belongs to the key, and a
+		// caller configuring CI has to be told when the token stops working.
+		const created = await service.createProvider(mockUserId, {
+			...repositoryInput,
+			key: 'jenkins',
+			displayName: 'Jenkins',
+		})
+
+		expect(created.credential.expiresAt).toBe(keyExpiresAt)
+		expect(created.credential.start).toBe('tes_status_abc')
+		// The same credential described under its provider cannot disagree.
+		expect(created.provider.credentials[0]?.expiresAt).toBe(keyExpiresAt)
+	})
+
+	test('reports an insert that returned nothing as an internal failure', async () => {
+		// The caller was creating a provider, not looking one up: answering "not
+		// found" would blame the request for a fault on this side.
+		vi.spyOn(
+			providersRepository,
+			'createProviderWithCredential'
+		).mockResolvedValue(undefined)
+
+		await expect(
+			service.createProvider(mockUserId, {
+				...repositoryInput,
+				key: 'jenkins',
+				displayName: 'Jenkins',
+			})
+		).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
+
+		vi.spyOn(providersRepository, 'createCredential').mockResolvedValue(
+			undefined
+		)
+
+		await expect(
+			service.createCredential(mockUserId, { ...repositoryInput, providerId })
+		).rejects.toMatchObject({ code: 'INTERNAL_SERVER_ERROR' })
 	})
 
 	test('reports a duplicate key as a conflict rather than a failed insert', async () => {

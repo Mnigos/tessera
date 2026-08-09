@@ -47,38 +47,38 @@ export class ChecksPublishService {
 			targetUrl,
 		}: ParsedPublishCommitStatusInput
 	): Promise<PublishCommitStatusOutput> {
-		const checkId = await this.checksRepository.ensureStatusCheck({
+		const fingerprint = toPublishedFingerprint(idempotencyKey)
+		const observedAt = new Date()
+		const written = await this.checksRepository.publishStatusObservation({
 			repositoryId,
 			sha,
 			context,
 			providerId,
-		})
-		const fingerprint = toPublishedFingerprint(idempotencyKey)
-		const observedAt = new Date()
-		const appended = await this.checksRepository.appendObservation({
-			repositoryId,
-			checkId,
-			state,
-			targetUrl,
-			description,
-			credentialId,
-			providerCreatedAt: reportedAt,
-			observedAt,
-			fingerprint,
+			observation: {
+				state,
+				targetUrl,
+				description,
+				credentialId,
+				providerCreatedAt: reportedAt,
+				observedAt,
+				fingerprint,
+			},
 		})
 
-		if (appended)
-			return { checkId, sha, context, state, observedAt, created: true }
-
-		const existing = await this.checksRepository.findObservationByFingerprint({
-			checkId,
-			fingerprint,
-		})
+		if (written.status === 'appended')
+			return {
+				checkId: written.checkId,
+				sha,
+				context,
+				state,
+				observedAt,
+				created: true,
+			}
 
 		// The key conflicted a moment ago and its page is gone now, which nothing
 		// in an append-only ledger can do. Treating that as a duplicate would
 		// silently drop the report, so it is reported as the conflict it is.
-		if (!existing)
+		if (!(written.recorded && written.effective))
 			throw new CheckStatusIdempotencyConflictError({
 				context,
 				idempotencyKey,
@@ -86,7 +86,7 @@ export class ChecksPublishService {
 			})
 
 		if (
-			!matchesRecordedReport(existing, {
+			!matchesRecordedReport(written.recorded, {
 				description,
 				reportedAt,
 				state,
@@ -96,22 +96,19 @@ export class ChecksPublishService {
 			throw new CheckStatusIdempotencyConflictError({
 				context,
 				idempotencyKey,
-				recordedState: existing.state,
+				recordedState: written.recorded.state,
 				sha,
 			})
 
 		// The answer is what the commit now carries for this context, not what this
 		// key recorded. A retry of an older key would otherwise tell CI that a
 		// context it has since moved past had un-succeeded.
-		const effective =
-			(await this.checksRepository.findLatestObservation(checkId)) ?? existing
-
 		return {
-			checkId,
+			checkId: written.checkId,
 			sha,
 			context,
-			state: effective.state,
-			observedAt: effective.observedAt,
+			state: written.effective.state,
+			observedAt: written.effective.observedAt,
 			created: false,
 		}
 	}

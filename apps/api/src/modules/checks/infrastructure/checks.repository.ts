@@ -42,6 +42,24 @@ interface StatusCheckStreamParams extends CheckStreamParams {
 	providerId?: CheckStatusProviderId
 }
 
+interface PublishStatusObservationParams extends StatusCheckStreamParams {
+	observation: Omit<NewCheckObservation, 'checkId' | 'repositoryId'>
+}
+
+/**
+ * `duplicate` means the fingerprint was already on file. Both pages come back:
+ * the one that key recorded, to compare the submission against, and the newest
+ * one, which is what the commit actually carries now.
+ */
+export type PublishStatusObservationResult =
+	| { status: 'appended'; checkId: CheckId }
+	| {
+			status: 'duplicate'
+			checkId: CheckId
+			recorded?: CheckObservationRow
+			effective?: CheckObservationRow
+	  }
+
 interface ObservationFingerprintParams {
 	checkId: CheckId
 	fingerprint: string
@@ -335,14 +353,56 @@ export class ChecksRepository {
 	}
 
 	/**
+	 * One external report, written under a single fence.
+	 *
+	 * Resolving the stream, appending to it, and reading back what the stream now
+	 * says are one decision, not three: outside a transaction another publisher
+	 * could interleave between them and this caller would answer with a state
+	 * that was never true at any single moment. Whether a duplicate is a replay
+	 * or a conflict is the caller's to judge, so both pages are handed back
+	 * rather than compared here.
+	 */
+	async publishStatusObservation({
+		context,
+		observation,
+		providerId,
+		repositoryId,
+		sha,
+	}: PublishStatusObservationParams): Promise<PublishStatusObservationResult> {
+		return await this.db.transaction(async tx => {
+			const checkId = await this.ensureStatusCheck(
+				{ repositoryId, sha, context, providerId },
+				tx
+			)
+			const appended = await this.appendObservation(
+				{ ...observation, repositoryId, checkId },
+				tx
+			)
+
+			if (appended) return { status: 'appended', checkId }
+
+			// Sequential rather than raced: a transaction is one connection, so
+			// there is nothing to win by overlapping them.
+			const recorded = await this.findObservationByFingerprint(
+				{ checkId, fingerprint: observation.fingerprint },
+				tx
+			)
+			const effective = await this.findLatestObservation(checkId, tx)
+
+			return { status: 'duplicate', checkId, recorded, effective }
+		})
+	}
+
+	/**
 	 * The newest page of one check's logbook, in the ledger's own append order —
 	 * the same order, down to the tiebreak, that decides the effective result on
 	 * every read.
 	 */
 	async findLatestObservation(
-		checkId: CheckId
+		checkId: CheckId,
+		db: ChecksDatabase = this.db
 	): Promise<CheckObservationRow | undefined> {
-		const [observation] = await this.db
+		const [observation] = await db
 			.select(OBSERVATION_COLUMNS)
 			.from(checkObservations)
 			.where(eq(checkObservations.checkId, checkId))
@@ -360,11 +420,11 @@ export class ChecksRepository {
 	 * its own, so this is how a repeat submission is compared against what that
 	 * key actually recorded rather than assumed to be a duplicate of it.
 	 */
-	async findObservationByFingerprint({
-		checkId,
-		fingerprint,
-	}: ObservationFingerprintParams): Promise<CheckObservationRow | undefined> {
-		const [observation] = await this.db
+	async findObservationByFingerprint(
+		{ checkId, fingerprint }: ObservationFingerprintParams,
+		db: ChecksDatabase = this.db
+	): Promise<CheckObservationRow | undefined> {
+		const [observation] = await db
 			.select(OBSERVATION_COLUMNS)
 			.from(checkObservations)
 			.where(

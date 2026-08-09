@@ -1,5 +1,5 @@
 import { RepositoriesService } from '@modules/repositories'
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import {
 	type Auth,
 	CHECK_STATUS_CREDENTIAL_CONFIG_ID,
@@ -18,9 +18,11 @@ import type { ApiKeyId, RepositoryId, UserId } from '@repo/domain'
 import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
+	CheckStatusCredentialCreateFailedError,
 	CheckStatusCredentialNotFoundError,
 	CheckStatusPermissionDeniedError,
 	CheckStatusProviderAlreadyExistsError,
+	CheckStatusProviderCreateFailedError,
 	CheckStatusProviderNotFoundError,
 	InvalidCheckStatusCredentialError,
 } from '../domain/check-status-credential.errors'
@@ -29,6 +31,7 @@ import {
 	CheckStatusProvidersRepository,
 	type CheckStatusProviderView,
 	type CreatedCheckStatusProvider,
+	type MintedApiKey,
 } from '../infrastructure/check-status-providers.repository'
 
 const CHECK_STATUS_PROVIDER_UNIQUE_CONSTRAINTS = new Set([
@@ -37,6 +40,8 @@ const CHECK_STATUS_PROVIDER_UNIQUE_CONSTRAINTS = new Set([
 
 @Injectable()
 export class CheckStatusProvidersService {
+	private readonly logger = new Logger(CheckStatusProvidersService.name)
+
 	constructor(
 		private readonly betterAuthService: BetterAuthService<Auth>,
 		private readonly checkStatusProvidersRepository: CheckStatusProvidersRepository,
@@ -96,7 +101,7 @@ export class CheckStatusProvidersService {
 		// key no row ever pointed at authorizes nothing: the guard resolves a
 		// caller through the credential, so a duplicate key left behind by the
 		// rollback below is inert rather than dangerous.
-		const createdKey = await this.createApiKey(
+		const mintedKey = await this.createApiKey(
 			actorUserId,
 			displayName,
 			expiresIn
@@ -106,16 +111,20 @@ export class CheckStatusProvidersService {
 			const created =
 				await this.checkStatusProvidersRepository.createProviderWithCredential({
 					actorUserId,
-					apiKeyId: createdKey.id as ApiKeyId,
+					key: mintedKey,
 					repositoryId,
-					key,
+					providerKey: key,
 					displayName,
 				})
 
 			if (!created)
-				throw new CheckStatusProviderNotFoundError({ repositoryId, key })
+				throw new CheckStatusProviderCreateFailedError({ repositoryId, key })
 
-			return toCreatedCredential(createdKey, created)
+			this.logger.log(
+				`Status provider ${created.provider.key} created on repository ${repositoryId} with credential ${created.credential.id}`
+			)
+
+			return toCreatedCredential(mintedKey.token, created)
 		} catch (error) {
 			if (isUniqueViolation(error, CHECK_STATUS_PROVIDER_UNIQUE_CONSTRAINTS))
 				throw new CheckStatusProviderAlreadyExistsError({ repositoryId, key })
@@ -186,14 +195,12 @@ export class CheckStatusProvidersService {
 		// finishes a job that was interrupted halfway. A credential whose key is
 		// already gone has nothing left to disable.
 		if (result.apiKeyId)
-			await this.betterAuthService.api.updateApiKey({
-				body: {
-					configId: CHECK_STATUS_CREDENTIAL_CONFIG_ID,
-					keyId: result.apiKeyId,
-					userId: result.createdByUserId,
-					enabled: false,
-				},
-			})
+			await this.disableApiKey(result.apiKeyId, result.createdByUserId)
+
+		if (result.status === 'revoked')
+			this.logger.log(
+				`Status credential ${credentialId} revoked on repository ${repositoryId}`
+			)
 
 		// An already-revoked credential is the state the caller asked for, so
 		// saying so again is success rather than a conflict to resolve.
@@ -249,7 +256,7 @@ export class CheckStatusProvidersService {
 		provider: CheckStatusProviderView
 		repositoryId: RepositoryId
 	}): Promise<CreatedCheckStatusCredential> {
-		const createdKey = await this.createApiKey(
+		const mintedKey = await this.createApiKey(
 			actorUserId,
 			provider.displayName,
 			expiresIn
@@ -257,26 +264,57 @@ export class CheckStatusProvidersService {
 		const credential =
 			await this.checkStatusProvidersRepository.createCredential({
 				actorUserId,
-				apiKeyId: createdKey.id as ApiKeyId,
+				key: mintedKey,
 				provider,
 				repositoryId,
 			})
 
 		if (!credential)
-			throw new CheckStatusCredentialNotFoundError({
+			throw new CheckStatusCredentialCreateFailedError({
 				providerId: provider.id,
 				repositoryId,
 			})
 
-		return toCreatedCredential(createdKey, { provider, credential })
+		this.logger.log(
+			`Status credential ${credential.id} issued for provider ${provider.key} on repository ${repositoryId}`
+		)
+
+		return toCreatedCredential(mintedKey.token, { provider, credential })
+	}
+
+	/**
+	 * Retires the secret behind a credential that is already revoked in the
+	 * ledger. A failure here is reported rather than swallowed — the caller sees
+	 * it and retrying the revocation finishes the job — but it is named first,
+	 * because the consequence is a withdrawn credential whose key still
+	 * authenticates and nothing else would say which one.
+	 */
+	private async disableApiKey(apiKeyId: ApiKeyId, ownerUserId: UserId) {
+		try {
+			await this.betterAuthService.api.updateApiKey({
+				body: {
+					configId: CHECK_STATUS_CREDENTIAL_CONFIG_ID,
+					keyId: apiKeyId,
+					userId: ownerUserId,
+					enabled: false,
+				},
+			})
+		} catch (error) {
+			this.logger.error(
+				`Revoked status credential key ${apiKeyId} could not be disabled and is still live`,
+				error
+			)
+
+			throw error
+		}
 	}
 
 	private async createApiKey(
 		actorUserId: UserId,
 		name: string,
 		expiresIn?: number
-	) {
-		return await this.betterAuthService.api.createApiKey({
+	): Promise<MintedApiKey & { token: string }> {
+		const createdKey = await this.betterAuthService.api.createApiKey({
 			body: {
 				configId: CHECK_STATUS_CREDENTIAL_CONFIG_ID,
 				userId: actorUserId,
@@ -286,29 +324,25 @@ export class CheckStatusProvidersService {
 				permissions: getCheckStatusCredentialPermission('checks:write'),
 			},
 		})
+
+		return {
+			id: createdKey.id as ApiKeyId,
+			start: createdKey.start ?? null,
+			expiresAt: createdKey.expiresAt ?? null,
+			token: createdKey.key,
+		}
 	}
 }
 
-/**
- * The response that carries the secret. The row knows nothing about the key it
- * stands for, so the parts only the key has are filled in once — the credential
- * described on its own and the same credential described under its provider
- * cannot disagree.
- */
+/** The one response that carries the secret, and the only one that ever will. */
 function toCreatedCredential(
-	createdKey: { key: string; start?: string | null; expiresAt?: Date | null },
+	token: string,
 	{ credential, provider }: CreatedCheckStatusProvider
 ): CreatedCheckStatusCredential {
-	const issued = {
-		...credential,
-		start: createdKey.start ?? null,
-		expiresAt: createdKey.expiresAt ?? null,
-	}
-
 	return {
-		token: createdKey.key,
-		credential: toCheckStatusCredentialOutput(issued),
-		provider: toCheckStatusProviderOutput(provider, [issued]),
+		token,
+		credential: toCheckStatusCredentialOutput(credential),
+		provider: toCheckStatusProviderOutput(provider, [credential]),
 	}
 }
 

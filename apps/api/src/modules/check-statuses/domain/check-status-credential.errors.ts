@@ -1,6 +1,7 @@
 import {
 	ConflictError,
 	ForbiddenError,
+	InternalError,
 	NotFoundError,
 	UnauthorizedError,
 } from '~/shared/errors'
@@ -56,5 +57,22 @@ export class CheckStatusProviderAlreadyExistsError extends ConflictError {
 			context,
 			'This repository already has a status provider with that key.'
 		)
+	}
+}
+
+/**
+ * The insert returned no row. Nothing the caller sent explains it, so it is
+ * reported as the internal failure it is rather than as a provider that cannot
+ * be found — the caller was creating one, not looking one up.
+ */
+export class CheckStatusProviderCreateFailedError extends InternalError {
+	constructor(context?: Record<string, unknown>) {
+		super('check status provider create', context)
+	}
+}
+
+export class CheckStatusCredentialCreateFailedError extends InternalError {
+	constructor(context?: Record<string, unknown>) {
+		super('check status credential create', context)
 	}
 }
