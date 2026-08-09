@@ -11,6 +11,7 @@ use tessera_git::ssh::{
 use tessera_git::storage::infrastructure::RepositoryStorage;
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
+const ACTOR_USER_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b6";
 
 #[test]
 fn ssh_command_parser_accepts_git_services() {
@@ -106,6 +107,7 @@ async fn ssh_application_resolves_authorized_repository_through_storage_guard() 
     let application = SshGitApplication::new(
         FakeSshAuthorizer {
             repository_id: REPOSITORY_ID.to_string(),
+            actor_user_id: Some(ACTOR_USER_ID.to_string()),
             storage_path: repository.storage_path,
         },
         storage,
@@ -123,6 +125,12 @@ async fn ssh_application_resolves_authorized_repository_through_storage_guard() 
         .unwrap();
 
     assert_eq!(authorized.operation, SshGitOperation::UploadPack);
+    assert_eq!(authorized.repository_id, REPOSITORY_ID);
+    assert_eq!(
+        authorized.actor_user_id,
+        Some(ACTOR_USER_ID.to_string()),
+        "the authorized user must survive authorization, never the SSH login"
+    );
     assert_eq!(
         authorized.repository_path,
         temp_dir
@@ -143,6 +151,7 @@ async fn ssh_application_rejects_authorized_storage_path_mismatch() {
     let application = SshGitApplication::new(
         FakeSshAuthorizer {
             repository_id: REPOSITORY_ID.to_string(),
+            actor_user_id: Some(ACTOR_USER_ID.to_string()),
             storage_path: temp_dir
                 .path()
                 .join("repositories")
@@ -174,6 +183,7 @@ fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
 #[derive(Clone)]
 struct FakeSshAuthorizer {
     repository_id: String,
+    actor_user_id: Option<String>,
     storage_path: String,
 }
 
@@ -194,6 +204,7 @@ impl SshGitAuthorizer for FakeSshAuthorizer {
     ) -> Result<SshRepositoryMetadata, SshGitError> {
         Ok(SshRepositoryMetadata {
             repository_id: self.repository_id.clone(),
+            actor_user_id: self.actor_user_id.clone(),
             storage_path: self.storage_path.clone(),
         })
     }

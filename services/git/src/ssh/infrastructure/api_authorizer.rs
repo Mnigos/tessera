@@ -139,6 +139,7 @@ async fn authorize_ssh_read(
 
     Ok(SshRepositoryMetadata {
         repository_id: response.repository_id,
+        actor_user_id: empty_string_to_none(response.trusted_user),
         storage_path: response.storage_path,
     })
 }
@@ -156,6 +157,7 @@ async fn authorize_ssh_write(
 
     Ok(SshRepositoryMetadata {
         repository_id: response.repository_id,
+        actor_user_id: empty_string_to_none(response.trusted_user),
         storage_path: response.storage_path,
     })
 }
@@ -172,6 +174,10 @@ fn with_authorization_metadata<T>(
     }
 
     Ok(request)
+}
+
+fn empty_string_to_none(value: String) -> Option<String> {
+    (!value.is_empty()).then_some(value)
 }
 
 fn status_to_ssh_error(status: tonic::Status) -> SshGitError {

@@ -97,7 +97,9 @@ pub fn query_service(query: Option<&str>) -> Result<Option<&str>, SmartHttpError
 pub struct SmartHttpRepositoryMetadata {
     pub repository_id: String,
     pub storage_path: String,
-    pub authenticated_username: Option<String>,
+    /// The Tessera user the credentials belong to, which is both what Git
+    /// records as `REMOTE_USER` and who a push is attributed to.
+    pub actor_user_id: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

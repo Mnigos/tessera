@@ -111,7 +111,7 @@ async fn authorize_read(
     Ok(SmartHttpRepositoryMetadata {
         repository_id: response.repository_id,
         storage_path: response.storage_path,
-        authenticated_username: empty_string_to_none(response.trusted_user),
+        actor_user_id: empty_string_to_none(response.trusted_user),
     })
 }
 
@@ -129,7 +129,7 @@ async fn authorize_write(
     Ok(SmartHttpRepositoryMetadata {
         repository_id: response.repository_id,
         storage_path: response.storage_path,
-        authenticated_username: empty_string_to_none(response.trusted_user),
+        actor_user_id: empty_string_to_none(response.trusted_user),
     })
 }
 

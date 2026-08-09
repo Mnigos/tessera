@@ -2,12 +2,13 @@ use axum::Router;
 use axum::routing::any;
 
 use crate::config::Config;
+use crate::push_events::domain::PushHookConfig;
 use crate::smart_http::application::SmartHttpApplication;
 use crate::smart_http::http::request_handler::{handle_smart_http, handle_smart_http_root};
 use crate::smart_http::infrastructure::{ApiSmartHttpAuthorizer, GitHttpBackend};
 use crate::storage::infrastructure::RepositoryStorage;
 
-pub fn router(config: Config) -> Router {
+pub fn router(config: Config, push_hook: Option<PushHookConfig>) -> Router {
     let api_grpc_url_configured = !config.api_grpc_url.trim().is_empty();
     let api_token_present = config
         .api_grpc_authorization_token
@@ -29,7 +30,7 @@ pub fn router(config: Config) -> Router {
         "smart_http configured"
     );
     let storage = RepositoryStorage::new(config.storage_root.clone(), config.git_binary.clone());
-    let backend = GitHttpBackend::new(config.git_binary);
+    let backend = GitHttpBackend::new(config.git_binary, push_hook);
     let authorizer =
         ApiSmartHttpAuthorizer::new(config.api_grpc_url, config.api_grpc_authorization_token);
     let service = SmartHttpApplication::new(authorizer, storage, backend);

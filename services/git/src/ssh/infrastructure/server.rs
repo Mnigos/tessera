@@ -12,16 +12,20 @@ use tokio::process::ChildStdin;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
 
+use crate::push_events::domain::{PushEventContext, PushHookConfig};
 use crate::ssh::application::{
     SshGitApplication, SshGitAuthenticationRequest, SshGitAuthorizer, authorization_request,
 };
-use crate::ssh::domain::{SshGitError, parse_ssh_git_command, ssh_exec_failure_message};
+use crate::ssh::domain::{
+    SshGitError, SshGitOperation, parse_ssh_git_command, ssh_exec_failure_message,
+};
 use crate::ssh::infrastructure::{GitSshBackendRequest, spawn_git_ssh_process};
 
 #[derive(Clone, Debug)]
 pub struct SshGitServer<A> {
     application: SshGitApplication<A>,
     git_binary: PathBuf,
+    push_hook: Option<PushHookConfig>,
     next_client_id: Arc<AtomicUsize>,
 }
 
@@ -29,10 +33,15 @@ impl<A> SshGitServer<A>
 where
     A: SshGitAuthorizer,
 {
-    pub fn new(application: SshGitApplication<A>, git_binary: PathBuf) -> Self {
+    pub fn new(
+        application: SshGitApplication<A>,
+        git_binary: PathBuf,
+        push_hook: Option<PushHookConfig>,
+    ) -> Self {
         Self {
             application,
             git_binary,
+            push_hook,
             next_client_id: Arc::new(AtomicUsize::new(0)),
         }
     }
@@ -50,6 +59,7 @@ where
         SshGitHandler {
             application: self.application.clone(),
             git_binary: self.git_binary.clone(),
+            push_hook: self.push_hook.clone(),
             client_id,
             authenticated: None,
             channels: HashMap::new(),
@@ -75,6 +85,7 @@ where
 pub struct SshGitHandler<A> {
     application: SshGitApplication<A>,
     git_binary: PathBuf,
+    push_hook: Option<PushHookConfig>,
     client_id: usize,
     authenticated: Option<AuthenticatedSshUser>,
     channels: HashMap<ChannelId, Arc<Mutex<Option<ChildStdin>>>>,
@@ -171,9 +182,15 @@ where
         };
         let mut child = match spawn_git_ssh_process(
             self.git_binary.clone(),
+            self.push_hook.as_ref(),
             GitSshBackendRequest {
                 operation,
                 repository_path: authorized.repository_path,
+                push_context: push_event_context(
+                    operation,
+                    authorized.repository_id,
+                    authorized.actor_user_id,
+                ),
             },
         ) {
             Ok(child) => child,
@@ -252,6 +269,20 @@ where
     }
 }
 
+/// Only receive-pack mints an operation: upload-pack moves nothing, so a hook
+/// would have nothing to report even if one ran.
+fn push_event_context(
+    operation: SshGitOperation,
+    repository_id: String,
+    actor_user_id: Option<String>,
+) -> Option<PushEventContext> {
+    if !operation.is_write() {
+        return None;
+    }
+
+    actor_user_id.map(|actor_user_id| PushEventContext::new(repository_id, actor_user_id))
+}
+
 fn reject_exec(
     channel: ChannelId,
     session: &mut Session,
@@ -316,5 +347,39 @@ where
 async fn wait_for_channel_reader(reader: Option<JoinHandle<()>>) {
     if let Some(reader) = reader {
         let _ = reader.await;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn mints_a_push_operation_only_for_receive_pack() {
+        let context = push_event_context(
+            SshGitOperation::ReceivePack,
+            "repository".to_string(),
+            Some("actor".to_string()),
+        )
+        .unwrap();
+
+        assert_eq!(context.repository_id, "repository");
+        assert_eq!(context.actor_user_id, "actor");
+        assert!(
+            push_event_context(
+                SshGitOperation::UploadPack,
+                "repository".to_string(),
+                Some("actor".to_string())
+            )
+            .is_none()
+        );
+    }
+
+    #[test]
+    fn mints_no_push_operation_without_an_authorized_user() {
+        assert!(
+            push_event_context(SshGitOperation::ReceivePack, "repository".to_string(), None)
+                .is_none()
+        );
     }
 }
