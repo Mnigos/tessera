@@ -4,6 +4,7 @@ import type { CheckKind, CheckState } from '@repo/contracts'
 import {
 	and,
 	checkObservations,
+	checkStatusProviders,
 	checks,
 	type DrizzleTransaction,
 	desc,
@@ -14,10 +15,16 @@ import {
 	gitHubCheckRunMappings,
 	gitHubCommitStatusMappings,
 	inArray,
+	isNull,
 	type NewCheckObservation,
 	sql,
 } from '@repo/db'
-import type { CheckId, CheckObservationId, RepositoryId } from '@repo/domain'
+import type {
+	CheckId,
+	CheckObservationId,
+	CheckStatusProviderId,
+	RepositoryId,
+} from '@repo/domain'
 
 interface ListEffectiveChecksParams {
 	repositoryId: RepositoryId
@@ -28,6 +35,29 @@ interface CheckStreamParams {
 	repositoryId: RepositoryId
 	sha: string
 	context: string
+}
+
+interface StatusCheckStreamParams extends CheckStreamParams {
+	/** Absent is the imported stream; a provider gets a stream of its own. */
+	providerId?: CheckStatusProviderId
+}
+
+interface ObservationFingerprintParams {
+	checkId: CheckId
+	fingerprint: string
+}
+
+/**
+ * A page of a check's logbook read back by the key its writer chose for it,
+ * carrying everything a repeat submission has to be compared against.
+ */
+export interface CheckObservationRow {
+	id: CheckObservationId
+	state: CheckState
+	targetUrl: string | null
+	description: string | null
+	providerCreatedAt: Date | null
+	observedAt: Date
 }
 
 /**
@@ -49,6 +79,10 @@ export interface EffectiveCheckRow {
 	startedAt: Date | null
 	completedAt: Date | null
 	observedAt: Date
+	/** Present exactly when a registered provider published the result natively. */
+	providerId: CheckStatusProviderId | null
+	providerKey: string | null
+	providerDisplayName: string | null
 	/** Present exactly when GitHub reported the result, whoever it names as actor. */
 	runMappingId: GitHubCheckRunMappingId | null
 	statusMappingId: GitHubCommitStatusMappingId | null
@@ -62,6 +96,15 @@ export interface EffectiveCheckRow {
 	appHtmlUrl: string | null
 	statusActorLogin: string | null
 	statusActorHtmlUrl: string | null
+}
+
+const OBSERVATION_COLUMNS = {
+	id: checkObservations.id,
+	state: checkObservations.state,
+	targetUrl: checkObservations.targetUrl,
+	description: checkObservations.description,
+	providerCreatedAt: checkObservations.providerCreatedAt,
+	observedAt: checkObservations.observedAt,
 }
 
 type ChecksDatabase = Database | DrizzleTransaction
@@ -78,13 +121,18 @@ export class ChecksRepository {
 	 * requeued run reports no start or completion time at all, so those dates rank
 	 * nothing reliably.
 	 *
-	 * Then the newest check of every `(kind, context)` stream, ranked by the run
-	 * identity GitHub itself assigns — run IDs only ever increase, so a rerun
-	 * supersedes the run it replaced whichever order the two were imported in.
-	 * Commit statuses share one check per context and rank nothing here. Every
+	 * Then the newest check of every `(kind, context, provider)` stream, ranked by
+	 * the run identity GitHub itself assigns — run IDs only ever increase, so a
+	 * rerun supersedes the run it replaced whichever order the two were imported
+	 * in. Commit statuses share one check per context and rank nothing here. Every
 	 * tiebreak is a monotonic sequence rather than a random row ID, so two runs
 	 * that are otherwise indistinguishable still resolve the same way on every
 	 * read.
+	 *
+	 * The provider is part of the partition because two systems reporting the same
+	 * context are two answers, not one contested one. Everything imported shares
+	 * the absent provider and therefore keeps collapsing into a single stream per
+	 * context exactly as it always has.
 	 */
 	async listEffectiveChecks({
 		repositoryId,
@@ -99,6 +147,7 @@ export class ChecksRepository {
 					sha: checks.sha,
 					kind: checks.kind,
 					context: checks.context,
+					providerId: checks.providerId,
 					// Both tables carry an `id` and the check carries the only
 					// `created_at`; inside the CTE they need names of their own or the
 					// outer query silently reads the wrong column.
@@ -137,6 +186,7 @@ export class ChecksRepository {
 					latestObservations.sha,
 					latestObservations.kind,
 					latestObservations.context,
+					latestObservations.providerId,
 				],
 				{
 					id: latestObservations.id,
@@ -153,6 +203,9 @@ export class ChecksRepository {
 					startedAt: latestObservations.startedAt,
 					completedAt: latestObservations.completedAt,
 					observedAt: latestObservations.observedAt,
+					providerId: latestObservations.providerId,
+					providerKey: checkStatusProviders.key,
+					providerDisplayName: checkStatusProviders.displayName,
 					runMappingId: gitHubCheckRunMappings.id,
 					statusMappingId: gitHubCommitStatusMappings.id,
 					runName: gitHubCheckRunMappings.name,
@@ -168,6 +221,10 @@ export class ChecksRepository {
 				}
 			)
 			.from(latestObservations)
+			.leftJoin(
+				checkStatusProviders,
+				eq(checkStatusProviders.id, latestObservations.providerId)
+			)
 			.leftJoin(
 				gitHubCheckRunMappings,
 				eq(gitHubCheckRunMappings.checkId, latestObservations.id)
@@ -187,6 +244,7 @@ export class ChecksRepository {
 				latestObservations.sha,
 				latestObservations.kind,
 				latestObservations.context,
+				latestObservations.providerId,
 				sql`${gitHubCheckRunMappings.externalNumericId} desc nulls last`,
 				desc(latestObservations.observedAt),
 				desc(latestObservations.checkCreatedAt),
@@ -200,12 +258,12 @@ export class ChecksRepository {
 	 * stream.
 	 */
 	async ensureStatusCheck(
-		{ context, repositoryId, sha }: CheckStreamParams,
+		{ context, providerId, repositoryId, sha }: StatusCheckStreamParams,
 		db: ChecksDatabase = this.db
 	): Promise<CheckId> {
 		const [inserted] = await db
 			.insert(checks)
-			.values({ repositoryId, sha, context, kind: 'status' })
+			.values({ repositoryId, sha, context, kind: 'status', providerId })
 			.onConflictDoNothing()
 			.returning({ id: checks.id })
 
@@ -219,7 +277,12 @@ export class ChecksRepository {
 					eq(checks.repositoryId, repositoryId),
 					eq(checks.sha, sha),
 					eq(checks.context, context),
-					eq(checks.kind, 'status')
+					eq(checks.kind, 'status'),
+					// The imported stream is the one whose provider is absent, and
+					// `= null` matches nothing, so the two cases need different SQL.
+					providerId
+						? eq(checks.providerId, providerId)
+						: isNull(checks.providerId)
 				)
 			)
 			.limit(1)
@@ -269,5 +332,49 @@ export class ChecksRepository {
 			.returning({ id: checkObservations.id })
 
 		return appended?.id
+	}
+
+	/**
+	 * The newest page of one check's logbook, in the ledger's own append order —
+	 * the same order, down to the tiebreak, that decides the effective result on
+	 * every read.
+	 */
+	async findLatestObservation(
+		checkId: CheckId
+	): Promise<CheckObservationRow | undefined> {
+		const [observation] = await this.db
+			.select(OBSERVATION_COLUMNS)
+			.from(checkObservations)
+			.where(eq(checkObservations.checkId, checkId))
+			.orderBy(
+				desc(checkObservations.observedAt),
+				desc(checkObservations.sequence)
+			)
+			.limit(1)
+
+		return observation
+	}
+
+	/**
+	 * The page a writer already filed under one key. A native publisher's key is
+	 * its own, so this is how a repeat submission is compared against what that
+	 * key actually recorded rather than assumed to be a duplicate of it.
+	 */
+	async findObservationByFingerprint({
+		checkId,
+		fingerprint,
+	}: ObservationFingerprintParams): Promise<CheckObservationRow | undefined> {
+		const [observation] = await this.db
+			.select(OBSERVATION_COLUMNS)
+			.from(checkObservations)
+			.where(
+				and(
+					eq(checkObservations.checkId, checkId),
+					eq(checkObservations.fingerprint, fingerprint)
+				)
+			)
+			.limit(1)
+
+		return observation
 	}
 }

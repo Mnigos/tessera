@@ -1,3 +1,4 @@
+import { ChecksModule } from '@modules/checks'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
@@ -15,6 +16,7 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 
 @Module({
 	imports: [
+		ChecksModule,
 		GitAccessTokensModule,
 		GpgPublicKeysModule,
 		SshPublicKeysModule,

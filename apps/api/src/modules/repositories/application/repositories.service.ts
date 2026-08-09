@@ -14,6 +14,7 @@ import {
 	type GitStorageRepositoryTree,
 	type GitStorageTrustedGpgKey,
 } from '@config/git-storage'
+import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
@@ -163,6 +164,12 @@ export interface RepositoryManagementContext {
 	tesseraWritesAllowed: boolean
 }
 
+/** A repository named by a path, and whether Tessera owns writes to it. */
+export interface RepositoryTarget {
+	repositoryId: RepositoryId
+	tesseraWritesAllowed: boolean
+}
+
 export interface AuthorizeGitRepositoryReadInput {
 	slug: RepositorySlug
 	username: string
@@ -214,7 +221,8 @@ export class RepositoriesService {
 		private readonly sshPublicKeysService: SshPublicKeysService,
 		private readonly envService: EnvService,
 		private readonly repositoryPermissionsService: RepositoryPermissionsService,
-		private readonly gitAccessTokensService: GitAccessTokensService
+		private readonly gitAccessTokensService: GitAccessTokensService,
+		private readonly checksReadService: ChecksReadService
 	) {}
 
 	async create(
@@ -455,6 +463,37 @@ export class RepositoriesService {
 			visibility: repository.visibility,
 			ownerUserId: repository.ownerUserId,
 			ownerOrganizationId: repository.ownerOrganizationId,
+			tesseraWritesAllowed: allowsTesseraWrites(repository),
+		}
+	}
+
+	/**
+	 * The repository at a path, with no viewer and no access decision.
+	 *
+	 * For callers whose authorization was already settled elsewhere and who need
+	 * the path resolved solely to confirm it names the repository they were
+	 * admitted to — an external status publisher holding a repository-confined
+	 * credential is the case. It reports whether Tessera owns the write side too,
+	 * because a caller that may write to this repository still may not write to a
+	 * repository GitHub is authoritative for.
+	 *
+	 * Absent rather than raising, so such a caller can answer an unknown path and
+	 * an unauthorized one identically instead of turning this into a way to
+	 * discover which repositories exist.
+	 */
+	async findRepositoryTargetByPath({
+		slug,
+		username,
+	}: ParsedGetRepositoryInput): Promise<RepositoryTarget | undefined> {
+		const repository = await this.repositoriesRepository.find({
+			username,
+			slug,
+		})
+
+		if (!repository) return undefined
+
+		return {
+			repositoryId: repository.id,
 			tesseraWritesAllowed: allowsTesseraWrites(repository),
 		}
 	}
@@ -920,11 +959,26 @@ export class RepositoriesService {
 			}
 		)
 		const repositoryOutput = toRepositoryOutput(repository)
+		// One query for the page rather than one per row: a status dot beside every
+		// commit must not cost a request each. Nothing here is current — history is
+		// read against a ref, not against any pull request's head — so no row
+		// claims to describe the tip of anything.
+		const checksSummaries = await this.checksReadService.listSummaries({
+			heads: commitHistory.commits.map(commit => ({
+				key: commit.sha,
+				sha: commit.sha,
+				isCurrent: false,
+			})),
+			repositoryId: repository.id,
+		})
 
 		return {
 			...repositoryOutput,
 			ref,
-			commits: commitHistory.commits,
+			commits: commitHistory.commits.map(commit => ({
+				...commit,
+				checksSummary: checksSummaries.get(commit.sha),
+			})),
 		}
 	}
 

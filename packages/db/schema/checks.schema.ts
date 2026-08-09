@@ -1,6 +1,8 @@
 import {
 	type CheckId,
 	type CheckObservationId,
+	type CheckStatusCredentialId,
+	type CheckStatusProviderId,
 	checkKinds,
 	type RepositoryId,
 } from '@repo/domain'
@@ -17,6 +19,10 @@ import {
 	uniqueIndex,
 	uuid,
 } from 'drizzle-orm/pg-core'
+import {
+	checkStatusCredentials,
+	checkStatusProviders,
+} from './check-status-providers.schema'
 import {
 	type GitHubWebhookDeliveryId,
 	gitHubWebhookDeliveries,
@@ -67,6 +73,20 @@ export const checks = pgTable(
 		sha: text('sha').notNull(),
 		kind: checkKindEnum('kind').notNull(),
 		context: text('context').notNull(),
+		/**
+		 * Which external publisher owns this stream. Absent is the imported stream:
+		 * everything GitHub reports shares one identity because GitHub itself
+		 * decides what a context means over there. A registered provider gets a
+		 * stream of its own, so two systems reporting `ci/build` on one commit stay
+		 * two answers rather than overwriting each other.
+		 *
+		 * `no action` rather than cascade: deleting a provider out from under the
+		 * results it published would rewrite the ledger, so a provider is retired by
+		 * revoking its credentials.
+		 */
+		providerId: uuid('provider_id')
+			.$type<CheckStatusProviderId>()
+			.references(() => checkStatusProviders.id, { onDelete: 'no action' }),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	table => [
@@ -80,9 +100,18 @@ export const checks = pgTable(
 		// is another page in one stream, so the stream itself has to be unique.
 		// Check runs deliberately stay outside this — same name, new run ID is a
 		// new logical check.
+		//
+		// The imported stream and each provider's stream are separately unique
+		// because they are separate streams. A partial index cannot enforce the
+		// imported case through the provider column — SQL uniqueness ignores rows
+		// whose key is NULL — so the two cases are two indexes.
 		uniqueIndex('checks_status_stream_unique')
 			.on(table.repositoryId, table.sha, table.context)
-			.where(sql`${table.kind} = 'status'`),
+			.where(sql`${table.kind} = 'status' and ${table.providerId} is null`),
+		uniqueIndex('checks_provider_status_stream_unique')
+			.on(table.repositoryId, table.sha, table.context, table.providerId)
+			.where(sql`${table.kind} = 'status' and ${table.providerId} is not null`),
+		index('checks_provider_idx').on(table.providerId),
 	]
 )
 
@@ -123,8 +152,14 @@ export const checkObservations = pgTable(
 		description: text('description'),
 		outputTitle: text('output_title'),
 		outputSummary: text('output_summary'),
-		/** Set by native writers once TES-55 issues check-writing credentials. */
-		credentialId: uuid('credential_id'),
+		/**
+		 * The exact secret a native publisher wrote this page with. `no action`
+		 * keeps it answerable: a revoked credential still names who reported the
+		 * result it reported.
+		 */
+		credentialId: uuid('credential_id')
+			.$type<CheckStatusCredentialId>()
+			.references(() => checkStatusCredentials.id, { onDelete: 'no action' }),
 		providerCreatedAt: timestamp('provider_created_at'),
 		startedAt: timestamp('started_at'),
 		completedAt: timestamp('completed_at'),
@@ -133,7 +168,12 @@ export const checkObservations = pgTable(
 		deliveryId: uuid('delivery_id')
 			.$type<GitHubWebhookDeliveryId>()
 			.references(() => gitHubWebhookDeliveries.id, { onDelete: 'no action' }),
-		/** Content identity of one provider report; makes a replayed snapshot a no-op. */
+		/**
+		 * Content identity of one provider report; makes a replayed snapshot a
+		 * no-op. A native publisher supplies it instead as an idempotency key, so
+		 * a retried write repeats rather than duplicates and a genuine repeat of an
+		 * earlier state is still allowed to be reported again.
+		 */
 		fingerprint: text('fingerprint').notNull(),
 	},
 	table => [
@@ -149,6 +189,7 @@ export const checkObservations = pgTable(
 			table.observedAt.desc(),
 			table.sequence.desc()
 		),
+		index('check_observations_credential_idx').on(table.credentialId),
 	]
 )
 
@@ -161,6 +202,10 @@ export const checkRelations = relations(checks, ({ many, one }) => ({
 	repository: one(repositories, {
 		fields: [checks.repositoryId],
 		references: [repositories.id],
+	}),
+	provider: one(checkStatusProviders, {
+		fields: [checks.providerId],
+		references: [checkStatusProviders.id],
 	}),
 	observations: many(checkObservations),
 }))
@@ -175,6 +220,10 @@ export const checkObservationRelations = relations(
 		check: one(checks, {
 			fields: [checkObservations.checkId],
 			references: [checks.id],
+		}),
+		credential: one(checkStatusCredentials, {
+			fields: [checkObservations.credentialId],
+			references: [checkStatusCredentials.id],
 		}),
 		delivery: one(gitHubWebhookDeliveries, {
 			fields: [checkObservations.deliveryId],

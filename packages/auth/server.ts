@@ -10,6 +10,13 @@ import { db } from '@repo/db/client'
 import { type BetterAuthOptions, betterAuth } from 'better-auth'
 import { drizzleAdapter } from 'better-auth/adapters/drizzle'
 import { organization } from 'better-auth/plugins'
+import { apiKeyEndpointLockdown } from './src/api-key-endpoint-lockdown'
+import {
+	CHECK_STATUS_CREDENTIAL_CONFIG_ID,
+	CHECK_STATUS_CREDENTIAL_DEFAULT_PERMISSION,
+	CHECK_STATUS_CREDENTIAL_PERMISSIONS,
+	CHECK_STATUS_CREDENTIAL_PREFIX,
+} from './src/check-status-credentials'
 import {
 	GIT_ACCESS_TOKEN_CONFIG_ID,
 	GIT_ACCESS_TOKEN_DEFAULT_PERMISSION,
@@ -179,7 +186,30 @@ export function initAuth({
 						maxRequests: 120,
 					},
 				},
+				// A Git token inherits every repository its user can write, which is
+				// the opposite of a credential confined to one repository, so status
+				// publishers get a configuration — and a prefix — of their own.
+				{
+					configId: CHECK_STATUS_CREDENTIAL_CONFIG_ID,
+					defaultPrefix: CHECK_STATUS_CREDENTIAL_PREFIX,
+					maximumNameLength: 64,
+					references: 'user',
+					permissions: {
+						defaultPermissions:
+							CHECK_STATUS_CREDENTIAL_PERMISSIONS[
+								CHECK_STATUS_CREDENTIAL_DEFAULT_PERMISSION
+							],
+					},
+					// CI reports a status per job transition: a busier caller than a
+					// person pushing over HTTPS.
+					rateLimit: {
+						enabled: true,
+						timeWindow: 1000 * 60,
+						maxRequests: 600,
+					},
+				},
 			]),
+			apiKeyEndpointLockdown(),
 		],
 		trustedOrigins,
 		advanced: authAdvanced,

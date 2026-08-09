@@ -3,6 +3,7 @@ import {
 	type GitStorageRepositoryComparison,
 } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
+import { BranchProtectionService } from '@modules/branch-protection'
 import { ChecksReadService } from '@modules/checks'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -229,6 +230,10 @@ describe(PullRequestsService.name, () => {
 						listSummaries: vi.fn().mockResolvedValue(new Map()),
 						listChecks: vi.fn(),
 					},
+				},
+				{
+					provide: BranchProtectionService,
+					useValue: { findRuleForBranch: vi.fn() },
 				},
 				{
 					provide: RepositoriesService,
@@ -1427,6 +1432,7 @@ describe(PullRequestsService.name, () => {
 			.spyOn(checksReadService, 'listChecks')
 			.mockResolvedValue({
 				checks: [],
+				missingRequiredContexts: [],
 				headSha: expectedHeadSha,
 				headIsCurrent: false,
 			})
@@ -1442,6 +1448,7 @@ describe(PullRequestsService.name, () => {
 		expect(listChecksSpy).toHaveBeenCalledWith({
 			repositoryId,
 			head: { sha: expectedHeadSha, isCurrent: false },
+			requiredContexts: undefined,
 		})
 	})
 
@@ -1452,6 +1459,7 @@ describe(PullRequestsService.name, () => {
 			.spyOn(checksReadService, 'listChecks')
 			.mockResolvedValue({
 				checks: [],
+				missingRequiredContexts: [],
 				headSha: 'head-sha',
 				headIsCurrent: true,
 			})
@@ -1465,6 +1473,7 @@ describe(PullRequestsService.name, () => {
 		expect(listChecksSpy).toHaveBeenCalledWith({
 			repositoryId,
 			head: { sha: 'head-sha', isCurrent: true },
+			requiredContexts: undefined,
 		})
 	})
 })

@@ -132,7 +132,6 @@ interface ChecksSummaryResponse {
 	headSha: string
 	overall: string
 	counts: Record<string, number>
-	enforcement: string
 	lastResultAt?: string
 	headIsCurrent: boolean
 }
@@ -795,7 +794,6 @@ describe('GitHub checks sync integration', () => {
 				timed_out: 0,
 				stale: 0,
 			},
-			enforcement: 'advisory',
 			lastResultAt: expect.any(String),
 			headIsCurrent: true,
 		})
@@ -856,7 +854,6 @@ describe('GitHub checks sync integration', () => {
 			headSha: HEAD_SHA,
 			overall: 'none',
 			counts: expect.objectContaining({ success: 0, failure: 0 }),
-			enforcement: 'advisory',
 			headIsCurrent: true,
 		})
 		expect(await getChecksSummary()).not.toHaveProperty('lastResultAt')

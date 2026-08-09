@@ -11,6 +11,7 @@ import {
 	isSatisfyingCheckState,
 } from '../domain/check-state'
 import { toCheckOutput } from '../helpers/check-output'
+import { matchesRequiredContext } from '../helpers/required-context'
 import {
 	ChecksRepository,
 	type EffectiveCheckRow,
@@ -88,7 +89,7 @@ function toRequirementResult(
 	requirement: RequiredContext,
 	rows: EffectiveCheckRow[]
 ): RequiredContextEvaluation {
-	const matches = rows.filter(row => matchesRequirement(requirement, row))
+	const matches = rows.filter(row => matchesRequiredContext(requirement, row))
 	// An unqualified requirement can match a commit status and a check run of the
 	// same name at once. The worst of them decides: a requirement is met only when
 	// everything answering to its name met it.
@@ -104,22 +105,6 @@ function toRequirementResult(
 		satisfied: isSatisfyingCheckState(row.state),
 		check: toCheckOutput(row),
 	}
-}
-
-function matchesRequirement(
-	{ context, kind, providerAppId }: RequiredContext,
-	row: EffectiveCheckRow
-): boolean {
-	if (row.context !== context) return false
-
-	if (kind && row.kind !== kind) return false
-
-	if (!providerAppId) return true
-
-	return (
-		row.appExternalNodeId === providerAppId ||
-		row.appExternalNumericId?.toString() === providerAppId
-	)
 }
 
 /** Failure dominates pending, pending dominates success. A missing check fails. */

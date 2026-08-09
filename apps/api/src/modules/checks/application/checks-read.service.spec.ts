@@ -48,7 +48,6 @@ describe(ChecksReadService.name, () => {
 		expect(summary).toMatchObject({
 			headSha: 'head',
 			overall: 'none',
-			enforcement: 'advisory',
 			headIsCurrent: true,
 		})
 		expect(summary.lastResultAt).toBeUndefined()
@@ -100,7 +99,6 @@ describe(ChecksReadService.name, () => {
 		expect(summaries.get('still-the-head')).toMatchObject({
 			overall: 'pending',
 			headIsCurrent: true,
-			enforcement: 'advisory',
 			lastResultAt: new Date('2026-08-08T11:00:00Z'),
 		})
 		// The same commit, asked about by a reference that has moved on: one answer
@@ -135,6 +133,40 @@ describe(ChecksReadService.name, () => {
 				{ state: 'success', context: 'build', kind: 'status' },
 			],
 		})
+	})
+
+	test('names the requirements nothing on the commit answers to', async () => {
+		vi.spyOn(repository, 'listEffectiveChecks').mockResolvedValue([
+			row('head', 'success', '2026-08-08T10:00:00Z', 'ci/build', 'status'),
+		])
+
+		const { missingRequiredContexts } = await service.listChecks({
+			repositoryId,
+			head: { sha: 'head', isCurrent: true },
+			requiredContexts: [
+				{ context: 'ci/build' },
+				{ context: 'ci/lint' },
+				// Same name, wrong kind: the requirement is for a check run and only a
+				// commit status reported, so nothing has answered it.
+				{ context: 'ci/build', kind: 'check_run' },
+			],
+		})
+
+		expect(missingRequiredContexts).toEqual([
+			{ context: 'ci/lint' },
+			{ context: 'ci/build', kind: 'check_run' },
+		])
+	})
+
+	test('reports no absences to a caller that requires nothing', async () => {
+		vi.spyOn(repository, 'listEffectiveChecks').mockResolvedValue([])
+
+		const { missingRequiredContexts } = await service.listChecks({
+			repositoryId,
+			head: { sha: 'head', isCurrent: true },
+		})
+
+		expect(missingRequiredContexts).toEqual([])
 	})
 
 	test('names GitHub as the provider of a mapped status with no surviving actor', async () => {
@@ -195,6 +227,9 @@ function row(
 		startedAt: null,
 		completedAt: null,
 		observedAt: new Date(observedAt),
+		providerId: null,
+		providerKey: null,
+		providerDisplayName: null,
 		runMappingId:
 			kind === 'check_run'
 				? (crypto.randomUUID() as GitHubCheckRunMappingId)

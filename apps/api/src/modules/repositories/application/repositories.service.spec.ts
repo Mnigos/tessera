@@ -1,6 +1,7 @@
 import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
+import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
@@ -224,6 +225,10 @@ describe(RepositoriesService.name, () => {
 				{
 					provide: GitAccessTokensService,
 					useValue: { verify: vi.fn() },
+				},
+				{
+					provide: ChecksReadService,
+					useValue: { listSummaries: vi.fn().mockResolvedValue(new Map()) },
 				},
 			],
 		}).compile()

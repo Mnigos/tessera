@@ -14,6 +14,7 @@ export * from './src/user.contract'
 
 import { authContract } from './src/auth.contract'
 import { branchProtectionContract } from './src/branch-protection.contract'
+import { checksContract } from './src/checks.contract'
 import { gitAccessTokensContract } from './src/git-access-tokens.contract'
 import { githubImportContract } from './src/github-import.contract'
 import { gpgPublicKeysContract } from './src/gpg-public-keys.contract'
@@ -28,6 +29,7 @@ import { userContract } from './src/user.contract'
 export const contract = {
 	auth: authContract,
 	branchProtection: branchProtectionContract,
+	checks: checksContract,
 	gitAccessTokens: gitAccessTokensContract,
 	githubImport: githubImportContract,
 	gpgPublicKeys: gpgPublicKeysContract,

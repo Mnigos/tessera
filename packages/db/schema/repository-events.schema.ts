@@ -1,5 +1,7 @@
 import type {
 	BranchProtectionRuleId,
+	CheckStatusCredentialId,
+	CheckStatusProviderId,
 	RepositoryCollaboratorRole,
 	RepositoryEventId,
 	RepositoryId,
@@ -25,6 +27,12 @@ export const repositoryEventTypeEnum = pgEnum('repository_event_type', [
 	'branch_protection_created',
 	'branch_protection_updated',
 	'branch_protection_deleted',
+	// Issuing and revoking a publishing secret are repository-governance changes
+	// and belong here. The statuses that secret then publishes do not: they are a
+	// high-volume ledger of their own, and copying every one of them into the
+	// audit log would bury the decisions this table exists to record.
+	'check_status_credential_created',
+	'check_status_credential_revoked',
 ])
 
 export type RepositoryEventPayload =
@@ -62,6 +70,18 @@ export type RepositoryEventPayload =
 			ruleId: BranchProtectionRuleId
 			targetBranch: string
 			previous: BranchProtectionRuleSnapshot
+	  }
+	| {
+			type: 'check_status_credential_created'
+			providerId: CheckStatusProviderId
+			providerKey: string
+			credentialId: CheckStatusCredentialId
+	  }
+	| {
+			type: 'check_status_credential_revoked'
+			providerId: CheckStatusProviderId
+			providerKey: string
+			credentialId: CheckStatusCredentialId
 	  }
 
 export const repositoryEvents = pgTable(
