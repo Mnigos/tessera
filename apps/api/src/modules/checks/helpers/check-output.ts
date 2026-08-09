@@ -35,10 +35,20 @@ export function toCheckOutput(row: EffectiveCheckRow): Check {
  * status is posted by an account, which is. What makes a result GitHub's is that
  * a mapping records GitHub reporting it — not that an actor survived the import.
  * A status whose poster was deleted, or was never an account Tessera resolved,
- * is still GitHub's result and says so under GitHub's name; only a result with
- * no mapping at all was written natively.
+ * is still GitHub's result and says so under GitHub's name.
+ *
+ * A registered publisher outranks all of that: it is the one identity that was
+ * proven rather than inferred, because the credential that wrote the result
+ * named it.
  */
 function toCheckProvider(row: EffectiveCheckRow): CheckProvider {
+	if (row.providerId !== null)
+		return {
+			kind: 'tessera',
+			name: toOptionalText(row.providerDisplayName) ?? NATIVE_PROVIDER_NAME,
+			appSlug: toOptionalText(row.providerKey),
+		}
+
 	if (row.runMappingId !== null)
 		return {
 			kind: 'github',

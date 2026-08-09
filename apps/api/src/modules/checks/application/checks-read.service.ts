@@ -1,5 +1,10 @@
 import { Injectable } from '@nestjs/common'
-import type { Check, ChecksList, ChecksSummary } from '@repo/contracts'
+import type {
+	Check,
+	ChecksList,
+	ChecksSummary,
+	RequiredContext,
+} from '@repo/contracts'
 import type { RepositoryId } from '@repo/domain'
 import {
 	isFailingCheckState,
@@ -8,6 +13,7 @@ import {
 	toCheckStateCounts,
 } from '../domain/check-state'
 import { toCheckOutput } from '../helpers/check-output'
+import { matchesRequiredContext } from '../helpers/required-context'
 import {
 	ChecksRepository,
 	type EffectiveCheckRow,
@@ -43,6 +49,11 @@ interface FindSummaryParams {
 interface ListSummariesParams<TKey> {
 	heads: ChecksHeadRef<TKey>[]
 	repositoryId: RepositoryId
+}
+
+interface ListChecksParams extends FindSummaryParams {
+	/** What the commit's target branch demands, for the caller that knows. */
+	requiredContexts?: RequiredContext[]
 }
 
 @Injectable()
@@ -92,11 +103,20 @@ export class ChecksReadService {
 		)
 	}
 
-	/** Every effective check on one commit, worst outcome first. */
+	/**
+	 * Every effective check on one commit, worst outcome first, together with the
+	 * requirements nothing reported on at all.
+	 *
+	 * A required context with no result is the most consequential thing the panel
+	 * can say and the one thing a list of results structurally cannot contain, so
+	 * the caller passes what it requires and gets the absences named. A caller
+	 * with no policy to apply passes nothing and is told about nothing.
+	 */
 	async listChecks({
 		head,
 		repositoryId,
-	}: FindSummaryParams): Promise<ChecksList> {
+		requiredContexts = [],
+	}: ListChecksParams): Promise<ChecksList> {
 		const rows = await this.checksRepository.listEffectiveChecks({
 			repositoryId,
 			shas: [head.sha],
@@ -104,6 +124,10 @@ export class ChecksReadService {
 
 		return {
 			checks: rows.map(toCheckOutput).sort(compareChecks),
+			missingRequiredContexts: requiredContexts.filter(
+				requirement =>
+					!rows.some(row => matchesRequiredContext(requirement, row))
+			),
 			headSha: head.sha,
 			headIsCurrent: head.isCurrent,
 			lastResultAt: toLastResultAt(rows),
@@ -121,9 +145,6 @@ function toChecksSummary(
 		headSha: sha,
 		overall: toCheckRollupState(states),
 		counts: toCheckStateCounts(states),
-		// TES-66 imports results and gates on nothing. Required contexts and the
-		// enforcement that reads them are TES-59's to add.
-		enforcement: 'advisory',
 		lastResultAt: toLastResultAt(rows),
 		headIsCurrent: isCurrent,
 	}

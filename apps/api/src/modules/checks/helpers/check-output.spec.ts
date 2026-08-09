@@ -2,7 +2,7 @@ import type {
 	GitHubCheckRunMappingId,
 	GitHubCommitStatusMappingId,
 } from '@repo/db'
-import type { CheckId } from '@repo/domain'
+import type { CheckId, CheckStatusProviderId } from '@repo/domain'
 import type { EffectiveCheckRow } from '../infrastructure/checks.repository'
 import { toCheckOutput } from './check-output'
 
@@ -48,6 +48,26 @@ describe('check output', () => {
 		).toBe('https://ci.example.com/details')
 	})
 
+	test('names a registered publisher over anything inferred from a mapping', () => {
+		// The credential that wrote the result named its provider; a GitHub mapping
+		// is a guess made from what an import happened to carry alongside it.
+		const provider = toCheckOutput(
+			row({
+				providerId:
+					'00000000-0000-4000-8000-000000000099' as CheckStatusProviderId,
+				providerKey: 'jenkins',
+				providerDisplayName: 'Jenkins',
+				appName: 'GitHub Actions',
+			})
+		).provider
+
+		expect(provider).toEqual({
+			kind: 'tessera',
+			name: 'Jenkins',
+			appSlug: 'jenkins',
+		})
+	})
+
 	test('drops a provider profile link that is not a web address', () => {
 		expect(
 			toCheckOutput(row({ appHtmlUrl: 'javascript:alert(1)' })).provider.url
@@ -75,6 +95,9 @@ function row(overrides: Partial<EffectiveCheckRow> = {}): EffectiveCheckRow {
 		startedAt: null,
 		completedAt: null,
 		observedAt: new Date('2026-08-08T10:00:00Z'),
+		providerId: null,
+		providerKey: null,
+		providerDisplayName: null,
 		runMappingId: crypto.randomUUID() as GitHubCheckRunMappingId,
 		statusMappingId: null as GitHubCommitStatusMappingId | null,
 		runName: 'ci',

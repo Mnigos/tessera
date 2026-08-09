@@ -1,5 +1,7 @@
+import { oc } from '@orpc/contract'
 import { checkKinds } from '@repo/domain'
 import { z } from 'zod'
+import { repositorySlugSchema } from './repository-slug'
 
 export const checkIdSchema = z.uuid().brand<'check_id'>()
 export type CheckId = z.infer<typeof checkIdSchema>
@@ -78,16 +80,17 @@ export const checkSchema = z.object({
 export type Check = z.infer<typeof checkSchema>
 
 /**
- * The rollup a list row or a commit dot renders from. `enforcement` is a literal
- * because TES-66 imports results and never gates on them; the field exists so
- * required-context enforcement has somewhere to land without the read shape
- * changing meaning underneath the clients that already read it.
+ * The rollup a list row or a commit dot renders from.
+ *
+ * It says what was reported, not what it costs: whether a result gates anything
+ * is a branch rule's answer about one target branch, and the merge requirements
+ * surface is where that answer is given. A rollup carrying its own enforcement
+ * verdict would have to be right about a policy it cannot see.
  */
 export const checksSummarySchema = z.object({
 	headSha: z.string().min(1),
 	overall: checkRollupStateSchema,
 	counts: z.record(checkStateSchema, z.number().int().nonnegative()),
-	enforcement: z.literal('advisory'),
 	/**
 	 * When Tessera last recorded a result for the commit, which is not when it
 	 * last looked: a sweep that finds nothing new moves nothing here.
@@ -127,8 +130,227 @@ export type RequiredContextEvaluation = z.infer<
 
 export const checksListSchema = z.object({
 	checks: z.array(checkSchema),
+	/**
+	 * Requirements the commit's target branch imposes that nothing has reported
+	 * on. They are absences rather than results, so they travel beside the checks
+	 * instead of being dressed up as one; a caller composing no policy gets an
+	 * empty list.
+	 */
+	missingRequiredContexts: z.array(requiredContextSchema).default([]),
 	headSha: z.string().min(1),
 	headIsCurrent: z.boolean(),
 	lastResultAt: z.coerce.date().optional(),
 })
 export type ChecksList = z.infer<typeof checksListSchema>
+
+export const checkStatusProviderIdSchema = z
+	.uuid()
+	.brand<'check_status_provider_id'>()
+export type CheckStatusProviderId = z.infer<typeof checkStatusProviderIdSchema>
+
+export const checkStatusCredentialIdSchema = z
+	.uuid()
+	.brand<'check_status_credential_id'>()
+export type CheckStatusCredentialId = z.infer<
+	typeof checkStatusCredentialIdSchema
+>
+
+/**
+ * One secret a provider publishes with, described without ever describing the
+ * secret. `start` is the leading characters Tessera can still show, which is how
+ * an admin recognizes the credential their CI is configured with; the secret
+ * itself is readable exactly once, at creation.
+ */
+export const checkStatusCredentialSchema = z.object({
+	id: checkStatusCredentialIdSchema,
+	start: z.string().min(1).optional(),
+	enabled: z.boolean(),
+	createdAt: z.coerce.date(),
+	revokedAt: z.coerce.date().optional(),
+	expiresAt: z.coerce.date().optional(),
+	lastUsedAt: z.coerce.date().optional(),
+})
+export type CheckStatusCredential = z.infer<typeof checkStatusCredentialSchema>
+
+/**
+ * An external system allowed to publish statuses to one repository. `key` is the
+ * stable identity its results are filed under and never changes; `displayName`
+ * is what a reader sees and may.
+ */
+export const checkStatusProviderSchema = z.object({
+	id: checkStatusProviderIdSchema,
+	key: z.string().min(1),
+	displayName: z.string().min(1),
+	credentials: z.array(checkStatusCredentialSchema),
+	createdAt: z.coerce.date(),
+	updatedAt: z.coerce.date(),
+})
+export type CheckStatusProvider = z.infer<typeof checkStatusProviderSchema>
+
+const checkStatusProvidersInputSchema = z.object({
+	username: z.string().min(1),
+	slug: repositorySlugSchema,
+})
+
+export const listCheckStatusProvidersInputSchema =
+	checkStatusProvidersInputSchema
+export type ListCheckStatusProvidersInput = z.input<
+	typeof listCheckStatusProvidersInputSchema
+>
+export type ParsedListCheckStatusProvidersInput = z.infer<
+	typeof listCheckStatusProvidersInputSchema
+>
+
+export const createCheckStatusProviderInputSchema =
+	checkStatusProvidersInputSchema.extend({
+		key: z
+			.string()
+			.trim()
+			.min(1)
+			.max(64)
+			.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/),
+		displayName: z.string().trim().min(1).max(64),
+		/** Seconds until the first credential expires; absent never expires. */
+		expiresIn: z.number().int().positive().optional(),
+	})
+export type CreateCheckStatusProviderInput = z.input<
+	typeof createCheckStatusProviderInputSchema
+>
+export type ParsedCreateCheckStatusProviderInput = z.infer<
+	typeof createCheckStatusProviderInputSchema
+>
+
+export const createCheckStatusCredentialInputSchema =
+	checkStatusProvidersInputSchema.extend({
+		providerId: checkStatusProviderIdSchema,
+		expiresIn: z.number().int().positive().optional(),
+	})
+export type CreateCheckStatusCredentialInput = z.input<
+	typeof createCheckStatusCredentialInputSchema
+>
+export type ParsedCreateCheckStatusCredentialInput = z.infer<
+	typeof createCheckStatusCredentialInputSchema
+>
+
+export const revokeCheckStatusCredentialInputSchema =
+	checkStatusProvidersInputSchema.extend({
+		credentialId: checkStatusCredentialIdSchema,
+	})
+export type RevokeCheckStatusCredentialInput = z.input<
+	typeof revokeCheckStatusCredentialInputSchema
+>
+export type ParsedRevokeCheckStatusCredentialInput = z.infer<
+	typeof revokeCheckStatusCredentialInputSchema
+>
+
+/**
+ * The one moment the secret exists outside the caller's own configuration. It is
+ * returned by value here and by nothing else, ever again.
+ */
+export const createdCheckStatusCredentialSchema = z.object({
+	token: z.string().min(1),
+	credential: checkStatusCredentialSchema,
+	provider: checkStatusProviderSchema,
+})
+export type CreatedCheckStatusCredential = z.infer<
+	typeof createdCheckStatusCredentialSchema
+>
+
+/**
+ * What an external publisher may say about a commit. Deliberately narrower than
+ * the states Tessera can store: `neutral`, `skipped` and the rest describe
+ * outcomes GitHub's own model produces on import, and `stale` is a verdict only
+ * the ledger's owner gets to reach about a result it already holds.
+ */
+export const publishableCheckStateSchema = z.enum([
+	'pending',
+	'success',
+	'failure',
+	'canceled',
+])
+export type PublishableCheckState = z.infer<typeof publishableCheckStateSchema>
+
+export const publishCommitStatusInputSchema = z.object({
+	username: z.string().min(1),
+	slug: repositorySlugSchema,
+	/**
+	 * Format-checked and nothing more. CI routinely reports on a commit while the
+	 * push carrying it is still in flight, so requiring the object to already be
+	 * in storage would reject correct reports for being early.
+	 */
+	sha: z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/),
+	context: z.string().trim().min(1).max(255),
+	state: publishableCheckStateSchema,
+	targetUrl: z.url().max(2048).optional(),
+	description: z.string().trim().max(1024).optional(),
+	/** When the publisher decided this, if that differs from when it told us. */
+	reportedAt: z.coerce.date().optional(),
+	/**
+	 * The caller's own name for this write. Required, because it is the only
+	 * thing that can tell a retry of one report apart from a genuine second
+	 * report of the same state — a distinction no content hash can make.
+	 */
+	idempotencyKey: z.string().trim().min(1).max(128),
+})
+export type PublishCommitStatusInput = z.input<
+	typeof publishCommitStatusInputSchema
+>
+export type ParsedPublishCommitStatusInput = z.infer<
+	typeof publishCommitStatusInputSchema
+>
+
+export const publishCommitStatusOutputSchema = z.object({
+	checkId: checkIdSchema,
+	sha: z.string().min(1),
+	context: z.string().min(1),
+	/**
+	 * What the commit now carries for this context — the newest result in the
+	 * publisher's stream, which is not necessarily the one this call reported. A
+	 * replayed key answers with where the context has got to since.
+	 */
+	state: checkStateSchema,
+	observedAt: z.coerce.date(),
+	/** False when the idempotency key had already recorded this exact report. */
+	created: z.boolean(),
+})
+export type PublishCommitStatusOutput = z.infer<
+	typeof publishCommitStatusOutputSchema
+>
+
+export const checksContract = {
+	publishStatus: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/commits/{sha}/statuses',
+		})
+		.input(publishCommitStatusInputSchema)
+		.output(publishCommitStatusOutputSchema),
+	listStatusProviders: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/status-providers',
+		})
+		.input(listCheckStatusProvidersInputSchema)
+		.output(z.object({ providers: z.array(checkStatusProviderSchema) })),
+	createStatusProvider: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/status-providers',
+		})
+		.input(createCheckStatusProviderInputSchema)
+		.output(createdCheckStatusCredentialSchema),
+	createStatusCredential: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/status-providers/{providerId}/credentials',
+		})
+		.input(createCheckStatusCredentialInputSchema)
+		.output(createdCheckStatusCredentialSchema),
+	revokeStatusCredential: oc
+		.route({
+			method: 'DELETE',
+			path: '/repositories/{username}/{slug}/status-providers/credentials/{credentialId}',
+		})
+		.input(revokeCheckStatusCredentialInputSchema)
+		.output(z.object({ revoked: z.boolean() })),
+}

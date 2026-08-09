@@ -1,6 +1,8 @@
 import { oc } from '@orpc/contract'
 import { repositoryRoles } from '@repo/domain'
 import { z } from 'zod'
+import { checksSummarySchema } from './checks.contract'
+import { type RepositorySlug, repositorySlugSchema } from './repository-slug'
 
 /**
  * Refused because GitHub owns the repository. It answers a push and a comment
@@ -9,13 +11,7 @@ import { z } from 'zod'
 export const REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE =
 	'GitHub is the source of truth for this repository. Make this change on GitHub.'
 
-export const repositorySlugSchema = z
-	.string()
-	.min(1)
-	.max(64)
-	.regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/)
-	.brand<'repository_slug'>()
-export type RepositorySlug = z.infer<typeof repositorySlugSchema>
+export { type RepositorySlug, repositorySlugSchema }
 
 export const repositoryNameSchema = z.string().trim().min(1).max(120)
 export type RepositoryName = z.infer<typeof repositoryNameSchema>
@@ -353,6 +349,12 @@ export const repositoryCommitSchema = z.object({
 	author: repositoryCommitIdentitySchema.optional(),
 	committer: repositoryCommitIdentitySchema.optional(),
 	signature: repositorySignatureSchema,
+	/**
+	 * What was reported on the commit itself. History is not read against any
+	 * target branch, so there is no policy here and nothing is ever `missing`:
+	 * a commit no rule applies to has no requirements to have failed.
+	 */
+	checksSummary: checksSummarySchema.optional(),
 })
 export type RepositoryCommit = z.infer<typeof repositoryCommitSchema>
 

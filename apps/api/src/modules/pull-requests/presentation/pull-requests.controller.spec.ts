@@ -163,7 +163,6 @@ describe(PullRequestsController.name, () => {
 					timed_out: 0,
 					stale: 0,
 				},
-				enforcement: 'advisory' as const,
 				headIsCurrent: true,
 			},
 			viewer: {

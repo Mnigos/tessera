@@ -6,6 +6,7 @@ import { RedisModule } from '@config/redis'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { AuthModule } from '@modules/auth'
 import { BranchProtectionModule } from '@modules/branch-protection'
+import { CheckStatusesModule } from '@modules/check-statuses'
 import { DocsModule } from '@modules/docs'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GitHubImportModule } from '@modules/github-import'
@@ -38,6 +39,7 @@ import { APP_FILTER } from '@nestjs/core'
 		RepositoriesModule,
 		RepositoryCollaboratorsModule,
 		BranchProtectionModule,
+		CheckStatusesModule,
 		PullRequestsModule,
 		MergeQueueModule,
 		DocsModule,

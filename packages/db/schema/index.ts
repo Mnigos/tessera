@@ -1,5 +1,6 @@
 export * from './auth.schema'
 export * from './branch-protection.schema'
+export * from './check-status-providers.schema'
 export * from './checks.schema'
 export * from './github-checks.schema'
 export * from './github-pull-request-conversations.schema'

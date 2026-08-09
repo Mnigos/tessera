@@ -4,6 +4,7 @@ import {
 	type GitStorageRepositoryBlob,
 	type GitStorageRepositoryComparison,
 } from '@config/git-storage'
+import { BranchProtectionService } from '@modules/branch-protection'
 import { ChecksReadService } from '@modules/checks'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
@@ -121,6 +122,7 @@ export class PullRequestsService {
 		private readonly pullRequestReviewsService: PullRequestReviewsService,
 		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
 		private readonly checksReadService: ChecksReadService,
+		private readonly branchProtectionService: BranchProtectionService,
 		private readonly repositoriesService: RepositoriesService,
 		private readonly mergeRequirementsService: MergeRequirementsService,
 		private readonly mergeQueueRepository: MergeQueueRepository,
@@ -339,22 +341,33 @@ export class PullRequestsService {
 				{ username, slug }
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const head = await this.pullRequestHeadResolver.resolveHeadRef({
-			pullRequest,
-			repositoryId,
-			storagePath,
-		})
+		const [head, rule] = await Promise.all([
+			this.pullRequestHeadResolver.resolveHeadRef({
+				pullRequest,
+				repositoryId,
+				storagePath,
+			}),
+			this.branchProtectionService.findRuleForBranch({
+				repositoryId,
+				targetBranch: pullRequest.targetBranch,
+			}),
+		])
 
 		// The caller names the commit it is about to render these rows beside, so
 		// the answer describes that commit even when the head has moved on since —
 		// and says so through `headIsCurrent` rather than by quietly answering
 		// about a different commit than the one asked about.
+		//
+		// The target branch's rule travels with it because a requirement nothing
+		// reported on has no row of its own to appear in, and an absent gate is
+		// exactly what a reader most needs the panel to name.
 		return await this.checksReadService.listChecks({
 			head: {
 				sha: expectedHeadSha,
 				isCurrent: head.isCurrent && head.sha === expectedHeadSha,
 			},
 			repositoryId,
+			requiredContexts: rule?.requiredCheckContexts,
 		})
 	}
 

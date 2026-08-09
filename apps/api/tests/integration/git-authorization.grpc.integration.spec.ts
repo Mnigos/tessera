@@ -12,6 +12,7 @@ import {
 	TESSERA_GIT_V1_PACKAGE_NAME,
 } from '@config/git-storage/generated/tessera/git/v1/git_authorization'
 import { Metadata, status } from '@grpc/grpc-js'
+import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
 import { InvalidGitAccessTokenError } from '@modules/git-access-tokens/domain/git-access-token.errors'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
@@ -133,6 +134,12 @@ describe('Git authorization gRPC integration', () => {
 					useValue: {
 						list: vi.fn().mockResolvedValue([]),
 					},
+				},
+				{
+					// Only the repository browser's commit history reads rollups, which
+					// nothing in this suite exercises.
+					provide: ChecksReadService,
+					useValue: { listSummaries: vi.fn().mockResolvedValue(new Map()) },
 				},
 				{
 					provide: EnvService,
