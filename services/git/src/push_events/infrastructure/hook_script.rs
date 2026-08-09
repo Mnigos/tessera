@@ -50,10 +50,10 @@ async fn write_pending_hook(
 }
 
 fn hook_script(service_binary: &Path) -> String {
-    format!(
-        "#!/bin/sh\nexec '{}' {POST_RECEIVE_HOOK_COMMAND}\n",
-        service_binary.display()
-    )
+    // A quote in the binary path would otherwise end the shell string early.
+    let quoted_binary = service_binary.display().to_string().replace('\'', "'\\''");
+
+    format!("#!/bin/sh\nexec '{quoted_binary}' {POST_RECEIVE_HOOK_COMMAND}\n")
 }
 
 #[cfg(test)]
@@ -80,6 +80,25 @@ mod tests {
             "#!/bin/sh\nexec '/opt/tessera/git' post-receive-hook\n"
         );
         assert_eq!(mode & 0o777, HOOK_MODE);
+    }
+
+    #[tokio::test]
+    async fn escapes_quotes_in_the_binary_path() {
+        let temp_dir = TempDir::new().unwrap();
+        let hooks_path = temp_dir.path().join("hooks");
+
+        install_post_receive_hook(&hooks_path, Path::new("/opt/tes'sera/git"))
+            .await
+            .unwrap();
+
+        let script = fs::read_to_string(hooks_path.join(HOOK_NAME))
+            .await
+            .unwrap();
+
+        assert_eq!(
+            script,
+            "#!/bin/sh\nexec '/opt/tes'\\''sera/git' post-receive-hook\n"
+        );
     }
 
     #[tokio::test]

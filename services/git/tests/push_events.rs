@@ -566,7 +566,12 @@ impl PushRepository {
         fs::create_dir_all(&self.storage_root).unwrap();
         fs::write(
             &path,
-            format!("#!/bin/sh\necho $$ > '{}'\nsleep 30\n", pid_path.display()),
+            // exec makes sleep replace the shell, so the recorded pid is the
+            // long-running process itself and the kill assertion covers it.
+            format!(
+                "#!/bin/sh\necho $$ > '{}'\nexec sleep 30\n",
+                pid_path.display()
+            ),
         )
         .unwrap();
         fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
