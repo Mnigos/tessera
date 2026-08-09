@@ -4,6 +4,7 @@ import {
 } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
+	MergeRequirements,
 	PullRequest,
 	PullRequestComparison,
 	PullRequestFileDiff,
@@ -74,6 +75,7 @@ describe(PullRequestsController.name, () => {
 						close: vi.fn(),
 						reopen: vi.fn(),
 						merge: vi.fn(),
+						getMergeRequirements: vi.fn(),
 					},
 				},
 			],
@@ -163,6 +165,7 @@ describe(PullRequestsController.name, () => {
 				canRequestReviewers: false,
 				canRemoveReviewerRequests: false,
 			},
+			mergeQueue: { runnableCount: 0 },
 			authority: 'tessera' as const,
 			viewerRole: 'read' as const,
 		}
@@ -286,7 +289,8 @@ describe(PullRequestsController.name, () => {
 			expectedBaseSha: 'a'.repeat(40),
 			expectedHeadSha: 'b'.repeat(40),
 		}
-		const mergeSpy = vi.spyOn(service, 'merge').mockResolvedValue(pullRequest)
+		const mergeResult = { status: 'merged' as const, pullRequest }
+		const mergeSpy = vi.spyOn(service, 'merge').mockResolvedValue(mergeResult)
 		const procedure = controller.merge(session)
 
 		expect(
@@ -298,7 +302,7 @@ describe(PullRequestsController.name, () => {
 				lastEventId: undefined,
 				errors: {},
 			})
-		).toEqual(pullRequest)
+		).toEqual(mergeResult)
 		expect(mergeSpy).toHaveBeenCalledWith(
 			{
 				id: session.user.id,
@@ -307,5 +311,32 @@ describe(PullRequestsController.name, () => {
 			},
 			input
 		)
+	})
+
+	// The answer is about whether this viewer may merge, so it is read for a named
+	// one rather than for whoever happens to be looking.
+	test('delegates merge requirement reads with the authenticated viewer', async () => {
+		const requirements: MergeRequirements = {
+			eligible: false,
+			canBypass: false,
+			reasons: [{ code: 'merge_queue_required' }],
+		}
+		const input = { ...repositoryInput, number: 1 }
+		const requirementsSpy = vi
+			.spyOn(service, 'getMergeRequirements')
+			.mockResolvedValue(requirements)
+		const procedure = controller.getMergeRequirements(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'getMergeRequirements'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(requirements)
+		expect(requirementsSpy).toHaveBeenCalledWith(mockUserId, input)
 	})
 })

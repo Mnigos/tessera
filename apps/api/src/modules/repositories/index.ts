@@ -1,4 +1,7 @@
-export { RepositoriesService } from './application/repositories.service'
+export {
+	RepositoriesService,
+	type RepositoryMergeContext,
+} from './application/repositories.service'
 export { RepositoryPermissionsService } from './application/repository-permissions.service'
 export { RepositoryAdminGuard } from './presentation/repository-admin.guard'
 export { RepositoryWriteGuard } from './presentation/repository-write.guard'

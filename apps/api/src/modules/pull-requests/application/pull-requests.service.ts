@@ -7,9 +7,12 @@ import { ChecksReadService } from '@modules/checks'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { RepositoriesService } from '@modules/repositories'
-import { Injectable } from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import type {
 	ChecksList,
+	MergeBlockingReason,
+	MergePullRequestResult,
+	MergeRequirements,
 	ParsedCreatePullRequestInput,
 	ParsedEditPullRequestInput,
 	ParsedGetPullRequestFileDiffInput,
@@ -26,7 +29,12 @@ import type {
 	RepositoryViewerRole,
 } from '@repo/contracts'
 import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
-import type { RepositoryId, UserId } from '@repo/domain'
+import type {
+	PullRequestId,
+	RepositoryId,
+	RepositoryRole,
+	UserId,
+} from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
 	assertPullRequestClosable,
@@ -38,38 +46,41 @@ import {
 import {
 	PullRequestAlreadyOpenError,
 	PullRequestInvalidBranchesError,
-	PullRequestMergeConflictError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
-	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { toMergeAuthorityReasons } from '../helpers/merge-authority-reasons'
+import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
-import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
+import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
+import { MergeQueueStatusService } from './merge-queue-status.service'
+import { MergeRequirementsService } from './merge-requirements.service'
 import { PullRequestHeadResolver } from './pull-request-head.resolver'
+import {
+	MERGE_INTENT_LEASE_MS,
+	type PullRequestMergeActor,
+	PullRequestMergeRunner,
+	REPOSITORY_MERGE_LEASE_MS,
+} from './pull-request-merge.runner'
 import { PullRequestReviewsService } from './pull-request-reviews.service'
+
+export type { PullRequestMergeActor } from './pull-request-merge.runner'
 
 const OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT = new Set([
 	'pull_requests_open_branch_pair_unique',
 ])
-const MERGE_INTENT_LEASE_MS = 60_000
 const EMPTY_REVIEW_SUMMARY: PullRequestReviewSummary = {
 	requestedCount: 0,
 	approvedCount: 0,
 	changeRequestCount: 0,
 	staleCount: 0,
-}
-
-export interface PullRequestMergeActor {
-	email: string
-	id: UserId
-	name: string
 }
 
 export interface ListPullRequestsResult {
@@ -78,24 +89,33 @@ export interface ListPullRequestsResult {
 	viewerRole: RepositoryViewerRole
 }
 
-interface MergeRepositoryRefsParams {
+interface MergeUnderLeaseParams {
 	actor: PullRequestMergeActor
-	attemptId: string
-	expectedBaseSha: string
-	expectedHeadSha: string
-	pullRequest: PullRequestEntity
+	bypass?: ParsedMergePullRequestInput['bypass']
+	expected: { baseSha: string; headSha: string }
+	leaseOwner: string
+	number: number
 	repositoryId: RepositoryId
 	storagePath: string
+	tesseraWritesAllowed: boolean
+	username: string
+	viewerRole: RepositoryRole
 }
 
 @Injectable()
 export class PullRequestsService {
+	private readonly logger = new Logger(PullRequestsService.name)
+
 	constructor(
 		private readonly pullRequestsRepository: PullRequestsRepository,
 		private readonly pullRequestReviewsService: PullRequestReviewsService,
 		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
 		private readonly checksReadService: ChecksReadService,
 		private readonly repositoriesService: RepositoriesService,
+		private readonly mergeRequirementsService: MergeRequirementsService,
+		private readonly mergeQueueRepository: MergeQueueRepository,
+		private readonly mergeQueueStatusService: MergeQueueStatusService,
+		private readonly pullRequestMergeRunner: PullRequestMergeRunner,
 		private readonly gitStorageClient: GitStorageClient
 	) {}
 
@@ -260,7 +280,7 @@ export class PullRequestsService {
 				}
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const [events, reviewState, checksSummary] = await Promise.all([
+		const [events, reviewState, checksSummary, mergeQueue] = await Promise.all([
 			this.pullRequestsRepository.listEvents({
 				pullRequestId: pullRequest.id,
 			}),
@@ -273,6 +293,10 @@ export class PullRequestsService {
 				viewerUserId,
 			}),
 			this.findChecksSummary({ pullRequest, repositoryId, storagePath }),
+			this.mergeQueueStatusService.getStatus({
+				pullRequestId: pullRequest.id,
+				repositoryId,
+			}),
 		])
 
 		return {
@@ -280,6 +304,7 @@ export class PullRequestsService {
 			events: events.map(event => toPullRequestEventOutput(event, username)),
 			...reviewState,
 			checksSummary,
+			mergeQueue,
 			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
 		}
@@ -436,6 +461,12 @@ export class PullRequestsService {
 		assertPullRequestClosable(pullRequest)
 		const changedAt = new Date()
 
+		// Closing takes this pull request's queue entry with it, in the same
+		// transaction. Whatever was waiting behind it is woken by the reconciler
+		// rather than from here: a repository with entries and nothing running them
+		// is exactly what that pass looks for, and reaching Redis from this module
+		// would mean every caller of it booting a merge worker to close a pull
+		// request.
 		const closedPullRequest = await this.pullRequestsRepository.close({
 			repositoryId,
 			pullRequestId: pullRequest.id,
@@ -443,11 +474,13 @@ export class PullRequestsService {
 			changedAt,
 			staleBefore: new Date(changedAt.getTime() - MERGE_INTENT_LEASE_MS),
 		})
-
-		return toPullRequestOutput(
-			this.requireUpdatedPullRequest(closedPullRequest, pullRequest, 'close'),
-			username
+		const closed = this.requireUpdatedPullRequest(
+			closedPullRequest,
+			pullRequest,
+			'close'
 		)
+
+		return toPullRequestOutput(closed, username)
 	}
 
 	async reopen(
@@ -490,131 +523,362 @@ export class PullRequestsService {
 		}
 	}
 
+	/**
+	 * Whether this pull request may be merged right now. Advisory: the merge
+	 * itself never trusts this answer and always re-evaluates, so nothing is
+	 * audited here — the timeline records decisions, and a question is not one.
+	 */
+	async getMergeRequirements(
+		viewerUserId: UserId | undefined,
+		{ number, slug, username }: ParsedGetPullRequestInput
+	): Promise<MergeRequirements> {
+		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+
+		return await this.mergeRequirementsService.evaluate({
+			pullRequest,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			viewerRole,
+		})
+	}
+
+	/**
+	 * Merges, or explains why it will not.
+	 *
+	 * Governance is enforced here rather than inferred from whatever the client
+	 * last read: the repository lease is taken first so no other merge can move
+	 * the target underneath this one, every requirement is then evaluated afresh,
+	 * and Git is called with the SHAs that evaluation resolved. A blocked attempt
+	 * is a result rather than a failure — the caller asked whether this merge may
+	 * happen and gets the complete answer.
+	 */
 	async merge(
 		actor: PullRequestMergeActor,
 		{
+			bypass,
 			expectedBaseSha,
 			expectedHeadSha,
 			number,
 			slug,
 			username,
 		}: ParsedMergePullRequestInput
-	): Promise<PullRequest> {
-		const { repositoryId, storagePath } =
-			await this.repositoriesService.getWritableRepositoryContext(actor.id, {
+	): Promise<MergePullRequestResult> {
+		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
+			await this.repositoriesService.getReadableRepositoryContext(actor.id, {
 				username,
 				slug,
 			})
+		// Answered before the lease so a caller who could never merge here cannot
+		// take the repository from those who can. Nothing is skipped by it: the
+		// full evaluation still runs under the lease and reports these same
+		// reasons among the rest.
+		const authorityReasons = toMergeAuthorityReasons({
+			tesseraWritesAllowed,
+			viewerRole,
+		})
+
+		if (authorityReasons.length > 0)
+			return await this.blockBeforeEvaluation({
+				actorUserId: actor.id,
+				number,
+				reasons: authorityReasons,
+				repositoryId,
+			})
+
+		const leaseOwner = randomUUID()
+		const leaseAcquired =
+			await this.mergeQueueRepository.acquireRepositoryMergeLease({
+				repositoryId,
+				owner: leaseOwner,
+				ttlMs: REPOSITORY_MERGE_LEASE_MS,
+			})
+
+		if (!leaseAcquired)
+			return await this.blockBeforeEvaluation({
+				actorUserId: actor.id,
+				number,
+				reasons: [{ code: 'repository_merge_in_progress' }],
+				repositoryId,
+			})
+
+		try {
+			return await this.mergeUnderLease({
+				actor,
+				bypass,
+				expected: { baseSha: expectedBaseSha, headSha: expectedHeadSha },
+				leaseOwner,
+				number,
+				repositoryId,
+				storagePath,
+				tesseraWritesAllowed,
+				username,
+				viewerRole,
+			})
+		} finally {
+			// The merge has already happened or already failed by now, and the lease
+			// ages out on its own, so a release that will not go through is worth a
+			// line in the log and nothing more. Awaiting it as part of the result
+			// would let a transient database blip overwrite a committed merge with a
+			// failure the caller cannot act on.
+			await this.mergeQueueRepository
+				.releaseRepositoryMergeLease({ repositoryId, owner: leaseOwner })
+				.catch((error: unknown) =>
+					this.logger.warn(
+						`Failed to release the merge lease on repository ${repositoryId}; it expires in ${REPOSITORY_MERGE_LEASE_MS}ms: ${String(error)}`
+					)
+				)
+		}
+	}
+
+	/**
+	 * A refusal reached before the requirements could be evaluated at all: the
+	 * caller may not merge here, or somebody else holds the repository. It is
+	 * still a merge attempt, so it is audited like every other one.
+	 *
+	 * Such a result deliberately carries no `evaluatedBaseSha`/`evaluatedHeadSha`,
+	 * because no refs were resolved and none were judged. That absence, together
+	 * with the reason codes — which are only ever authority reasons or
+	 * `repository_merge_in_progress` — is how a client tells a refusal reached
+	 * before evaluation from one the evaluation itself returned.
+	 */
+	private async blockBeforeEvaluation({
+		actorUserId,
+		number,
+		reasons,
+		repositoryId,
+	}: {
+		actorUserId: UserId
+		number: number
+		reasons: MergeBlockingReason[]
+		repositoryId: RepositoryId
+	}): Promise<MergePullRequestResult> {
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+
+		return await this.recordUnevaluatedBlock({
+			actorUserId,
+			pullRequestId: pullRequest.id,
+			reasons,
+		})
+	}
+
+	private async recordUnevaluatedBlock({
+		actorUserId,
+		pullRequestId,
+		reasons,
+	}: {
+		actorUserId: UserId
+		pullRequestId: PullRequestId
+		reasons: MergeBlockingReason[]
+	}): Promise<MergePullRequestResult> {
+		await this.pullRequestsRepository.recordMergeBlocked({
+			pullRequestId,
+			actorUserId,
+			payload: { reasonCodes: reasons.map(reason => reason.code) },
+		})
+
+		return {
+			status: 'blocked',
+			requirements: { eligible: false, canBypass: false, reasons },
+		}
+	}
+
+	private async mergeUnderLease({
+		actor,
+		bypass,
+		expected,
+		leaseOwner,
+		number,
+		repositoryId,
+		storagePath,
+		tesseraWritesAllowed,
+		username,
+		viewerRole,
+	}: MergeUnderLeaseParams): Promise<MergePullRequestResult> {
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 
 		if (pullRequest.state === 'merged' && pullRequest.mergeCommitSha)
-			return toPullRequestOutput(pullRequest, username)
+			return {
+				status: 'merged',
+				pullRequest: toPullRequestOutput(pullRequest, username),
+			}
 
-		if (pullRequest.state !== 'open')
+		const requirements = await this.mergeRequirementsService.evaluate({
+			expected,
+			leaseOwner,
+			pullRequest,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			viewerRole,
+		})
+		const bypassContext = toMergeBypassContext(requirements, bypass)
+
+		if (!(requirements.eligible || bypassContext)) {
+			await this.pullRequestsRepository.recordMergeBlocked({
+				pullRequestId: pullRequest.id,
+				actorUserId: actor.id,
+				payload: {
+					ruleId: requirements.rule?.id,
+					ruleVersion: requirements.rule?.version,
+					reasonCodes: requirements.reasons.map(reason => reason.code),
+					baseSha: requirements.evaluatedBaseSha,
+					headSha: requirements.evaluatedHeadSha,
+				},
+			})
+
+			return { status: 'blocked', requirements }
+		}
+
+		// Evaluation resolved the refs this merge is judged against, so those are
+		// the ones Git is asked to compare and swap on. A SHA the client supplied
+		// could name a commit the evaluation never saw.
+		const { evaluatedBaseSha, evaluatedHeadSha } = requirements
+
+		if (!(evaluatedBaseSha && evaluatedHeadSha))
 			throw new PullRequestStateConflictError({
 				pullRequestId: pullRequest.id,
 				state: pullRequest.state,
 				action: 'merge',
 			})
 
-		const attemptId = randomUUID()
-		const startedAt = new Date()
-		const claimedPullRequest = await this.pullRequestsRepository.claimMerge({
-			repositoryId,
-			pullRequestId: pullRequest.id,
-			actorUserId: actor.id,
-			attemptId,
-			startedAt,
-			staleBefore: new Date(startedAt.getTime() - MERGE_INTENT_LEASE_MS),
-		})
-
-		if (!claimedPullRequest) {
-			const currentPullRequest = await this.findPullRequest(
-				repositoryId,
-				number
-			)
-			if (currentPullRequest.state === 'merged')
-				return toPullRequestOutput(currentPullRequest, username)
-
-			throw new PullRequestStateConflictError({
-				pullRequestId: pullRequest.id,
-				state: currentPullRequest.state,
-				action: 'merge',
-			})
-		}
-
-		const mergeCommitSha = await this.mergeRepositoryRefs({
+		const attempt = await this.pullRequestMergeRunner.run({
 			actor,
-			attemptId,
-			expectedBaseSha,
-			expectedHeadSha,
+			bypass: bypassContext,
+			evaluatedBaseSha,
+			evaluatedHeadSha,
+			leaseOwner,
 			pullRequest,
 			repositoryId,
 			storagePath,
 		})
 
-		const mergedPullRequest = await this.pullRequestsRepository.completeMerge({
-			repositoryId,
-			pullRequestId: pullRequest.id,
-			actorUserId: actor.id,
-			attemptId,
-			changedAt: new Date(),
-			mergeCommitSha,
-		})
-
-		if (mergedPullRequest)
-			return toPullRequestOutput(mergedPullRequest, username)
-
-		const currentPullRequest = await this.findPullRequest(repositoryId, number)
-		if (currentPullRequest.state === 'merged')
-			return toPullRequestOutput(currentPullRequest, username)
-
-		return toPullRequestOutput(
-			this.requireUpdatedPullRequest(mergedPullRequest, pullRequest, 'merge'),
-			username
-		)
+		switch (attempt.outcome) {
+			case 'merged':
+				return {
+					status: 'merged',
+					pullRequest: toPullRequestOutput(attempt.pullRequest, username),
+				}
+			// Somebody else took the repository while this attempt was being
+			// evaluated, which is the same refusal as finding it taken to begin with.
+			case 'lease_lost':
+				return await this.recordUnevaluatedBlock({
+					actorUserId: actor.id,
+					pullRequestId: pullRequest.id,
+					reasons: [{ code: 'repository_merge_in_progress' }],
+				})
+			// Git compared and swapped against the refs this evaluation resolved and
+			// refused. That is the authoritative answer about the same world the
+			// requirements described, so it comes back as a refusal of the merge
+			// rather than as a fault: an error here would leave the strongest verdict
+			// of all — the one the merge itself got — out of the audit trail.
+			case 'refs_moved':
+				return await this.blockAfterRefusal({
+					actor,
+					expected: {
+						baseSha: evaluatedBaseSha,
+						headSha: evaluatedHeadSha,
+					},
+					leaseOwner,
+					pullRequest,
+					repositoryId,
+					storagePath,
+					tesseraWritesAllowed,
+					toFallbackReasons: fresh => [
+						toRefusedMergeReason({
+							fresh,
+							kind: attempt.kind,
+							triedBaseSha: evaluatedBaseSha,
+							triedHeadSha: evaluatedHeadSha,
+						}),
+					],
+					viewerRole,
+				})
+			default:
+				return await this.blockAfterRefusal({
+					actor,
+					leaseOwner,
+					pullRequest,
+					repositoryId,
+					storagePath,
+					tesseraWritesAllowed,
+					toFallbackReasons: () => [toStateConflictReason(attempt.state)],
+					viewerRole,
+				})
+		}
 	}
 
-	private async mergeRepositoryRefs({
+	/**
+	 * Re-reads the requirements after the merge itself was refused, records the
+	 * refusal, and hands back what a caller who asked a moment later would see.
+	 *
+	 * The second evaluation is what makes the answer actionable: Git rejected the
+	 * swap because the world moved, so the pair of SHAs this attempt was cleared
+	 * with describes a world that no longer exists. When the fresh look finds
+	 * nothing to report — the refs moved back, or another attempt is finishing the
+	 * same merge — what Git objected to is recorded from what this attempt knew.
+	 *
+	 * The evaluation runs under this attempt's own lease, so the hold it took
+	 * itself is not reported back to it as a reason nobody can act on.
+	 */
+	private async blockAfterRefusal({
 		actor,
-		attemptId,
-		expectedBaseSha,
-		expectedHeadSha,
+		expected,
+		leaseOwner,
 		pullRequest,
 		repositoryId,
 		storagePath,
-	}: MergeRepositoryRefsParams): Promise<string> {
-		try {
-			return await this.gitStorageClient.mergeRepositoryRefs({
-				repositoryId,
-				storagePath,
-				baseRef: pullRequest.targetBranch,
-				headRef: pullRequest.sourceBranch,
-				expectedBaseSha,
-				expectedHeadSha,
-				authorName: actor.name,
-				authorEmail: actor.email,
-				message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
-				operationId: pullRequest.id,
-			})
-		} catch (error) {
-			const storageError = toPullRequestStorageError(error, {
-				repositoryId,
-				number: pullRequest.number,
-			})
-			if (
-				storageError instanceof PullRequestMergeConflictError ||
-				storageError instanceof PullRequestStaleComparisonError
-			)
-				await this.pullRequestsRepository.releaseMerge({
-					repositoryId,
-					pullRequestId: pullRequest.id,
-					actorUserId: actor.id,
-					attemptId,
-				})
+		tesseraWritesAllowed,
+		toFallbackReasons,
+		viewerRole,
+	}: {
+		actor: PullRequestMergeActor
+		expected?: { baseSha: string; headSha: string }
+		leaseOwner: string
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		storagePath: string
+		tesseraWritesAllowed: boolean
+		toFallbackReasons: (fresh: MergeRequirements) => MergeBlockingReason[]
+		viewerRole?: RepositoryRole
+	}): Promise<MergePullRequestResult> {
+		const current = await this.findPullRequest(repositoryId, pullRequest.number)
+		const evaluated = await this.mergeRequirementsService.evaluate({
+			expected,
+			leaseOwner,
+			pullRequest: current,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			viewerRole,
+		})
+		const requirements: MergeRequirements =
+			evaluated.reasons.length > 0
+				? evaluated
+				: {
+						...evaluated,
+						eligible: false,
+						reasons: toFallbackReasons(evaluated),
+					}
 
-			throw storageError
-		}
+		await this.pullRequestsRepository.recordMergeBlocked({
+			pullRequestId: pullRequest.id,
+			actorUserId: actor.id,
+			payload: {
+				ruleId: requirements.rule?.id,
+				ruleVersion: requirements.rule?.version,
+				reasonCodes: requirements.reasons.map(reason => reason.code),
+				baseSha: requirements.evaluatedBaseSha,
+				headSha: requirements.evaluatedHeadSha,
+			},
+		})
+
+		return { status: 'blocked', requirements }
 	}
 
 	private async findChecksSummary({
@@ -677,4 +941,49 @@ export class PullRequestsService {
 			action,
 		})
 	}
+}
+
+/**
+ * What Git objected to, told from the refs the refused attempt was cleared with
+ * and whatever the fresh evaluation could still resolve. Only reached when that
+ * evaluation has nothing of its own to report.
+ */
+function toRefusedMergeReason({
+	fresh,
+	kind,
+	triedBaseSha,
+	triedHeadSha,
+}: {
+	fresh: MergeRequirements
+	kind: 'merge_conflict' | 'stale_refs'
+	triedBaseSha: string
+	triedHeadSha: string
+}): MergeBlockingReason {
+	if (kind === 'merge_conflict')
+		return {
+			code: 'merge_conflict',
+			baseSha: triedBaseSha,
+			headSha: triedHeadSha,
+		}
+
+	return {
+		code: 'stale_refs',
+		expectedBaseSha: triedBaseSha,
+		actualBaseSha: fresh.evaluatedBaseSha ?? triedBaseSha,
+		expectedHeadSha: triedHeadSha,
+		actualHeadSha: fresh.evaluatedHeadSha ?? triedHeadSha,
+	}
+}
+
+/**
+ * A pull request that moved between being evaluated and being claimed. Still
+ * open means another attempt holds its merge intent, which is the repository
+ * being merged by somebody else under a different name.
+ */
+function toStateConflictReason(
+	state: PullRequestEntity['state']
+): MergeBlockingReason {
+	return state === 'open'
+		? { code: 'repository_merge_in_progress' }
+		: { code: 'pull_request_not_open', state }
 }

@@ -9,6 +9,10 @@ import type {
 } from '../infrastructure/pull-requests.repository'
 import { PullRequestStateConflictError } from './pull-request.errors'
 
+const SYSTEM_ACTOR_EVENT_TYPES: ReadonlySet<PullRequestEvent['type']> = new Set(
+	['queue_paused', 'queue_removed', 'queue_resumed']
+)
+
 export function toPullRequestOutput(
 	pullRequest: PullRequest | PullRequestReadModel,
 	authorUsername?: string
@@ -41,13 +45,15 @@ export function toPullRequestEventOutput(
 		('actorUsername' in event ? event.actorUsername : undefined) ??
 		actorUsername
 
-	if (!resolvedActorUsername)
+	// Queue transitions written by the worker or the reconciler have no acting
+	// user; every other Tessera event must name one.
+	if (!(resolvedActorUsername || SYSTEM_ACTOR_EVENT_TYPES.has(event.type)))
 		throw new Error('pull request event actor username is unavailable')
 
 	return {
 		...event,
 		actorUserId: event.actorUserId ?? undefined,
-		actorUsername: resolvedActorUsername,
+		actorUsername: resolvedActorUsername ?? undefined,
 		payload: event.payload ?? undefined,
 	}
 }

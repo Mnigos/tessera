@@ -4,6 +4,7 @@ import type { PullRequestThreadAnchor } from '@repo/contracts'
 import {
 	and,
 	asc,
+	countDistinct,
 	type DrizzleTransaction,
 	eq,
 	gitHubActors,
@@ -233,6 +234,35 @@ export class PullRequestThreadsRepository {
 		// A thread whose comments are all somebody else's pending draft must not
 		// leak as an empty thread.
 		return threadsWithComments.filter(thread => thread.comments.length > 0)
+	}
+
+	/**
+	 * Threads a merge requirement can be refused over: unresolved, and carrying
+	 * at least one published comment. Inline and top-level threads count alike,
+	 * an outdated anchor is still an unanswered question, and a thread holding
+	 * nothing but somebody's pending draft is not yet a question at all.
+	 */
+	async countUnresolvedThreads({
+		pullRequestId,
+	}: PullRequestParams): Promise<number> {
+		const [row] = await this.db
+			.select({ count: countDistinct(pullRequestThreads.id) })
+			.from(pullRequestThreads)
+			.innerJoin(
+				pullRequestComments,
+				and(
+					eq(pullRequestComments.threadId, pullRequestThreads.id),
+					eq(pullRequestComments.state, 'published')
+				)
+			)
+			.where(
+				and(
+					eq(pullRequestThreads.pullRequestId, pullRequestId),
+					isNull(pullRequestThreads.resolvedAt)
+				)
+			)
+
+		return row?.count ?? 0
 	}
 
 	async findThread({

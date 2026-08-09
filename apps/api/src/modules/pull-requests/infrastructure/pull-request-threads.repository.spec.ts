@@ -2,8 +2,10 @@ import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import {
 	and,
+	countDistinct,
 	eq,
 	inArray,
+	isNull,
 	or,
 	pullRequestComments,
 	pullRequestEvents,
@@ -496,5 +498,33 @@ describe(PullRequestThreadsRepository.name, () => {
 
 		expect(await repository.deleteComment({ commentId, threadId })).toBeFalsy()
 		expect(deleteMock).toHaveBeenCalledOnce()
+	})
+
+	test('counts unresolved threads that carry a published comment', async () => {
+		whereMock.mockResolvedValueOnce([{ count: 3 }])
+
+		expect(await repository.countUnresolvedThreads({ pullRequestId })).toBe(3)
+		expect(selectMock).toHaveBeenCalledWith({
+			count: countDistinct(pullRequestThreads.id),
+		})
+		expect(joinMock).toHaveBeenCalledWith(
+			pullRequestComments,
+			and(
+				eq(pullRequestComments.threadId, pullRequestThreads.id),
+				eq(pullRequestComments.state, 'published')
+			)
+		)
+		expect(whereMock).toHaveBeenCalledWith(
+			and(
+				eq(pullRequestThreads.pullRequestId, pullRequestId),
+				isNull(pullRequestThreads.resolvedAt)
+			)
+		)
+	})
+
+	test('reports no unresolved threads when the count query answers nothing', async () => {
+		whereMock.mockResolvedValueOnce([])
+
+		expect(await repository.countUnresolvedThreads({ pullRequestId })).toBe(0)
 	})
 })

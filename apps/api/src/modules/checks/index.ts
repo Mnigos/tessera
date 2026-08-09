@@ -1,8 +1,6 @@
 export type {
 	ChecksEvaluation,
 	ChecksEvaluationState,
-	RequiredContext,
-	RequiredContextResult,
 } from './application/checks-evaluation.service'
 export { ChecksEvaluationService } from './application/checks-evaluation.service'
 export { ChecksProjectionService } from './application/checks-projection.service'

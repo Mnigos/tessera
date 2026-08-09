@@ -301,6 +301,32 @@ export class RepositoriesRepository {
 		return toRepositoryWithOwner(toRepositoryRow(row))
 	}
 
+	/**
+	 * The repository as background work knows it: by identity, with no handle to
+	 * resolve it through. The owner join stays outer because an organization
+	 * repository has no owning user row.
+	 */
+	async findById({
+		repositoryId,
+	}: RepositoryIdParams): Promise<RepositoryWithOwner | undefined> {
+		const [row] = await this.db
+			.select(REPOSITORY_WITH_OWNER_HANDLE_COLUMNS)
+			.from(repositories)
+			.leftJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(
+				organization,
+				eq(repositories.ownerOrganizationId, organization.id)
+			)
+			.leftJoin(
+				repositoryExternalSources,
+				eq(repositoryExternalSources.repositoryId, repositories.id)
+			)
+			.where(eq(repositories.id, repositoryId))
+			.limit(1)
+
+		return toRepositoryWithOwner(toRepositoryRow(row))
+	}
+
 	async findCollaboratorRole({
 		repositoryId,
 		userId,

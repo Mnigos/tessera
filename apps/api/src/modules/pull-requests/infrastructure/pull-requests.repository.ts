@@ -15,6 +15,9 @@ import {
 	ne,
 	type PullRequest,
 	type PullRequestEvent,
+	type PullRequestEventPayload,
+	type PullRequestMergeBlockedEventPayload,
+	type PullRequestMergeBypass,
 	pullRequestEvents,
 	pullRequestMergeIntents,
 	pullRequests,
@@ -22,8 +25,17 @@ import {
 	sql,
 	user,
 } from '@repo/db'
-import type { PullRequestId, RepositoryId, UserId } from '@repo/domain'
+import type {
+	MergeQueueEntryId,
+	PullRequestId,
+	RepositoryId,
+	UserId,
+} from '@repo/domain'
 import { alias } from 'drizzle-orm/pg-core'
+import {
+	completeMergeQueueEntry,
+	removeActiveMergeQueueEntry,
+} from './merge-queue.transactions'
 
 interface RepositoryParams {
 	repositoryId: RepositoryId
@@ -75,13 +87,23 @@ interface CloseParams extends LifecycleParams {
 
 interface ClaimMergeParams extends PullRequestMutationParams {
 	attemptId: string
+	/** Present only when the attempt is deliberately merging past policy. */
+	bypass?: PullRequestMergeBypass
 	staleBefore: Date
 	startedAt: Date
+}
+
+interface RecordMergeBlockedParams {
+	actorUserId: UserId
+	payload: PullRequestMergeBlockedEventPayload
+	pullRequestId: PullRequestId
 }
 
 interface CompleteMergeParams extends LifecycleParams {
 	attemptId: string
 	mergeCommitSha: string
+	/** Present when a queue run made this merge, so its entry finishes with it. */
+	queueEntryId?: MergeQueueEntryId
 }
 
 interface ReleaseMergeParams extends PullRequestMutationParams {
@@ -264,6 +286,38 @@ export class PullRequestsRepository {
 		return pullRequest ? toPullRequestReadModel(pullRequest) : undefined
 	}
 
+	/**
+	 * The same read as `find`, addressed by identity rather than by number. The
+	 * merge queue holds pull request ids and never sees the repository-scoped
+	 * number a URL carries.
+	 */
+	async findById({
+		pullRequestId,
+	}: Pick<PullRequestMutationParams, 'pullRequestId'>): Promise<
+		PullRequestReadModel | undefined
+	> {
+		const [pullRequest] = await this.db
+			.select(PULL_REQUEST_READ_COLUMNS)
+			.from(pullRequests)
+			.leftJoin(authorUser, eq(authorUser.id, pullRequests.authorUserId))
+			.leftJoin(
+				gitHubPullRequestMappings,
+				eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+			)
+			.leftJoin(
+				authorGitHubActor,
+				eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
+			)
+			.leftJoin(
+				mergedByGitHubActor,
+				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
+			)
+			.where(eq(pullRequests.id, pullRequestId))
+			.limit(1)
+
+		return pullRequest ? toPullRequestReadModel(pullRequest) : undefined
+	}
+
 	async listEvents({
 		pullRequestId,
 	}: Pick<PullRequestMutationParams, 'pullRequestId'>): Promise<
@@ -297,7 +351,16 @@ export class PullRequestsRepository {
 				eq(eventGitHubActor.id, gitHubPullRequestEventMappings.actorId)
 			)
 			.where(eq(pullRequestEvents.pullRequestId, pullRequestId))
-			.orderBy(asc(pullRequestEvents.createdAt))
+			.orderBy(
+				asc(pullRequestEvents.createdAt),
+				// `merge_bypassed` and `merged` are written in one transaction and
+				// therefore share its timestamp. The waiver is what explains the merge,
+				// so it is placed first; the id then breaks any remaining tie, because a
+				// timeline that reshuffles between two reads of the same rows is worse
+				// than one whose order is arbitrary but fixed.
+				sql`case when ${pullRequestEvents.type} = 'merge_bypassed' then 0 else 1 end`,
+				asc(pullRequestEvents.id)
+			)
 	}
 
 	async reconcileGitHubPullRequest({
@@ -493,6 +556,14 @@ export class PullRequestsRepository {
 				actorUserId: params.actorUserId,
 				type: 'closed',
 			})
+			// A queue entry outlives nothing: the pull request it was waiting to
+			// merge is closed in this same transaction, so the entry cannot be left
+			// behind for the worker to pick up and refuse.
+			await removeActiveMergeQueueEntry(tx, {
+				actorUserId: params.actorUserId,
+				pullRequestId: params.pullRequestId,
+				reason: 'closed',
+			})
 
 			return pullRequest
 		})
@@ -510,6 +581,7 @@ export class PullRequestsRepository {
 	async claimMerge({
 		actorUserId,
 		attemptId,
+		bypass,
 		pullRequestId,
 		repositoryId,
 		staleBefore,
@@ -525,20 +597,48 @@ export class PullRequestsRepository {
 			const mergeIntent = await this.findMergeIntent(tx, pullRequestId)
 			if (mergeIntent && mergeIntent.startedAt > staleBefore) return undefined
 
+			// Taking over a lease that aged out never erases what the abandoned
+			// attempt was allowed to waive: if this one carries no bypass of its own,
+			// the earlier context stays on the row, so a merge that a crashed attempt
+			// had already been cleared to make is still recorded as bypassed when it
+			// completes.
 			if (mergeIntent)
 				await tx
 					.update(pullRequestMergeIntents)
-					.set({ attemptId, actorUserId, startedAt })
+					.set({
+						attemptId,
+						actorUserId,
+						startedAt,
+						bypass: bypass ?? mergeIntent.bypass,
+					})
 					.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
 			else
 				await tx.insert(pullRequestMergeIntents).values({
 					pullRequestId,
 					attemptId,
 					actorUserId,
+					bypass,
 					startedAt,
 				})
 
 			return lockedPullRequest
+		})
+	}
+
+	/**
+	 * Audits a merge that was refused. Written for attempts only — a requirements
+	 * read is a question, and the timeline records decisions, not questions.
+	 */
+	async recordMergeBlocked({
+		actorUserId,
+		payload,
+		pullRequestId,
+	}: RecordMergeBlockedParams): Promise<void> {
+		await this.createEvent(this.db, {
+			pullRequestId,
+			actorUserId,
+			type: 'merge_blocked',
+			payload,
 		})
 	}
 
@@ -548,6 +648,7 @@ export class PullRequestsRepository {
 		changedAt,
 		mergeCommitSha,
 		pullRequestId,
+		queueEntryId,
 		repositoryId,
 	}: CompleteMergeParams): Promise<PullRequest | undefined> {
 		return await this.db.transaction(async tx => {
@@ -588,6 +689,33 @@ export class PullRequestsRepository {
 				actorUserId,
 				type: 'merged',
 			})
+
+			// The bypass audit is written from the claimed intent rather than from the
+			// request, and in the same transaction as the merge it excuses, so the two
+			// rows can only ever appear together. If the process dies between Git and
+			// this point the intent row survives with the waiver on it, which is what
+			// a later attempt or an operator reads to see that policy was waived —
+			// reconciling such an abandoned merge automatically is still to be built.
+			if (mergeIntent.bypass)
+				await this.createEvent(tx, {
+					pullRequestId,
+					actorUserId,
+					type: 'merge_bypassed',
+					payload: mergeIntent.bypass,
+				})
+
+			// The queue entry this run was merging finishes with the merge itself, so
+			// the two can never disagree about whether it happened. An entry left
+			// over from any other path is dropped right behind it: a merged pull
+			// request has nothing left to wait for.
+			if (queueEntryId) await completeMergeQueueEntry(tx, queueEntryId)
+
+			await removeActiveMergeQueueEntry(tx, {
+				actorUserId,
+				pullRequestId,
+				reason: 'merged',
+			})
+
 			await tx
 				.delete(pullRequestMergeIntents)
 				.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
@@ -653,6 +781,7 @@ export class PullRequestsRepository {
 			pullRequestId: PullRequestId
 			actorUserId: UserId
 			type: PullRequestEvent['type']
+			payload?: PullRequestEventPayload
 		}
 	) {
 		await db.insert(pullRequestEvents).values(params)
@@ -686,6 +815,7 @@ export class PullRequestsRepository {
 		const [mergeIntent] = await tx
 			.select({
 				attemptId: pullRequestMergeIntents.attemptId,
+				bypass: pullRequestMergeIntents.bypass,
 				startedAt: pullRequestMergeIntents.startedAt,
 			})
 			.from(pullRequestMergeIntents)
