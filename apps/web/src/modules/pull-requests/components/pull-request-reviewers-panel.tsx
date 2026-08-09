@@ -196,6 +196,7 @@ function PullRequestReviewerRow({
 				)}
 				{entry.reviewId && (
 					<Link
+						aria-label={`View changes since ${reviewer.username} reviewed`}
 						className="inline-flex w-fit items-center gap-1 text-muted-foreground text-xs hover:underline"
 						params={{ username, slug, number }}
 						search={{ reviewId: entry.reviewId }}

@@ -50,10 +50,8 @@ export function PullRequestReviewComparisonBanner({
 	return (
 		<Card className="gap-3">
 			<div className="flex flex-wrap items-center gap-2">
-				<fieldset
-					aria-label="Choose which changes to show"
-					className="flex flex-wrap items-center gap-1"
-				>
+				<fieldset className="flex flex-wrap items-center gap-1">
+					<legend className="sr-only">Choose which changes to show</legend>
 					<Button
 						aria-pressed={!isSinceReview}
 						onClick={() => onSelectedReviewIdChange(undefined)}
