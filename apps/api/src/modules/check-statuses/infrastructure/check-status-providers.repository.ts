@@ -32,18 +32,31 @@ interface FindProviderParams extends RepositoryParams {
 
 interface CreateProviderParams extends RepositoryParams {
 	actorUserId: UserId
-	key: string
+	providerKey: string
 	displayName: string
 }
 
 interface CreateCredentialParams extends RepositoryParams {
 	actorUserId: UserId
-	apiKeyId: ApiKeyId
 	provider: CheckStatusProviderView
+	/** The key that was just minted, which is the only thing that knows it. */
+	key: MintedApiKey
+}
+
+/**
+ * What Better Auth returned for a key it has just issued. The credential row
+ * records the reference; these are the parts of the secret's own record that a
+ * reader is allowed to see, and they come from the mint rather than from a
+ * default this table would otherwise have to invent.
+ */
+export interface MintedApiKey {
+	id: ApiKeyId
+	start: string | null
+	expiresAt: Date | null
 }
 
 interface CreateProviderWithCredentialParams extends CreateProviderParams {
-	apiKeyId: ApiKeyId
+	key: MintedApiKey
 }
 
 export interface CreatedCheckStatusProvider {
@@ -202,9 +215,9 @@ export class CheckStatusProvidersRepository {
 	 */
 	async createProviderWithCredential({
 		actorUserId,
-		apiKeyId,
 		displayName,
 		key,
+		providerKey,
 		repositoryId,
 	}: CreateProviderWithCredentialParams): Promise<
 		CreatedCheckStatusProvider | undefined
@@ -214,7 +227,7 @@ export class CheckStatusProvidersRepository {
 				.insert(checkStatusProviders)
 				.values({
 					repositoryId,
-					key,
+					key: providerKey,
 					displayName,
 					createdByUserId: actorUserId,
 				})
@@ -224,7 +237,7 @@ export class CheckStatusProvidersRepository {
 
 			const credential = await this.insertCredential(tx, {
 				actorUserId,
-				apiKeyId,
+				key,
 				provider,
 				repositoryId,
 			})
@@ -235,7 +248,7 @@ export class CheckStatusProvidersRepository {
 
 	async createCredential({
 		actorUserId,
-		apiKeyId,
+		key,
 		provider,
 		repositoryId,
 	}: CreateCredentialParams): Promise<CheckStatusCredentialView | undefined> {
@@ -243,7 +256,7 @@ export class CheckStatusProvidersRepository {
 			async tx =>
 				await this.insertCredential(tx, {
 					actorUserId,
-					apiKeyId,
+					key,
 					provider,
 					repositoryId,
 				})
@@ -252,13 +265,13 @@ export class CheckStatusProvidersRepository {
 
 	private async insertCredential(
 		db: DrizzleTransaction,
-		{ actorUserId, apiKeyId, provider, repositoryId }: CreateCredentialParams
+		{ actorUserId, key, provider, repositoryId }: CreateCredentialParams
 	): Promise<CheckStatusCredentialView | undefined> {
 		const [credential] = await db
 			.insert(checkStatusCredentials)
 			.values({
 				providerId: provider.id,
-				apiKeyId,
+				apiKeyId: key.id,
 				createdByUserId: actorUserId,
 			})
 			.returning({
@@ -285,11 +298,11 @@ export class CheckStatusProvidersRepository {
 
 		return {
 			...credential,
+			start: key.start,
+			expiresAt: key.expiresAt,
 			// The key was minted moments ago by the caller that is about to hand it
-			// over; nothing about it has been used yet.
-			start: null,
+			// over; nothing has disabled or used it yet.
 			enabled: true,
-			expiresAt: null,
 			lastUsedAt: null,
 		}
 	}

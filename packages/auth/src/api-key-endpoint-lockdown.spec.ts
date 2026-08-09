@@ -1,4 +1,3 @@
-import { describe, expect, test } from 'vitest'
 import { apiKeyEndpointLockdown } from './api-key-endpoint-lockdown'
 
 const plugin = apiKeyEndpointLockdown()

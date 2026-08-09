@@ -38,10 +38,9 @@ describe(ChecksPublishService.name, () => {
 				{
 					provide: ChecksRepository,
 					useValue: {
-						ensureStatusCheck: vi.fn().mockResolvedValue(checkId),
-						appendObservation: vi.fn().mockResolvedValue(observationId),
-						findObservationByFingerprint: vi.fn(),
-						findLatestObservation: vi.fn(),
+						publishStatusObservation: vi
+							.fn()
+							.mockResolvedValue({ status: 'appended', checkId }),
 					},
 				},
 			],
@@ -59,20 +58,19 @@ describe(ChecksPublishService.name, () => {
 	test('files the report under the credential’s own provider stream', async () => {
 		const result = await service.publishStatus(authorization, input())
 
-		expect(checksRepository.ensureStatusCheck).toHaveBeenCalledWith({
-			repositoryId: authorization.repositoryId,
-			sha,
-			context: 'ci/build',
-			providerId: authorization.providerId,
-		})
-		expect(checksRepository.appendObservation).toHaveBeenCalledWith(
+		expect(checksRepository.publishStatusObservation).toHaveBeenCalledWith(
 			expect.objectContaining({
-				checkId,
-				state: 'success',
-				credentialId: authorization.credentialId,
-				// The caller's key, namespaced so it can never collide with the
-				// content fingerprints an import writes.
-				fingerprint: 'published:build-42',
+				repositoryId: authorization.repositoryId,
+				sha,
+				context: 'ci/build',
+				providerId: authorization.providerId,
+				observation: expect.objectContaining({
+					state: 'success',
+					credentialId: authorization.credentialId,
+					// The caller's key, namespaced so it can never collide with the
+					// content fingerprints an import writes.
+					fingerprint: 'published:build-42',
+				}),
 			})
 		)
 		expect(result).toMatchObject({ checkId, sha, state: 'success' })
@@ -84,24 +82,17 @@ describe(ChecksPublishService.name, () => {
 
 		await service.publishStatus(authorization, input({ reportedAt }))
 
-		const [observation] = vi.mocked(checksRepository.appendObservation).mock
+		const [params] = vi.mocked(checksRepository.publishStatusObservation).mock
 			.calls[0] ?? [undefined]
 
-		expect(observation?.providerCreatedAt).toBe(reportedAt)
+		expect(params?.observation.providerCreatedAt).toBe(reportedAt)
 		// When Tessera heard it, which is never the publisher's to decide.
-		expect(observation?.observedAt).toBeInstanceOf(Date)
+		expect(params?.observation.observedAt).toBeInstanceOf(Date)
 	})
 
 	test('answers a retry of the same report without recording it twice', async () => {
-		vi.spyOn(checksRepository, 'appendObservation').mockResolvedValue(undefined)
 		const recorded = observationRow({ state: 'success' })
-		vi.spyOn(
-			checksRepository,
-			'findObservationByFingerprint'
-		).mockResolvedValue(recorded)
-		vi.spyOn(checksRepository, 'findLatestObservation').mockResolvedValue(
-			recorded
-		)
+		mockDuplicate(recorded, recorded)
 
 		const result = await service.publishStatus(authorization, input())
 
@@ -118,14 +109,7 @@ describe(ChecksPublishService.name, () => {
 			state: 'failure',
 			observedAt: new Date('2026-08-08T12:00:00Z'),
 		})
-		vi.spyOn(checksRepository, 'appendObservation').mockResolvedValue(undefined)
-		vi.spyOn(
-			checksRepository,
-			'findObservationByFingerprint'
-		).mockResolvedValue(recorded)
-		vi.spyOn(checksRepository, 'findLatestObservation').mockResolvedValue(
-			newest
-		)
+		mockDuplicate(recorded, newest)
 
 		const result = await service.publishStatus(authorization, input())
 
@@ -135,11 +119,8 @@ describe(ChecksPublishService.name, () => {
 	})
 
 	test('refuses a key reused for a different report', async () => {
-		vi.spyOn(checksRepository, 'appendObservation').mockResolvedValue(undefined)
-		vi.spyOn(
-			checksRepository,
-			'findObservationByFingerprint'
-		).mockResolvedValue(observationRow({ state: 'failure' }))
+		const recorded = observationRow({ state: 'failure' })
+		mockDuplicate(recorded, recorded)
 
 		await expect(
 			service.publishStatus(authorization, input())
@@ -147,13 +128,11 @@ describe(ChecksPublishService.name, () => {
 	})
 
 	test('counts every supplied field as part of what the key recorded', async () => {
-		vi.spyOn(checksRepository, 'appendObservation').mockResolvedValue(undefined)
-		vi.spyOn(
-			checksRepository,
-			'findObservationByFingerprint'
-		).mockResolvedValue(
-			observationRow({ state: 'success', description: 'All green' })
-		)
+		const recorded = observationRow({
+			state: 'success',
+			description: 'All green',
+		})
+		mockDuplicate(recorded, recorded)
 
 		await expect(
 			service.publishStatus(
@@ -166,16 +145,24 @@ describe(ChecksPublishService.name, () => {
 	test('treats a vanished duplicate as a conflict rather than a silent drop', async () => {
 		// Nothing in an append-only ledger can conflict and then not be there, so
 		// answering success would claim a write that did not happen.
-		vi.spyOn(checksRepository, 'appendObservation').mockResolvedValue(undefined)
-		vi.spyOn(
-			checksRepository,
-			'findObservationByFingerprint'
-		).mockResolvedValue(undefined)
+		mockDuplicate(undefined, undefined)
 
 		await expect(
 			service.publishStatus(authorization, input())
 		).rejects.toBeInstanceOf(CheckStatusIdempotencyConflictError)
 	})
+
+	function mockDuplicate(
+		recorded?: CheckObservationRow,
+		effective?: CheckObservationRow
+	) {
+		vi.spyOn(checksRepository, 'publishStatusObservation').mockResolvedValue({
+			status: 'duplicate',
+			checkId,
+			recorded,
+			effective,
+		})
+	}
 })
 
 function input(
