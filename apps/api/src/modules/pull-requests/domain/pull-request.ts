@@ -30,6 +30,7 @@ export function toPullRequestOutput(
 		authorUserId: pullRequest.authorUserId ?? undefined,
 		authorUsername: resolvedAuthorUsername,
 		mergeCommitSha: pullRequest.mergeCommitSha ?? undefined,
+		mergeStrategy: pullRequest.mergeStrategy ?? undefined,
 		mergeActorUserId: pullRequest.mergeActorUserId ?? undefined,
 		closedAt: pullRequest.closedAt ?? undefined,
 		mergedAt: pullRequest.mergedAt ?? undefined,

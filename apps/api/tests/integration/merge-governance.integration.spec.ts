@@ -12,6 +12,7 @@ import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { CheckState } from '@repo/contracts'
+import type { PullRequestMergeBypass } from '@repo/db'
 import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
@@ -36,7 +37,13 @@ import {
 	session,
 	user,
 } from '@repo/db/schema'
-import type { RepositoryId, UserId } from '@repo/domain'
+import type {
+	MergeStrategy,
+	MergeStrategyUnavailableReason,
+	RepositoryId,
+	UserId,
+} from '@repo/domain'
+import { mergeStrategies } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
@@ -99,6 +106,11 @@ interface MergeRequirementsBody {
 	rule?: { id: string; version: number; targetBranch: string }
 	canBypass: boolean
 	reasons: { code: string; [key: string]: unknown }[]
+	strategyAvailability?: {
+		strategy: MergeStrategy
+		available: boolean
+		reason?: MergeStrategyUnavailableReason
+	}[]
 }
 
 interface MergeResultBody {
@@ -120,9 +132,16 @@ describe('Merge governance integration', () => {
 	let listRepositoryRefs: ReturnType<typeof vi.fn>
 	let compareRepositoryRefs: ReturnType<typeof vi.fn>
 	let mergeRepositoryRefs: ReturnType<typeof vi.fn>
+	let findMergeReceipt: ReturnType<typeof vi.fn>
 	let checkRepositoryMergeability: ReturnType<typeof vi.fn>
 	let currentHeadSha: string
 	let mergeable: boolean
+	/** What git storage reports each strategy could do with the current tips. */
+	let unavailableStrategies: Partial<
+		Record<MergeStrategy, MergeStrategyUnavailableReason>
+	>
+	/** False stands in for a git storage that predates merge methods. */
+	let reportsStrategyAvailability: boolean
 	let owner: IntegrationUser
 	let administrator: IntegrationUser
 	let writer: IntegrationUser
@@ -171,6 +190,7 @@ describe('Merge governance integration', () => {
 			})
 		)
 		mergeRepositoryRefs = vi.fn(() => Promise.resolve(MERGE_COMMIT_SHA))
+		findMergeReceipt = vi.fn(() => Promise.resolve(undefined))
 		checkRepositoryMergeability = vi.fn(() =>
 			Promise.resolve({
 				baseSha: BASE_SHA,
@@ -180,6 +200,7 @@ describe('Merge governance integration', () => {
 				conflictPaths: mergeable ? [] : ['src/index.ts'],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: strategyAvailability(),
 			})
 		)
 
@@ -196,6 +217,7 @@ describe('Merge governance integration', () => {
 				listRepositoryRefs,
 				compareRepositoryRefs,
 				mergeRepositoryRefs,
+				findMergeReceipt,
 				checkRepositoryMergeability,
 			})
 			.compile()
@@ -208,8 +230,12 @@ describe('Merge governance integration', () => {
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
 		mergeRepositoryRefs.mockClear()
+		findMergeReceipt.mockClear()
+		findMergeReceipt.mockResolvedValue(undefined)
 		currentHeadSha = HEAD_SHA
 		mergeable = true
+		unavailableStrategies = {}
+		reportsStrategyAvailability = true
 
 		owner = await createIntegrationUser('owner')
 		administrator = await createIntegrationUser('administrator')
@@ -619,6 +645,312 @@ describe('Merge governance integration', () => {
 		])
 	})
 
+	// Every strategy reaches Git as itself: the request the merge makes is the one
+	// the caller chose, and what is recorded afterwards says which it was.
+	test.each([
+		'merge_commit',
+		'squash',
+		'rebase',
+		'fast_forward',
+	] as const)('merges by %s and records it on the pull request', async strategy => {
+		await createPullRequest()
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy,
+		})
+
+		expect(outcome).toMatchObject({
+			httpStatus: 200,
+			status: 'merged',
+			pullRequestState: 'merged',
+			mergeCalls: 1,
+		})
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy,
+				expectedBaseSha: BASE_SHA,
+				expectedHeadSha: currentHeadSha,
+			})
+		)
+
+		const merged = await db.query.pullRequests.findFirst({
+			columns: {
+				mergeStrategy: true,
+				mergedBaseSha: true,
+				mergedHeadSha: true,
+				mergeCommitSha: true,
+			},
+		})
+
+		expect(merged).toMatchObject({
+			mergeStrategy: strategy,
+			mergedBaseSha: BASE_SHA,
+			mergedHeadSha: currentHeadSha,
+			mergeCommitSha: MERGE_COMMIT_SHA,
+		})
+	})
+
+	test('records what a merge did as immutable evidence beside it', async () => {
+		await createPullRequest()
+
+		await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'squash',
+			squashTitle: 'Everything at once (#1)',
+		})
+
+		expect(await findPullRequestEvent('merged')).toMatchObject({
+			payload: {
+				strategy: 'squash',
+				resultingSha: MERGE_COMMIT_SHA,
+				baseSha: BASE_SHA,
+				headSha: currentHeadSha,
+			},
+		})
+	})
+
+	test('sends the squash message the caller wrote', async () => {
+		await createPullRequest()
+
+		await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'squash',
+			squashTitle: 'Everything at once (#1)',
+			squashBody: 'Why it changed',
+		})
+
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				squashTitle: 'Everything at once (#1)',
+				squashBody: 'Why it changed',
+			})
+		)
+	})
+
+	// Leaving the message out is not leaving it blank: the server derives one from
+	// the pull request rather than from anything the client sent.
+	test('derives the squash message when the caller sends none', async () => {
+		await createPullRequest()
+
+		await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'squash',
+		})
+
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ squashTitle: 'Add feature (#1)' })
+		)
+	})
+
+	// Only the strategy the caller chose can refuse the merge, and it is refused
+	// before Git is asked rather than by Git turning it down.
+	test('blocks a merge by a method these branches cannot run', async () => {
+		await createPullRequest()
+		unavailableStrategies = { fast_forward: 'not_fast_forward' }
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'fast_forward',
+		})
+
+		expect(outcome).toMatchObject({
+			httpStatus: 200,
+			status: 'blocked',
+			pullRequestState: 'open',
+			mergeCalls: 0,
+		})
+		expect(outcome.requirements?.reasons).toEqual([
+			{
+				code: 'merge_strategy_unavailable',
+				strategy: 'fast_forward',
+				reason: 'not_fast_forward',
+			},
+		])
+	})
+
+	test('lets a merge by a method these branches can run go through', async () => {
+		await createPullRequest()
+		unavailableStrategies = { fast_forward: 'not_fast_forward' }
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'rebase',
+		})
+
+		expect(outcome).toMatchObject({ status: 'merged', mergeCalls: 1 })
+	})
+
+	// The advisory read reports all four so the client can offer them, and
+	// refuses nothing: it has not chosen a method to be refused for.
+	test('reports every method in the requirements read', async () => {
+		await createPullRequest()
+		unavailableStrategies = { fast_forward: 'not_fast_forward' }
+
+		const requirements = await readMergeRequirements(writer.headers)
+
+		expect(requirements.strategyAvailability).toEqual([
+			{ strategy: 'merge_commit', available: true },
+			{ strategy: 'squash', available: true },
+			{ strategy: 'rebase', available: true },
+			{
+				strategy: 'fast_forward',
+				available: false,
+				reason: 'not_fast_forward',
+			},
+		])
+		expect(requirements.eligible).toBeTruthy()
+	})
+
+	// An abandoned attempt that git storage actually carried out is recorded
+	// after the fact, without merging anything and without re-judging it.
+	test('records an abandoned merge git storage had already made', async () => {
+		await createPullRequest()
+		await insertAbandonedMergeIntent({
+			strategy: 'squash',
+			squashTitle: 'The abandoned title',
+		})
+		findMergeReceipt.mockResolvedValue(MERGE_COMMIT_SHA)
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'merge_commit',
+		})
+
+		expect(outcome).toMatchObject({
+			status: 'merged',
+			pullRequestState: 'merged',
+			mergeCalls: 0,
+		})
+		expect(findMergeReceipt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				expectedBaseSha: BASE_SHA,
+				expectedHeadSha: currentHeadSha,
+			})
+		)
+		expect(
+			await db.query.pullRequests.findFirst({
+				columns: { mergeStrategy: true },
+			})
+		).toMatchObject({ mergeStrategy: 'squash' })
+	})
+
+	// The abandoned attempt never reached git storage. Replaying it would merge
+	// on the strength of an evaluation nobody repeated, under an actor and a
+	// waiver it inherited, so it is released and the merge is decided afresh.
+	test('never merges an abandoned intent git storage has no receipt for', async () => {
+		await createPullRequest()
+		await insertAbandonedMergeIntent({
+			strategy: 'squash',
+			squashTitle: 'The abandoned title',
+			bypass: {
+				reason: 'Production incident',
+				bypassedReasonCodes: ['approvals_required'],
+				baseSha: BASE_SHA,
+				headSha: currentHeadSha,
+			},
+		})
+		findMergeReceipt.mockResolvedValue(undefined)
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'merge_commit',
+		})
+
+		// The fresh evaluation cleared it, so it merges — but as this caller's own
+		// merge commit, not as the abandoned squash, and with no waiver.
+		expect(outcome).toMatchObject({ status: 'merged', mergeCalls: 1 })
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'merge_commit' })
+		)
+		expect(
+			await db.query.pullRequests.findFirst({
+				columns: { mergeStrategy: true },
+			})
+		).toMatchObject({ mergeStrategy: 'merge_commit' })
+		expect(await findPullRequestEvent('merge_bypassed')).toBeUndefined()
+	})
+
+	// A git storage old enough not to know about merge methods answers for none of
+	// them, and would quietly make a merge commit for whatever was asked for.
+	test('refuses to merge while git storage cannot report merge methods', async () => {
+		await createPullRequest()
+		reportsStrategyAvailability = false
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'squash',
+		})
+
+		expect(outcome).toMatchObject({
+			httpStatus: 200,
+			status: 'blocked',
+			pullRequestState: 'open',
+			mergeCalls: 0,
+		})
+		expect(outcome.requirements?.reasons).toEqual([
+			{ code: 'merge_strategies_unsupported' },
+		])
+	})
+
+	// Even the method that predates all of this is refused: the point is that
+	// nothing can be trusted about what git storage would do.
+	test('refuses a merge commit too while merge methods are unreportable', async () => {
+		await createPullRequest()
+		reportsStrategyAvailability = false
+
+		expect(
+			await attemptMerge(writer.headers, {
+				expectedBaseSha: BASE_SHA,
+				expectedHeadSha: currentHeadSha,
+				strategy: 'merge_commit',
+			})
+		).toMatchObject({ status: 'blocked', mergeCalls: 0 })
+	})
+
+	// The strategies migration left intents that recorded no request in place
+	// rather than requiring a quiesce. They cannot be looked up and cannot be
+	// replayed, so recovery hands them back and the merge is judged afresh.
+	test('releases a migrated intent that recorded no request', async () => {
+		await createPullRequest()
+		await insertAbandonedMergeIntent({
+			strategy: 'merge_commit',
+			recordsRequest: false,
+			bypass: {
+				reason: 'Production incident',
+				bypassedReasonCodes: ['approvals_required'],
+				baseSha: BASE_SHA,
+				headSha: currentHeadSha,
+			},
+		})
+
+		const outcome = await attemptMerge(writer.headers, {
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: currentHeadSha,
+			strategy: 'rebase',
+		})
+
+		// Nothing to look up, so git storage is never asked, and the merge that
+		// happens is this caller's own — not the abandoned attempt's, and not
+		// carrying its waiver.
+		expect(findMergeReceipt).not.toHaveBeenCalled()
+		expect(outcome).toMatchObject({ status: 'merged', mergeCalls: 1 })
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'rebase' })
+		)
+		expect(await findPullRequestEvent('merge_bypassed')).toBeUndefined()
+	})
+
 	test('blocks a merge on a repository GitHub is authoritative for', async () => {
 		await createPullRequest()
 		await makeGitHubAuthoritative()
@@ -814,6 +1146,49 @@ describe('Merge governance integration', () => {
 	 * A merge attempt and what it left behind, so a test can state the verdict,
 	 * the pull request's fate and whether Git was ever asked in one assertion.
 	 */
+	/** An attempt that wrote its intent and then stopped existing. */
+	async function insertAbandonedMergeIntent({
+		bypass,
+		recordsRequest = true,
+		squashTitle,
+		strategy,
+	}: {
+		bypass?: PullRequestMergeBypass
+		/** False writes the shape the strategies migration left behind. */
+		recordsRequest?: boolean
+		squashTitle?: string
+		strategy: MergeStrategy
+	}): Promise<void> {
+		const pullRequest = await db.query.pullRequests.findFirst({
+			columns: { id: true },
+		})
+
+		if (!pullRequest) throw new Error('pull request was not created')
+
+		await db.insert(pullRequestMergeIntents).values({
+			pullRequestId: pullRequest.id,
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			actorUserId: writer.id,
+			bypass,
+			strategy,
+			expectedBaseSha: recordsRequest ? BASE_SHA : null,
+			expectedHeadSha: recordsRequest ? currentHeadSha : null,
+			squashTitle: recordsRequest ? (squashTitle ?? null) : null,
+			squashBody: recordsRequest && strategy === 'squash' ? '' : null,
+			startedAt: new Date(Date.now() - 10 * 60 * 1000),
+		})
+	}
+
+	function strategyAvailability() {
+		if (!reportsStrategyAvailability) return []
+
+		return mergeStrategies.map(strategy => {
+			const reason = mergeable ? unavailableStrategies[strategy] : 'conflict'
+
+			return { strategy, available: !reason, reason }
+		})
+	}
+
 	async function attemptMerge(
 		headers: Headers,
 		input: object = {
@@ -1028,11 +1403,14 @@ describe('Merge governance integration', () => {
 	}
 
 	function mergePullRequest(headers: Headers, input: object) {
+		// The merge method is an explicit choice the contract requires, exactly as
+		// the web client always sends one. A body that names none merges the way
+		// every merge did before strategies existed.
 		return request(
 			'http://localhost/repositories/owner/notes/pulls/1/merge',
 			'POST',
 			headers,
-			input
+			{ strategy: 'merge_commit', ...input }
 		)
 	}
 

@@ -1,8 +1,11 @@
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
 import {
+	CheckRepositoryMergeabilityResponse,
 	RepositoryBlobPreviewState,
 	RepositoryChangedFileStatus,
 	RepositoryDiffLineKind,
+	RepositoryMergeStrategy,
+	RepositoryMergeStrategyUnavailableReason,
 	RepositoryRefKind,
 	RepositorySignatureState,
 	RepositoryTreeEntryKind,
@@ -419,6 +422,7 @@ describe('git storage mappers', () => {
 				conflictPaths: ['src/index.ts'],
 				conflictPathsTruncated: true,
 				conflictPathLimit: 50,
+				strategyAvailability: [],
 			})
 		).toStrictEqual({
 			mergeable: false,
@@ -428,6 +432,7 @@ describe('git storage mappers', () => {
 			conflictPaths: ['src/index.ts'],
 			conflictPathsTruncated: true,
 			conflictPathLimit: 50,
+			strategyAvailability: undefined,
 		})
 		expect(toRepositoryMergeability({})).toStrictEqual({
 			mergeable: false,
@@ -437,7 +442,98 @@ describe('git storage mappers', () => {
 			conflictPaths: [],
 			conflictPathsTruncated: false,
 			conflictPathLimit: 0,
+			// A git storage that answers for strategies answers for all four, so
+			// anything short of that is an answer that never reached them.
+			strategyAvailability: undefined,
 		})
+	})
+
+	// Both directions are checked here because this is the only place the wire
+	// enums and Tessera's own names are matched up.
+	test('maps every strategy availability entry to its own name', () => {
+		expect(
+			toRepositoryMergeability({
+				strategyAvailability: [
+					{
+						strategy:
+							RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_MERGE_COMMIT,
+						available: true,
+						reason:
+							RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSPECIFIED,
+					},
+					{
+						strategy: RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_SQUASH,
+						available: false,
+						reason:
+							RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_CONFLICT,
+					},
+					{
+						strategy: RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_REBASE,
+						available: false,
+						reason:
+							RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOTHING_TO_REBASE,
+					},
+					{
+						strategy:
+							RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_FAST_FORWARD,
+						available: false,
+						reason:
+							RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_ALREADY_UP_TO_DATE,
+					},
+				],
+			}).strategyAvailability
+		).toStrictEqual([
+			{ strategy: 'merge_commit', available: true, reason: undefined },
+			{ strategy: 'squash', available: false, reason: 'conflict' },
+			{ strategy: 'rebase', available: false, reason: 'nothing_to_rebase' },
+			{
+				strategy: 'fast_forward',
+				available: false,
+				reason: 'already_up_to_date',
+			},
+		])
+	})
+
+	// A merge method this build cannot execute has no business being offered, and
+	// inventing a name for it would put it in front of a reader. Dropping one
+	// leaves the set incomplete, which is reported as no answer at all.
+	test('reports no answer when an entry names an unknown strategy', () => {
+		expect(
+			toRepositoryMergeability({
+				strategyAvailability: [
+					{
+						strategy:
+							RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_UNSPECIFIED,
+						available: true,
+					},
+					{ strategy: 99 as RepositoryMergeStrategy, available: true },
+				],
+			}).strategyAvailability
+		).toBeUndefined()
+	})
+
+	// Protobuf decodes an omitted repeated field to an empty list, so a legacy
+	// response is indistinguishable from a genuinely empty one by shape alone.
+	// This is the actual decode, not a hand-built object.
+	test('reports no answer for a decoded response from a git storage that predates strategies', () => {
+		const legacy = CheckRepositoryMergeabilityResponse.decode(
+			CheckRepositoryMergeabilityResponse.encode({
+				mergeable: true,
+				baseSha: 'base',
+				headSha: 'head',
+				mergeBaseSha: 'merge-base',
+				conflictPaths: [],
+				conflictPathsTruncated: false,
+				conflictPathLimit: 50,
+				// What a git storage that predates strategies sends: nothing.
+				strategyAvailability: [],
+			}).finish()
+		)
+
+		expect(legacy.strategyAvailability).toStrictEqual([])
+		expect(
+			toRepositoryMergeability(legacy).strategyAvailability
+		).toBeUndefined()
 	})
 
 	test('rejects a file diff without its required file entry', () => {

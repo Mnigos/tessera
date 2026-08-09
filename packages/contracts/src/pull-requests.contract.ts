@@ -1,5 +1,10 @@
 import { oc } from '@orpc/contract'
-import { mergeBlockingReasonCodes, mergeQueueStates } from '@repo/domain'
+import {
+	mergeBlockingReasonCodes,
+	mergeQueueStates,
+	mergeStrategies,
+	mergeStrategyUnavailableReasons,
+} from '@repo/domain'
 import { z } from 'zod'
 import { branchProtectionRuleIdSchema } from './branch-protection.contract'
 import {
@@ -52,6 +57,48 @@ export const mergeQueueStateSchema = z.enum(mergeQueueStates)
 export type MergeQueueState = z.infer<typeof mergeQueueStateSchema>
 
 export const mergeBlockingReasonCodeSchema = z.enum(mergeBlockingReasonCodes)
+
+export const mergeStrategySchema = z.enum(mergeStrategies)
+export type MergeStrategy = z.infer<typeof mergeStrategySchema>
+
+export const mergeStrategyUnavailableReasonSchema = z.enum(
+	mergeStrategyUnavailableReasons
+)
+export type MergeStrategyUnavailableReason = z.infer<
+	typeof mergeStrategyUnavailableReasonSchema
+>
+
+/**
+ * Whether one strategy could run against the branches as they currently stand.
+ * Every strategy gets an entry, available or not, so the client can show all
+ * four with the one that is refused explaining itself rather than disappearing.
+ */
+export const mergeStrategyAvailabilitySchema = z.object({
+	strategy: mergeStrategySchema,
+	available: z.boolean(),
+	reason: mergeStrategyUnavailableReasonSchema.optional(),
+})
+export type MergeStrategyAvailability = z.infer<
+	typeof mergeStrategyAvailabilitySchema
+>
+
+/**
+ * Text that ends up inside a Git commit message. A NUL cannot be represented in
+ * a commit object at all, so Git storage refuses one — which would surface as an
+ * unmergeable pull request rather than as the invalid input it is.
+ */
+const commitSafeTextSchema = z
+	.string()
+	.refine(value => !value.includes('\0'), 'The text must not contain NUL')
+
+/** A commit subject, which is one line by definition. */
+const mergeCommitTitleSchema = z
+	.string()
+	.trim()
+	.min(1)
+	.max(256)
+	.regex(/^[^\r\n]+$/, 'The title must be a single line')
+	.and(commitSafeTextSchema)
 
 export const pullRequestProviderSchema = z.enum(['tessera', 'github'])
 export type PullRequestProvider = z.infer<typeof pullRequestProviderSchema>
@@ -168,7 +215,14 @@ export const pullRequestSchema = z.object({
 	title: z.string(),
 	body: z.string(),
 	state: pullRequestStateSchema,
+	/**
+	 * Where the target branch was left. Named for the two-parent merge that was
+	 * once the only way to get there — a squash leaves one commit, a rebase the
+	 * last replayed one, and a fast-forward the source head itself.
+	 */
 	mergeCommitSha: z.string().optional(),
+	/** Absent on merges made before strategies existed and on synchronized ones. */
+	mergeStrategy: mergeStrategySchema.optional(),
 	mergeActorUserId: z.uuid().brand<'user_id'>().optional(),
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
@@ -252,6 +306,18 @@ const pullRequestHeadUpdateEventPayloadSchema = z.object({
 	newSha: pullRequestShaSchema,
 })
 
+/**
+ * What a merge did, as immutable evidence beside the row it changed. Absent on
+ * merges made before strategies existed and on synchronized ones, so a reader
+ * has to tolerate a merged event that says nothing.
+ */
+const pullRequestMergedEventPayloadSchema = z.object({
+	strategy: mergeStrategySchema,
+	resultingSha: z.string(),
+	baseSha: z.string(),
+	headSha: z.string(),
+})
+
 // Payloads carry no discriminator of their own and the first member that parses
 // wins, so a member whose required fields are a subset of another's would
 // silently strip the difference. Every shape is listed before any shape it is
@@ -267,6 +333,7 @@ const pullRequestEventPayloadSchema = z.union([
 	pullRequestQueueRemovedEventPayloadSchema,
 	pullRequestQueueResumedEventPayloadSchema,
 	pullRequestHeadUpdateEventPayloadSchema,
+	pullRequestMergedEventPayloadSchema,
 ])
 
 export const pullRequestEventSchema = z.object({
@@ -580,6 +647,16 @@ const mergeQueuePauseReasonOptions = [
 		headSha: z.string(),
 	}),
 	z.object({
+		code: z.literal('merge_strategy_unavailable'),
+		strategy: mergeStrategySchema,
+		reason: mergeStrategyUnavailableReasonSchema,
+	}),
+	// Git storage could not say what each method would do, which during a
+	// rolling deployment means it is old enough not to know about methods at
+	// all. Merging anyway would let it quietly make a merge commit for a
+	// requested squash or rebase.
+	z.object({ code: z.literal('merge_strategies_unsupported') }),
+	z.object({
 		code: z.literal('approvals_required'),
 		required: z.number().int().positive(),
 		approved: z.number().int().nonnegative(),
@@ -639,6 +716,12 @@ export const mergeRequirementsSchema = z.object({
 	eligible: z.boolean(),
 	evaluatedBaseSha: z.string().optional(),
 	evaluatedHeadSha: z.string().optional(),
+	/**
+	 * What each strategy could do with these branches. Absent when the evaluation
+	 * never reached Git — a closed pull request or a mirror Tessera may not write
+	 * to has no live pair of tips to judge any strategy against.
+	 */
+	strategyAvailability: z.array(mergeStrategyAvailabilitySchema).optional(),
 	rule: z
 		.object({
 			id: branchProtectionRuleIdSchema,
@@ -654,6 +737,8 @@ export type MergeRequirements = z.infer<typeof mergeRequirementsSchema>
 export const mergeQueueEntrySchema = z.object({
 	entryId: mergeQueueEntryIdSchema,
 	state: mergeQueueStateSchema,
+	/** The method this entry will merge by, fixed when it was queued. */
+	strategy: mergeStrategySchema,
 	/** Place among runnable entries, counted fresh; absent when not runnable. */
 	position: z.number().int().positive().optional(),
 	blockingReasons: z.array(mergeQueuePauseReasonSchema).optional(),
@@ -686,8 +771,9 @@ export const createPullRequestInputSchema = repositoryPullRequestsInputSchema
 	.extend({
 		sourceBranch: z.string().trim().min(1).max(255),
 		targetBranch: z.string().trim().min(1).max(255),
-		title: z.string().trim().min(1).max(256),
-		body: z.string().max(65_536).optional(),
+		// The title becomes a squash commit's subject, which is one line.
+		title: mergeCommitTitleSchema,
+		body: z.string().max(65_536).and(commitSafeTextSchema).optional(),
 	})
 	.refine(input => input.sourceBranch !== input.targetBranch, {
 		message: 'The source and target branches must be different',
@@ -754,21 +840,71 @@ export type ParsedListPullRequestChecksInput = z.infer<
 	typeof listPullRequestChecksInputSchema
 >
 
-export const mergePullRequestInputSchema = getPullRequestInputSchema.extend({
-	expectedBaseSha: pullRequestShaSchema,
-	expectedHeadSha: pullRequestShaSchema,
-	/**
-	 * Present only when the caller is deliberately merging past waivable
-	 * requirements. The reason is mandatory because it is what the audit row
-	 * carries; the server still decides whether the role and the blockers allow
-	 * it.
-	 */
-	bypass: z.object({ reason: z.string().trim().min(1).max(1000) }).optional(),
-})
+/**
+ * The strategy is part of the request rather than a repository setting, and it
+ * is discriminated so the options only one of them takes cannot be sent with the
+ * others. A squash title and body are optional: the server derives both from the
+ * pull request when the caller does not override them, which is also the only
+ * safe default — client-supplied text is validated, never trusted.
+ */
+function withMergeStrategy<Shape extends z.ZodRawShape>(
+	base: z.ZodObject<Shape>
+) {
+	// The squash fields are refused rather than ignored on the strategies that
+	// write no message of their own. Zod would otherwise strip them, and a client
+	// sending a title it believed would be used has misunderstood something worth
+	// being told about.
+	const withoutSquashMessage = {
+		squashTitle: z.never().optional(),
+		squashBody: z.never().optional(),
+	}
+
+	return z.discriminatedUnion('strategy', [
+		base.extend({
+			strategy: z.literal('merge_commit'),
+			...withoutSquashMessage,
+		}),
+		base.extend({ strategy: z.literal('rebase'), ...withoutSquashMessage }),
+		base.extend({
+			strategy: z.literal('fast_forward'),
+			...withoutSquashMessage,
+		}),
+		base.extend({
+			strategy: z.literal('squash'),
+			squashTitle: mergeCommitTitleSchema.optional(),
+			squashBody: z.string().max(65_536).and(commitSafeTextSchema).optional(),
+		}),
+	])
+}
+
+export const mergePullRequestInputSchema = withMergeStrategy(
+	getPullRequestInputSchema.extend({
+		expectedBaseSha: pullRequestShaSchema,
+		expectedHeadSha: pullRequestShaSchema,
+		/**
+		 * Present only when the caller is deliberately merging past waivable
+		 * requirements. The reason is mandatory because it is what the audit row
+		 * carries; the server still decides whether the role and the blockers allow
+		 * it.
+		 */
+		bypass: z.object({ reason: z.string().trim().min(1).max(1000) }).optional(),
+	})
+)
 export type MergePullRequestInput = z.input<typeof mergePullRequestInputSchema>
 export type ParsedMergePullRequestInput = z.infer<
 	typeof mergePullRequestInputSchema
 >
+
+/**
+ * The strategy alone, as the parts of the system that only carry it see it.
+ * Discriminated like the inputs it is taken from, so the message fields cannot
+ * travel with a strategy that writes no message.
+ */
+export type MergeStrategySelection =
+	| { strategy: 'merge_commit' }
+	| { strategy: 'rebase' }
+	| { strategy: 'fast_forward' }
+	| { strategy: 'squash'; squashBody?: string; squashTitle?: string }
 
 /**
  * Blocked is a result, not a failure: the caller asked whether this merge may
@@ -786,7 +922,14 @@ export type MergePullRequestResult = z.infer<
 	typeof mergePullRequestResultSchema
 >
 
-export const joinMergeQueueInputSchema = getPullRequestInputSchema
+/**
+ * The strategy is locked when the entry is created. The queue decides when a
+ * pull request merges, not how: an entry that could change method between being
+ * queued and being run would merge by a method nobody chose.
+ */
+export const joinMergeQueueInputSchema = withMergeStrategy(
+	getPullRequestInputSchema
+)
 export type JoinMergeQueueInput = z.input<typeof joinMergeQueueInputSchema>
 export type ParsedJoinMergeQueueInput = z.infer<
 	typeof joinMergeQueueInputSchema
@@ -808,8 +951,8 @@ export type ParsedRetryMergeQueueEntryInput = z.infer<
 
 export const editPullRequestInputSchema = getPullRequestInputSchema
 	.extend({
-		title: z.string().trim().min(1).max(256).optional(),
-		body: z.string().max(65_536).optional(),
+		title: mergeCommitTitleSchema.optional(),
+		body: z.string().max(65_536).and(commitSafeTextSchema).optional(),
 	})
 	.refine(input => input.title !== undefined || input.body !== undefined, {
 		message: 'At least one editable field is required',

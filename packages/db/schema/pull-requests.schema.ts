@@ -2,6 +2,7 @@ import type {
 	BranchProtectionRuleId,
 	MergeBlockingReasonCode,
 	MergeQueueEntryId,
+	MergeStrategy,
 	PullRequestCommentId,
 	PullRequestEventId,
 	PullRequestId,
@@ -10,6 +11,7 @@ import type {
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
+import { mergeStrategies } from '@repo/domain'
 import { relations, sql } from 'drizzle-orm'
 import {
 	check,
@@ -37,6 +39,11 @@ export const pullRequestProviderEnum = pgEnum('pull_request_provider', [
 	'tessera',
 	'github',
 ])
+
+export const pullRequestMergeStrategyEnum = pgEnum(
+	'pull_request_merge_strategy',
+	mergeStrategies
+)
 
 export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'opened',
@@ -114,6 +121,18 @@ export interface PullRequestQueueEnteredEventPayload {
 	enqueuedHeadSha: string
 }
 
+/**
+ * What a merge did, as immutable evidence beside the row it changed. The pull
+ * request keeps the same facts for cheap reads; this is the copy that cannot be
+ * overwritten. Absent on merges made before strategies existed.
+ */
+export interface PullRequestMergedEventPayload {
+	strategy: MergeStrategy
+	resultingSha: string
+	baseSha: string
+	headSha: string
+}
+
 export interface PullRequestQueuePausedEventPayload {
 	queueEntryId: MergeQueueEntryId
 	reasonCodes: MergeBlockingReasonCode[]
@@ -154,6 +173,7 @@ export type PullRequestEventPayload =
 	| PullRequestQueueResumedEventPayload
 	| PullRequestQueueRemovedEventPayload
 	| PullRequestHeadUpdateEventPayload
+	| PullRequestMergedEventPayload
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',
@@ -192,7 +212,21 @@ export const pullRequests = pgTable(
 		title: text('title').notNull(),
 		body: text('body').default('').notNull(),
 		state: pullRequestStateEnum('state').default('open').notNull(),
+		/**
+		 * Where the target branch was left. Only a merge commit strategy leaves a
+		 * merge commit here; a fast-forward leaves the source head itself.
+		 */
 		mergeCommitSha: text('merge_commit_sha'),
+		/** Absent on rows merged before strategies existed and on synchronized ones. */
+		mergeStrategy: pullRequestMergeStrategyEnum('merge_strategy'),
+		/**
+		 * The tips the merge was evaluated against and actually combined. A merged
+		 * pull request's comparison is read from these, because only a merge commit
+		 * carries the pair in its own parents — and even then only the ones it
+		 * happened to have.
+		 */
+		mergedBaseSha: text('merged_base_sha'),
+		mergedHeadSha: text('merged_head_sha'),
 		mergeActorUserId: uuid('merge_actor_user_id')
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
@@ -237,6 +271,16 @@ export const pullRequests = pgTable(
 		check(
 			'pull_requests_author_check',
 			sql`${table.provider}::text = 'github' or ${table.authorUserId} is not null`
+		),
+		// The merge-time pair is written together or not at all, and only a merged
+		// pull request has one. Rows merged before this column existed have none,
+		// which is what the parent fallback is still there for.
+		check(
+			'pull_requests_merged_comparison_check',
+			sql`(
+				(${table.mergedBaseSha} is null) = (${table.mergedHeadSha} is null)
+				and (${table.state}::text = 'merged' or (${table.mergedBaseSha} is null and ${table.mergeStrategy} is null))
+			)`
 		),
 	]
 )
@@ -314,10 +358,49 @@ export const pullRequestMergeIntents = pgTable(
 			.references(() => user.id, { onDelete: 'restrict' }),
 		/** Absent on an ordinary merge; present only when policy was waived. */
 		bypass: jsonb('bypass').$type<PullRequestMergeBypass>(),
+		/**
+		 * Exactly what Git was asked to do, snapshotted before it was asked.
+		 *
+		 * Recovery replays this request verbatim, which is the only way the Git
+		 * service can recognise its own receipt and answer that the merge already
+		 * happened. Re-deriving any of it would send a different request, and Git
+		 * would rightly call that request stale.
+		 */
+		strategy: pullRequestMergeStrategyEnum('strategy')
+			.default('merge_commit')
+			.notNull(),
+		expectedBaseSha: text('expected_base_sha'),
+		expectedHeadSha: text('expected_head_sha'),
+		/** The message `merge_commit` will write, and nothing else. */
+		commitMessage: text('commit_message'),
+		/** The message `squash` will write, and nothing else. */
+		squashTitle: text('squash_title'),
+		squashBody: text('squash_body'),
 		startedAt: timestamp('started_at').notNull(),
 	},
 	table => [
 		index('pull_request_merge_intents_actor_user_id_idx').on(table.actorUserId),
+		// A row either predates the snapshot entirely, or holds the whole request:
+		// both tips, and exactly the message fields its strategy writes. Half a
+		// snapshot would be replayed as a request that was never made, and Git
+		// would rightly refuse it as describing a merge it never performed.
+		check(
+			'pull_request_merge_intents_request_check',
+			sql`(
+				(
+					${table.expectedBaseSha} is null and ${table.expectedHeadSha} is null
+					and ${table.commitMessage} is null and ${table.squashTitle} is null and ${table.squashBody} is null
+				)
+				or (
+					${table.expectedBaseSha} is not null and ${table.expectedHeadSha} is not null
+					and case ${table.strategy}::text
+						when 'merge_commit' then ${table.commitMessage} is not null and ${table.squashTitle} is null and ${table.squashBody} is null
+						when 'squash' then ${table.commitMessage} is null and ${table.squashTitle} is not null and ${table.squashBody} is not null
+						else ${table.commitMessage} is null and ${table.squashTitle} is null and ${table.squashBody} is null
+					end
+				)
+			)`
+		),
 	]
 )
 

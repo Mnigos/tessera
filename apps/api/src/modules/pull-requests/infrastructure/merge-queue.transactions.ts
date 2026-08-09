@@ -12,6 +12,7 @@ import {
 import type {
 	MergeQueueEntryId,
 	MergeQueueState,
+	MergeStrategy,
 	PullRequestId,
 	RepositoryId,
 	UserId,
@@ -55,6 +56,9 @@ export const MERGE_QUEUE_ENTRY_COLUMNS = {
 	pullRequestId: mergeQueueEntries.pullRequestId,
 	position: mergeQueueEntries.position,
 	state: mergeQueueEntries.state,
+	strategy: mergeQueueEntries.strategy,
+	squashTitle: mergeQueueEntries.squashTitle,
+	squashBody: mergeQueueEntries.squashBody,
 	blockingReasons: mergeQueueEntries.blockingReasons,
 	enqueuedByUserId: mergeQueueEntries.enqueuedByUserId,
 	enqueuedAt: mergeQueueEntries.enqueuedAt,
@@ -74,6 +78,10 @@ export interface MergeQueueEntryRow {
 	pullRequestId: PullRequestId
 	position: number
 	state: MergeQueueState
+	/** The method this entry will merge by, fixed when it was queued. */
+	strategy: MergeStrategy
+	squashTitle: string | null
+	squashBody: string | null
 	blockingReasons: MergeQueueBlockingReasonSnapshot[] | null
 	enqueuedByUserId: UserId
 	enqueuedAt: Date

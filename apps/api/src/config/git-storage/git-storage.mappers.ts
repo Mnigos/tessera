@@ -1,3 +1,8 @@
+import type {
+	MergeStrategy,
+	MergeStrategyUnavailableReason,
+} from '@repo/domain'
+import { mergeStrategies } from '@repo/domain'
 import { ExternalServiceError } from '~/shared/errors'
 import type {
 	CheckRepositoryMergeabilityResponse,
@@ -8,6 +13,7 @@ import type {
 	RepositoryComparisonCommit as GeneratedRepositoryComparisonCommit,
 	RepositoryDiffHunk as GeneratedRepositoryDiffHunk,
 	RepositoryDiffLine as GeneratedRepositoryDiffLine,
+	RepositoryMergeStrategyAvailability as GeneratedRepositoryMergeStrategyAvailability,
 	RepositoryRef as GeneratedRepositoryRef,
 	RepositorySignature as GeneratedRepositorySignature,
 	RepositoryTreeEntry as GeneratedRepositoryTreeEntry,
@@ -23,6 +29,8 @@ import {
 	RepositoryBlobPreviewState,
 	RepositoryChangedFileStatus,
 	RepositoryDiffLineKind,
+	RepositoryMergeStrategy,
+	RepositoryMergeStrategyUnavailableReason,
 	RepositoryRefKind,
 	RepositorySignatureState,
 	RepositoryTreeEntryKind,
@@ -40,6 +48,7 @@ import type {
 	GitStorageRepositoryDiffLine,
 	GitStorageRepositoryFileDiff,
 	GitStorageRepositoryMergeability,
+	GitStorageRepositoryMergeStrategyAvailability,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryRefs,
 	GitStorageRepositorySignature,
@@ -63,8 +72,71 @@ type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 
 type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
 
-type RuntimeRepositoryMergeabilityResponse =
-	Partial<CheckRepositoryMergeabilityResponse>
+type RuntimeRepositoryMergeabilityResponse = Omit<
+	Partial<CheckRepositoryMergeabilityResponse>,
+	'strategyAvailability'
+> & { strategyAvailability?: RuntimeRepositoryMergeStrategyAvailability[] }
+
+type RuntimeRepositoryMergeStrategyAvailability =
+	Partial<GeneratedRepositoryMergeStrategyAvailability>
+
+/**
+ * The one place the wire enums are turned into Tessera's own names. Both
+ * directions are total maps rather than switches: an unrecognised value is data
+ * from a newer git storage, and the reader decides what to do with it.
+ */
+const MERGE_STRATEGIES_BY_PROTO = new Map<number, MergeStrategy>([
+	[
+		RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_MERGE_COMMIT,
+		'merge_commit',
+	],
+	[RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_SQUASH, 'squash'],
+	[RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_REBASE, 'rebase'],
+	[
+		RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_FAST_FORWARD,
+		'fast_forward',
+	],
+])
+
+const PROTO_BY_MERGE_STRATEGY = new Map<MergeStrategy, RepositoryMergeStrategy>(
+	[...MERGE_STRATEGIES_BY_PROTO].map(([proto, strategy]) => [strategy, proto])
+)
+
+const UNAVAILABLE_REASONS_BY_PROTO = new Map<
+	number,
+	MergeStrategyUnavailableReason
+>([
+	[
+		RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_CONFLICT,
+		'conflict',
+	],
+	[
+		RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOT_FAST_FORWARD,
+		'not_fast_forward',
+	],
+	[
+		RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_ALREADY_UP_TO_DATE,
+		'already_up_to_date',
+	],
+	[
+		RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOTHING_TO_REBASE,
+		'nothing_to_rebase',
+	],
+	[
+		RepositoryMergeStrategyUnavailableReason.REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSUPPORTED_HISTORY,
+		'unsupported_history',
+	],
+])
+
+/** The wire value for a strategy this build knows how to ask for. */
+export function toProtoMergeStrategy(
+	strategy: MergeStrategy
+): RepositoryMergeStrategy {
+	return (
+		PROTO_BY_MERGE_STRATEGY.get(strategy) ??
+		RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_UNSPECIFIED
+	)
+}
 
 interface RuntimeRepositoryComparisonResponse
 	extends Omit<Partial<CompareRepositoryRefsResponse>, 'commits' | 'files'> {
@@ -206,12 +278,14 @@ export function toRepositoryMergeability({
 	headSha,
 	mergeable,
 	mergeBaseSha,
+	strategyAvailability,
 }: RuntimeRepositoryMergeabilityResponse): GitStorageRepositoryMergeability {
 	return {
 		baseSha: baseSha ?? '',
 		headSha: headSha ?? '',
 		mergeBaseSha: mergeBaseSha ?? '',
 		mergeable: mergeable ?? false,
+		strategyAvailability: toStrategyAvailability(strategyAvailability),
 		conflictPaths: conflictPaths ?? [],
 		conflictPathsTruncated: conflictPathsTruncated ?? false,
 		conflictPathLimit: conflictPathLimit ?? 0,
@@ -478,6 +552,54 @@ function toRepositorySignature(
 		primaryKeyFingerprint: signature.primaryKeyFingerprint || undefined,
 		signer: signature.signer || undefined,
 	}
+}
+
+/**
+ * Every strategy's answer, or nothing at all.
+ *
+ * A git storage that answers for strategies answers for all four of them, so a
+ * set that is missing any of them did not come from one that does. That is the
+ * only way to tell a legacy response apart from a modern one: protobuf decodes
+ * an omitted repeated field to an empty list, which is indistinguishable from a
+ * genuinely empty answer. Reporting nothing here is what lets every caller
+ * refuse to merge rather than assume a method is available.
+ */
+function toStrategyAvailability(
+	strategyAvailability: RuntimeRepositoryMergeStrategyAvailability[] | undefined
+): GitStorageRepositoryMergeStrategyAvailability[] | undefined {
+	const entries = (strategyAvailability ?? []).flatMap(
+		toRepositoryMergeStrategyAvailability
+	)
+	const answered = new Set(entries.map(entry => entry.strategy))
+
+	return mergeStrategies.every(strategy => answered.has(strategy))
+		? entries
+		: undefined
+}
+
+/**
+ * One strategy's answer. An entry naming a strategy this build does not know is
+ * dropped rather than guessed at: a merge method nobody here can execute has no
+ * business being offered, and inventing a name for it would put it in the UI.
+ */
+function toRepositoryMergeStrategyAvailability({
+	available,
+	reason,
+	strategy,
+}: RuntimeRepositoryMergeStrategyAvailability): GitStorageRepositoryMergeStrategyAvailability[] {
+	const mergeStrategy = MERGE_STRATEGIES_BY_PROTO.get(strategy ?? -1)
+
+	if (!mergeStrategy) return []
+
+	return [
+		{
+			strategy: mergeStrategy,
+			available: available ?? false,
+			reason: available
+				? undefined
+				: UNAVAILABLE_REASONS_BY_PROTO.get(reason ?? -1),
+		},
+	]
 }
 
 function toRepositorySignatureState(

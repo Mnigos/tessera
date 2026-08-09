@@ -1,4 +1,8 @@
-import type { RepositoryId } from '@repo/domain'
+import type {
+	MergeStrategy,
+	MergeStrategyUnavailableReason,
+	RepositoryId,
+} from '@repo/domain'
 import type { TrustedGpgKey } from './generated/tessera/git/v1/git_storage'
 
 export interface GitStorageCreateRepositoryParams {
@@ -87,8 +91,22 @@ export interface GitStorageMergeRepositoryRefsParams
 	authorName: string
 	expectedBaseSha: string
 	expectedHeadSha: string
+	/** Read by `merge_commit` alone; the other strategies ignore it. */
 	message: string
+	/** A UUID: git storage files its operation receipt under this name. */
 	operationId: string
+	squashBody?: string
+	squashTitle?: string
+	strategy: MergeStrategy
+}
+
+export interface GitStorageFindMergeReceiptParams {
+	expectedBaseSha: string
+	expectedHeadSha: string
+	operationId: string
+	repositoryId: RepositoryId
+	storagePath: string
+	strategy: MergeStrategy
 }
 
 export type GitStorageCheckRepositoryMergeabilityParams =
@@ -256,6 +274,12 @@ export interface GitStorageRepositoryDiffHunk {
 	lines: GitStorageRepositoryDiffLine[]
 }
 
+export interface GitStorageRepositoryMergeStrategyAvailability {
+	available: boolean
+	reason?: MergeStrategyUnavailableReason
+	strategy: MergeStrategy
+}
+
 export interface GitStorageRepositoryMergeability {
 	baseSha: string
 	conflictPathLimit: number
@@ -264,6 +288,11 @@ export interface GitStorageRepositoryMergeability {
 	headSha: string
 	mergeable: boolean
 	mergeBaseSha: string
+	/**
+	 * One entry per strategy, as git storage answered for these tips. Absent
+	 * from a git storage that does not answer for strategies at all.
+	 */
+	strategyAvailability?: GitStorageRepositoryMergeStrategyAvailability[]
 }
 
 export interface GitStorageRepositoryFileDiff {

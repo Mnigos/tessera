@@ -61,6 +61,7 @@ export class MergeQueueStatusService {
 		return {
 			entryId: entry.id,
 			state: entry.state,
+			strategy: entry.strategy,
 			position: aheadCount === undefined ? undefined : aheadCount + 1,
 			blockingReasons: toMergeQueueBlockingReasons(entry.blockingReasons),
 			enqueuedAt: entry.enqueuedAt,

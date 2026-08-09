@@ -1,5 +1,6 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
+import type { MergeStrategySelection } from '@repo/contracts'
 import {
 	and,
 	asc,
@@ -79,6 +80,8 @@ interface EnqueueEntryParams extends RepositoryParams, FindActiveEntryParams {
 	enqueuedBaseSha: string
 	enqueuedByUserId: UserId
 	enqueuedHeadSha: string
+	/** Locked here for the entry's whole life; the queue never re-chooses it. */
+	selection: MergeStrategySelection
 }
 
 interface RemoveEntryParams extends RepositoryParams, FindActiveEntryParams {
@@ -317,6 +320,7 @@ export class MergeQueueRepository {
 		enqueuedHeadSha,
 		pullRequestId,
 		repositoryId,
+		selection,
 	}: EnqueueEntryParams): Promise<EnqueueMergeQueueEntryResult> {
 		return await this.db.transaction(async tx => {
 			await lockMergeQueueState(tx, repositoryId)
@@ -365,6 +369,15 @@ export class MergeQueueRepository {
 					enqueuedByUserId,
 					enqueuedBaseSha,
 					enqueuedHeadSha,
+					strategy: selection.strategy,
+					squashTitle:
+						selection.strategy === 'squash'
+							? (selection.squashTitle ?? null)
+							: null,
+					squashBody:
+						selection.strategy === 'squash'
+							? (selection.squashBody ?? null)
+							: null,
 				})
 				.returning(MERGE_QUEUE_ENTRY_COLUMNS)
 

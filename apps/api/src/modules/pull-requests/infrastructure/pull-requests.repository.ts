@@ -29,12 +29,14 @@ import {
 } from '@repo/db'
 import type {
 	MergeQueueEntryId,
+	MergeStrategy,
 	PullRequestId,
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
 import { alias } from 'drizzle-orm/pg-core'
 import type { PullRequestPushRefUpdate } from '../domain/pull-request-push.schema'
+import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import {
 	completeMergeQueueEntry,
 	removeActiveMergeQueueEntry,
@@ -92,8 +94,51 @@ interface ClaimMergeParams extends PullRequestMutationParams {
 	attemptId: string
 	/** Present only when the attempt is deliberately merging past policy. */
 	bypass?: PullRequestMergeBypass
+	/** What this attempt intends to ask Git for, if it is the first to arrive. */
+	request: PullRequestMergeRequest
 	staleBefore: Date
 	startedAt: Date
+}
+
+interface FindRecoverableMergeIntentParams {
+	pullRequestId: PullRequestId
+	staleBefore: Date
+}
+
+/**
+ * A merge attempt that stopped existing before it finished recording itself.
+ *
+ * Whether it reached Git at all is not knowable from here — that is what the
+ * operation receipt answers. The request is carried so the receipt can be looked
+ * up against the exact merge this attempt was making, and the actor and waiver
+ * so the merge is recorded as the one it was cleared to be rather than as
+ * whoever happened to arrive next.
+ *
+ * The request is absent on intents written before it was recorded, which the
+ * strategies migration deliberately left in place. Those cannot be looked up and
+ * cannot be replayed; recovery releases them.
+ */
+export interface RecoverableMergeIntent {
+	actor: PullRequestMergeIntentActor
+	/** The attempt that wrote it, so the recovery finishes or releases that one. */
+	attemptId: string
+	bypass?: PullRequestMergeBypass
+	request?: PullRequestMergeRequest
+	startedAt: Date
+}
+
+export interface PullRequestMergeIntentActor {
+	email: string
+	id: UserId
+	name: string
+}
+
+/** The merge this attempt now holds, and what it is cleared to do. */
+export interface ClaimedPullRequestMerge {
+	/** An earlier attempt's waiver carries forward when this one brought none. */
+	bypass?: PullRequestMergeBypass
+	pullRequest: PullRequest
+	request: PullRequestMergeRequest
 }
 
 interface RecordMergeBlockedParams {
@@ -104,7 +149,8 @@ interface RecordMergeBlockedParams {
 
 interface CompleteMergeParams extends LifecycleParams {
 	attemptId: string
-	mergeCommitSha: string
+	/** Where the target branch was left, whichever strategy put it there. */
+	resultingSha: string
 	/** Present when a queue run made this merge, so its entry finishes with it. */
 	queueEntryId?: MergeQueueEntryId
 }
@@ -167,6 +213,9 @@ const PULL_REQUEST_COLUMNS = {
 	body: pullRequests.body,
 	state: pullRequests.state,
 	mergeCommitSha: pullRequests.mergeCommitSha,
+	mergeStrategy: pullRequests.mergeStrategy,
+	mergedBaseSha: pullRequests.mergedBaseSha,
+	mergedHeadSha: pullRequests.mergedHeadSha,
 	mergeActorUserId: pullRequests.mergeActorUserId,
 	createdAt: pullRequests.createdAt,
 	updatedAt: pullRequests.updatedAt,
@@ -541,6 +590,12 @@ export class PullRequestsRepository {
 			const mergeIntent = await this.findMergeIntent(tx, params.pullRequestId)
 			if (mergeIntent && mergeIntent.startedAt > params.staleBefore)
 				return undefined
+			// A snapshotted intent may describe a merge Git already made, and
+			// deleting it here would close a pull request that was in fact merged,
+			// with nothing left to prove it. Only recovery resolves one — the
+			// service runs it before closing, so reaching this with one still in
+			// place means it could not be resolved, and the close is refused.
+			if (mergeIntent && toPersistedMergeRequest(mergeIntent)) return undefined
 
 			if (mergeIntent)
 				await tx
@@ -590,15 +645,91 @@ export class PullRequestsRepository {
 		})
 	}
 
+	/**
+	 * An aged-out merge intent, whatever it recorded.
+	 *
+	 * Read before anything is re-evaluated, because the world it describes may
+	 * already have changed by its own hand: if Git performed the merge and the
+	 * process died before recording it, the target has moved and a fresh
+	 * evaluation would call this attempt stale rather than finish it.
+	 *
+	 * Recovery is the only thing that resolves one of these. Nothing else may
+	 * overwrite or delete a snapshotted intent, which is what keeps the evidence
+	 * of a merge Git already made from being destroyed by whoever arrives next.
+	 */
+	async findRecoverableMergeIntent({
+		pullRequestId,
+		staleBefore,
+	}: FindRecoverableMergeIntentParams): Promise<
+		RecoverableMergeIntent | undefined
+	> {
+		const [row] = await this.db
+			.select({
+				actorUserId: pullRequestMergeIntents.actorUserId,
+				actorName: user.name,
+				actorEmail: user.email,
+				attemptId: pullRequestMergeIntents.attemptId,
+				bypass: pullRequestMergeIntents.bypass,
+				strategy: pullRequestMergeIntents.strategy,
+				expectedBaseSha: pullRequestMergeIntents.expectedBaseSha,
+				expectedHeadSha: pullRequestMergeIntents.expectedHeadSha,
+				commitMessage: pullRequestMergeIntents.commitMessage,
+				squashTitle: pullRequestMergeIntents.squashTitle,
+				squashBody: pullRequestMergeIntents.squashBody,
+				startedAt: pullRequestMergeIntents.startedAt,
+			})
+			.from(pullRequestMergeIntents)
+			.innerJoin(user, eq(user.id, pullRequestMergeIntents.actorUserId))
+			.where(
+				and(
+					eq(pullRequestMergeIntents.pullRequestId, pullRequestId),
+					lte(pullRequestMergeIntents.startedAt, staleBefore)
+				)
+			)
+			.limit(1)
+
+		if (!row) return undefined
+
+		return {
+			request: toPersistedMergeRequest(row),
+			actor: {
+				id: row.actorUserId,
+				name: row.actorName,
+				email: row.actorEmail,
+			},
+			attemptId: row.attemptId,
+			bypass: row.bypass ?? undefined,
+			startedAt: row.startedAt,
+		}
+	}
+
+	/**
+	 * Takes the pull request's merge intent, writing down exactly what Git is
+	 * about to be asked for.
+	 *
+	 * An intent that recorded what it was asking Git for is never overwritten,
+	 * however old it is. Only recovery resolves one of those, because only
+	 * recovery can ask Git whether that request was carried out — and an intent
+	 * that ages past the recovery cutoff a moment after recovery looked would
+	 * otherwise be overwritten here, destroying the evidence of a merge that had
+	 * already happened. Such a claim is refused, and the caller reports the merge
+	 * as being in progress; the next attempt recovers it.
+	 *
+	 * What is left to take over is an intent that recorded nothing — one written
+	 * before requests were snapshotted. Its waiver carries forward, because a
+	 * merge an earlier attempt was cleared to make is still a bypassed merge, and
+	 * this attempt has been evaluated on its own terms regardless.
+	 */
 	async claimMerge({
 		actorUserId,
 		attemptId,
 		bypass,
 		pullRequestId,
 		repositoryId,
+		request,
 		staleBefore,
 		startedAt,
-	}: ClaimMergeParams): Promise<PullRequest | undefined> {
+	}: ClaimMergeParams): Promise<ClaimedPullRequestMerge | undefined> {
 		return await this.db.transaction(async tx => {
 			const lockedPullRequest = await this.lockPullRequest(tx, {
 				pullRequestId,
@@ -608,12 +739,10 @@ export class PullRequestsRepository {
 			if (lockedPullRequest?.state !== 'open') return undefined
 			const mergeIntent = await this.findMergeIntent(tx, pullRequestId)
 			if (mergeIntent && mergeIntent.startedAt > staleBefore) return undefined
+			if (mergeIntent && toPersistedMergeRequest(mergeIntent)) return undefined
 
-			// Taking over a lease that aged out never erases what the abandoned
-			// attempt was allowed to waive: if this one carries no bypass of its own,
-			// the earlier context stays on the row, so a merge that a crashed attempt
-			// had already been cleared to make is still recorded as bypassed when it
-			// completes.
+			const claimedBypass = bypass ?? mergeIntent?.bypass ?? undefined
+
 			if (mergeIntent)
 				await tx
 					.update(pullRequestMergeIntents)
@@ -621,7 +750,8 @@ export class PullRequestsRepository {
 						attemptId,
 						actorUserId,
 						startedAt,
-						bypass: bypass ?? mergeIntent.bypass,
+						bypass: claimedBypass,
+						...toMergeIntentRequestColumns(request),
 					})
 					.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
 			else
@@ -629,11 +759,16 @@ export class PullRequestsRepository {
 					pullRequestId,
 					attemptId,
 					actorUserId,
-					bypass,
+					bypass: claimedBypass,
 					startedAt,
+					...toMergeIntentRequestColumns(request),
 				})
 
-			return lockedPullRequest
+			return {
+				bypass: claimedBypass,
+				pullRequest: lockedPullRequest,
+				request,
+			}
 		})
 	}
 
@@ -658,10 +793,10 @@ export class PullRequestsRepository {
 		actorUserId,
 		attemptId,
 		changedAt,
-		mergeCommitSha,
 		pullRequestId,
 		queueEntryId,
 		repositoryId,
+		resultingSha,
 	}: CompleteMergeParams): Promise<PullRequest | undefined> {
 		return await this.db.transaction(async tx => {
 			const lockedPullRequest = await this.lockPullRequest(tx, {
@@ -676,11 +811,18 @@ export class PullRequestsRepository {
 			)
 				return undefined
 
+			// What was merged is read from the claimed intent rather than from the
+			// caller, for the same reason the bypass audit is: the intent is what Git
+			// was actually asked for, and it survives a process that did not.
+			const request = toPersistedMergeRequest(mergeIntent)
 			const [pullRequest] = await tx
 				.update(pullRequests)
 				.set({
 					state: 'merged',
-					mergeCommitSha,
+					mergeCommitSha: resultingSha,
+					mergeStrategy: mergeIntent.strategy,
+					mergedBaseSha: request?.expectedBaseSha,
+					mergedHeadSha: request?.expectedHeadSha,
 					mergeActorUserId: actorUserId,
 					mergedAt: changedAt,
 					closedAt: changedAt,
@@ -700,6 +842,14 @@ export class PullRequestsRepository {
 				pullRequestId,
 				actorUserId,
 				type: 'merged',
+				// An intent written before requests were snapshotted has no pair to
+				// name, so the event stays payload-less exactly as it used to be.
+				payload: request && {
+					strategy: request.strategy,
+					resultingSha,
+					baseSha: request.expectedBaseSha,
+					headSha: request.expectedHeadSha,
+				},
 			})
 
 			// The bypass audit is written from the claimed intent rather than from the
@@ -914,8 +1064,15 @@ export class PullRequestsRepository {
 	) {
 		const [mergeIntent] = await tx
 			.select({
+				actorUserId: pullRequestMergeIntents.actorUserId,
 				attemptId: pullRequestMergeIntents.attemptId,
 				bypass: pullRequestMergeIntents.bypass,
+				strategy: pullRequestMergeIntents.strategy,
+				expectedBaseSha: pullRequestMergeIntents.expectedBaseSha,
+				expectedHeadSha: pullRequestMergeIntents.expectedHeadSha,
+				commitMessage: pullRequestMergeIntents.commitMessage,
+				squashTitle: pullRequestMergeIntents.squashTitle,
+				squashBody: pullRequestMergeIntents.squashBody,
 				startedAt: pullRequestMergeIntents.startedAt,
 			})
 			.from(pullRequestMergeIntents)
@@ -1092,6 +1249,9 @@ function toPullRequestReadModel(
 		body: pullRequest.body,
 		state: pullRequest.state,
 		mergeCommitSha: pullRequest.mergeCommitSha,
+		mergeStrategy: pullRequest.mergeStrategy,
+		mergedBaseSha: pullRequest.mergedBaseSha,
+		mergedHeadSha: pullRequest.mergedHeadSha,
 		mergeActorUserId: pullRequest.mergeActorUserId,
 		createdAt: pullRequest.createdAt,
 		updatedAt: pullRequest.updatedAt,
@@ -1142,5 +1302,47 @@ function toPullRequestEventType(
 			return 'labeled'
 		default:
 			return undefined
+	}
+}
+
+/**
+ * The stored request, or nothing when the row predates requests being stored.
+ *
+ * The database refuses a half-written snapshot, so the tips being present is
+ * enough to know the whole request is: whatever message fields the strategy
+ * needs are there beside them.
+ */
+function toPersistedMergeRequest(intent: {
+	commitMessage: string | null
+	expectedBaseSha: string | null
+	expectedHeadSha: string | null
+	squashBody: string | null
+	squashTitle: string | null
+	strategy: MergeStrategy
+}): PullRequestMergeRequest | undefined {
+	if (!(intent.expectedBaseSha && intent.expectedHeadSha)) return undefined
+
+	return {
+		strategy: intent.strategy,
+		expectedBaseSha: intent.expectedBaseSha,
+		expectedHeadSha: intent.expectedHeadSha,
+		commitMessage: intent.commitMessage ?? undefined,
+		squashTitle: intent.squashTitle ?? undefined,
+		squashBody: intent.squashBody ?? undefined,
+	}
+}
+
+/**
+ * Nulls rather than absences, so taking over an intent overwrites whatever the
+ * previous strategy left behind instead of merging the two requests together.
+ */
+function toMergeIntentRequestColumns(request: PullRequestMergeRequest) {
+	return {
+		strategy: request.strategy,
+		expectedBaseSha: request.expectedBaseSha,
+		expectedHeadSha: request.expectedHeadSha,
+		commitMessage: request.commitMessage ?? null,
+		squashTitle: request.squashTitle ?? null,
+		squashBody: request.squashBody ?? null,
 	}
 }

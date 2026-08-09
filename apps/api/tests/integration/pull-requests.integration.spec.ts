@@ -265,6 +265,14 @@ describe('Pull requests integration', () => {
 			conflictPaths: [],
 			conflictPathsTruncated: false,
 			conflictPathLimit: 100,
+			// A git storage that answers for merge methods answers for all four;
+			// anything less is refused as an answer that never reached them.
+			strategyAvailability: [
+				{ strategy: 'merge_commit', available: true },
+				{ strategy: 'squash', available: true },
+				{ strategy: 'rebase', available: true },
+				{ strategy: 'fast_forward', available: true },
+			],
 		})
 		const headers = await createUserAndRepository({ visibility: 'public' })
 		await createPullRequest(
@@ -864,11 +872,14 @@ describe('Pull requests integration', () => {
 		input: object,
 		headers: Headers
 	) {
+		// The merge method is an explicit choice the contract requires, exactly as
+		// the web client always sends one. A body that names none merges the way
+		// every merge did before strategies existed.
 		return request(
 			`http://localhost/repositories/${username}/${slug}/pulls/${number}/merge`,
 			'POST',
 			headers,
-			input
+			{ strategy: 'merge_commit', ...input }
 		)
 	}
 

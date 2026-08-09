@@ -1,4 +1,8 @@
 import { PULL_REQUEST_STALE_COMPARISON_MESSAGE } from '@repo/contracts'
+import type {
+	MergeStrategy,
+	MergeStrategyUnavailableReason,
+} from '@repo/domain'
 import { BadRequestError, ConflictError, NotFoundError } from '~/shared/errors'
 
 export class PullRequestNotFoundError extends NotFoundError {
@@ -69,6 +73,26 @@ export class PullRequestMergeConflictError extends ConflictError {
 			'pull request merge',
 			context,
 			'The pull request cannot be merged cleanly.'
+		)
+	}
+}
+
+/**
+ * Git refused the strategy itself rather than the content: the branches cannot
+ * fast-forward, or the replay had nothing to put on the target. The reason
+ * travels on the error so the refusal reaches the caller as the same blocking
+ * reason the requirements would have reported a moment earlier.
+ */
+export class PullRequestMergeStrategyUnavailableError extends ConflictError {
+	constructor(
+		readonly strategy: MergeStrategy,
+		readonly unavailableReason: MergeStrategyUnavailableReason,
+		context?: Record<string, unknown>
+	) {
+		super(
+			'pull request merge strategy',
+			{ ...context, strategy, unavailableReason },
+			'The pull request cannot be merged with the selected method.'
 		)
 	}
 }

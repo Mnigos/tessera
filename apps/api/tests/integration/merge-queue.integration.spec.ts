@@ -22,6 +22,7 @@ import { RepositoriesModule, RepositoryWriteGuard } from '@modules/repositories'
 import { type INestApplication, Logger } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { MergeStrategySelection } from '@repo/contracts'
 import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
@@ -48,10 +49,12 @@ import {
 } from '@repo/db/schema'
 import type {
 	MergeQueueEntryId,
+	MergeStrategy,
 	PullRequestId,
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
+import { mergeStrategies } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import type { Job } from 'bullmq'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
@@ -85,6 +88,7 @@ interface MergeQueueStatusBody {
 	entry?: {
 		entryId: MergeQueueEntryId
 		state: string
+		strategy: MergeStrategy
 		position?: number
 		blockingReasons?: { code: string }[]
 	}
@@ -104,6 +108,7 @@ describe('Merge queue integration', () => {
 	let processor: MergeQueueProcessor
 	let enqueueWakeup: ReturnType<typeof vi.fn>
 	let mergeRepositoryRefs: ReturnType<typeof vi.fn>
+	let findMergeReceipt: ReturnType<typeof vi.fn>
 	let checkRepositoryMergeability: ReturnType<typeof vi.fn>
 	/** Head refs the mocked storage reports, keyed by source branch. */
 	let headShas: Record<string, string>
@@ -127,6 +132,7 @@ describe('Merge queue integration', () => {
 		mergeRepositoryRefs = vi.fn(({ headRef }: { headRef: string }) =>
 			Promise.resolve(toMergeCommitSha(headRef))
 		)
+		findMergeReceipt = vi.fn(() => Promise.resolve(undefined))
 		checkRepositoryMergeability = vi.fn(({ headRef }: { headRef: string }) =>
 			Promise.resolve({
 				baseSha: BASE_SHA,
@@ -136,6 +142,11 @@ describe('Merge queue integration', () => {
 				conflictPaths: conflicting.has(headRef) ? ['src/index.ts'] : [],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: mergeStrategies.map(strategy => ({
+					strategy,
+					available: !conflicting.has(headRef),
+					reason: conflicting.has(headRef) ? ('conflict' as const) : undefined,
+				})),
 			})
 		)
 
@@ -203,6 +214,7 @@ describe('Merge queue integration', () => {
 					})
 				),
 				mergeRepositoryRefs,
+				findMergeReceipt,
 				checkRepositoryMergeability,
 			})
 			.compile()
@@ -217,6 +229,8 @@ describe('Merge queue integration', () => {
 		await resetIntegrationDatabase()
 		enqueueWakeup.mockClear()
 		mergeRepositoryRefs.mockClear()
+		findMergeReceipt.mockClear()
+		findMergeReceipt.mockResolvedValue(undefined)
 		mergeRepositoryRefs.mockImplementation(({ headRef }: { headRef: string }) =>
 			Promise.resolve(toMergeCommitSha(headRef))
 		)
@@ -382,6 +396,99 @@ describe('Merge queue integration', () => {
 			'queue_entered',
 			'merged',
 		])
+	})
+
+	// The queue decides when a pull request merges, not how. Whatever was chosen
+	// at the door is what the run that reaches the entry asks Git for.
+	test('merges a queued entry by the method it was queued with', async () => {
+		await createPullRequest(1, 'feature-one')
+		const queued = await joinQueue(1, writer.headers, {
+			strategy: 'squash',
+			squashTitle: 'Queued squash (#1)',
+			squashBody: 'Queued body',
+		})
+
+		expect(queued.entry).toMatchObject({ strategy: 'squash' })
+
+		await runWorker()
+
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				squashTitle: 'Queued squash (#1)',
+				squashBody: 'Queued body',
+			})
+		)
+		expect(await findPullRequest(1)).toMatchObject({
+			state: 'merged',
+			mergeStrategy: 'squash',
+		})
+	})
+
+	// Pausing and retrying an entry is asking the queue to look again, not to
+	// choose again: the method it was queued with survives the round trip.
+	test('keeps the queued method across a pause and a retry', async () => {
+		await createRule({ targetBranch: 'main', requiredApprovals: 1 })
+		await createPullRequest(1, 'feature-one')
+		await joinQueue(1, writer.headers, { strategy: 'rebase' })
+		await runWorker()
+
+		expect(await readQueueStatus(1, writer.headers)).toMatchObject({
+			entry: { state: 'paused', strategy: 'rebase' },
+		})
+
+		await submitReview(1, reviewer.headers, HEAD_SHAS['feature-one'])
+		await retryMergeQueueEntry(1, writer.headers)
+		await runWorker()
+
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'rebase' })
+		)
+		expect(await findPullRequest(1)).toMatchObject({
+			state: 'merged',
+			mergeStrategy: 'rebase',
+		})
+	})
+
+	// A run that reached Git and died before recording it left the target where
+	// its own merge put it, which a fresh evaluation would read as staleness. The
+	// receipt is what says whether that merge actually happened.
+	test('records an abandoned merge git storage had already made', async () => {
+		await createPullRequest(1, 'feature-one')
+		await joinQueue(1, writer.headers)
+		await insertAbandonedMergeIntent(1, 'squash')
+		findMergeReceipt.mockResolvedValue(toMergeCommitSha('feature-one'))
+
+		await runWorker()
+
+		expect(await findPullRequest(1)).toMatchObject({
+			state: 'merged',
+			mergeStrategy: 'squash',
+			mergeCommitSha: toMergeCommitSha('feature-one'),
+		})
+		// Nothing was merged: the merge already existed.
+		expect(mergeRepositoryRefs).not.toHaveBeenCalled()
+	})
+
+	// Running it would merge unattended on the strength of an evaluation nobody
+	// repeated, under an actor and a waiver it inherited.
+	test('never merges an abandoned intent git storage has no receipt for', async () => {
+		await createPullRequest(1, 'feature-one')
+		await joinQueue(1, writer.headers, { strategy: 'rebase' })
+		await insertAbandonedMergeIntent(1, 'squash')
+		findMergeReceipt.mockResolvedValue(undefined)
+
+		await runWorker()
+
+		// The entry was judged on its own merits and merged by the method it was
+		// queued with, not by the abandoned attempt's.
+		expect(mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'rebase' })
+		)
+		expect(await findPullRequest(1)).toMatchObject({
+			state: 'merged',
+			mergeStrategy: 'rebase',
+		})
 	})
 
 	test('pauses an ineligible entry with its reasons and runs the next one anyway', async () => {
@@ -764,11 +871,30 @@ describe('Merge queue integration', () => {
 			.slice(0, 40)
 	}
 
+	/** An attempt that wrote its intent and then stopped existing. */
+	async function insertAbandonedMergeIntent(
+		number: number,
+		strategy: MergeStrategy
+	): Promise<void> {
+		await db.insert(pullRequestMergeIntents).values({
+			pullRequestId: await findPullRequestId(number),
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			actorUserId: writer.id,
+			strategy,
+			expectedBaseSha: BASE_SHA,
+			expectedHeadSha: HEAD_SHAS['feature-one'],
+			squashTitle: strategy === 'squash' ? 'The abandoned title' : null,
+			squashBody: strategy === 'squash' ? '' : null,
+			startedAt: new Date(Date.now() - 10 * 60 * 1000),
+		})
+	}
+
 	async function joinQueue(
 		number: number,
-		headers: Headers
+		headers: Headers,
+		selection: MergeStrategySelection = { strategy: 'merge_commit' }
 	): Promise<MergeQueueStatusBody> {
-		const response = await joinMergeQueue(number, headers)
+		const response = await joinMergeQueue(number, headers, selection)
 
 		if (response.status !== 200)
 			throw new Error(
@@ -791,10 +917,16 @@ describe('Merge queue integration', () => {
 		return body.mergeQueue
 	}
 
-	function joinMergeQueue(number: number, headers: Headers) {
-		return adapter.hono.request(
+	function joinMergeQueue(
+		number: number,
+		headers: Headers,
+		selection: MergeStrategySelection = { strategy: 'merge_commit' }
+	) {
+		return request(
 			`http://localhost/repositories/owner/notes/pulls/${number}/merge-queue`,
-			{ method: 'POST', headers }
+			'POST',
+			headers,
+			selection
 		)
 	}
 
@@ -813,11 +945,14 @@ describe('Merge queue integration', () => {
 	}
 
 	function mergePullRequest(number: number, headers: Headers, input: object) {
+		// The merge method is an explicit choice the contract requires, exactly as
+		// the web client always sends one. A body that names none merges the way
+		// every merge did before strategies existed.
 		return request(
 			`http://localhost/repositories/owner/notes/pulls/${number}/merge`,
 			'POST',
 			headers,
-			input
+			{ strategy: 'merge_commit', ...input }
 		)
 	}
 
@@ -929,7 +1064,12 @@ describe('Merge queue integration', () => {
 	async function findPullRequest(number: number) {
 		return await db.query.pullRequests.findFirst({
 			where: eq(pullRequests.number, number),
-			columns: { state: true, mergeCommitSha: true, mergeActorUserId: true },
+			columns: {
+				state: true,
+				mergeCommitSha: true,
+				mergeStrategy: true,
+				mergeActorUserId: true,
+			},
 		})
 	}
 

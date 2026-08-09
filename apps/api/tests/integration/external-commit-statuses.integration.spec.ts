@@ -182,6 +182,14 @@ describe('External commit statuses integration', () => {
 						conflictPaths: [],
 						conflictPathsTruncated: false,
 						conflictPathLimit: 100,
+						// A git storage that answers for merge methods answers for all four;
+						// anything less is refused as an answer that never reached them.
+						strategyAvailability: [
+							{ strategy: 'merge_commit', available: true },
+							{ strategy: 'squash', available: true },
+							{ strategy: 'rebase', available: true },
+							{ strategy: 'fast_forward', available: true },
+						],
 					})
 				),
 				mergeRepositoryRefs,
@@ -890,7 +898,11 @@ describe('External commit statuses integration', () => {
 			'http://localhost/repositories/owner/notes/pulls/1/merge',
 			'POST',
 			owner.headers,
-			{ expectedBaseSha: BASE_SHA, expectedHeadSha: currentHeadSha }
+			{
+				expectedBaseSha: BASE_SHA,
+				expectedHeadSha: currentHeadSha,
+				strategy: 'merge_commit',
+			}
 		)
 
 		return (await response.json()) as { status: 'blocked' | 'merged' }

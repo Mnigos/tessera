@@ -12,6 +12,25 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum RepositoryMergeStrategy {
+  REPOSITORY_MERGE_STRATEGY_UNSPECIFIED = 0,
+  REPOSITORY_MERGE_STRATEGY_MERGE_COMMIT = 1,
+  REPOSITORY_MERGE_STRATEGY_SQUASH = 2,
+  REPOSITORY_MERGE_STRATEGY_REBASE = 3,
+  REPOSITORY_MERGE_STRATEGY_FAST_FORWARD = 4,
+  UNRECOGNIZED = -1,
+}
+
+export enum RepositoryMergeStrategyUnavailableReason {
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSPECIFIED = 0,
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_CONFLICT = 1,
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOT_FAST_FORWARD = 2,
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_ALREADY_UP_TO_DATE = 3,
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOTHING_TO_REBASE = 4,
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSUPPORTED_HISTORY = 5,
+  UNRECOGNIZED = -1,
+}
+
 export enum RepositoryChangedFileStatus {
   REPOSITORY_CHANGED_FILE_STATUS_UNSPECIFIED = 0,
   REPOSITORY_CHANGED_FILE_STATUS_ADDED = 1,
@@ -226,12 +245,54 @@ export interface MergeRepositoryRefsRequest {
   expectedHeadSha: string;
   authorName: string;
   authorEmail: string;
+  /**
+   * The merge commit message. Only merge_commit authors one; squash builds its
+   * message from the fields below and the other strategies author none.
+   */
   message: string;
+  /**
+   * Identifies this merge for the lifetime of the repository. The operation
+   * receipt is filed under it, so a retry recognises its own earlier work.
+   */
   operationId: string;
+  strategy: RepositoryMergeStrategy;
+  squashTitle: string;
+  squashBody: string;
 }
 
 export interface MergeRepositoryRefsResponse {
+  /**
+   * Where the target branch now points. Named for the two-parent merge that was
+   * once the only way to get there; `resulting_sha` says the same thing without
+   * claiming a merge commit exists.
+   */
   mergeCommitSha: string;
+  resultingSha: string;
+}
+
+/**
+ * Asks whether one merge operation already happened, and moves nothing.
+ *
+ * This is what lets a caller finish recording a merge it lost the answer to
+ * without ever performing one: an operation with no receipt was never carried
+ * out, and the caller has to decide afresh whether it still should be.
+ */
+export interface FindRepositoryMergeReceiptRequest {
+  repositoryId: string;
+  storagePath: string;
+  operationId: string;
+  /**
+   * The receipt has to describe the merge being asked about, or it belongs to
+   * some other merge that happens to share an identifier.
+   */
+  strategy: RepositoryMergeStrategy;
+  expectedBaseSha: string;
+  expectedHeadSha: string;
+}
+
+export interface FindRepositoryMergeReceiptResponse {
+  found: boolean;
+  resultingSha: string;
 }
 
 export interface CheckRepositoryMergeabilityRequest {
@@ -249,6 +310,18 @@ export interface CheckRepositoryMergeabilityResponse {
   conflictPaths: string[];
   conflictPathsTruncated: boolean;
   conflictPathLimit: number;
+  /**
+   * One entry per strategy, always complete. `mergeable` answers only for the
+   * strategies that combine both tips; ancestry and replay have answers of
+   * their own.
+   */
+  strategyAvailability: RepositoryMergeStrategyAvailability[];
+}
+
+export interface RepositoryMergeStrategyAvailability {
+  strategy: RepositoryMergeStrategy;
+  available: boolean;
+  reason: RepositoryMergeStrategyUnavailableReason;
 }
 
 export interface RepositoryComparisonCommit {
@@ -1860,6 +1933,9 @@ function createBaseMergeRepositoryRefsRequest(): MergeRepositoryRefsRequest {
     authorEmail: "",
     message: "",
     operationId: "",
+    strategy: 0,
+    squashTitle: "",
+    squashBody: "",
   };
 }
 
@@ -1894,6 +1970,15 @@ export const MergeRepositoryRefsRequest: MessageFns<MergeRepositoryRefsRequest> 
     }
     if (message.operationId !== "") {
       writer.uint32(82).string(message.operationId);
+    }
+    if (message.strategy !== 0) {
+      writer.uint32(88).int32(message.strategy);
+    }
+    if (message.squashTitle !== "") {
+      writer.uint32(98).string(message.squashTitle);
+    }
+    if (message.squashBody !== "") {
+      writer.uint32(106).string(message.squashBody);
     }
     return writer;
   },
@@ -1985,6 +2070,30 @@ export const MergeRepositoryRefsRequest: MessageFns<MergeRepositoryRefsRequest> 
           message.operationId = reader.string();
           continue;
         }
+        case 11: {
+          if (tag !== 88) {
+            break;
+          }
+
+          message.strategy = reader.int32() as any;
+          continue;
+        }
+        case 12: {
+          if (tag !== 98) {
+            break;
+          }
+
+          message.squashTitle = reader.string();
+          continue;
+        }
+        case 13: {
+          if (tag !== 106) {
+            break;
+          }
+
+          message.squashBody = reader.string();
+          continue;
+        }
       }
       if ((tag & 7) === 4 || tag === 0) {
         break;
@@ -1996,13 +2105,16 @@ export const MergeRepositoryRefsRequest: MessageFns<MergeRepositoryRefsRequest> 
 };
 
 function createBaseMergeRepositoryRefsResponse(): MergeRepositoryRefsResponse {
-  return { mergeCommitSha: "" };
+  return { mergeCommitSha: "", resultingSha: "" };
 }
 
 export const MergeRepositoryRefsResponse: MessageFns<MergeRepositoryRefsResponse> = {
   encode(message: MergeRepositoryRefsResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
     if (message.mergeCommitSha !== "") {
       writer.uint32(10).string(message.mergeCommitSha);
+    }
+    if (message.resultingSha !== "") {
+      writer.uint32(18).string(message.resultingSha);
     }
     return writer;
   },
@@ -2020,6 +2132,154 @@ export const MergeRepositoryRefsResponse: MessageFns<MergeRepositoryRefsResponse
           }
 
           message.mergeCommitSha = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.resultingSha = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseFindRepositoryMergeReceiptRequest(): FindRepositoryMergeReceiptRequest {
+  return { repositoryId: "", storagePath: "", operationId: "", strategy: 0, expectedBaseSha: "", expectedHeadSha: "" };
+}
+
+export const FindRepositoryMergeReceiptRequest: MessageFns<FindRepositoryMergeReceiptRequest> = {
+  encode(message: FindRepositoryMergeReceiptRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.operationId !== "") {
+      writer.uint32(26).string(message.operationId);
+    }
+    if (message.strategy !== 0) {
+      writer.uint32(32).int32(message.strategy);
+    }
+    if (message.expectedBaseSha !== "") {
+      writer.uint32(42).string(message.expectedBaseSha);
+    }
+    if (message.expectedHeadSha !== "") {
+      writer.uint32(50).string(message.expectedHeadSha);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FindRepositoryMergeReceiptRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFindRepositoryMergeReceiptRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.operationId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.strategy = reader.int32() as any;
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.expectedBaseSha = reader.string();
+          continue;
+        }
+        case 6: {
+          if (tag !== 50) {
+            break;
+          }
+
+          message.expectedHeadSha = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseFindRepositoryMergeReceiptResponse(): FindRepositoryMergeReceiptResponse {
+  return { found: false, resultingSha: "" };
+}
+
+export const FindRepositoryMergeReceiptResponse: MessageFns<FindRepositoryMergeReceiptResponse> = {
+  encode(message: FindRepositoryMergeReceiptResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.found !== false) {
+      writer.uint32(8).bool(message.found);
+    }
+    if (message.resultingSha !== "") {
+      writer.uint32(18).string(message.resultingSha);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): FindRepositoryMergeReceiptResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseFindRepositoryMergeReceiptResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.found = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.resultingSha = reader.string();
           continue;
         }
       }
@@ -2111,6 +2371,7 @@ function createBaseCheckRepositoryMergeabilityResponse(): CheckRepositoryMergeab
     conflictPaths: [],
     conflictPathsTruncated: false,
     conflictPathLimit: 0,
+    strategyAvailability: [],
   };
 }
 
@@ -2136,6 +2397,9 @@ export const CheckRepositoryMergeabilityResponse: MessageFns<CheckRepositoryMerg
     }
     if (message.conflictPathLimit !== 0) {
       writer.uint32(56).uint32(message.conflictPathLimit);
+    }
+    for (const v of message.strategyAvailability) {
+      RepositoryMergeStrategyAvailability.encode(v!, writer.uint32(66).fork()).join();
     }
     return writer;
   },
@@ -2201,6 +2465,73 @@ export const CheckRepositoryMergeabilityResponse: MessageFns<CheckRepositoryMerg
           }
 
           message.conflictPathLimit = reader.uint32();
+          continue;
+        }
+        case 8: {
+          if (tag !== 66) {
+            break;
+          }
+
+          message.strategyAvailability.push(RepositoryMergeStrategyAvailability.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseRepositoryMergeStrategyAvailability(): RepositoryMergeStrategyAvailability {
+  return { strategy: 0, available: false, reason: 0 };
+}
+
+export const RepositoryMergeStrategyAvailability: MessageFns<RepositoryMergeStrategyAvailability> = {
+  encode(message: RepositoryMergeStrategyAvailability, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.strategy !== 0) {
+      writer.uint32(8).int32(message.strategy);
+    }
+    if (message.available !== false) {
+      writer.uint32(16).bool(message.available);
+    }
+    if (message.reason !== 0) {
+      writer.uint32(24).int32(message.reason);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): RepositoryMergeStrategyAvailability {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseRepositoryMergeStrategyAvailability();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.strategy = reader.int32() as any;
+          continue;
+        }
+        case 2: {
+          if (tag !== 16) {
+            break;
+          }
+
+          message.available = reader.bool();
+          continue;
+        }
+        case 3: {
+          if (tag !== 24) {
+            break;
+          }
+
+          message.reason = reader.int32() as any;
           continue;
         }
       }
@@ -3117,6 +3448,11 @@ export interface GitStorageServiceClient {
     metadata?: Metadata,
   ): Observable<MergeRepositoryRefsResponse>;
 
+  findRepositoryMergeReceipt(
+    request: FindRepositoryMergeReceiptRequest,
+    metadata?: Metadata,
+  ): Observable<FindRepositoryMergeReceiptResponse>;
+
   checkRepositoryMergeability(
     request: CheckRepositoryMergeabilityRequest,
     metadata?: Metadata,
@@ -3192,6 +3528,14 @@ export interface GitStorageServiceController {
     metadata?: Metadata,
   ): Promise<MergeRepositoryRefsResponse> | Observable<MergeRepositoryRefsResponse> | MergeRepositoryRefsResponse;
 
+  findRepositoryMergeReceipt(
+    request: FindRepositoryMergeReceiptRequest,
+    metadata?: Metadata,
+  ):
+    | Promise<FindRepositoryMergeReceiptResponse>
+    | Observable<FindRepositoryMergeReceiptResponse>
+    | FindRepositoryMergeReceiptResponse;
+
   checkRepositoryMergeability(
     request: CheckRepositoryMergeabilityRequest,
     metadata?: Metadata,
@@ -3217,6 +3561,7 @@ export function GitStorageServiceControllerMethods() {
       "compareRepositoryRefs",
       "getRepositoryFileDiff",
       "mergeRepositoryRefs",
+      "findRepositoryMergeReceipt",
       "checkRepositoryMergeability",
     ];
     for (const method of grpcMethods) {
@@ -3378,6 +3723,19 @@ export const GitStorageServiceService = {
       Buffer.from(MergeRepositoryRefsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): MergeRepositoryRefsResponse => MergeRepositoryRefsResponse.decode(value),
   },
+  findRepositoryMergeReceipt: {
+    path: "/tessera.git.v1.GitStorageService/FindRepositoryMergeReceipt" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: FindRepositoryMergeReceiptRequest): Buffer =>
+      Buffer.from(FindRepositoryMergeReceiptRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): FindRepositoryMergeReceiptRequest =>
+      FindRepositoryMergeReceiptRequest.decode(value),
+    responseSerialize: (value: FindRepositoryMergeReceiptResponse): Buffer =>
+      Buffer.from(FindRepositoryMergeReceiptResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): FindRepositoryMergeReceiptResponse =>
+      FindRepositoryMergeReceiptResponse.decode(value),
+  },
   checkRepositoryMergeability: {
     path: "/tessera.git.v1.GitStorageService/CheckRepositoryMergeability" as const,
     requestStream: false as const,
@@ -3407,6 +3765,7 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   compareRepositoryRefs: handleUnaryCall<CompareRepositoryRefsRequest, CompareRepositoryRefsResponse>;
   getRepositoryFileDiff: handleUnaryCall<GetRepositoryFileDiffRequest, GetRepositoryFileDiffResponse>;
   mergeRepositoryRefs: handleUnaryCall<MergeRepositoryRefsRequest, MergeRepositoryRefsResponse>;
+  findRepositoryMergeReceipt: handleUnaryCall<FindRepositoryMergeReceiptRequest, FindRepositoryMergeReceiptResponse>;
   checkRepositoryMergeability: handleUnaryCall<CheckRepositoryMergeabilityRequest, CheckRepositoryMergeabilityResponse>;
 }
 
