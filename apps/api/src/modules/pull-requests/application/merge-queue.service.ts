@@ -22,6 +22,7 @@ import {
 } from '../domain/merge-queue.errors'
 import {
 	PullRequestNotFoundError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { toPullRequestMergeRequest } from '../helpers/pull-request-merge-request'
@@ -98,6 +99,8 @@ export class MergeQueueService {
 			enqueuedByUserId: userId,
 			enqueuedBaseSha: mergeability.baseSha,
 			enqueuedHeadSha: mergeability.headSha,
+			expectedSourceBranch: pullRequest.sourceBranch,
+			expectedTargetBranch: pullRequest.targetBranch,
 			selection: toEnqueuedStrategySelection(pullRequest, input),
 		})
 
@@ -114,6 +117,16 @@ export class MergeQueueService {
 				action: 'merge queue',
 			})
 		}
+
+		// The target moved between the refs being resolved and the entry being
+		// written, so the snapshot above describes branches this pull request no
+		// longer has. The caller re-reads it and decides again.
+		if (result.status === 'branches_changed')
+			throw new PullRequestStaleComparisonError({
+				pullRequestId: pullRequest.id,
+				sourceBranch: pullRequest.sourceBranch,
+				targetBranch: pullRequest.targetBranch,
+			})
 
 		if (result.status === 'already_queued')
 			throw new MergeQueueEntryAlreadyExistsError({

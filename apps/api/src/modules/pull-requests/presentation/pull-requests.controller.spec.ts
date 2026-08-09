@@ -78,6 +78,7 @@ describe(PullRequestsController.name, () => {
 						reviewComparison: vi.fn(),
 						fileDiff: vi.fn(),
 						edit: vi.fn(),
+						retarget: vi.fn(),
 						close: vi.fn(),
 						reopen: vi.fn(),
 						merge: vi.fn(),
@@ -94,6 +95,27 @@ describe(PullRequestsController.name, () => {
 	afterEach(async () => {
 		await moduleRef.close()
 		vi.clearAllMocks()
+	})
+
+	test('delegates retarget requests with the authenticated user', async () => {
+		const input = { ...repositoryInput, number: 1, targetBranch: 'release' }
+		const retargeted = { ...pullRequest, targetBranch: 'release' }
+		const retargetSpy = vi
+			.spyOn(service, 'retarget')
+			.mockResolvedValue(retargeted)
+		const procedure = controller.retarget(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'retarget'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(retargeted)
+		expect(retargetSpy).toHaveBeenCalledWith(mockUserId, input)
 	})
 
 	test('delegates create requests with the authenticated user', async () => {

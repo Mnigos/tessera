@@ -72,6 +72,15 @@ export class PullRequestsController {
 
 	@RequireAuth()
 	@UseGuards(RepositoryWriteGuard)
+	@Implement(contract.pullRequests.retarget)
+	retarget(@Session() session: UserSession) {
+		return implement(contract.pullRequests.retarget).handler(({ input }) =>
+			this.pullRequestsService.retarget(session.user.id, input)
+		)
+	}
+
+	@RequireAuth()
+	@UseGuards(RepositoryWriteGuard)
 	@Implement(contract.pullRequests.close)
 	close(@Session() session: UserSession) {
 		return implement(contract.pullRequests.close).handler(({ input }) =>

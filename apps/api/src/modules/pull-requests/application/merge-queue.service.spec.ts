@@ -16,7 +16,10 @@ import {
 	MergeQueueEntryNotFoundError,
 	MergeQueueEntryNotPausedError,
 } from '../domain/merge-queue.errors'
-import { PullRequestStateConflictError } from '../domain/pull-request.errors'
+import {
+	PullRequestStaleComparisonError,
+	PullRequestStateConflictError,
+} from '../domain/pull-request.errors'
 import { MergeQueue } from '../infrastructure/merge-queue.queue'
 import {
 	type MergeQueueEntryReadModel,
@@ -185,6 +188,8 @@ describe(MergeQueueService.name, () => {
 			enqueuedByUserId: mockUserId,
 			enqueuedBaseSha: 'a'.repeat(40),
 			enqueuedHeadSha: 'b'.repeat(40),
+			expectedSourceBranch: 'feature',
+			expectedTargetBranch: 'main',
 			selection: joinInput,
 		})
 		expect(mergeQueue.enqueueWakeup).toHaveBeenCalledWith({
@@ -311,6 +316,20 @@ describe(MergeQueueService.name, () => {
 
 		await expect(service.join(mockUserId, joinInput)).rejects.toBeInstanceOf(
 			PullRequestStateConflictError
+		)
+		expect(mergeQueue.enqueueWakeup).not.toHaveBeenCalled()
+	})
+
+	// A retarget committed between Git being asked about the refs and the entry
+	// being written, so the snapshot the join resolved describes branches this
+	// pull request no longer has.
+	test('refuses a join the target branch moved underneath', async () => {
+		vi.spyOn(mergeQueueRepository, 'enqueueEntry').mockResolvedValue({
+			status: 'branches_changed',
+		})
+
+		await expect(service.join(mockUserId, joinInput)).rejects.toBeInstanceOf(
+			PullRequestStaleComparisonError
 		)
 		expect(mergeQueue.enqueueWakeup).not.toHaveBeenCalled()
 	})

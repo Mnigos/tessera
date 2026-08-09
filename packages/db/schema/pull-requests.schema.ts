@@ -162,6 +162,17 @@ export interface PullRequestHeadUpdateEventPayload {
 	newSha: string
 }
 
+/**
+ * Where a pull request's target branch was moved, and what it was moved from.
+ * Both names are recorded because the row only ever holds the current one, and a
+ * timeline that cannot say what the target used to be cannot explain why the
+ * diff changed under an approval.
+ */
+export interface PullRequestRetargetedEventPayload {
+	fromBranch: string
+	toBranch: string
+}
+
 export type PullRequestEventPayload =
 	| PullRequestThreadEventPayload
 	| PullRequestReviewerEventPayload
@@ -174,6 +185,7 @@ export type PullRequestEventPayload =
 	| PullRequestQueueRemovedEventPayload
 	| PullRequestHeadUpdateEventPayload
 	| PullRequestMergedEventPayload
+	| PullRequestRetargetedEventPayload
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',

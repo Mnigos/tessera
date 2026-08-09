@@ -83,6 +83,18 @@ export function assertPullRequestClosable(
 	})
 }
 
+export function assertPullRequestRetargetable(
+	pullRequest: PullRequest
+): asserts pullRequest is PullRequest & { state: 'open' } {
+	if (pullRequest.state === 'open') return
+
+	throw new PullRequestStateConflictError({
+		pullRequestId: pullRequest.id,
+		state: pullRequest.state,
+		action: 'retarget',
+	})
+}
+
 export function assertPullRequestReopenable(
 	pullRequest: PullRequest
 ): asserts pullRequest is PullRequest & { state: 'closed' } {

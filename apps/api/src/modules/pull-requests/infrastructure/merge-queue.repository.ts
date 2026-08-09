@@ -80,6 +80,9 @@ interface EnqueueEntryParams extends RepositoryParams, FindActiveEntryParams {
 	enqueuedBaseSha: string
 	enqueuedByUserId: UserId
 	enqueuedHeadSha: string
+	/** The branches the snapshot was resolved from, rechecked under the row lock. */
+	expectedSourceBranch: string
+	expectedTargetBranch: string
 	/** Locked here for the entry's whole life; the queue never re-chooses it. */
 	selection: MergeStrategySelection
 }
@@ -150,6 +153,7 @@ export interface MergeQueueMutationResult {
 export type EnqueueMergeQueueEntryResult =
 	| ({ status: 'enqueued' } & MergeQueueMutationResult)
 	| { status: 'already_queued' }
+	| { status: 'branches_changed' }
 	| { status: 'pull_request_unavailable' }
 
 /**
@@ -318,6 +322,8 @@ export class MergeQueueRepository {
 		enqueuedBaseSha,
 		enqueuedByUserId,
 		enqueuedHeadSha,
+		expectedSourceBranch,
+		expectedTargetBranch,
 		pullRequestId,
 		repositoryId,
 		selection,
@@ -332,7 +338,11 @@ export class MergeQueueRepository {
 			// and the insert and leaving an active entry on a pull request that is
 			// no longer open.
 			const [openPullRequest] = await tx
-				.select({ id: pullRequests.id })
+				.select({
+					id: pullRequests.id,
+					sourceBranch: pullRequests.sourceBranch,
+					targetBranch: pullRequests.targetBranch,
+				})
 				.from(pullRequests)
 				.where(
 					and(
@@ -345,6 +355,16 @@ export class MergeQueueRepository {
 				.for('update')
 
 			if (!openPullRequest) return { status: 'pull_request_unavailable' }
+
+			// The snapshot below describes the branches this join resolved refs from.
+			// A retarget that commits in between would leave the entry recorded
+			// against a target the pull request no longer has, and the queue would
+			// merge something nobody asked for.
+			if (
+				openPullRequest.sourceBranch !== expectedSourceBranch ||
+				openPullRequest.targetBranch !== expectedTargetBranch
+			)
+				return { status: 'branches_changed' }
 
 			const [existing] = await tx
 				.select({ id: mergeQueueEntries.id })

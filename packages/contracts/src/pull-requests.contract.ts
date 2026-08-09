@@ -330,6 +330,16 @@ const pullRequestMergedEventPayloadSchema = z.object({
 	headSha: z.string(),
 })
 
+/**
+ * Where the target branch was moved, and what it was moved from. The row keeps
+ * only the current target, so the pair is the timeline's own record of a change
+ * that can widen the diff an approval was given for.
+ */
+const pullRequestRetargetedEventPayloadSchema = z.object({
+	fromBranch: z.string().min(1),
+	toBranch: z.string().min(1),
+})
+
 // Payloads carry no discriminator of their own and the first member that parses
 // wins, so a member whose required fields are a subset of another's would
 // silently strip the difference. Every shape is listed before any shape it is
@@ -346,6 +356,7 @@ const pullRequestEventPayloadSchema = z.union([
 	pullRequestQueueResumedEventPayloadSchema,
 	pullRequestHeadUpdateEventPayloadSchema,
 	pullRequestMergedEventPayloadSchema,
+	pullRequestRetargetedEventPayloadSchema,
 ])
 
 export const pullRequestEventSchema = z.object({
@@ -974,6 +985,21 @@ export type ParsedEditPullRequestInput = z.infer<
 	typeof editPullRequestInputSchema
 >
 
+/**
+ * Moving an open pull request onto a different target branch. Only the target
+ * moves: the source is what the pull request is, and changing it would make the
+ * reviews, checks and threads already on it describe something else.
+ */
+export const retargetPullRequestInputSchema = getPullRequestInputSchema.extend({
+	targetBranch: z.string().trim().min(1).max(255),
+})
+export type RetargetPullRequestInput = z.input<
+	typeof retargetPullRequestInputSchema
+>
+export type ParsedRetargetPullRequestInput = z.infer<
+	typeof retargetPullRequestInputSchema
+>
+
 const pullRequestCommentBodySchema = z.string().trim().min(1).max(65_536)
 
 const pullRequestReviewMarkerSchema = z.object({
@@ -1152,6 +1178,13 @@ export const pullRequestsContract = {
 			path: '/repositories/{username}/{slug}/pulls/{number}',
 		})
 		.input(editPullRequestInputSchema)
+		.output(pullRequestSchema),
+	retarget: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/retarget',
+		})
+		.input(retargetPullRequestInputSchema)
 		.output(pullRequestSchema),
 	close: oc
 		.route({

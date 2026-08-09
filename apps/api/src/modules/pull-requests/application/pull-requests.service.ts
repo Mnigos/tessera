@@ -24,6 +24,7 @@ import type {
 	ParsedListPullRequestChecksInput,
 	ParsedListPullRequestsInput,
 	ParsedMergePullRequestInput,
+	ParsedRetargetPullRequestInput,
 	PullRequest,
 	PullRequestAuthority,
 	PullRequestComparison,
@@ -45,18 +46,22 @@ import type {
 	UserId,
 } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
+import { RepositoryMergeInProgressError } from '../domain/merge-queue.errors'
 import {
 	assertPullRequestClosable,
 	assertPullRequestEditable,
 	assertPullRequestReopenable,
+	assertPullRequestRetargetable,
 	toPullRequestEventOutput,
 	toPullRequestOutput,
 } from '../domain/pull-request'
 import {
 	PullRequestAlreadyOpenError,
 	PullRequestInvalidBranchesError,
+	PullRequestMergeInProgressError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
+	PullRequestQueuedError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { toPullRequestReviewComparisonContext } from '../domain/pull-request-review'
@@ -74,6 +79,7 @@ import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
 	type RecoverableMergeIntent,
+	type RetargetPullRequestResult,
 } from '../infrastructure/pull-requests.repository'
 import { MergeQueueStatusService } from './merge-queue-status.service'
 import { MergeRequirementsService } from './merge-requirements.service'
@@ -519,6 +525,206 @@ export class PullRequestsService {
 		)
 	}
 
+	/**
+	 * Moves an open pull request onto another target branch.
+	 *
+	 * Only the target moves. The source is what the pull request is — push
+	 * routing, head resolution and every review anchored to that history all read
+	 * it — so changing it would make the pull request a different one under the
+	 * same number.
+	 *
+	 * Nothing that was written down is rewritten: the opening SHAs stay the
+	 * creation facts they are, and the comparison, the protection rule and the
+	 * required contexts are all resolved from the live target on the next read. A
+	 * consequence worth stating is that inline threads become outdated against the
+	 * new base while approvals, which are judged on the head alone, do not.
+	 */
+	async retarget(
+		userId: UserId,
+		{ number, slug, targetBranch, username }: ParsedRetargetPullRequestInput
+	): Promise<PullRequest> {
+		const { repositoryId, storagePath, tesseraWritesAllowed } =
+			await this.repositoriesService.getWritableRepositoryContext(userId, {
+				username,
+				slug,
+			})
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+		assertPullRequestRetargetable(pullRequest)
+
+		// Asking for the target it already has is not a change. Nothing is written
+		// and nothing is recorded, so a retried request cannot leave a timeline
+		// claiming the branch moved to where it already was.
+		if (pullRequest.targetBranch === targetBranch)
+			return toPullRequestOutput(pullRequest, username)
+
+		if (pullRequest.sourceBranch === targetBranch)
+			throw new PullRequestInvalidBranchesError(
+				{
+					repositoryId,
+					sourceBranch: pullRequest.sourceBranch,
+					targetBranch,
+				},
+				'The source and target branches must be different.'
+			)
+
+		const refs = await this.gitStorageClient.listRepositoryRefs({
+			repositoryId,
+			storagePath,
+			trustedGpgKeys: [],
+		})
+		const sourceRef = refs.branches.find(
+			branch => branch.name === pullRequest.sourceBranch
+		)
+		const targetRef = refs.branches.find(branch => branch.name === targetBranch)
+
+		if (!(sourceRef && targetRef))
+			throw new PullRequestInvalidBranchesError({
+				repositoryId,
+				sourceBranch: pullRequest.sourceBranch,
+				targetBranch,
+				missingSourceBranch: !sourceRef,
+				missingTargetBranch: !targetRef,
+			})
+
+		if (sourceRef.target === targetRef.target)
+			throw new PullRequestNoChangesError({
+				repositoryId,
+				sourceBranch: pullRequest.sourceBranch,
+				targetBranch,
+			})
+
+		const retargeted = await this.underRepositoryMergeLease({
+			repositoryId,
+			toUnavailableError: () =>
+				new RepositoryMergeInProgressError({ repositoryId }),
+			run: async leaseOwner =>
+				await this.retargetUnderMergeLease({
+					actorUserId: userId,
+					leaseOwner,
+					pullRequest,
+					repositoryId,
+					storagePath,
+					targetBranch,
+					tesseraWritesAllowed,
+				}),
+		})
+
+		return toPullRequestOutput(retargeted, username)
+	}
+
+	/**
+	 * The half of retargeting that needs the repository to itself: an abandoned
+	 * attempt may already have merged this pull request onto the target being
+	 * moved away from, and only recovery can say so.
+	 *
+	 * The lease is still held when the write commits, which is what stops a merge
+	 * from being cleared against one target and made against another: a merge that
+	 * starts after this returns re-resolves everything from the branch it now
+	 * reads.
+	 */
+	private async retargetUnderMergeLease({
+		actorUserId,
+		leaseOwner,
+		pullRequest,
+		repositoryId,
+		storagePath,
+		targetBranch,
+		tesseraWritesAllowed,
+	}: {
+		actorUserId: UserId
+		leaseOwner: string
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		storagePath: string
+		targetBranch: string
+		tesseraWritesAllowed: boolean
+	}): Promise<PullRequestEntity> {
+		const merged = await this.recoverAbandonedMerge({
+			pullRequest,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			username: pullRequest.authorUsername ?? '',
+		})
+
+		if (merged)
+			throw new PullRequestStateConflictError({
+				pullRequestId: pullRequest.id,
+				state: 'merged',
+				action: 'retarget',
+			})
+
+		const result = await this.writeRetarget({
+			actorUserId,
+			leaseOwner,
+			pullRequest,
+			repositoryId,
+			targetBranch,
+		})
+
+		switch (result.status) {
+			// An identical request got there first, which is a retry succeeding
+			// rather than a conflict.
+			case 'retargeted':
+			case 'unchanged':
+				return result.pullRequest
+			case 'lease_lost':
+				throw new RepositoryMergeInProgressError({ repositoryId })
+			case 'merge_in_progress':
+				throw new PullRequestMergeInProgressError({
+					pullRequestId: pullRequest.id,
+				})
+			case 'queued':
+				throw new PullRequestQueuedError(result.queueState, {
+					pullRequestId: pullRequest.id,
+				})
+			default:
+				throw new PullRequestStateConflictError({
+					pullRequestId: pullRequest.id,
+					state: pullRequest.state,
+					action: 'retarget',
+				})
+		}
+	}
+
+	/**
+	 * The write itself, with the open-pair index reported as the conflict it is:
+	 * somebody already has a pull request open between these two branches.
+	 */
+	private async writeRetarget({
+		actorUserId,
+		leaseOwner,
+		pullRequest,
+		repositoryId,
+		targetBranch,
+	}: {
+		actorUserId: UserId
+		leaseOwner: string
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		targetBranch: string
+	}): Promise<RetargetPullRequestResult> {
+		try {
+			return await this.pullRequestsRepository.retarget({
+				repositoryId,
+				pullRequestId: pullRequest.id,
+				actorUserId,
+				expectedTargetBranch: pullRequest.targetBranch,
+				leaseOwner,
+				targetBranch,
+			})
+		} catch (error) {
+			if (isUniqueViolation(error, OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT))
+				throw new PullRequestAlreadyOpenError({
+					repositoryId,
+					sourceBranch: pullRequest.sourceBranch,
+					targetBranch,
+				})
+
+			throw error
+		}
+	}
+
 	async close(
 		userId: UserId,
 		{ number, slug, username }: ParsedGetPullRequestInput
@@ -932,6 +1138,52 @@ export class PullRequestsService {
 		storagePath: string
 		tesseraWritesAllowed: boolean
 	}): Promise<void> {
+		await this.underRepositoryMergeLease({
+			repositoryId,
+			// Somebody is merging this repository right now. Their attempt owns the
+			// intent, and the close is refused rather than racing it.
+			toUnavailableError: () =>
+				new PullRequestStateConflictError({
+					pullRequestId: pullRequest.id,
+					state: pullRequest.state,
+					action: 'close',
+				}),
+			run: async () => {
+				const merged = await this.recoverAbandonedMerge({
+					pullRequest,
+					repositoryId,
+					storagePath,
+					tesseraWritesAllowed,
+					username: pullRequest.authorUsername ?? '',
+				})
+
+				if (merged)
+					throw new PullRequestStateConflictError({
+						pullRequestId: pullRequest.id,
+						state: 'merged',
+						action: 'close',
+					})
+			},
+		})
+	}
+
+	/**
+	 * Runs something with the repository's merge lease held for its whole
+	 * duration, and hands the lease back however it ends.
+	 *
+	 * Not taking it means another merge owns this repository, which is the
+	 * caller's refusal to report rather than a fault — what that refusal should
+	 * say differs by what was being attempted, so the caller supplies it.
+	 */
+	private async underRepositoryMergeLease<T>({
+		repositoryId,
+		run,
+		toUnavailableError,
+	}: {
+		repositoryId: RepositoryId
+		run: (leaseOwner: string) => Promise<T>
+		toUnavailableError: () => Error
+	}): Promise<T> {
 		const leaseOwner = randomUUID()
 		const leaseAcquired =
 			await this.mergeQueueRepository.acquireRepositoryMergeLease({
@@ -940,30 +1192,10 @@ export class PullRequestsService {
 				ttlMs: REPOSITORY_MERGE_LEASE_MS,
 			})
 
-		// Somebody is merging this repository right now. Their attempt owns the
-		// intent, and the close is refused rather than racing it.
-		if (!leaseAcquired)
-			throw new PullRequestStateConflictError({
-				pullRequestId: pullRequest.id,
-				state: pullRequest.state,
-				action: 'close',
-			})
+		if (!leaseAcquired) throw toUnavailableError()
 
 		try {
-			const merged = await this.recoverAbandonedMerge({
-				pullRequest,
-				repositoryId,
-				storagePath,
-				tesseraWritesAllowed,
-				username: pullRequest.authorUsername ?? '',
-			})
-
-			if (merged)
-				throw new PullRequestStateConflictError({
-					pullRequestId: pullRequest.id,
-					state: 'merged',
-					action: 'close',
-				})
+			return await run(leaseOwner)
 		} finally {
 			await this.mergeQueueRepository
 				.releaseRepositoryMergeLease({ repositoryId, owner: leaseOwner })

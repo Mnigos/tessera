@@ -7,17 +7,21 @@ import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { PullRequestsModule } from '@modules/pull-requests'
+import { MergeQueueRepository } from '@modules/pull-requests/infrastructure/merge-queue.repository'
 import { PullRequestsRepository } from '@modules/pull-requests/infrastructure/pull-requests.repository'
 import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
 	account,
 	gitHubActors,
 	gitHubPullRequestMappings,
+	mergeQueueEntries,
 	pullRequestEvents,
+	pullRequestMergeIntents,
 	pullRequests,
 	repositories,
 	repositoryExternalSources,
@@ -25,7 +29,7 @@ import {
 	session,
 	user,
 } from '@repo/db/schema'
-import type { RepositoryId } from '@repo/domain'
+import type { MergeQueueState, RepositoryId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
@@ -84,7 +88,9 @@ describe('Pull requests integration', () => {
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageMergeRepositoryRefs: ReturnType<typeof vi.fn>
 	let gitStorageCheckRepositoryMergeability: ReturnType<typeof vi.fn>
+	let gitStorageFindMergeReceipt: ReturnType<typeof vi.fn>
 	let pullRequestsRepository: PullRequestsRepository
+	let mergeQueueRepository: MergeQueueRepository
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -105,6 +111,7 @@ describe('Pull requests integration', () => {
 		gitStorageGetRepositoryBlob = vi.fn()
 		gitStorageMergeRepositoryRefs = vi.fn()
 		gitStorageCheckRepositoryMergeability = vi.fn()
+		gitStorageFindMergeReceipt = vi.fn()
 
 		moduleRef = await Test.createTestingModule({
 			imports: [PullRequestsIntegrationTestModule],
@@ -118,6 +125,7 @@ describe('Pull requests integration', () => {
 				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				mergeRepositoryRefs: gitStorageMergeRepositoryRefs,
 				checkRepositoryMergeability: gitStorageCheckRepositoryMergeability,
+				findMergeReceipt: gitStorageFindMergeReceipt,
 			})
 			.compile()
 
@@ -125,6 +133,9 @@ describe('Pull requests integration', () => {
 		app = moduleRef.createNestApplication(adapter)
 		await app.init()
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository, {
+			strict: false,
+		})
+		mergeQueueRepository = moduleRef.get(MergeQueueRepository, {
 			strict: false,
 		})
 	})
@@ -138,6 +149,7 @@ describe('Pull requests integration', () => {
 		gitStorageGetRepositoryBlob.mockReset()
 		gitStorageMergeRepositoryRefs.mockReset()
 		gitStorageCheckRepositoryMergeability.mockReset()
+		gitStorageFindMergeReceipt.mockReset()
 		gitStorageListRepositoryRefs.mockResolvedValue({
 			branches: [
 				{
@@ -697,6 +709,620 @@ describe('Pull requests integration', () => {
 		})
 	})
 
+	// Only the target moves, and every consequence of moving it is a read-time
+	// one: the row keeps the SHAs it was opened against, and the comparison is
+	// resolved from the live branches on the next request.
+	describe('retargeting', () => {
+		const branches = [
+			{
+				type: 'branch',
+				name: 'main',
+				qualifiedName: 'refs/heads/main',
+				target: 'base-sha',
+			},
+			{
+				type: 'branch',
+				name: 'feature',
+				qualifiedName: 'refs/heads/feature',
+				target: 'head-sha',
+			},
+			{
+				type: 'branch',
+				name: 'release',
+				qualifiedName: 'refs/heads/release',
+				target: 'release-sha',
+			},
+		]
+
+		async function createRetargetablePullRequest() {
+			const headers = await createUserAndRepository({ visibility: 'public' })
+			gitStorageListRepositoryRefs.mockResolvedValue({ branches, tags: [] })
+			await createPullRequest(
+				'marta',
+				'notes',
+				{ sourceBranch: 'feature', targetBranch: 'main', title: 'Initial' },
+				headers
+			)
+
+			return headers
+		}
+
+		test('moves the target and records both branches on the timeline', async () => {
+			const headers = await createRetargetablePullRequest()
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(200)
+			expect(await response.json()).toMatchObject({
+				targetBranch: 'release',
+				sourceBranch: 'feature',
+				openingBaseSha: 'base-sha',
+				openingHeadSha: 'head-sha',
+			})
+
+			const getResponse = await getPullRequest('marta', 'notes', 1)
+			expect(await getResponse.json()).toMatchObject({
+				events: [
+					{ type: 'opened' },
+					{
+						type: 'retargeted',
+						payload: { fromBranch: 'main', toBranch: 'release' },
+					},
+				],
+			})
+		})
+
+		test('accepts the target it already has without recording an event', async () => {
+			const headers = await createRetargetablePullRequest()
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'main' },
+				headers
+			)
+
+			expect(response.status).toBe(200)
+			expect(await response.json()).toMatchObject({ targetBranch: 'main' })
+
+			const getResponse = await getPullRequest('marta', 'notes', 1)
+			expect(await getResponse.json()).toMatchObject({
+				events: [{ type: 'opened' }],
+			})
+		})
+
+		test.each([
+			{ name: 'a branch that does not exist', targetBranch: 'missing' },
+			{ name: 'the pull request’s own source branch', targetBranch: 'feature' },
+		])('rejects $name', async ({ targetBranch }) => {
+			const headers = await createRetargetablePullRequest()
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch },
+				headers
+			)
+
+			expect(response.status).toBe(400)
+		})
+
+		test('rejects a target with no revision difference from the source', async () => {
+			const headers = await createRetargetablePullRequest()
+			gitStorageListRepositoryRefs.mockResolvedValue({
+				branches: [
+					...branches.slice(0, 2),
+					{
+						type: 'branch',
+						name: 'release',
+						qualifiedName: 'refs/heads/release',
+						target: 'head-sha',
+					},
+				],
+				tags: [],
+			})
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(400)
+		})
+
+		test('refuses to move an open pair onto one that already exists', async () => {
+			const headers = await createRetargetablePullRequest()
+			await createPullRequest(
+				'marta',
+				'notes',
+				{
+					sourceBranch: 'feature',
+					targetBranch: 'release',
+					title: 'Already there',
+				},
+				headers
+			)
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+			const body = (await response.json()) as ErrorResponseBody
+
+			expect(response.status).toBe(409)
+			expect(body.code).toBe('CONFLICT')
+		})
+
+		// The open-pair index is scoped to Tessera-provided pull requests, so a
+		// synchronized GitHub row on the same pair is not what it excludes. This
+		// records that contract rather than widening it.
+		test('moves onto a pair a synchronized GitHub pull request already holds', async () => {
+			const headers = await createRetargetablePullRequest()
+			const repository = await getRepositoryRow()
+			const author = await db.query.user.findFirst()
+
+			if (!author) throw new Error('Failed to find the repository owner')
+
+			await db.insert(pullRequests).values({
+				repositoryId: repository.id,
+				provider: 'github',
+				number: 2,
+				authorUserId: author.id,
+				sourceBranch: 'feature',
+				targetBranch: 'release',
+				openingBaseSha: 'release-sha',
+				openingHeadSha: 'head-sha',
+				title: 'Synchronized',
+			})
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(200)
+		})
+
+		test('refuses to retarget a closed pull request', async () => {
+			const headers = await createRetargetablePullRequest()
+			await transitionPullRequest('marta', 'notes', 1, 'close', headers)
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(409)
+		})
+
+		test('refuses a retarget from someone without write access', async () => {
+			await createRetargetablePullRequest()
+			const otherHeaders = await createIntegrationSessionHeaders({
+				username: 'jan',
+				email: 'jan@example.com',
+			})
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				otherHeaders
+			)
+
+			expect(response.status).toBe(403)
+		})
+
+		async function getPullRequestRow() {
+			const row = await db.query.pullRequests.findFirst()
+
+			if (!row) throw new Error('Failed to find the pull request')
+
+			return row
+		}
+
+		async function getOwnerRow() {
+			const owner = await db.query.user.findFirst()
+
+			if (!owner) throw new Error('Failed to find the repository owner')
+
+			return owner
+		}
+
+		async function getEventTypes() {
+			const response = await getPullRequest('marta', 'notes', 1)
+			const body = (await response.json()) as {
+				events: { type: string }[]
+			}
+
+			return body.events.map(event => event.type)
+		}
+
+		async function queueEntryFor(state: MergeQueueState) {
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+
+			await db.insert(mergeQueueEntries).values({
+				repositoryId: pullRequest.repositoryId,
+				pullRequestId: pullRequest.id,
+				position: 1,
+				state,
+				// The state's own timestamp is part of what makes the row valid.
+				mergingAt: state === 'merging' ? new Date() : null,
+				strategy: 'merge_commit',
+				enqueuedByUserId: owner.id,
+				enqueuedBaseSha: 'base-sha',
+				enqueuedHeadSha: 'head-sha',
+			})
+		}
+
+		async function mergeIntentStartedAt(startedAt: Date) {
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+
+			await db.insert(pullRequestMergeIntents).values({
+				pullRequestId: pullRequest.id,
+				attemptId: crypto.randomUUID(),
+				actorUserId: owner.id,
+				strategy: 'merge_commit',
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+				commitMessage: 'Merge pull request #1: Initial',
+				startedAt,
+			})
+		}
+
+		// A queued entry is a statement about the branches it was queued for. The
+		// refusal has to be actionable, and a `merging` entry cannot be left.
+		test.each([
+			['queued', 'Leave the merge queue before changing the target branch.'],
+			[
+				'merging',
+				'This pull request is being merged right now. Change the target once that merge has settled.',
+			],
+		] as const)('refuses a retarget while an entry is %s', async (state, message) => {
+			const headers = await createRetargetablePullRequest()
+			await queueEntryFor(state)
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+			const body = (await response.json()) as ErrorResponseBody
+
+			expect(response.status).toBe(409)
+			expect(body.message).toBe(message)
+			expect(await getEventTypes()).toEqual(['opened'])
+			expect((await getPullRequestRow()).targetBranch).toBe('main')
+		})
+
+		// The intent is young enough that recovery will not touch it, so it reaches
+		// the transaction and is refused there.
+		test('refuses a retarget while a merge intent is held', async () => {
+			const headers = await createRetargetablePullRequest()
+			await mergeIntentStartedAt(new Date())
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+			const body = (await response.json()) as ErrorResponseBody
+
+			expect(response.status).toBe(409)
+			expect(body.message).toBe(
+				'A merge is in progress for this pull request. Try again once it settles.'
+			)
+			expect(await getEventTypes()).toEqual(['opened'])
+			expect((await getPullRequestRow()).targetBranch).toBe('main')
+		})
+
+		// An abandoned attempt already merged this pull request onto the target it
+		// is being moved away from. Recovery records that, and the retarget is
+		// refused for the merged pull request it turns out to be.
+		test('records an abandoned merge and refuses the retarget', async () => {
+			const headers = await createRetargetablePullRequest()
+			await mergeIntentStartedAt(new Date(Date.now() - 10 * 60 * 1000))
+			gitStorageFindMergeReceipt.mockResolvedValue('c'.repeat(40))
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(409)
+
+			const pullRequest = await getPullRequestRow()
+
+			expect(pullRequest.state).toBe('merged')
+			expect(pullRequest.targetBranch).toBe('main')
+			expect(await getEventTypes()).toEqual(['opened', 'merged'])
+		})
+
+		test('refuses a retarget while another merge holds the repository', async () => {
+			const headers = await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			await mergeQueueRepository.acquireRepositoryMergeLease({
+				repositoryId: pullRequest.repositoryId,
+				owner: 'another-attempt',
+				ttlMs: 120_000,
+			})
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+			const body = (await response.json()) as ErrorResponseBody
+
+			expect(response.status).toBe(409)
+			expect(body.message).toBe(
+				'Merge work is in progress on this repository. Try again once it settles.'
+			)
+			expect(await getEventTypes()).toEqual(['opened'])
+		})
+
+		test('refuses to retarget a merged pull request', async () => {
+			const headers = await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+			await db
+				.update(pullRequests)
+				.set({
+					state: 'merged',
+					mergedAt: new Date(),
+					closedAt: new Date(),
+					mergeCommitSha: 'c'.repeat(40),
+					mergeActorUserId: owner.id,
+				})
+				.where(eq(pullRequests.id, pullRequest.id))
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(409)
+			expect(await getEventTypes()).toEqual(['opened'])
+		})
+
+		test('records no event when the move collides with an existing open pair', async () => {
+			const headers = await createRetargetablePullRequest()
+			await createPullRequest(
+				'marta',
+				'notes',
+				{
+					sourceBranch: 'feature',
+					targetBranch: 'release',
+					title: 'Already there',
+				},
+				headers
+			)
+
+			await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(await getEventTypes()).toEqual(['opened'])
+		})
+
+		// The lease is re-proved inside the transaction. A caller whose hold aged
+		// out and was taken by somebody else writes nothing, however long ago it
+		// believed it had the repository.
+		test('writes nothing for a caller whose lease was taken by another', async () => {
+			await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+			await mergeQueueRepository.acquireRepositoryMergeLease({
+				repositoryId: pullRequest.repositoryId,
+				owner: 'the-new-holder',
+				ttlMs: 120_000,
+			})
+
+			expect(
+				await pullRequestsRepository.retarget({
+					repositoryId: pullRequest.repositoryId,
+					pullRequestId: pullRequest.id,
+					actorUserId: owner.id,
+					expectedTargetBranch: 'main',
+					leaseOwner: 'the-stale-holder',
+					targetBranch: 'release',
+				})
+			).toEqual({ status: 'lease_lost' })
+			expect((await getPullRequestRow()).targetBranch).toBe('main')
+			expect(await getEventTypes()).toEqual(['opened'])
+		})
+
+		// Two identical requests both read `main`; the second gets the lease after
+		// the first committed. The state it asked for holds, so it is a retry that
+		// succeeded, and it writes no second event.
+		test('treats a second identical move as already done', async () => {
+			await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+			const write = {
+				repositoryId: pullRequest.repositoryId,
+				pullRequestId: pullRequest.id,
+				actorUserId: owner.id,
+				expectedTargetBranch: 'main',
+				leaseOwner: 'the-holder',
+				targetBranch: 'release',
+			}
+			await mergeQueueRepository.acquireRepositoryMergeLease({
+				repositoryId: pullRequest.repositoryId,
+				owner: 'the-holder',
+				ttlMs: 120_000,
+			})
+
+			expect(await pullRequestsRepository.retarget(write)).toMatchObject({
+				status: 'retargeted',
+			})
+			expect(await pullRequestsRepository.retarget(write)).toMatchObject({
+				status: 'unchanged',
+			})
+			expect(await getEventTypes()).toEqual(['opened', 'retargeted'])
+		})
+
+		test('records one move when two identical requests race', async () => {
+			const headers = await createRetargetablePullRequest()
+
+			const responses = await Promise.all([
+				retargetPullRequest(
+					'marta',
+					'notes',
+					1,
+					{ targetBranch: 'release' },
+					headers
+				),
+				retargetPullRequest(
+					'marta',
+					'notes',
+					1,
+					{ targetBranch: 'release' },
+					headers
+				),
+			])
+
+			// Whichever order they land in, one of them moved the branch and neither
+			// left the pull request somewhere nobody asked for.
+			expect(responses.some(response => response.status === 200)).toBeTruthy()
+			expect(
+				responses.every(response => [200, 409].includes(response.status))
+			).toBeTruthy()
+			expect((await getPullRequestRow()).targetBranch).toBe('release')
+			expect(await getEventTypes()).toEqual(['opened', 'retargeted'])
+		})
+
+		// The race the branch-pair recheck exists for: the join resolved its refs
+		// against `main`, a retarget committed, and the entry must not be written
+		// against a target the pull request no longer has.
+		test('refuses a queue join whose branches moved before it committed', async () => {
+			const headers = await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+
+			await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(
+				await mergeQueueRepository.enqueueEntry({
+					repositoryId: pullRequest.repositoryId,
+					pullRequestId: pullRequest.id,
+					enqueuedByUserId: owner.id,
+					enqueuedBaseSha: 'base-sha',
+					enqueuedHeadSha: 'head-sha',
+					expectedSourceBranch: 'feature',
+					expectedTargetBranch: 'main',
+					selection: { strategy: 'merge_commit' },
+				})
+			).toEqual({ status: 'branches_changed' })
+			expect(await db.query.mergeQueueEntries.findFirst()).toBeUndefined()
+			expect(await getEventTypes()).toEqual(['opened', 'retargeted'])
+		})
+
+		// Run against each other rather than in sequence: whichever wins, an entry
+		// may only exist alongside the branches it was snapshotted for.
+		test('never queues a snapshot of a target the pull request has left', async () => {
+			const headers = await createRetargetablePullRequest()
+			const pullRequest = await getPullRequestRow()
+			const owner = await getOwnerRow()
+
+			await Promise.all([
+				retargetPullRequest(
+					'marta',
+					'notes',
+					1,
+					{ targetBranch: 'release' },
+					headers
+				),
+				mergeQueueRepository.enqueueEntry({
+					repositoryId: pullRequest.repositoryId,
+					pullRequestId: pullRequest.id,
+					enqueuedByUserId: owner.id,
+					enqueuedBaseSha: 'base-sha',
+					enqueuedHeadSha: 'head-sha',
+					expectedSourceBranch: 'feature',
+					expectedTargetBranch: 'main',
+					selection: { strategy: 'merge_commit' },
+				}),
+			])
+
+			const entry = await db.query.mergeQueueEntries.findFirst()
+
+			if (entry) expect((await getPullRequestRow()).targetBranch).toBe('main')
+			else expect((await getPullRequestRow()).targetBranch).toBe('release')
+		})
+
+		test('refuses a retarget while GitHub is the source of truth', async () => {
+			const headers = await createRetargetablePullRequest()
+			const repository = await getRepositoryRow()
+			await db.insert(repositoryExternalSources).values({
+				repositoryId: repository.id,
+				provider: 'github',
+				externalRepositoryId: 123n,
+				ownerLogin: 'marta',
+				name: 'notes',
+				fullName: 'marta/notes',
+				sourceUrl: 'https://github.com/marta/notes',
+				sourceDefaultBranch: 'main',
+				mirrorMode: 'github_to_tessera',
+				syncStatus: 'succeeded',
+			})
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(403)
+		})
+	})
+
 	async function createUserAndRepository({
 		visibility,
 	}: {
@@ -847,6 +1473,21 @@ describe('Pull requests integration', () => {
 		return request(
 			`http://localhost/repositories/${username}/${slug}/pulls/${number}`,
 			'PATCH',
+			headers,
+			input
+		)
+	}
+
+	function retargetPullRequest(
+		username: string,
+		slug: string,
+		number: number,
+		input: object,
+		headers?: Headers
+	) {
+		return request(
+			`http://localhost/repositories/${username}/${slug}/pulls/${number}/retarget`,
+			'POST',
 			headers,
 			input
 		)
