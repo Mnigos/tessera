@@ -3,9 +3,9 @@ import { cn } from '@repo/ui/utils'
 import {
 	getCheckRollupDescription,
 	getCheckRollupPresentation,
-} from '../helpers/pull-request-checks'
+} from '../helpers/check-presentation'
 
-interface PullRequestChecksStatusDotProps {
+interface ChecksStatusDotProps {
 	summary?: ChecksSummary
 }
 
@@ -14,9 +14,7 @@ interface PullRequestChecksStatusDotProps {
  * carries it again for anyone who cannot see the shape; colour is only ever the
  * third telling.
  */
-export function PullRequestChecksStatusDot({
-	summary,
-}: Readonly<PullRequestChecksStatusDotProps>) {
+export function ChecksStatusDot({ summary }: Readonly<ChecksStatusDotProps>) {
 	if (!summary || summary.overall === 'none') return null
 
 	const presentation = getCheckRollupPresentation(summary.overall)

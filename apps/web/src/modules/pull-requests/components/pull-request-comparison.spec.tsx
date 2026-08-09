@@ -110,7 +110,6 @@ describe(PullRequestComparison.name, () => {
 								timed_out: 0,
 								stale: 0,
 							},
-							enforcement: 'advisory',
 							headIsCurrent: true,
 						},
 					},

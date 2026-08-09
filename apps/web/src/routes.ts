@@ -53,4 +53,8 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug/settings/branch-protection',
 		'modules/branch-protection/routes/repository.$username.$slug.settings.branch-protection.route.tsx'
 	),
+	route(
+		'/$username/$slug/settings/status-providers',
+		'modules/check-statuses/routes/repository.$username.$slug.settings.status-providers.route.tsx'
+	),
 ])

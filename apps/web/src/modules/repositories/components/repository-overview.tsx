@@ -1,6 +1,12 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { GitPullRequest, History, Settings, ShieldCheck } from 'lucide-react'
+import {
+	CircleDot,
+	GitPullRequest,
+	History,
+	Settings,
+	ShieldCheck,
+} from 'lucide-react'
 import {
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptions,
@@ -105,6 +111,14 @@ export function RepositoryOverview({
 							>
 								<ShieldCheck className="size-4" />
 								Branch protection
+							</Link>
+							<Link
+								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+								params={{ username: owner.username, slug: repository.slug }}
+								to="/$username/$slug/settings/status-providers"
+							>
+								<CircleDot className="size-4" />
+								Status providers
 							</Link>
 						</>
 					)}

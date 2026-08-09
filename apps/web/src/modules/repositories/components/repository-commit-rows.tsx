@@ -1,5 +1,6 @@
 import type { RepositoryCommit } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
+import { ChecksStatusDot } from '@/modules/checks/components/checks-status-dot'
 import {
 	formatRepositoryCommitDate,
 	formatRepositoryCommitDateTime,
@@ -54,6 +55,7 @@ function RepositoryCommitRow({ commit }: Readonly<RepositoryCommitRowProps>) {
 				<div className="flex min-w-0 items-center gap-2">
 					<h2 className="truncate font-medium text-sm">{commit.summary}</h2>
 					<RepositorySignatureBadge signature={commit.signature} />
+					<ChecksStatusDot summary={commit.checksSummary} />
 				</div>
 				<div className="flex flex-col gap-1 text-muted-foreground text-sm">
 					<RepositoryCommitIdentityLine

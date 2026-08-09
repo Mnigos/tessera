@@ -4,7 +4,7 @@ import {
 	getCheckRollupCount,
 	getCheckRollupDescription,
 	getCheckStatePresentation,
-} from './pull-request-checks'
+} from './check-presentation'
 
 const COUNTS = {
 	queued: 1,
@@ -80,7 +80,6 @@ function checksSummary(
 		headSha: 'head',
 		overall,
 		counts,
-		enforcement: 'advisory',
 		headIsCurrent: true,
 	}
 }

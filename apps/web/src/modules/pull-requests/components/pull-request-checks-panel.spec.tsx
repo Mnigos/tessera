@@ -12,6 +12,8 @@ const EMPTY_CHECKS_REGEX = /No checks have reported/
 const GITHUB_ACTIONS_REGEX = /GitHub Actions/
 const DETAILS_REGEX = /Details/
 const EARLIER_COMMIT_REGEX = /earlier commit/
+const REQUIRED_BY_BRANCH_PROTECTION_REGEX = /Required by branch protection/
+const NOTHING_TO_SHOW_REGEX = /on this commit yet/
 const HEAD_SHA = 'a'.repeat(40)
 const EMPTY_COUNTS = {
 	queued: 0,
@@ -28,7 +30,6 @@ const SUMMARY: ChecksSummary = {
 	headSha: HEAD_SHA,
 	overall: 'failure',
 	counts: { ...EMPTY_COUNTS, failure: 1 },
-	enforcement: 'advisory',
 	lastResultAt: new Date('2026-08-08T10:00:00Z'),
 	headIsCurrent: false,
 }
@@ -36,7 +37,6 @@ const NO_CHECKS_SUMMARY: ChecksSummary = {
 	headSha: HEAD_SHA,
 	overall: 'none',
 	counts: EMPTY_COUNTS,
-	enforcement: 'advisory',
 	headIsCurrent: true,
 }
 const CHECK: Check = {
@@ -68,7 +68,13 @@ describe(PullRequestChecksPanel.name, () => {
 		expect(useChecksQueryMock).not.toHaveBeenCalled()
 	})
 
-	test('stays quiet on a pull request nothing has reported on', () => {
+	test('stays quiet when nothing reported and nothing is required', () => {
+		useChecksQueryMock.mockReturnValue({
+			data: { checks: [], missingRequiredContexts: [] },
+			isLoading: false,
+			isError: false,
+		} as never)
+
 		render(
 			<PullRequestChecksPanel
 				checksSummary={NO_CHECKS_SUMMARY}
@@ -79,7 +85,82 @@ describe(PullRequestChecksPanel.name, () => {
 		)
 
 		expect(screen.queryByText('Checks')).toBeNull()
-		expect(useChecksQueryMock).not.toHaveBeenCalled()
+	})
+
+	test('shows the failure instead of vanishing when a checkless read errors', () => {
+		// The requirements it could not load were the whole of what this panel had
+		// to say; disappearing would read as "nothing is required".
+		useChecksQueryMock.mockReturnValue({
+			data: undefined,
+			isLoading: false,
+			isError: true,
+		} as never)
+
+		render(
+			<PullRequestChecksPanel
+				checksSummary={NO_CHECKS_SUMMARY}
+				number="1"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('alert')).toBeTruthy()
+	})
+
+	test('speaks up for a required check nothing reported, with no results at all', () => {
+		// The emptiest possible rollup and the most consequential thing the panel
+		// can say: the branch demands a check and no provider has ever run it.
+		useChecksQueryMock.mockReturnValue({
+			data: {
+				checks: [],
+				missingRequiredContexts: [{ context: 'ci/build', kind: 'status' }],
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestChecksPanel
+				checksSummary={NO_CHECKS_SUMMARY}
+				number="1"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('Checks')).toBeTruthy()
+		expect(screen.getByText('ci/build')).toBeTruthy()
+		expect(screen.getByText('Not reported')).toBeTruthy()
+		expect(screen.getByText(REQUIRED_BY_BRANCH_PROTECTION_REGEX)).toBeTruthy()
+		// The rollup above still says nothing reported, which is true; what must
+		// not appear is the body claiming there is nothing to show.
+		expect(screen.queryByText(NOTHING_TO_SHOW_REGEX)).toBeNull()
+	})
+
+	test('lists missing requirements above the results that did arrive', () => {
+		useChecksQueryMock.mockReturnValue({
+			data: {
+				checks: [CHECK],
+				missingRequiredContexts: [{ context: 'ci/lint' }],
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestChecksPanel
+				checksSummary={SUMMARY}
+				number="1"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		const rows = screen.getAllByRole('listitem')
+
+		expect(rows[0]?.textContent).toContain('ci/lint')
+		expect(rows[1]?.textContent).toContain('build')
 	})
 
 	test('fetches the rows for the commit its summary is about', () => {
