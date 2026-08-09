@@ -1,5 +1,6 @@
 pub mod config;
 pub mod domain;
+pub mod push_events;
 pub mod smart_http;
 pub mod ssh;
 pub mod storage;

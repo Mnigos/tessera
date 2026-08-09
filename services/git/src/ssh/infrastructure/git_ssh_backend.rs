@@ -3,22 +3,41 @@ use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
+use crate::push_events::domain::{PushEventContext, PushHookConfig};
 use crate::ssh::domain::{SshGitError, SshGitOperation};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct GitSshBackendRequest {
     pub operation: SshGitOperation,
     pub repository_path: PathBuf,
+    /// Present only for receive-pack, which is the only operation that can move
+    /// a ref and therefore the only one whose hook has anything to report.
+    pub push_context: Option<PushEventContext>,
 }
 
 pub fn spawn_git_ssh_process(
     git_binary: PathBuf,
+    push_hook: Option<&PushHookConfig>,
     request: GitSshBackendRequest,
 ) -> Result<Child, SshGitError> {
-    Command::new(git_binary)
+    let mut command = Command::new(git_binary);
+    let push_hook = push_hook.zip(request.push_context.as_ref());
+
+    // Scoped to this command, so only client pushes reach the hook: imports,
+    // merges, and mirror pushes never run receive-pack.
+    if let Some((hook, _)) = push_hook {
+        command.arg("-c").arg(hook.hooks_path_argument());
+    }
+
+    command
         .arg(request.operation.git_subcommand())
-        .arg(request.repository_path)
+        .arg(&request.repository_path)
         .env_clear()
+        .envs(
+            push_hook
+                .map(|(hook, context)| hook.environment(context))
+                .unwrap_or_default(),
+        )
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -46,6 +65,7 @@ mod tests {
         let request = GitSshBackendRequest {
             operation: SshGitOperation::ReceivePack,
             repository_path: PathBuf::from("/tmp/repositories/repo-id.git"),
+            push_context: None,
         };
 
         assert_eq!(request.operation.git_subcommand(), "receive-pack");

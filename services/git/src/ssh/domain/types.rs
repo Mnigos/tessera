@@ -41,5 +41,8 @@ pub struct SshGitCommand {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SshRepositoryMetadata {
     pub repository_id: String,
+    /// The Tessera user the authorized key belongs to. Never the SSH login,
+    /// which is the literal `git` every client connects as.
+    pub actor_user_id: Option<String>,
     pub storage_path: String,
 }

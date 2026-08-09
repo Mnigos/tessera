@@ -76,3 +76,30 @@ message AuthorizeSshWriteResponse {
   string storage_path = 2;
   string trusted_user = 3;
 }
+
+service GitPushEventsService {
+  rpc NotifyPush(NotifyPushRequest) returns (NotifyPushResponse);
+}
+
+message NotifyPushRequest {
+  string operation_id = 1;
+  string repository_id = 2;
+  string actor_user_id = 3;
+  int64 occurred_at_unix_ms = 4;
+  repeated PushRefUpdate updates = 5;
+}
+
+message PushRefUpdate {
+  string ref_name = 1;
+  string old_sha = 2;
+  string new_sha = 3;
+  PushRefUpdateKind kind = 4;
+}
+
+enum PushRefUpdateKind {
+  PUSH_REF_UPDATE_KIND_UNSPECIFIED = 0;
+  PUSH_REF_UPDATE_KIND_HEAD_UPDATED = 1;
+  PUSH_REF_UPDATE_KIND_FORCE_PUSHED = 2;
+}
+
+message NotifyPushResponse {}

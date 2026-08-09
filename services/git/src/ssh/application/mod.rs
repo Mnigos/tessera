@@ -69,6 +69,8 @@ where
 
         Ok(AuthorizedSshGitCommand {
             operation,
+            repository_id: metadata.repository_id,
+            actor_user_id: metadata.actor_user_id,
             repository_path,
         })
     }
@@ -84,6 +86,8 @@ where
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct AuthorizedSshGitCommand {
     pub operation: SshGitOperation,
+    pub repository_id: String,
+    pub actor_user_id: Option<String>,
     pub repository_path: PathBuf,
 }
 

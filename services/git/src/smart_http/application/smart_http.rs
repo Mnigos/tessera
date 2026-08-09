@@ -4,6 +4,7 @@ use bytes::Bytes;
 use http::{HeaderMap, Method};
 
 use crate::domain::RepositoryError;
+use crate::push_events::domain::PushEventContext;
 use crate::smart_http::domain::{
     BasicCredentials, SmartHttpAction, SmartHttpError, SmartHttpRepositoryMetadata, query_service,
 };
@@ -112,7 +113,8 @@ where
                     .map(str::to_string),
                 content_length: request.content_length,
                 body: request.body,
-                remote_user: authorized.metadata.authenticated_username,
+                remote_user: authorized.metadata.actor_user_id.clone(),
+                push_context: push_event_context(authorized.parsed.action, &authorized.metadata),
             })
             .await
     }
@@ -210,6 +212,23 @@ fn parse_smart_http_request(
     Err(SmartHttpError::InvalidPath)
 }
 
+/// Only an actual receive-pack execution moves refs. The advertisement that
+/// precedes it must not mint an operation of its own, or a client that walks
+/// away after it would leave an identifier nothing ever reports under.
+fn push_event_context(
+    action: SmartHttpAction,
+    metadata: &SmartHttpRepositoryMetadata,
+) -> Option<PushEventContext> {
+    if action != SmartHttpAction::ReceivePack {
+        return None;
+    }
+
+    metadata
+        .actor_user_id
+        .clone()
+        .map(|actor_user_id| PushEventContext::new(metadata.repository_id.clone(), actor_user_id))
+}
+
 fn storage_error_to_smart_http_error(error: RepositoryError) -> SmartHttpError {
     match error {
         RepositoryError::InvalidRepositoryId
@@ -278,6 +297,41 @@ mod tests {
 
         assert_eq!(parsed.action, SmartHttpAction::ReceivePack);
         assert_eq!(parsed.cgi_path, "/git-receive-pack");
+    }
+
+    #[test]
+    fn mints_a_push_operation_only_for_receive_pack_execution() {
+        let metadata = SmartHttpRepositoryMetadata {
+            repository_id: "repository".to_string(),
+            storage_path: "/srv/tessera/repositories/repository.git".to_string(),
+            actor_user_id: Some("actor".to_string()),
+        };
+
+        let context = push_event_context(SmartHttpAction::ReceivePack, &metadata).unwrap();
+
+        assert_eq!(context.repository_id, "repository");
+        assert_eq!(context.actor_user_id, "actor");
+        for action in [
+            SmartHttpAction::ReceivePackInfoRefs,
+            SmartHttpAction::UploadPack,
+            SmartHttpAction::UploadPackInfoRefs,
+        ] {
+            assert!(
+                push_event_context(action, &metadata).is_none(),
+                "{action:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn mints_no_push_operation_without_an_authenticated_actor() {
+        let metadata = SmartHttpRepositoryMetadata {
+            repository_id: "repository".to_string(),
+            storage_path: "/srv/tessera/repositories/repository.git".to_string(),
+            actor_user_id: None,
+        };
+
+        assert!(push_event_context(SmartHttpAction::ReceivePack, &metadata).is_none());
     }
 
     #[test]

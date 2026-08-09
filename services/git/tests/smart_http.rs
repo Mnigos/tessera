@@ -58,7 +58,7 @@ async fn smart_http_rejects_storage_path_mismatch() {
                 .to_string(),
         },
         repository_storage,
-        GitHttpBackend::new(PathBuf::from("git")),
+        GitHttpBackend::new(PathBuf::from("git"), None),
     );
 
     let error = application.handle(info_refs_request()).await.unwrap_err();
@@ -132,7 +132,7 @@ fn application(
             storage_path: repository_storage_path(storage_root, repository_id),
         },
         storage(storage_root, git_binary),
-        GitHttpBackend::new(PathBuf::from(git_binary)),
+        GitHttpBackend::new(PathBuf::from(git_binary), None),
     )
 }
 
@@ -195,7 +195,7 @@ impl SmartHttpAuthorizer for FakeAuthorizer {
         Ok(SmartHttpRepositoryMetadata {
             repository_id: self.repository_id.clone(),
             storage_path: self.storage_path.clone(),
-            authenticated_username: Some("mona".to_string()),
+            actor_user_id: Some("mona".to_string()),
         })
     }
 }

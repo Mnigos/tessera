@@ -7,17 +7,22 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
+use crate::push_events::domain::{PushEventContext, PushHookConfig};
 use crate::smart_http::application::SmartHttpResponse;
 use crate::smart_http::domain::SmartHttpError;
 
 #[derive(Clone, Debug)]
 pub struct GitHttpBackend {
     git_binary: PathBuf,
+    push_hook: Option<PushHookConfig>,
 }
 
 impl GitHttpBackend {
-    pub fn new(git_binary: PathBuf) -> Self {
-        Self { git_binary }
+    pub fn new(git_binary: PathBuf, push_hook: Option<PushHookConfig>) -> Self {
+        Self {
+            git_binary,
+            push_hook,
+        }
     }
 
     pub async fn execute(
@@ -36,6 +41,15 @@ impl GitHttpBackend {
         let path_info = format!("/{repository_name}{}", request.path);
 
         let mut command = Command::new(&self.git_binary);
+        let push_hook = self.push_hook.as_ref().zip(request.push_context.as_ref());
+
+        // Scoped to this command, so the hook reaches the receive-pack Git
+        // spawns for this request and nothing else; Git hands `-c` down to that
+        // child for us.
+        if let Some((hook, _)) = push_hook {
+            command.arg("-c").arg(hook.hooks_path_argument());
+        }
+
         command
             .arg("http-backend")
             .env_clear()
@@ -54,6 +68,11 @@ impl GitHttpBackend {
                 request
                     .remote_user
                     .map(|remote_user| ("REMOTE_USER", remote_user)),
+            )
+            .envs(
+                push_hook
+                    .map(|(hook, context)| hook.environment(context))
+                    .unwrap_or_default(),
             )
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
@@ -101,6 +120,9 @@ pub struct GitHttpBackendRequest {
     pub content_length: Option<u64>,
     pub body: Body,
     pub remote_user: Option<String>,
+    /// Present only for receive-pack, which is the only request that can move a
+    /// ref and therefore the only one whose hook has anything to report.
+    pub push_context: Option<PushEventContext>,
 }
 
 fn parse_cgi_response(output: Bytes) -> Result<SmartHttpResponse, SmartHttpError> {

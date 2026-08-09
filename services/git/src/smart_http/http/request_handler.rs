@@ -490,7 +490,7 @@ mod tests {
         let service = SmartHttpApplication::new(
             ApiSmartHttpAuthorizer::new(String::new(), None),
             RepositoryStorage::new(temp_dir.path().to_path_buf(), PathBuf::from("git")),
-            GitHttpBackend::new(PathBuf::from("git")),
+            GitHttpBackend::new(PathBuf::from("git"), None),
         );
         let body = Body::from(vec![0; SMART_HTTP_BODY_LIMIT_BYTES + 1]);
 
@@ -515,7 +515,7 @@ mod tests {
         let service = SmartHttpApplication::new(
             ApiSmartHttpAuthorizer::new(String::new(), None),
             RepositoryStorage::new(temp_dir.path().to_path_buf(), PathBuf::from("git")),
-            GitHttpBackend::new(PathBuf::from("git")),
+            GitHttpBackend::new(PathBuf::from("git"), None),
         );
 
         let response = handle(
