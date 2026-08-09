@@ -56,6 +56,7 @@ const useRemoveReviewerMutationMock = vi.mocked(
 const useRequestReviewerMutationMock = vi.mocked(
 	useRequestPullRequestReviewerMutation
 )
+const VIEW_CHANGES_SINCE_NAME = /^View changes since/
 const createdAt = new Date('2026-08-08T10:00:00.000Z')
 const repositoryProps = { username: 'marta', slug: 'notes', number: '1' }
 const FULL_VIEWER: PullRequestReviewViewer = {
@@ -141,7 +142,7 @@ describe(PullRequestReviewersPanel.name, () => {
 		// than a gate: a current review still leads to its own explicit answer.
 		expect(
 			screen
-				.getAllByRole('link', { name: 'View changes since' })
+				.getAllByRole('link', { name: VIEW_CHANGES_SINCE_NAME })
 				.map(link => link.getAttribute('data-review-id'))
 		).toEqual([approved.reviewId, expect.any(String), expect.any(String)])
 	})
@@ -200,7 +201,7 @@ describe(PullRequestReviewersPanel.name, () => {
 		expect(screen.queryByRole('button', { name: 'Review changes' })).toBeNull()
 		// A reviewer who has only been asked has left nothing to compare against.
 		expect(
-			screen.queryByRole('link', { name: 'View changes since' })
+			screen.queryByRole('link', { name: VIEW_CHANGES_SINCE_NAME })
 		).toBeNull()
 	})
 })
