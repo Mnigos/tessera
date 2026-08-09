@@ -12,6 +12,13 @@ import { Observable } from "rxjs";
 
 export const protobufPackage = "tessera.git.v1";
 
+export enum PushRefUpdateKind {
+  PUSH_REF_UPDATE_KIND_UNSPECIFIED = 0,
+  PUSH_REF_UPDATE_KIND_HEAD_UPDATED = 1,
+  PUSH_REF_UPDATE_KIND_FORCE_PUSHED = 2,
+  UNRECOGNIZED = -1,
+}
+
 export interface AuthorizeReadRequest {
   ownerUsername: string;
   repositorySlug: string;
@@ -77,6 +84,24 @@ export interface AuthorizeSshWriteResponse {
   repositoryId: string;
   storagePath: string;
   trustedUser: string;
+}
+
+export interface NotifyPushRequest {
+  operationId: string;
+  repositoryId: string;
+  actorUserId: string;
+  occurredAtUnixMs: number;
+  updates: PushRefUpdate[];
+}
+
+export interface PushRefUpdate {
+  refName: string;
+  oldSha: string;
+  newSha: string;
+  kind: PushRefUpdateKind;
+}
+
+export interface NotifyPushResponse {
 }
 
 export const TESSERA_GIT_V1_PACKAGE_NAME = "tessera.git.v1";
@@ -748,6 +773,183 @@ export const AuthorizeSshWriteResponse: MessageFns<AuthorizeSshWriteResponse> = 
   },
 };
 
+function createBaseNotifyPushRequest(): NotifyPushRequest {
+  return { operationId: "", repositoryId: "", actorUserId: "", occurredAtUnixMs: 0, updates: [] };
+}
+
+export const NotifyPushRequest: MessageFns<NotifyPushRequest> = {
+  encode(message: NotifyPushRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.operationId !== "") {
+      writer.uint32(10).string(message.operationId);
+    }
+    if (message.repositoryId !== "") {
+      writer.uint32(18).string(message.repositoryId);
+    }
+    if (message.actorUserId !== "") {
+      writer.uint32(26).string(message.actorUserId);
+    }
+    if (message.occurredAtUnixMs !== 0) {
+      writer.uint32(32).int64(message.occurredAtUnixMs);
+    }
+    for (const v of message.updates) {
+      PushRefUpdate.encode(v!, writer.uint32(42).fork()).join();
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NotifyPushRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNotifyPushRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.operationId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.actorUserId = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.occurredAtUnixMs = longToNumber(reader.int64());
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.updates.push(PushRefUpdate.decode(reader, reader.uint32()));
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBasePushRefUpdate(): PushRefUpdate {
+  return { refName: "", oldSha: "", newSha: "", kind: 0 };
+}
+
+export const PushRefUpdate: MessageFns<PushRefUpdate> = {
+  encode(message: PushRefUpdate, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.refName !== "") {
+      writer.uint32(10).string(message.refName);
+    }
+    if (message.oldSha !== "") {
+      writer.uint32(18).string(message.oldSha);
+    }
+    if (message.newSha !== "") {
+      writer.uint32(26).string(message.newSha);
+    }
+    if (message.kind !== 0) {
+      writer.uint32(32).int32(message.kind);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): PushRefUpdate {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBasePushRefUpdate();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.refName = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.oldSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.newSha = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 32) {
+            break;
+          }
+
+          message.kind = reader.int32() as any;
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseNotifyPushResponse(): NotifyPushResponse {
+  return {};
+}
+
+export const NotifyPushResponse: MessageFns<NotifyPushResponse> = {
+  encode(_: NotifyPushResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): NotifyPushResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseNotifyPushResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 export interface GitAuthorizationServiceClient {
   authorizeRead(request: AuthorizeReadRequest, metadata?: Metadata): Observable<AuthorizeReadResponse>;
 
@@ -874,6 +1076,62 @@ export interface GitAuthorizationServiceServer extends UntypedServiceImplementat
   authenticateSshKey: handleUnaryCall<AuthenticateSshKeyRequest, AuthenticateSshKeyResponse>;
   authorizeSshRead: handleUnaryCall<AuthorizeSshReadRequest, AuthorizeSshReadResponse>;
   authorizeSshWrite: handleUnaryCall<AuthorizeSshWriteRequest, AuthorizeSshWriteResponse>;
+}
+
+export interface GitPushEventsServiceClient {
+  notifyPush(request: NotifyPushRequest, metadata?: Metadata): Observable<NotifyPushResponse>;
+}
+
+export interface GitPushEventsServiceController {
+  notifyPush(
+    request: NotifyPushRequest,
+    metadata?: Metadata,
+  ): Promise<NotifyPushResponse> | Observable<NotifyPushResponse> | NotifyPushResponse;
+}
+
+export function GitPushEventsServiceControllerMethods() {
+  return function (constructor: Function) {
+    const grpcMethods: string[] = ["notifyPush"];
+    for (const method of grpcMethods) {
+      const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
+      GrpcMethod("GitPushEventsService", method)(constructor.prototype[method], method, descriptor);
+    }
+    const grpcStreamMethods: string[] = [];
+    for (const method of grpcStreamMethods) {
+      const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
+      GrpcStreamMethod("GitPushEventsService", method)(constructor.prototype[method], method, descriptor);
+    }
+  };
+}
+
+export const GIT_PUSH_EVENTS_SERVICE_NAME = "GitPushEventsService";
+
+export type GitPushEventsServiceService = typeof GitPushEventsServiceService;
+export const GitPushEventsServiceService = {
+  notifyPush: {
+    path: "/tessera.git.v1.GitPushEventsService/NotifyPush" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: NotifyPushRequest): Buffer => Buffer.from(NotifyPushRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): NotifyPushRequest => NotifyPushRequest.decode(value),
+    responseSerialize: (value: NotifyPushResponse): Buffer => Buffer.from(NotifyPushResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): NotifyPushResponse => NotifyPushResponse.decode(value),
+  },
+} as const;
+
+export interface GitPushEventsServiceServer extends UntypedServiceImplementation {
+  notifyPush: handleUnaryCall<NotifyPushRequest, NotifyPushResponse>;
+}
+
+function longToNumber(int64: { toString(): string }): number {
+  const num = globalThis.Number(int64.toString());
+  if (num > globalThis.Number.MAX_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is larger than Number.MAX_SAFE_INTEGER");
+  }
+  if (num < globalThis.Number.MIN_SAFE_INTEGER) {
+    throw new globalThis.Error("Value is smaller than Number.MIN_SAFE_INTEGER");
+  }
+  return num;
 }
 
 export interface MessageFns<T> {

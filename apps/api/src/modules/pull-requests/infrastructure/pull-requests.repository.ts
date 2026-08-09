@@ -12,6 +12,8 @@ import {
 	gitHubActors,
 	gitHubPullRequestEventMappings,
 	gitHubPullRequestMappings,
+	inArray,
+	lte,
 	ne,
 	type PullRequest,
 	type PullRequestEvent,
@@ -32,6 +34,7 @@ import type {
 	UserId,
 } from '@repo/domain'
 import { alias } from 'drizzle-orm/pg-core'
+import type { PullRequestPushRefUpdate } from '../domain/pull-request-push.schema'
 import {
 	completeMergeQueueEntry,
 	removeActiveMergeQueueEntry,
@@ -110,6 +113,13 @@ interface ReleaseMergeParams extends PullRequestMutationParams {
 	attemptId: string
 }
 
+interface CreatePushEventsParams extends RepositoryParams {
+	actorUserId: UserId
+	operationId: string
+	occurredAt: Date
+	updates: PullRequestPushRefUpdate[]
+}
+
 type PullRequestDatabase = Database | DrizzleTransaction
 
 export interface PullRequestReadModel extends PullRequest {
@@ -126,7 +136,9 @@ export interface PullRequestReadModel extends PullRequest {
 	}
 }
 
-export interface PullRequestEventReadModel extends PullRequestEvent {
+/** The delivery key is write-side bookkeeping and never part of the timeline. */
+export interface PullRequestEventReadModel
+	extends Omit<PullRequestEvent, 'idempotencyKey'> {
 	actorUsername?: string
 }
 
@@ -721,6 +733,94 @@ export class PullRequestsRepository {
 				.where(eq(pullRequestMergeIntents.pullRequestId, pullRequestId))
 
 			return pullRequest
+		})
+	}
+
+	/**
+	 * Records where a push moved a source branch, on every open native pull
+	 * request that branch backs — a branch may back several when their targets
+	 * differ. Whether a pull request is open is judged now rather than at push
+	 * time, which is why one created after the push is left alone: its opening
+	 * already accounts for the commits this delivery describes.
+	 *
+	 * Deliveries are retried until the API acknowledges one, so every event
+	 * carries the key of the delivery that produced it and a repeat inserts
+	 * nothing.
+	 *
+	 * Every pull request the whole delivery touches is locked by one query in
+	 * id order. Locking per branch instead would let two deliveries that name
+	 * the same branches in opposite orders each hold what the other is waiting
+	 * for, and PostgreSQL would abort one of them as a deadlock.
+	 */
+	async createPushEvents({
+		actorUserId,
+		occurredAt,
+		operationId,
+		repositoryId,
+		updates,
+	}: CreatePushEventsParams): Promise<number> {
+		return await this.db.transaction(async tx => {
+			const openPullRequests = await tx
+				.select({
+					id: pullRequests.id,
+					sourceBranch: pullRequests.sourceBranch,
+				})
+				.from(pullRequests)
+				.where(
+					and(
+						eq(pullRequests.repositoryId, repositoryId),
+						inArray(
+							pullRequests.sourceBranch,
+							updates.map(update => update.sourceBranch)
+						),
+						eq(pullRequests.provider, 'tessera'),
+						eq(pullRequests.state, 'open'),
+						lte(pullRequests.createdAt, occurredAt)
+					)
+				)
+				.orderBy(asc(pullRequests.id))
+				.for('update')
+
+			let createdEvents = 0
+
+			for (const update of updates) {
+				const moved = openPullRequests.filter(
+					pullRequest => pullRequest.sourceBranch === update.sourceBranch
+				)
+
+				if (moved.length === 0) continue
+
+				const events = await tx
+					.insert(pullRequestEvents)
+					.values(
+						moved.map(({ id }) => ({
+							pullRequestId: id,
+							actorUserId,
+							type: update.type,
+							payload: {
+								ref: update.ref,
+								oldSha: update.oldSha,
+								newSha: update.newSha,
+							},
+							idempotencyKey: `git-push:${operationId}:${update.ref}`,
+							createdAt: occurredAt,
+						}))
+					)
+					// Narrowed to the delivery-key index: a conflict on anything
+					// else is a real failure, not a redelivery.
+					.onConflictDoNothing({
+						target: [
+							pullRequestEvents.pullRequestId,
+							pullRequestEvents.idempotencyKey,
+						],
+						where: sql`${pullRequestEvents.idempotencyKey} is not null`,
+					})
+					.returning({ id: pullRequestEvents.id })
+
+				createdEvents += events.length
+			}
+
+			return createdEvents
 		})
 	}
 

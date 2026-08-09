@@ -109,6 +109,8 @@ export const pullRequestEventTypeSchema = z.enum([
 	'queue_paused',
 	'queue_resumed',
 	'queue_removed',
+	'head_updated',
+	'force_pushed',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
 
@@ -244,6 +246,12 @@ const pullRequestQueueResumedEventPayloadSchema = z.object({
 	position: z.number().int().positive(),
 })
 
+const pullRequestHeadUpdateEventPayloadSchema = z.object({
+	ref: z.string().min(1),
+	oldSha: pullRequestShaSchema,
+	newSha: pullRequestShaSchema,
+})
+
 // Payloads carry no discriminator of their own and the first member that parses
 // wins, so a member whose required fields are a subset of another's would
 // silently strip the difference. Every shape is listed before any shape it is
@@ -258,6 +266,7 @@ const pullRequestEventPayloadSchema = z.union([
 	pullRequestQueueEnteredEventPayloadSchema,
 	pullRequestQueueRemovedEventPayloadSchema,
 	pullRequestQueueResumedEventPayloadSchema,
+	pullRequestHeadUpdateEventPayloadSchema,
 ])
 
 export const pullRequestEventSchema = z.object({

@@ -40,6 +40,12 @@ interface PullRequestRepositoryOptions {
 	username: string
 }
 
+interface CreatePullRequestOptions extends PullRequestRepositoryOptions {
+	sourceBranch?: string
+	targetBranch?: string
+	title?: string
+}
+
 export async function createTestSessionHeaders({
 	apiBaseUrl,
 	email,
@@ -149,16 +155,19 @@ export async function createPullRequest({
 	apiBaseUrl,
 	headers,
 	slug,
+	sourceBranch = 'feature',
+	targetBranch = 'main',
+	title = 'Merge feature',
 	username,
-}: PullRequestRepositoryOptions) {
+}: CreatePullRequestOptions) {
 	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
 
 	return await orpc.pullRequests.create({
 		username,
 		slug,
-		sourceBranch: 'feature',
-		targetBranch: 'main',
-		title: 'Merge feature',
+		sourceBranch,
+		targetBranch,
+		title,
 	})
 }
 

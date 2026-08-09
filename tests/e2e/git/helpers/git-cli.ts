@@ -76,6 +76,49 @@ export async function createAndPushBranch(
 	await runGit(['push', '-u', 'origin', branch], directory)
 }
 
+export async function checkoutBranch(directory: string, branch: string) {
+	await runGit(['checkout', branch], directory)
+}
+
+export async function commitAndPushBranch(
+	directory: string,
+	branch: string,
+	filename: string,
+	content: string
+) {
+	await runGit(['checkout', branch], directory)
+	await write(`${directory}/${filename}`, content)
+	await runGit(['add', filename], directory)
+	await runGit(['commit', '-m', `Add ${filename}`], directory)
+
+	return await runGit(['push', 'origin', branch], directory, {
+		expectSuccess: false,
+	})
+}
+
+/**
+ * Rewrites the branch tip and force-pushes it over SSH, which is the movement
+ * a pull request timeline has to tell apart from a fast-forward.
+ */
+export async function rewriteAndForcePushBranchOverSsh(
+	directory: string,
+	branch: string,
+	filename: string,
+	content: string,
+	privateKeyPath: string
+) {
+	await runGit(['checkout', branch], directory)
+	await runGit(['reset', '--hard', 'HEAD~1'], directory)
+	await write(`${directory}/${filename}`, content)
+	await runGit(['add', filename], directory)
+	await runGit(['commit', '-m', `Add ${filename}`], directory)
+
+	return await runGit(['push', '--force', 'ssh-origin', branch], directory, {
+		expectSuccess: false,
+		privateKeyPath,
+	})
+}
+
 export async function gitOutput(directory: string, args: string[]) {
 	const result = await runGit(args, directory)
 

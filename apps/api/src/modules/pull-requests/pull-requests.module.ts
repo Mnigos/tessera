@@ -7,6 +7,7 @@ import { MergeQueueStatusService } from './application/merge-queue-status.servic
 import { MergeRequirementsService } from './application/merge-requirements.service'
 import { PullRequestHeadResolver } from './application/pull-request-head.resolver'
 import { PullRequestMergeRunner } from './application/pull-request-merge.runner'
+import { PullRequestPushEventsService } from './application/pull-request-push-events.service'
 import { PullRequestReviewsService } from './application/pull-request-reviews.service'
 import { PullRequestThreadsService } from './application/pull-request-threads.service'
 import { PullRequestsService } from './application/pull-requests.service'
@@ -14,6 +15,7 @@ import { MergeQueueRepository } from './infrastructure/merge-queue.repository'
 import { PullRequestReviewsRepository } from './infrastructure/pull-request-reviews.repository'
 import { PullRequestThreadsRepository } from './infrastructure/pull-request-threads.repository'
 import { PullRequestsRepository } from './infrastructure/pull-requests.repository'
+import { GitPushEventsGrpcController } from './presentation/git-push-events.grpc.controller'
 import { PullRequestReviewsController } from './presentation/pull-request-reviews.controller'
 import { PullRequestThreadsController } from './presentation/pull-request-threads.controller'
 import { PullRequestsController } from './presentation/pull-requests.controller'
@@ -38,11 +40,13 @@ import { PullRequestsController } from './presentation/pull-requests.controller'
 		PullRequestsController,
 		PullRequestThreadsController,
 		PullRequestReviewsController,
+		GitPushEventsGrpcController,
 	],
 	providers: [
 		PullRequestsService,
 		PullRequestThreadsService,
 		PullRequestReviewsService,
+		PullRequestPushEventsService,
 		PullRequestHeadResolver,
 		PullRequestMergeRunner,
 		MergeRequirementsService,
