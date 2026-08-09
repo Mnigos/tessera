@@ -13,6 +13,7 @@ import {
 	toRepositoryCommitHistory,
 	toRepositoryComparison,
 	toRepositoryFileDiff,
+	toRepositoryMergeability,
 	toRepositoryRawBlob,
 	toRepositoryRefs,
 	toRepositoryTree,
@@ -406,6 +407,37 @@ describe('git storage mappers', () => {
 				],
 			}).files.map(file => file.status)
 		).toEqual(['modified', 'modified', 'modified'])
+	})
+
+	test('maps mergeability payloads and their omitted defaults', () => {
+		expect(
+			toRepositoryMergeability({
+				mergeable: false,
+				baseSha: 'base',
+				headSha: 'head',
+				mergeBaseSha: 'merge-base',
+				conflictPaths: ['src/index.ts'],
+				conflictPathsTruncated: true,
+				conflictPathLimit: 50,
+			})
+		).toStrictEqual({
+			mergeable: false,
+			baseSha: 'base',
+			headSha: 'head',
+			mergeBaseSha: 'merge-base',
+			conflictPaths: ['src/index.ts'],
+			conflictPathsTruncated: true,
+			conflictPathLimit: 50,
+		})
+		expect(toRepositoryMergeability({})).toStrictEqual({
+			mergeable: false,
+			baseSha: '',
+			headSha: '',
+			mergeBaseSha: '',
+			conflictPaths: [],
+			conflictPathsTruncated: false,
+			conflictPathLimit: 0,
+		})
 	})
 
 	test('rejects a file diff without its required file entry', () => {

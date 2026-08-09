@@ -1,5 +1,6 @@
 import { ExternalServiceError } from '~/shared/errors'
 import type {
+	CheckRepositoryMergeabilityResponse,
 	CompareRepositoryRefsResponse,
 	RepositoryChangedFile as GeneratedRepositoryChangedFile,
 	RepositoryCommit as GeneratedRepositoryCommit,
@@ -38,6 +39,7 @@ import type {
 	GitStorageRepositoryDiffHunk,
 	GitStorageRepositoryDiffLine,
 	GitStorageRepositoryFileDiff,
+	GitStorageRepositoryMergeability,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryRefs,
 	GitStorageRepositorySignature,
@@ -60,6 +62,9 @@ interface RuntimeRepositoryTreeResponse
 type RuntimeRepositoryBlobResponse = Partial<GetRepositoryBlobResponse>
 
 type RuntimeRepositoryRawBlobResponse = Partial<GetRepositoryRawBlobResponse>
+
+type RuntimeRepositoryMergeabilityResponse =
+	Partial<CheckRepositoryMergeabilityResponse>
 
 interface RuntimeRepositoryComparisonResponse
 	extends Omit<Partial<CompareRepositoryRefsResponse>, 'commits' | 'files'> {
@@ -187,6 +192,29 @@ export function toRepositoryRawBlob({
 		objectId: objectId ?? '',
 		content: content ?? new Uint8Array(),
 		sizeBytes: toUint64Number(sizeBytes),
+	}
+}
+
+/**
+ * Converts a read-only mergeability gRPC payload into the API mergeability model.
+ */
+export function toRepositoryMergeability({
+	baseSha,
+	conflictPathLimit,
+	conflictPaths,
+	conflictPathsTruncated,
+	headSha,
+	mergeable,
+	mergeBaseSha,
+}: RuntimeRepositoryMergeabilityResponse): GitStorageRepositoryMergeability {
+	return {
+		baseSha: baseSha ?? '',
+		headSha: headSha ?? '',
+		mergeBaseSha: mergeBaseSha ?? '',
+		mergeable: mergeable ?? false,
+		conflictPaths: conflictPaths ?? [],
+		conflictPathsTruncated: conflictPathsTruncated ?? false,
+		conflictPathLimit: conflictPathLimit ?? 0,
 	}
 }
 

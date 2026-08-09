@@ -234,6 +234,23 @@ export interface MergeRepositoryRefsResponse {
   mergeCommitSha: string;
 }
 
+export interface CheckRepositoryMergeabilityRequest {
+  repositoryId: string;
+  storagePath: string;
+  baseRef: string;
+  headRef: string;
+}
+
+export interface CheckRepositoryMergeabilityResponse {
+  mergeable: boolean;
+  baseSha: string;
+  headSha: string;
+  mergeBaseSha: string;
+  conflictPaths: string[];
+  conflictPathsTruncated: boolean;
+  conflictPathLimit: number;
+}
+
 export interface RepositoryComparisonCommit {
   sha: string;
   shortSha: string;
@@ -2015,6 +2032,187 @@ export const MergeRepositoryRefsResponse: MessageFns<MergeRepositoryRefsResponse
   },
 };
 
+function createBaseCheckRepositoryMergeabilityRequest(): CheckRepositoryMergeabilityRequest {
+  return { repositoryId: "", storagePath: "", baseRef: "", headRef: "" };
+}
+
+export const CheckRepositoryMergeabilityRequest: MessageFns<CheckRepositoryMergeabilityRequest> = {
+  encode(message: CheckRepositoryMergeabilityRequest, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.repositoryId !== "") {
+      writer.uint32(10).string(message.repositoryId);
+    }
+    if (message.storagePath !== "") {
+      writer.uint32(18).string(message.storagePath);
+    }
+    if (message.baseRef !== "") {
+      writer.uint32(26).string(message.baseRef);
+    }
+    if (message.headRef !== "") {
+      writer.uint32(34).string(message.headRef);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CheckRepositoryMergeabilityRequest {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCheckRepositoryMergeabilityRequest();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 10) {
+            break;
+          }
+
+          message.repositoryId = reader.string();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.storagePath = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.baseRef = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.headRef = reader.string();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
+function createBaseCheckRepositoryMergeabilityResponse(): CheckRepositoryMergeabilityResponse {
+  return {
+    mergeable: false,
+    baseSha: "",
+    headSha: "",
+    mergeBaseSha: "",
+    conflictPaths: [],
+    conflictPathsTruncated: false,
+    conflictPathLimit: 0,
+  };
+}
+
+export const CheckRepositoryMergeabilityResponse: MessageFns<CheckRepositoryMergeabilityResponse> = {
+  encode(message: CheckRepositoryMergeabilityResponse, writer: BinaryWriter = new BinaryWriter()): BinaryWriter {
+    if (message.mergeable !== false) {
+      writer.uint32(8).bool(message.mergeable);
+    }
+    if (message.baseSha !== "") {
+      writer.uint32(18).string(message.baseSha);
+    }
+    if (message.headSha !== "") {
+      writer.uint32(26).string(message.headSha);
+    }
+    if (message.mergeBaseSha !== "") {
+      writer.uint32(34).string(message.mergeBaseSha);
+    }
+    for (const v of message.conflictPaths) {
+      writer.uint32(42).string(v!);
+    }
+    if (message.conflictPathsTruncated !== false) {
+      writer.uint32(48).bool(message.conflictPathsTruncated);
+    }
+    if (message.conflictPathLimit !== 0) {
+      writer.uint32(56).uint32(message.conflictPathLimit);
+    }
+    return writer;
+  },
+
+  decode(input: BinaryReader | Uint8Array, length?: number): CheckRepositoryMergeabilityResponse {
+    const reader = input instanceof BinaryReader ? input : new BinaryReader(input);
+    const end = length === undefined ? reader.len : reader.pos + length;
+    const message = createBaseCheckRepositoryMergeabilityResponse();
+    while (reader.pos < end) {
+      const tag = reader.uint32();
+      switch (tag >>> 3) {
+        case 1: {
+          if (tag !== 8) {
+            break;
+          }
+
+          message.mergeable = reader.bool();
+          continue;
+        }
+        case 2: {
+          if (tag !== 18) {
+            break;
+          }
+
+          message.baseSha = reader.string();
+          continue;
+        }
+        case 3: {
+          if (tag !== 26) {
+            break;
+          }
+
+          message.headSha = reader.string();
+          continue;
+        }
+        case 4: {
+          if (tag !== 34) {
+            break;
+          }
+
+          message.mergeBaseSha = reader.string();
+          continue;
+        }
+        case 5: {
+          if (tag !== 42) {
+            break;
+          }
+
+          message.conflictPaths.push(reader.string());
+          continue;
+        }
+        case 6: {
+          if (tag !== 48) {
+            break;
+          }
+
+          message.conflictPathsTruncated = reader.bool();
+          continue;
+        }
+        case 7: {
+          if (tag !== 56) {
+            break;
+          }
+
+          message.conflictPathLimit = reader.uint32();
+          continue;
+        }
+      }
+      if ((tag & 7) === 4 || tag === 0) {
+        break;
+      }
+      reader.skip(tag & 7);
+    }
+    return message;
+  },
+};
+
 function createBaseRepositoryComparisonCommit(): RepositoryComparisonCommit {
   return { sha: "", shortSha: "", summary: "", author: undefined };
 }
@@ -2918,6 +3116,11 @@ export interface GitStorageServiceClient {
     request: MergeRepositoryRefsRequest,
     metadata?: Metadata,
   ): Observable<MergeRepositoryRefsResponse>;
+
+  checkRepositoryMergeability(
+    request: CheckRepositoryMergeabilityRequest,
+    metadata?: Metadata,
+  ): Observable<CheckRepositoryMergeabilityResponse>;
 }
 
 export interface GitStorageServiceController {
@@ -2988,6 +3191,14 @@ export interface GitStorageServiceController {
     request: MergeRepositoryRefsRequest,
     metadata?: Metadata,
   ): Promise<MergeRepositoryRefsResponse> | Observable<MergeRepositoryRefsResponse> | MergeRepositoryRefsResponse;
+
+  checkRepositoryMergeability(
+    request: CheckRepositoryMergeabilityRequest,
+    metadata?: Metadata,
+  ):
+    | Promise<CheckRepositoryMergeabilityResponse>
+    | Observable<CheckRepositoryMergeabilityResponse>
+    | CheckRepositoryMergeabilityResponse;
 }
 
 export function GitStorageServiceControllerMethods() {
@@ -3006,6 +3217,7 @@ export function GitStorageServiceControllerMethods() {
       "compareRepositoryRefs",
       "getRepositoryFileDiff",
       "mergeRepositoryRefs",
+      "checkRepositoryMergeability",
     ];
     for (const method of grpcMethods) {
       const descriptor: any = Reflect.getOwnPropertyDescriptor(constructor.prototype, method);
@@ -3166,6 +3378,19 @@ export const GitStorageServiceService = {
       Buffer.from(MergeRepositoryRefsResponse.encode(value).finish()),
     responseDeserialize: (value: Buffer): MergeRepositoryRefsResponse => MergeRepositoryRefsResponse.decode(value),
   },
+  checkRepositoryMergeability: {
+    path: "/tessera.git.v1.GitStorageService/CheckRepositoryMergeability" as const,
+    requestStream: false as const,
+    responseStream: false as const,
+    requestSerialize: (value: CheckRepositoryMergeabilityRequest): Buffer =>
+      Buffer.from(CheckRepositoryMergeabilityRequest.encode(value).finish()),
+    requestDeserialize: (value: Buffer): CheckRepositoryMergeabilityRequest =>
+      CheckRepositoryMergeabilityRequest.decode(value),
+    responseSerialize: (value: CheckRepositoryMergeabilityResponse): Buffer =>
+      Buffer.from(CheckRepositoryMergeabilityResponse.encode(value).finish()),
+    responseDeserialize: (value: Buffer): CheckRepositoryMergeabilityResponse =>
+      CheckRepositoryMergeabilityResponse.decode(value),
+  },
 } as const;
 
 export interface GitStorageServiceServer extends UntypedServiceImplementation {
@@ -3182,6 +3407,7 @@ export interface GitStorageServiceServer extends UntypedServiceImplementation {
   compareRepositoryRefs: handleUnaryCall<CompareRepositoryRefsRequest, CompareRepositoryRefsResponse>;
   getRepositoryFileDiff: handleUnaryCall<GetRepositoryFileDiffRequest, GetRepositoryFileDiffResponse>;
   mergeRepositoryRefs: handleUnaryCall<MergeRepositoryRefsRequest, MergeRepositoryRefsResponse>;
+  checkRepositoryMergeability: handleUnaryCall<CheckRepositoryMergeabilityRequest, CheckRepositoryMergeabilityResponse>;
 }
 
 function longToNumber(int64: { toString(): string }): number {

@@ -54,6 +54,7 @@ describe(GitStorageClient.name, () => {
 		compareRepositoryRefs: ReturnType<typeof vi.fn>
 		getRepositoryFileDiff: ReturnType<typeof vi.fn>
 		mergeRepositoryRefs: ReturnType<typeof vi.fn>
+		checkRepositoryMergeability: ReturnType<typeof vi.fn>
 	}
 
 	beforeEach(async () => {
@@ -214,6 +215,17 @@ describe(GitStorageClient.name, () => {
 				})
 			),
 			mergeRepositoryRefs: vi.fn(() => of({ mergeCommitSha: 'merge-sha' })),
+			checkRepositoryMergeability: vi.fn(() =>
+				of({
+					mergeable: false,
+					baseSha: 'base-sha',
+					headSha: 'head-sha',
+					mergeBaseSha: 'merge-base-sha',
+					conflictPaths: ['src/index.ts'],
+					conflictPathsTruncated: true,
+					conflictPathLimit: 50,
+				})
+			),
 		}
 		clientGrpc = {
 			getService: vi.fn().mockReturnValue(gitStorageService),
@@ -891,6 +903,28 @@ describe(GitStorageClient.name, () => {
 				operationId: 'pr-1',
 			})
 		).toBe('merge-sha')
+	})
+
+	test('maps read-only mergeability checks', async () => {
+		expect(
+			await client.checkRepositoryMergeability({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+			})
+		).toStrictEqual({
+			mergeable: false,
+			baseSha: 'base-sha',
+			headSha: 'head-sha',
+			mergeBaseSha: 'merge-base-sha',
+			conflictPaths: ['src/index.ts'],
+			conflictPathsTruncated: true,
+			conflictPathLimit: 50,
+		})
+		expect(
+			getGitStorageAuthorization(gitStorageService.checkRepositoryMergeability)
+		).toEqual(['Bearer test-internal-token'])
 	})
 })
 

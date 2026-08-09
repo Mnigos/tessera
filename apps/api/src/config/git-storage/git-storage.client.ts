@@ -16,6 +16,7 @@ import {
 	ServiceUnavailableError,
 } from '~/shared/errors'
 import {
+	type CheckRepositoryMergeabilityResponse,
 	type CompareRepositoryRefsResponse,
 	type CreateRepositoryResponse,
 	type GetRepositoryBlobResponse,
@@ -33,6 +34,7 @@ import {
 	type PushRepositoryMirrorResponse,
 } from './generated/tessera/git/v1/git_storage'
 import type {
+	GitStorageCheckRepositoryMergeabilityParams,
 	GitStorageCompareRepositoryRefsParams,
 	GitStorageCreateRepositoryParams,
 	GitStorageCreateRepositoryResult,
@@ -52,6 +54,7 @@ import type {
 	GitStorageRepositoryCommitHistory,
 	GitStorageRepositoryComparison,
 	GitStorageRepositoryFileDiff,
+	GitStorageRepositoryMergeability,
 	GitStorageRepositoryRawBlob,
 	GitStorageRepositoryRefs,
 	GitStorageRepositoryTree,
@@ -62,6 +65,7 @@ import {
 	toRepositoryCommitHistory,
 	toRepositoryComparison,
 	toRepositoryFileDiff,
+	toRepositoryMergeability,
 	toRepositoryRawBlob,
 	toRepositoryRefs,
 	toRepositoryTree,
@@ -393,6 +397,31 @@ export class GitStorageClient implements OnModuleInit {
 			})
 
 		return response.mergeCommitSha
+	}
+
+	async checkRepositoryMergeability({
+		baseRef,
+		headRef,
+		repositoryId,
+		storagePath,
+	}: GitStorageCheckRepositoryMergeabilityParams): Promise<GitStorageRepositoryMergeability> {
+		const response = await firstValueFrom(
+			this.service
+				.checkRepositoryMergeability(
+					{ repositoryId, storagePath, baseRef, headRef },
+					this.createAuthorizationMetadata()
+				)
+				// Bounded like the merge it clears the way for. Every merge path waits
+				// on this answer while holding the repository's merge lease, so a Git
+				// service that never replies would otherwise park the whole queue for
+				// as long as it stayed silent.
+				.pipe(
+					timeout(MERGE_RPC_TIMEOUT_MS),
+					mapGitStorageErrors<CheckRepositoryMergeabilityResponse>()
+				)
+		)
+
+		return toRepositoryMergeability(response)
 	}
 
 	private createAuthorizationMetadata() {
