@@ -130,6 +130,22 @@ describe(CheckStatusProvidersSettings.name, () => {
 		)
 	})
 
+	test('says why a whitespace-only submission was refused', async () => {
+		const mutate = vi.fn()
+		mockMutations()
+		useCreateProviderMock.mockReturnValue(mockIdleMutation({ mutate }))
+		mockProviders([])
+
+		render(<CheckStatusProvidersSettings {...PROPS} />)
+		await userEvent.type(screen.getByLabelText('Key'), '   ')
+		submitProviderForm()
+
+		expect(mutate).not.toHaveBeenCalled()
+		expect(screen.getByRole('alert').textContent).toContain(
+			'both a key and a name'
+		)
+	})
+
 	test('shows the new secret once, and never renders a stored one', async () => {
 		const created = {
 			token: 'tes_status_raw-secret',

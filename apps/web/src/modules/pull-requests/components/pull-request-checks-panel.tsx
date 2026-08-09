@@ -66,16 +66,19 @@ function ChecksPanel({
 	const missingRequiredContexts =
 		checksQuery.data?.missingRequiredContexts ?? []
 
-	// Nothing reported and nothing required: there is no panel to draw. Waiting
-	// for the read before deciding keeps a pull request with no checks from
-	// flashing an empty card at every reader.
-	//
-	// A read that failed is not an empty one. On a pull request with no results
-	// of its own, the requirements it could not load are the whole of what this
-	// panel had to say, and disappearing would read as "nothing is required".
+	// Nothing reported and nothing required: there is no panel to draw. Only a
+	// settled read can establish that, though. While it is still in flight the
+	// requirements are unknown rather than absent, and a read that failed leaves
+	// them unknown for good — on a pull request with no results of its own those
+	// requirements are the whole of what this panel had to say, so vanishing
+	// would read as "nothing is required" when nobody knows that yet.
 	if (
 		checksSummary.overall === 'none' &&
-		!(checksQuery.isError || missingRequiredContexts.length > 0)
+		!(
+			checksQuery.isLoading ||
+			checksQuery.isError ||
+			missingRequiredContexts.length > 0
+		)
 	)
 		return null
 

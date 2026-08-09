@@ -25,6 +25,7 @@ export function AddCheckStatusProviderForm({
 }: Readonly<AddCheckStatusProviderFormProps>) {
 	const [key, setKey] = useState('')
 	const [displayName, setDisplayName] = useState('')
+	const [isIncomplete, setIsIncomplete] = useState(false)
 	const createProvider = useCreateCheckStatusProviderMutation()
 
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
@@ -32,8 +33,15 @@ export function AddCheckStatusProviderForm({
 		const trimmedKey = key.trim()
 		const trimmedDisplayName = displayName.trim()
 
-		if (!(trimmedKey && trimmedDisplayName)) return
+		// Whitespace passes the browser's own required check, so the refusal has to
+		// be said out loud here rather than by quietly doing nothing.
+		if (!(trimmedKey && trimmedDisplayName)) {
+			setIsIncomplete(true)
 
+			return
+		}
+
+		setIsIncomplete(false)
 		createProvider.mutate(
 			{ username, slug, key: trimmedKey, displayName: trimmedDisplayName },
 			{
@@ -58,7 +66,9 @@ export function AddCheckStatusProviderForm({
 			</div>
 			<form
 				aria-describedby={
-					createProvider.isError ? ADD_PROVIDER_ERROR_ID : undefined
+					createProvider.isError || isIncomplete
+						? ADD_PROVIDER_ERROR_ID
+						: undefined
 				}
 				className="flex flex-col gap-4"
 				onSubmit={handleSubmit}
@@ -73,6 +83,7 @@ export function AddCheckStatusProviderForm({
 						name="key"
 						onChange={event => setKey(event.target.value)}
 						placeholder="jenkins"
+						required
 						value={key}
 					/>
 					<p className="text-muted-foreground text-xs">
@@ -90,10 +101,20 @@ export function AddCheckStatusProviderForm({
 						name="displayName"
 						onChange={event => setDisplayName(event.target.value)}
 						placeholder="Jenkins"
+						required
 						value={displayName}
 					/>
 				</div>
-				{createProvider.isError && (
+				{isIncomplete && (
+					<p
+						className="text-destructive text-sm"
+						id={ADD_PROVIDER_ERROR_ID}
+						role="alert"
+					>
+						Give the provider both a key and a name.
+					</p>
+				)}
+				{createProvider.isError && !isIncomplete && (
 					<p
 						className="text-destructive text-sm"
 						id={ADD_PROVIDER_ERROR_ID}
