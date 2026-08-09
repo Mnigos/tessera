@@ -5,12 +5,12 @@ import type {
 } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { GitCommitHorizontal } from 'lucide-react'
+import { ChecksStatusDot } from '@/modules/checks/components/checks-status-dot'
 import type {
 	PullRequestReviewContext,
 	PullRequestReviewSelection,
 } from '../helpers/pull-request-review'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
-import { PullRequestChecksStatusDot } from './pull-request-checks-status-dot'
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
 import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
@@ -140,7 +140,7 @@ function PullRequestCommits({ comparison }: Readonly<PullRequestCommitsProps>) {
 									{commit.author?.name ?? 'Unknown author'}
 								</p>
 							</div>
-							<PullRequestChecksStatusDot summary={commit.checksSummary} />
+							<ChecksStatusDot summary={commit.checksSummary} />
 							<code className="rounded bg-muted px-2 py-1 text-xs">
 								{commit.shortSha}
 							</code>

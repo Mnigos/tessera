@@ -4,7 +4,7 @@ import {
 	getCheckRollupCount,
 	getCheckRollupDescription,
 	getCheckRollupPresentation,
-} from '../helpers/pull-request-checks'
+} from '@/modules/checks/helpers/check-presentation'
 
 interface PullRequestChecksSummaryBadgeProps {
 	summary?: ChecksSummary

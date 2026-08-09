@@ -7,6 +7,7 @@ import {
 	CircleCheck,
 	CircleDashed,
 	CircleDot,
+	CircleHelp,
 	CircleMinus,
 	CircleSlash,
 	CircleX,
@@ -94,6 +95,17 @@ const CHECK_ROLLUP_PRESENTATIONS: Record<
 		icon: CircleX,
 		iconClassName: 'text-rose-400',
 	},
+}
+
+/**
+ * A requirement nothing reported on. It is not a result and has no state, so it
+ * gets wording of its own rather than borrowing a state's: nothing ran, which is
+ * different from something running and different again from something failing.
+ */
+export const MISSING_CHECK_PRESENTATION: CheckStatePresentation = {
+	label: 'Not reported',
+	icon: CircleHelp,
+	iconClassName: 'text-rose-400',
 }
 
 /** Returns the icon, accent, and wording for one check result. */

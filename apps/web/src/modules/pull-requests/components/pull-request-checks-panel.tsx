@@ -1,19 +1,20 @@
-import type { Check, ChecksSummary } from '@repo/contracts'
+import type { Check, ChecksSummary, RequiredContext } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { cn } from '@repo/ui/utils'
-import { ExternalLink } from 'lucide-react'
 import {
-	formatCheckDuration,
 	getCheckRollupDescription,
 	getCheckRollupPresentation,
-	getCheckStatePresentation,
-} from '../helpers/pull-request-checks'
+} from '@/modules/checks/helpers/check-presentation'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
 import { usePullRequestChecksQuery } from '../hooks/use-pull-request-checks.query'
+import {
+	MissingRequiredCheckRow,
+	PullRequestCheckRow,
+} from './pull-request-check-rows'
 
 interface PullRequestChecksPanelProps {
 	username: string
@@ -23,19 +24,20 @@ interface PullRequestChecksPanelProps {
 }
 
 /**
- * Results reported on the pull request's head.
+ * Results reported on the pull request's head, and the requirements nothing
+ * reported at all.
  *
- * The summary arrives with the pull request, so the panel knows before it
- * fetches whether there is anything to show: a pull request nothing reports on
- * says so by rolling up to `none`, and renders no panel at all rather than a
- * permanent empty card. Checks are read-only imports, so this panel stays
- * visible on pull requests Tessera cannot write to.
+ * A rollup of `none` is no longer reason enough to render nothing: a protected
+ * branch requiring a check that never ran is the emptiest possible rollup and
+ * the most important thing this panel can say. So the read happens either way
+ * and the panel disappears only once it knows there is genuinely nothing —
+ * neither a result nor an unmet requirement — to show.
  */
 export function PullRequestChecksPanel({
 	checksSummary,
 	...target
 }: Readonly<PullRequestChecksPanelProps>) {
-	if (!checksSummary || checksSummary.overall === 'none') return null
+	if (!checksSummary) return null
 
 	return <ChecksPanel {...target} checksSummary={checksSummary} />
 }
@@ -61,6 +63,21 @@ function ChecksPanel({
 		expectedHeadSha: checksSummary.headSha,
 	})
 	const rollup = getCheckRollupPresentation(checksSummary.overall)
+	const missingRequiredContexts =
+		checksQuery.data?.missingRequiredContexts ?? []
+
+	// Nothing reported and nothing required: there is no panel to draw. Waiting
+	// for the read before deciding keeps a pull request with no checks from
+	// flashing an empty card at every reader.
+	//
+	// A read that failed is not an empty one. On a pull request with no results
+	// of its own, the requirements it could not load are the whole of what this
+	// panel had to say, and disappearing would read as "nothing is required".
+	if (
+		checksSummary.overall === 'none' &&
+		!(checksQuery.isError || missingRequiredContexts.length > 0)
+	)
+		return null
 
 	return (
 		<Card className="gap-0 p-0">
@@ -93,6 +110,7 @@ function ChecksPanel({
 				checks={checksQuery.data?.checks}
 				isError={checksQuery.isError}
 				isLoading={checksQuery.isLoading}
+				missingRequiredContexts={missingRequiredContexts}
 			/>
 		</Card>
 	)
@@ -130,12 +148,14 @@ interface ChecksPanelBodyProps {
 	checks?: Check[]
 	isError: boolean
 	isLoading: boolean
+	missingRequiredContexts: RequiredContext[]
 }
 
 function ChecksPanelBody({
 	checks,
 	isError,
 	isLoading,
+	missingRequiredContexts,
 }: Readonly<ChecksPanelBodyProps>) {
 	if (isLoading)
 		return (
@@ -156,7 +176,7 @@ function ChecksPanelBody({
 			</p>
 		)
 
-	if (!checks?.length)
+	if (!(checks?.length || missingRequiredContexts.length))
 		return (
 			<p className="border-border border-t px-4 py-3 text-muted-foreground text-sm italic">
 				No checks have reported on this commit yet.
@@ -165,77 +185,21 @@ function ChecksPanelBody({
 
 	return (
 		<ul className="divide-y divide-border border-border border-t">
-			{checks.map(check => (
+			{/* Absences lead: a required check that never ran outranks every result
+			    below it, and nothing further down the list implies it. */}
+			{missingRequiredContexts.map(requirement => (
+				<MissingRequiredCheckRow
+					key={toRequirementKey(requirement)}
+					requirement={requirement}
+				/>
+			))}
+			{checks?.map(check => (
 				<PullRequestCheckRow check={check} key={check.id} />
 			))}
 		</ul>
 	)
 }
 
-function PullRequestCheckRow({ check }: Readonly<{ check: Check }>) {
-	const presentation = getCheckStatePresentation(check.state)
-	const duration = formatCheckDuration(check.durationMs)
-	const detail = check.outputTitle || check.description
-
-	return (
-		<li className="flex items-start gap-3 px-4 py-2.5">
-			<presentation.icon
-				aria-hidden
-				className={cn('mt-0.5 size-4 shrink-0', presentation.iconClassName)}
-			/>
-			<div className="flex min-w-0 flex-1 flex-col">
-				<span className="truncate font-medium text-sm" title={check.context}>
-					{check.context}
-				</span>
-				<span className="truncate text-muted-foreground text-xs">
-					<CheckProviderName check={check} />
-					{detail && ` · ${detail}`}
-				</span>
-			</div>
-			<span className="flex shrink-0 items-center gap-3 text-xs">
-				<span
-					className={presentation.iconClassName}
-					// The raw provider wording is worth keeping within reach; the
-					// normalized state is what the row actually claims.
-					title={check.rawConclusion ?? check.rawStatus}
-				>
-					{presentation.label}
-				</span>
-				{duration && (
-					<span className="text-muted-foreground tabular-nums">{duration}</span>
-				)}
-				{check.targetUrl && (
-					<a
-						className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground hover:underline"
-						href={check.targetUrl}
-						rel="noreferrer noopener"
-						target="_blank"
-					>
-						Details
-						<ExternalLink aria-hidden className="size-3" />
-						<span className="sr-only">for {check.context}</span>
-					</a>
-				)}
-			</span>
-		</li>
-	)
-}
-
-function CheckProviderName({ check }: Readonly<{ check: Check }>) {
-	const name = check.provider.appSlug
-		? `${check.provider.name} (${check.provider.appSlug})`
-		: check.provider.name
-
-	if (!check.provider.url) return name
-
-	return (
-		<a
-			className="hover:text-foreground hover:underline"
-			href={check.provider.url}
-			rel="noreferrer noopener"
-			target="_blank"
-		>
-			{name}
-		</a>
-	)
+function toRequirementKey({ context, kind, providerAppId }: RequiredContext) {
+	return [context, kind ?? '', providerAppId ?? ''].join('\u0000')
 }
