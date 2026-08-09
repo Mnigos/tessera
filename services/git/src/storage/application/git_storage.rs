@@ -1,8 +1,8 @@
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryComparison,
     RepositoryCreated, RepositoryError, RepositoryFileDiff, RepositoryId, RepositoryImported,
-    RepositoryMerge, RepositoryMergeability, RepositoryRawBlob, RepositoryRefList, RepositoryTree,
-    TrustedGpgKey,
+    RepositoryMerge, RepositoryMergeRequest, RepositoryMergeStrategy, RepositoryMergeability,
+    RepositoryRawBlob, RepositoryRefList, RepositoryTree, TrustedGpgKey,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -165,32 +165,32 @@ impl GitStorageApplication {
             .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub async fn merge_repository_refs(
+        &self,
+        request: RepositoryMergeRequest<'_>,
+    ) -> Result<RepositoryMerge, RepositoryError> {
+        self.storage.merge_repository_refs(request).await
+    }
+
+    /// Whether one merge operation already happened. Moves nothing.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn find_repository_merge_receipt(
         &self,
         repository_id: &str,
         storage_path: &str,
-        base_ref: &str,
-        head_ref: &str,
+        operation_id: &str,
+        strategy: RepositoryMergeStrategy,
         expected_base_sha: &str,
         expected_head_sha: &str,
-        author_name: &str,
-        author_email: &str,
-        message: &str,
-        operation_id: &str,
-    ) -> Result<RepositoryMerge, RepositoryError> {
+    ) -> Result<Option<String>, RepositoryError> {
         self.storage
-            .merge_repository_refs(
+            .find_repository_merge_receipt(
                 repository_id,
                 storage_path,
-                base_ref,
-                head_ref,
+                operation_id,
+                strategy,
                 expected_base_sha,
                 expected_head_sha,
-                author_name,
-                author_email,
-                message,
-                operation_id,
             )
             .await
     }

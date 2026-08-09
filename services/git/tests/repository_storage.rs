@@ -11,12 +11,15 @@ use tessera_git::proto::{
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
     Config, GitStorageGrpcService, RepositoryBlobPreview, RepositoryChangedFileStatus,
-    RepositoryDiffLineKind, RepositoryError, RepositoryId, RepositoryRawBlob, RepositoryRefKind,
-    RepositorySignatureState, RepositoryTreeEntryKind, TrustedGpgKey,
+    RepositoryDiffLineKind, RepositoryError, RepositoryId, RepositoryMergeRequest,
+    RepositoryMergeStrategy, RepositoryMergeStrategyUnavailableReason, RepositoryMergeability,
+    RepositoryRawBlob, RepositoryRefKind, RepositorySignatureState, RepositoryTreeEntryKind,
+    TrustedGpgKey,
 };
 use tonic::{Code, Request};
 
 const REPOSITORY_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4b5";
+const OPERATION_ID: &str = "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7";
 
 #[test]
 fn path_construction_places_uuid_under_repositories_root() {
@@ -2169,60 +2172,49 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
         .to_string();
 
     let merged = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &base_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap();
     let retried = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &base_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap();
-    let refreshed_retry = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+    // The receipt records which tips this operation merged, so a retry naming a
+    // different pair is describing a merge that never happened under this
+    // identifier — no matter that the target is exactly where the first attempt
+    // left it.
+    let mismatched_retry = storage
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
-            &merged.merge_commit_sha,
+            &merged.resulting_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
-        .unwrap();
+        .unwrap_err();
 
     assert_eq!(merged, retried);
-    assert_eq!(merged, refreshed_retry);
+    assert!(matches!(
+        mismatched_retry,
+        RepositoryError::StaleRepositoryRef
+    ));
     assert_eq!(
         git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
-        merged.merge_commit_sha
+        merged.resulting_sha
     );
     let parents = git_stdout(
         &repository.path,
-        ["show", "-s", "--format=%P", &merged.merge_commit_sha],
+        ["show", "-s", "--format=%P", &merged.resulting_sha],
     );
     assert_eq!(parents.split_whitespace().count(), 2);
     assert!(parents.contains(&base_sha));
@@ -2230,7 +2222,7 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
     assert_eq!(
         git_stdout(
             &repository.path,
-            ["show", "-s", "--format=%an <%ae>", &merged.merge_commit_sha],
+            ["show", "-s", "--format=%an <%ae>", &merged.resulting_sha],
         )
         .trim(),
         "Ada <ada@example.com>"
@@ -2240,8 +2232,8 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
         .compare_repository_refs(
             REPOSITORY_ID,
             &repository.storage_path,
-            &format!("{}^1", merged.merge_commit_sha),
-            &format!("{}^2", merged.merge_commit_sha),
+            &format!("{}^1", merged.resulting_sha),
+            &format!("{}^2", merged.resulting_sha),
         )
         .await
         .unwrap();
@@ -2256,18 +2248,12 @@ async fn repository_merge_creates_two_parent_commit_and_is_idempotent() {
         "advance target after merge",
     );
     let recovered = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &base_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap();
     assert_eq!(recovered, merged);
@@ -2312,18 +2298,12 @@ async fn repository_merge_maps_update_ref_failure_without_ref_movement() {
     let failing_storage = storage(temp_dir.path(), git_script.to_str().unwrap());
 
     let error = failing_storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &base_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap_err();
 
@@ -2336,6 +2316,9 @@ async fn repository_merge_maps_update_ref_failure_without_ref_movement() {
         git_stdout(&repository.path, ["rev-parse", "feature"]).trim(),
         head_sha
     );
+    // The receipt is created in the same transaction as the target, so a
+    // transaction that did not happen leaves no claim that it did.
+    assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
 }
 
 #[tokio::test]
@@ -2372,35 +2355,23 @@ async fn repository_merge_rejects_stale_refs_and_conflicting_trees() {
         .to_string();
 
     let stale = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &"0".repeat(40),
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap_err();
     assert!(matches!(stale, RepositoryError::StaleRepositoryRef));
 
     let conflict = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &base_sha,
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap_err();
     assert!(matches!(conflict, RepositoryError::MergeConflict));
@@ -2689,33 +2660,21 @@ async fn repository_mergeability_check_leaves_merge_and_cas_behavior_intact() {
         .await
         .unwrap();
     let stale = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &"0".repeat(40),
             &head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap_err();
     let merged = storage
-        .merge_repository_refs(
-            REPOSITORY_ID,
+        .merge_repository_refs(merge_request(
             &repository.storage_path,
-            "main",
-            "feature",
             &mergeability.base_sha,
             &mergeability.head_sha,
-            "Ada",
-            "ada@example.com",
-            "Merge pull request #1",
-            "pr-1",
-        )
+            RepositoryMergeStrategy::MergeCommit,
+        ))
         .await
         .unwrap();
 
@@ -2725,15 +2684,1184 @@ async fn repository_mergeability_check_leaves_merge_and_cas_behavior_intact() {
     assert!(matches!(stale, RepositoryError::StaleRepositoryRef));
     assert_eq!(
         git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
-        merged.merge_commit_sha
+        merged.resulting_sha
     );
     let parents = git_stdout(
         &repository.path,
-        ["show", "-s", "--format=%P", &merged.merge_commit_sha],
+        ["show", "-s", "--format=%P", &merged.resulting_sha],
     );
     assert_eq!(parents.split_whitespace().count(), 2);
     assert!(parents.contains(&base_sha));
     assert!(parents.contains(&head_sha));
+}
+
+#[tokio::test]
+async fn repository_merge_squashes_the_merge_result_onto_one_parent() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+    let merge_tree_sha = git_stdout(
+        &repository.path,
+        ["merge-tree", "--write-tree", &base_sha, &head_sha],
+    )
+    .trim()
+    .to_string();
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Squash,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resolve(&repository.path, "main"), merged.resulting_sha);
+    assert_eq!(
+        commit_field(&repository.path, &merged.resulting_sha, "%P"),
+        base_sha
+    );
+    // The squash commits the merge result, not the source tree, so work the
+    // target picked up independently survives being squashed onto.
+    assert_eq!(
+        resolve(
+            &repository.path,
+            &format!("{}^{{tree}}", merged.resulting_sha)
+        ),
+        merge_tree_sha
+    );
+    assert_eq!(
+        commit_field(&repository.path, &merged.resulting_sha, "%B"),
+        format!(
+            "Add the feature (#1)\n\nEverything the branch did, in one commit.\n\nTessera-Operation: {OPERATION_ID}"
+        )
+    );
+    assert_eq!(
+        commit_field(&repository.path, &merged.resulting_sha, "%an <%ae>"),
+        "Ada <ada@example.com>"
+    );
+
+    // The source branch is gone and unreachable objects are collected, which is
+    // exactly the state a merged pull request's comparison has to survive. Only
+    // the receipt still reaches the tips it was merged from.
+    git(&repository.path, ["update-ref", "-d", "refs/heads/feature"]);
+    git(
+        &repository.path,
+        ["reflog", "expire", "--expire=now", "--all"],
+    );
+    git(&repository.path, ["gc", "--prune=now", "--quiet"]);
+
+    // No branch reaches the merged head any more, so the receipt is the only
+    // thing keeping it out of the pruner's way.
+    assert!(
+        !git_stdout(&repository.path, ["rev-list", "--branches"]).contains(&head_sha),
+        "the source head should be unreachable from every branch"
+    );
+    let comparison = storage
+        .compare_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(comparison.commits.len(), 2);
+    assert!(
+        comparison
+            .files
+            .iter()
+            .any(|file| file.new_path == "feature.txt")
+    );
+}
+
+#[tokio::test]
+async fn repository_merge_rebases_preserving_authors_and_dropping_empty_commits() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    append_commit_as(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[],
+        "empty feature commit",
+        "Grace",
+        "grace@example.com",
+        "2026-05-16T13:00:00+00:00",
+    );
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(resolve(&repository.path, "main"), merged.resulting_sha);
+    // A retry that lost the first response finds the receipt and reports the
+    // commits it already produced rather than replaying them a second time.
+    let retried = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap();
+    assert_eq!(retried, merged);
+    let replayed = git_stdout(
+        &repository.path,
+        [
+            "log",
+            "--format=%H%x00%s%x00%an <%ae>%x00%aI%x00%cn <%ce>",
+            &format!("{base_sha}..{}", merged.resulting_sha),
+        ],
+    );
+    let replayed: Vec<Vec<String>> = replayed
+        .lines()
+        .filter(|line| !line.is_empty())
+        .map(|line| line.split('\0').map(str::to_string).collect())
+        .rev()
+        .collect();
+
+    // Three source commits went in and the empty one did not come out.
+    assert_eq!(replayed.len(), 2);
+    assert_eq!(replayed[0][1], "first feature commit");
+    assert_eq!(replayed[0][2], "Grace <grace@example.com>");
+    assert_eq!(replayed[0][3], "2026-05-16T11:00:00+00:00");
+    assert_eq!(replayed[1][1], "second feature commit");
+    assert_eq!(replayed[1][2], "Katherine <katherine@example.com>");
+    // Whoever merged is the committer of every replayed commit, which is the
+    // only part of them that is Tessera's to write.
+    assert!(
+        replayed
+            .iter()
+            .all(|commit| commit[4] == "Ada <ada@example.com>")
+    );
+    // A linear chain: the first replayed commit sits directly on the target.
+    assert_eq!(
+        commit_field(&repository.path, &replayed[0][0], "%P"),
+        base_sha
+    );
+    assert_eq!(
+        commit_field(&repository.path, &replayed[1][0], "%P"),
+        replayed[0][0]
+    );
+    // Nothing Tessera writes appears on a commit that stayed the author's.
+    assert!(
+        !commit_field(&repository.path, &merged.resulting_sha, "%B").contains("Tessera-Operation")
+    );
+
+    git(&repository.path, ["update-ref", "-d", "refs/heads/feature"]);
+    git(
+        &repository.path,
+        ["reflog", "expire", "--expire=now", "--all"],
+    );
+    git(&repository.path, ["gc", "--prune=now", "--quiet"]);
+
+    // No branch reaches the merged head any more, so the receipt is the only
+    // thing keeping it out of the pruner's way.
+    assert!(
+        !git_stdout(&repository.path, ["rev-list", "--branches"]).contains(&head_sha),
+        "the source head should be unreachable from every branch"
+    );
+    let comparison = storage
+        .compare_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(comparison.commits.len(), 3);
+}
+
+#[tokio::test]
+async fn repository_merge_fast_forwards_onto_the_source_head() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+    let commit_count = git_stdout(&repository.path, ["rev-list", "--all", "--count"])
+        .trim()
+        .to_string();
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::FastForward,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(merged.resulting_sha, head_sha);
+    assert_eq!(resolve(&repository.path, "main"), head_sha);
+    // No commit was authored: only the receipt was added to the object store.
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-list", "--branches", "--count"]).trim(),
+        commit_count
+    );
+
+    let retried = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::FastForward,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(retried, merged);
+}
+
+#[tokio::test]
+async fn repository_merge_refuses_strategies_this_history_cannot_run() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let not_fast_forward = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::FastForward,
+        ))
+        .await
+        .unwrap_err();
+
+    // Branches that already point at the same commit are up to date rather than
+    // fast-forwardable: there is nowhere to advance to.
+    git(
+        &repository.path,
+        ["update-ref", "refs/heads/feature", &base_sha],
+    );
+    let already_up_to_date = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &base_sha,
+            RepositoryMergeStrategy::FastForward,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        not_fast_forward,
+        RepositoryError::MergeStrategyUnavailable(
+            RepositoryMergeStrategyUnavailableReason::NotFastForward
+        )
+    ));
+    assert!(matches!(
+        already_up_to_date,
+        RepositoryError::MergeStrategyUnavailable(
+            RepositoryMergeStrategyUnavailableReason::AlreadyUpToDate
+        )
+    ));
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+    // A refused strategy files no receipt, so nothing claims the target moved.
+    assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
+}
+
+// The ceiling is shared by the availability answer and the merge, so the two can
+// never disagree about which histories are rebaseable. Both sides of it are
+// checked here because an off-by-one would only ever show up as a merge method
+// that is offered and then refused.
+#[tokio::test]
+async fn repository_merge_rebases_up_to_its_commit_limit_and_no_further() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("main.txt", "main\n")],
+        "main commit",
+    );
+    append_source_commits(temp_dir.path(), &repository.path, 50);
+    let base_sha = resolve(&repository.path, "main");
+
+    let at_the_limit = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        strategy_reason(&at_the_limit, RepositoryMergeStrategy::Rebase),
+        Ok(())
+    );
+
+    // One more than the replay will take.
+    append_source_commits(temp_dir.path(), &repository.path, 1);
+    let head_sha = resolve(&repository.path, "feature");
+    let past_the_limit = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+    let refused = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap_err();
+
+    assert_eq!(
+        strategy_reason(&past_the_limit, RepositoryMergeStrategy::Rebase),
+        Err(RepositoryMergeStrategyUnavailableReason::UnsupportedHistory)
+    );
+    assert!(matches!(
+        refused,
+        RepositoryError::MergeStrategyUnavailable(
+            RepositoryMergeStrategyUnavailableReason::UnsupportedHistory
+        )
+    ));
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+}
+
+// A source branch that merged something into itself is flattened: the merge
+// commits are dropped and the commits they brought in are replayed, which is
+// what `git rebase` does by default.
+#[tokio::test]
+async fn repository_merge_rebases_a_source_branch_with_its_own_merges() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    git(&repository.path, ["branch", "side", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("main.txt", "main\n")],
+        "main commit",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "side",
+        &[("side.txt", "side\n")],
+        "side commit",
+    );
+    // A real merge commit inside the source branch's own history.
+    let worktree = clone_branch(temp_dir.path(), &repository.path, "feature");
+    command(worktree.path(), ["git", "fetch", "origin", "side"]);
+    command(
+        worktree.path(),
+        ["git", "merge", "--no-ff", "-m", "merge side", "FETCH_HEAD"],
+    );
+    command(worktree.path(), ["git", "push", "origin", "feature"]);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap();
+
+    let replayed = git_stdout(
+        &repository.path,
+        [
+            "log",
+            "--format=%s%x00%P",
+            &format!("{base_sha}..{}", merged.resulting_sha),
+        ],
+    );
+    let rows: Vec<&str> = replayed.lines().filter(|line| !line.is_empty()).collect();
+
+    // Both source commits arrive, the merge commit does not, and the chain is
+    // linear: every replayed commit has exactly one parent.
+    assert_eq!(rows.len(), 2);
+    assert!(replayed.contains("feature commit"));
+    assert!(replayed.contains("side commit"));
+    assert!(!replayed.contains("merge side"));
+    for row in rows {
+        let parents = row.split('\0').nth(1).unwrap_or_default();
+        assert_eq!(parents.split_whitespace().count(), 1);
+    }
+}
+
+// A replay conflict is a conflict whatever the file is, and a rename on one side
+// with an edit on the other is the case a three-way merge is most likely to get
+// wrong quietly.
+#[tokio::test]
+async fn repository_merge_refuses_a_rebase_that_conflicts_on_binary_or_renamed_files() {
+    for (name, target_files, source_files) in [
+        (
+            "binary",
+            vec![("asset.bin", "\u{0}target\u{1}")],
+            vec![("asset.bin", "\u{0}source\u{1}")],
+        ),
+        (
+            "renamed",
+            vec![("renamed.txt", "target\n")],
+            vec![("original.txt", "source\n")],
+        ),
+    ] {
+        let temp_dir = TempDir::new().unwrap();
+        let storage = storage(temp_dir.path(), "git");
+        let repository = storage.create_repository(&repository_id()).await.unwrap();
+        push_commit(
+            temp_dir.path(),
+            &repository.path,
+            "main",
+            &[("original.txt", "base\n"), ("asset.bin", "\u{0}base\u{1}")],
+        );
+        git(&repository.path, ["branch", "feature", "main"]);
+
+        if name == "renamed" {
+            // The target renames the file the source then edits.
+            let worktree = clone_branch(temp_dir.path(), &repository.path, "main");
+            command(
+                worktree.path(),
+                ["git", "mv", "original.txt", "renamed.txt"],
+            );
+            command(worktree.path(), ["git", "commit", "-m", "rename"]);
+            command(worktree.path(), ["git", "push", "origin", "main"]);
+        } else {
+            append_commit(
+                temp_dir.path(),
+                &repository.path,
+                "main",
+                &target_files,
+                "target change",
+            );
+        }
+
+        append_commit(
+            temp_dir.path(),
+            &repository.path,
+            "feature",
+            &source_files,
+            "source change",
+        );
+        let base_sha = resolve(&repository.path, "main");
+        let head_sha = resolve(&repository.path, "feature");
+
+        let outcome = storage
+            .merge_repository_refs(merge_request(
+                &repository.storage_path,
+                &base_sha,
+                &head_sha,
+                RepositoryMergeStrategy::Rebase,
+            ))
+            .await;
+
+        // Either it replays cleanly or it refuses; what it must never do is move
+        // the target while reporting a conflict, or lose the target's own work.
+        if outcome.is_err() {
+            assert!(
+                matches!(outcome, Err(RepositoryError::MergeConflict)),
+                "{name} should refuse with a conflict"
+            );
+            assert_eq!(resolve(&repository.path, "main"), base_sha, "{name}");
+            assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
+        }
+    }
+}
+
+#[tokio::test]
+async fn repository_merge_refuses_a_rebase_that_replays_to_nothing() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit_as(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[],
+        "empty feature commit",
+        "Grace",
+        "grace@example.com",
+        "2026-05-16T11:00:00+00:00",
+    );
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let error = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(
+        error,
+        RepositoryError::MergeStrategyUnavailable(
+            RepositoryMergeStrategyUnavailableReason::NothingToRebase
+        )
+    ));
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+}
+
+// A rebase builds every object before it touches a ref, so a replay that fails
+// partway through leaves unreachable loose objects and nothing else.
+#[tokio::test]
+async fn repository_merge_leaves_the_target_untouched_when_a_replay_conflicts() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n"), ("shared.txt", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    // The first source commit replays cleanly; the second touches the same lines
+    // the target moved, so only the second one conflicts.
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "clean feature commit",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("shared.txt", "feature\n")],
+        "conflicting feature commit",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("shared.txt", "main\n")],
+        "main change",
+    );
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let error = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Rebase,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::MergeConflict));
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+    assert_eq!(resolve(&repository.path, "feature"), head_sha);
+    assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
+}
+
+#[tokio::test]
+async fn repository_merge_files_a_receipt_exactly_when_the_target_moves() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+        "main change",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("README.md", "feature\n")],
+        "feature change",
+    );
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let conflict = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Squash,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(conflict, RepositoryError::MergeConflict));
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+    assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
+
+    // Someone else moving the target to exactly where a fast-forward would have
+    // left it is not this operation's merge: with no receipt of its own, the
+    // only honest answer is that the world moved.
+    git(
+        &repository.path,
+        ["update-ref", "refs/heads/main", &head_sha],
+    );
+    let stale = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::FastForward,
+        ))
+        .await
+        .unwrap_err();
+
+    assert!(matches!(stale, RepositoryError::StaleRepositoryRef));
+}
+
+#[tokio::test]
+async fn repository_merge_receipt_records_the_tips_it_merged() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Squash,
+        ))
+        .await
+        .unwrap();
+
+    let receipt = commit_field(&repository.path, &operation_receipt_ref(), "%B");
+
+    assert!(receipt.contains(&format!("Tessera-Operation: {OPERATION_ID}")));
+    assert!(receipt.contains("Tessera-Strategy: squash"));
+    assert!(receipt.contains(&format!("Tessera-Base: {base_sha}")));
+    assert!(receipt.contains(&format!("Tessera-Head: {head_sha}")));
+    assert!(receipt.contains(&format!("Tessera-Result: {}", merged.resulting_sha)));
+    let parents = commit_field(&repository.path, &operation_receipt_ref(), "%P");
+    assert!(parents.contains(&base_sha));
+    assert!(parents.contains(&head_sha));
+    assert!(parents.contains(&merged.resulting_sha));
+}
+
+#[tokio::test]
+async fn repository_merge_strips_caller_authored_tessera_trailers() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+    let mut request = merge_request(
+        &repository.storage_path,
+        &base_sha,
+        &head_sha,
+        RepositoryMergeStrategy::Squash,
+    );
+    request.squash_body = "Body\nTessera-Operation: 00000000-0000-0000-0000-000000000000";
+
+    let merged = storage.merge_repository_refs(request).await.unwrap();
+
+    let message = commit_field(&repository.path, &merged.resulting_sha, "%B");
+
+    assert!(message.contains(&format!("Tessera-Operation: {OPERATION_ID}")));
+    assert!(!message.contains("00000000-0000-0000-0000-000000000000"));
+}
+
+#[tokio::test]
+async fn repository_merge_rejects_an_operation_id_that_is_not_a_uuid() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+    let mut request = merge_request(
+        &repository.storage_path,
+        &base_sha,
+        &head_sha,
+        RepositoryMergeStrategy::MergeCommit,
+    );
+    request.operation_id = "../../heads/main";
+
+    let error = storage.merge_repository_refs(request).await.unwrap_err();
+
+    assert!(matches!(error, RepositoryError::InvalidMergeInput));
+}
+
+// Recording a merge after the fact is only safe for merges that happened. The
+// lookup is what tells those apart, and it moves nothing either way.
+// Merges made before receipts existed left only a trailer on the merge commit.
+// That scan walks history, so it is reached only when the target has actually
+// moved — a merge of ours that landed would have moved it, and a target sitting
+// where this request expects it cannot be hiding one.
+#[tokio::test]
+async fn repository_merge_recovers_a_pre_receipt_merge_only_when_the_target_moved() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    // A merge exactly as the pre-receipt implementation left one: two parents,
+    // the operation trailer, and no receipt anywhere.
+    let tree_sha = git_stdout(
+        &repository.path,
+        ["merge-tree", "--write-tree", &base_sha, &head_sha],
+    )
+    .trim()
+    .to_string();
+    let legacy_merge_sha = git_stdout(
+        &repository.path,
+        [
+            "commit-tree",
+            &tree_sha,
+            "-p",
+            &base_sha,
+            "-p",
+            &head_sha,
+            "-m",
+            &format!("Merge pull request #1\n\nTessera-Operation: {OPERATION_ID}\n"),
+        ],
+    )
+    .trim()
+    .to_string();
+    git(
+        &repository.path,
+        ["update-ref", "refs/heads/main", &legacy_merge_sha],
+    );
+
+    let recovered = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::MergeCommit,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(recovered.resulting_sha, legacy_merge_sha);
+    assert_eq!(resolve(&repository.path, "main"), legacy_merge_sha);
+    assert!(!ref_exists(&repository.path, &operation_receipt_ref()));
+
+    // With the target back where the request expects it there is nothing for the
+    // scan to find, and the merge proceeds as an ordinary first attempt.
+    git(
+        &repository.path,
+        ["update-ref", "refs/heads/main", &base_sha],
+    );
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::MergeCommit,
+        ))
+        .await
+        .unwrap();
+
+    assert_ne!(merged.resulting_sha, legacy_merge_sha);
+    assert!(ref_exists(&repository.path, &operation_receipt_ref()));
+}
+
+#[tokio::test]
+async fn repository_merge_receipt_lookup_finds_only_merges_that_happened() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+
+    let before = storage
+        .find_repository_merge_receipt(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            OPERATION_ID,
+            RepositoryMergeStrategy::Squash,
+            &base_sha,
+            &head_sha,
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(before, None);
+    assert_eq!(resolve(&repository.path, "main"), base_sha);
+
+    let merged = storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Squash,
+        ))
+        .await
+        .unwrap();
+
+    assert_eq!(
+        storage
+            .find_repository_merge_receipt(
+                REPOSITORY_ID,
+                &repository.storage_path,
+                OPERATION_ID,
+                RepositoryMergeStrategy::Squash,
+                &base_sha,
+                &head_sha,
+            )
+            .await
+            .unwrap(),
+        Some(merged.resulting_sha)
+    );
+
+    // A receipt that records other tips, or another method, describes a merge
+    // this caller never asked for.
+    for (strategy, base, head) in [
+        (RepositoryMergeStrategy::Rebase, &base_sha, &head_sha),
+        (RepositoryMergeStrategy::Squash, &head_sha, &head_sha),
+        (RepositoryMergeStrategy::Squash, &base_sha, &base_sha),
+    ] {
+        assert_eq!(
+            storage
+                .find_repository_merge_receipt(
+                    REPOSITORY_ID,
+                    &repository.storage_path,
+                    OPERATION_ID,
+                    strategy,
+                    base,
+                    head,
+                )
+                .await
+                .unwrap(),
+            None
+        );
+    }
+}
+
+// The paths that most need cleaning up are the ones that never reach the end of
+// the function, so the scratch store is removed by its destructor rather than by
+// a line at the bottom.
+#[cfg(unix)]
+#[tokio::test]
+async fn repository_mergeability_removes_its_scratch_store_after_a_git_failure() {
+    let temp_dir = TempDir::new().unwrap();
+    let repository_storage = storage(temp_dir.path(), "git");
+    let repository = repository_storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    // Fails the first writing command the availability answer runs, which is
+    // reached only after the scratch store has been created.
+    let git_script = temp_dir.path().join("fail-merge-tree.sh");
+    fs::write(
+        &git_script,
+        "#!/bin/sh\nfor argument in \"$@\"; do\n\tif [ \"$argument\" = \"merge-tree\" ]; then\n\t\tprintf 'forced merge-tree failure\\n' >&2\n\t\texit 3\n\tfi\ndone\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    make_executable(&git_script);
+    let failing_storage = storage(temp_dir.path(), git_script.to_str().unwrap());
+
+    let error = failing_storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(error, RepositoryError::GitProcessFailed));
+    assert_eq!(scratch_object_stores(&repository.path), 0);
+}
+
+// A cancelled answer has no executor left to await on, which is exactly why the
+// cleanup is a destructor.
+#[cfg(unix)]
+#[tokio::test]
+async fn repository_mergeability_removes_its_scratch_store_when_cancelled() {
+    let temp_dir = TempDir::new().unwrap();
+    let repository_storage = storage(temp_dir.path(), "git");
+    let repository = repository_storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    // Stalls the first command that runs after the scratch store is created, so
+    // the cancellation lands while the store definitely exists.
+    let git_script = temp_dir.path().join("slow-merge-tree.sh");
+    fs::write(
+        &git_script,
+        "#!/bin/sh\nfor argument in \"$@\"; do\n\tif [ \"$argument\" = \"merge-tree\" ]; then\n\t\texec sleep 30\n\tfi\ndone\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    make_executable(&git_script);
+    let slow_storage = storage(temp_dir.path(), git_script.to_str().unwrap());
+
+    // Dropped mid-flight, the way the operation timeout drops it.
+    let cancelled = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        slow_storage.check_repository_mergeability(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+        ),
+    )
+    .await;
+
+    assert!(cancelled.is_err(), "the answer should have been cancelled");
+    assert_eq!(scratch_object_stores(&repository.path), 0);
+}
+
+/// Scratch object stores the repository is still carrying.
+fn scratch_object_stores(bare_repository_path: &Path) -> usize {
+    fs::read_dir(bare_repository_path)
+        .unwrap()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with("tessera-mergeability-")
+        })
+        .count()
+}
+
+// Deciding whether a rebase would go through means performing it, and every
+// pull request page asks. Those objects go to a scratch store, not the
+// repository the question is about.
+#[tokio::test]
+async fn repository_mergeability_writes_no_objects_into_the_repository() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let objects_before = count_repository_objects(&repository.path);
+    let entries_before = count_repository_entries(&repository.path);
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        strategy_reason(&mergeability, RepositoryMergeStrategy::Rebase),
+        Ok(())
+    );
+    assert_eq!(
+        count_repository_objects(&repository.path),
+        objects_before,
+        "an availability check must leave no objects in the repository"
+    );
+    // And the scratch store it used is gone with them.
+    assert_eq!(count_repository_entries(&repository.path), entries_before);
+}
+
+/// Every object the repository's own store holds, loose or packed.
+fn count_repository_objects(bare_repository_path: &Path) -> usize {
+    git_stdout(
+        bare_repository_path,
+        ["cat-file", "--batch-all-objects", "--batch-check"],
+    )
+    .lines()
+    .filter(|line| !line.is_empty())
+    .count()
+}
+
+/// The repository directory's own entries, so a scratch store left behind is
+/// visible even when it holds nothing.
+fn count_repository_entries(bare_repository_path: &Path) -> usize {
+    fs::read_dir(bare_repository_path).unwrap().count()
+}
+
+#[tokio::test]
+async fn repository_mergeability_answers_for_every_strategy() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+
+    let diverged = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        strategy_reason(&diverged, RepositoryMergeStrategy::MergeCommit),
+        Ok(())
+    );
+    assert_eq!(
+        strategy_reason(&diverged, RepositoryMergeStrategy::Squash),
+        Ok(())
+    );
+    assert_eq!(
+        strategy_reason(&diverged, RepositoryMergeStrategy::Rebase),
+        Ok(())
+    );
+    assert_eq!(
+        strategy_reason(&diverged, RepositoryMergeStrategy::FastForward),
+        Err(RepositoryMergeStrategyUnavailableReason::NotFastForward)
+    );
+
+    // Rewinding the target under the same source makes it an ancestor again, and
+    // only the fast-forward's answer changes.
+    let merge_base_sha = git_stdout(&repository.path, ["merge-base", "main", "feature"])
+        .trim()
+        .to_string();
+    git(
+        &repository.path,
+        ["update-ref", "refs/heads/main", &merge_base_sha],
+    );
+    let fast_forwardable = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert_eq!(
+        strategy_reason(&fast_forwardable, RepositoryMergeStrategy::FastForward),
+        Ok(())
+    );
+}
+
+#[tokio::test]
+async fn repository_mergeability_reports_a_conflict_against_every_combining_strategy() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+        "main change",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("README.md", "feature\n")],
+        "feature change",
+    );
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert!(!mergeability.mergeable);
+
+    for strategy in [
+        RepositoryMergeStrategy::MergeCommit,
+        RepositoryMergeStrategy::Squash,
+        RepositoryMergeStrategy::Rebase,
+    ] {
+        assert_eq!(
+            strategy_reason(&mergeability, strategy),
+            Err(RepositoryMergeStrategyUnavailableReason::Conflict),
+            "{strategy:?} should be refused by the conflict"
+        );
+    }
+
+    assert_eq!(
+        strategy_reason(&mergeability, RepositoryMergeStrategy::FastForward),
+        Err(RepositoryMergeStrategyUnavailableReason::NotFastForward)
+    );
+}
+
+fn strategy_reason(
+    mergeability: &RepositoryMergeability,
+    strategy: RepositoryMergeStrategy,
+) -> Result<(), RepositoryMergeStrategyUnavailableReason> {
+    let availability = mergeability
+        .strategy_availability
+        .iter()
+        .find(|availability| availability.strategy == strategy)
+        .unwrap_or_else(|| panic!("{strategy:?} has no availability entry"));
+
+    match availability.reason {
+        Some(reason) => Err(reason),
+        None => Ok(()),
+    }
 }
 
 fn clone_branch<'a>(temp_root: &'a Path, bare_repository_path: &Path, branch: &str) -> TempDir {
@@ -2762,6 +3890,124 @@ fn clone_branch<'a>(temp_root: &'a Path, bare_repository_path: &Path, branch: &s
 
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {
     RepositoryStorage::new(storage_root.to_path_buf(), PathBuf::from(git_binary))
+}
+
+fn merge_request<'a>(
+    storage_path: &'a str,
+    base_sha: &'a str,
+    head_sha: &'a str,
+    strategy: RepositoryMergeStrategy,
+) -> RepositoryMergeRequest<'a> {
+    RepositoryMergeRequest {
+        repository_id: REPOSITORY_ID,
+        storage_path,
+        base_ref: "main",
+        head_ref: "feature",
+        expected_base_sha: base_sha,
+        expected_head_sha: head_sha,
+        author_name: "Ada",
+        author_email: "ada@example.com",
+        message: "Merge pull request #1",
+        squash_title: "Add the feature (#1)",
+        squash_body: "Everything the branch did, in one commit.",
+        strategy,
+        operation_id: OPERATION_ID,
+    }
+}
+
+/// Stacks commits onto the source branch, for the cases that care about how
+/// many there are rather than what is in them.
+fn append_source_commits(temp_root: &Path, bare_repository_path: &Path, count: usize) {
+    let worktree = clone_branch(temp_root, bare_repository_path, "feature");
+
+    for index in 0..count {
+        fs::write(
+            worktree.path().join("stacked.txt"),
+            format!("commit {index}\n"),
+        )
+        .unwrap();
+        command(worktree.path(), ["git", "add", "."]);
+        command(
+            worktree.path(),
+            ["git", "commit", "-m", &format!("stacked {index}")],
+        );
+    }
+
+    command(worktree.path(), ["git", "push", "origin", "feature"]);
+}
+
+fn operation_receipt_ref() -> String {
+    format!("refs/tessera/operations/{OPERATION_ID}")
+}
+
+fn ref_exists(bare_repository_path: &Path, reference: &str) -> bool {
+    Command::new("git")
+        .args([
+            "--git-dir",
+            bare_repository_path.to_str().unwrap(),
+            "rev-parse",
+            "--verify",
+            "--quiet",
+            reference,
+        ])
+        .output()
+        .unwrap()
+        .status
+        .success()
+}
+
+fn resolve(bare_repository_path: &Path, revision: &str) -> String {
+    git_stdout(bare_repository_path, ["rev-parse", revision])
+        .trim()
+        .to_string()
+}
+
+fn commit_field(bare_repository_path: &Path, revision: &str, format: &str) -> String {
+    git_stdout(
+        bare_repository_path,
+        ["show", "-s", &format!("--format={format}"), revision],
+    )
+    .trim()
+    .to_string()
+}
+
+/// A branch with three commits on top of `main`, of which the middle one changes
+/// nothing that survives being replayed onto the target.
+fn push_diverged_feature_branch(temp_root: &Path, bare_repository_path: &Path) {
+    push_commit(
+        temp_root,
+        bare_repository_path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(bare_repository_path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_root,
+        bare_repository_path,
+        "main",
+        &[("main.txt", "main\n")],
+        "main commit",
+    );
+    append_commit_as(
+        temp_root,
+        bare_repository_path,
+        "feature",
+        &[("feature.txt", "first\n")],
+        "first feature commit",
+        "Grace",
+        "grace@example.com",
+        "2026-05-16T11:00:00+00:00",
+    );
+    append_commit_as(
+        temp_root,
+        bare_repository_path,
+        "feature",
+        &[("feature.txt", "second\n")],
+        "second feature commit",
+        "Katherine",
+        "katherine@example.com",
+        "2026-05-16T12:00:00+00:00",
+    );
 }
 
 fn grpc_service(storage_root: &Path) -> GitStorageGrpcService {
@@ -2955,6 +4201,39 @@ fn append_commit(
         &[
             ("GIT_AUTHOR_DATE", "2026-05-16T10:02:00+00:00"),
             ("GIT_COMMITTER_DATE", "2026-05-16T10:02:00+00:00"),
+        ],
+    );
+    command(worktree.path(), ["git", "push", "origin", branch_name]);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn append_commit_as(
+    temp_root: &Path,
+    bare_repository_path: &Path,
+    branch_name: &str,
+    files: &[(&str, &str)],
+    message: &str,
+    author_name: &str,
+    author_email: &str,
+    author_date: &str,
+) {
+    let worktree = clone_branch(temp_root, bare_repository_path, branch_name);
+
+    for (file_path, content) in files {
+        let path = worktree.path().join(file_path);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(path, content).unwrap();
+    }
+
+    command(worktree.path(), ["git", "add", "."]);
+    command_with_env(
+        worktree.path(),
+        ["git", "commit", "--allow-empty", "-m", message],
+        &[
+            ("GIT_AUTHOR_NAME", author_name),
+            ("GIT_AUTHOR_EMAIL", author_email),
+            ("GIT_AUTHOR_DATE", author_date),
+            ("GIT_COMMITTER_DATE", "2026-05-16T10:05:00+00:00"),
         ],
     );
     command(worktree.path(), ["git", "push", "origin", branch_name]);

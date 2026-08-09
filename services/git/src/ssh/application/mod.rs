@@ -120,6 +120,7 @@ fn storage_error_to_ssh_error(error: RepositoryError) -> SshGitError {
         | RepositoryError::BlobTooLarge
         | RepositoryError::ComparisonFileNotFound
         | RepositoryError::MergeConflict
+        | RepositoryError::MergeStrategyUnavailable(_)
         | RepositoryError::StaleRepositoryRef
         | RepositoryError::StorageIo(_)
         | RepositoryError::InvalidGitOutput => SshGitError::RepositoryUnavailable,

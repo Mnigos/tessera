@@ -1,10 +1,52 @@
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
+
+use tokio::io::AsyncWriteExt;
+use tokio::process::Command;
+use tokio::time::{Duration, timeout};
 
 use crate::domain::RepositoryError;
 use crate::storage::infrastructure::repository_ref_helpers::{
-    qualified_branch_ref, resolve_commit_ref,
+    qualified_branch_ref, resolve_commit_ref, utf8_trimmed,
 };
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
+
+pub(super) const MERGE_COMMAND_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Where Git should put the objects a command writes.
+///
+/// A merge writes into the repository, because its objects are what the target
+/// branch will point at. An availability check writes into a scratch store that
+/// is deleted afterwards: it answers a question, and a question must not leave
+/// unreachable objects behind in a repository every pull request page asks it
+/// about.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct ObjectStore<'a> {
+    scratch_path: Option<&'a Path>,
+}
+
+impl<'a> ObjectStore<'a> {
+    pub(super) fn repository() -> Self {
+        Self { scratch_path: None }
+    }
+
+    pub(super) fn scratch(scratch_path: &'a Path) -> Self {
+        Self {
+            scratch_path: Some(scratch_path),
+        }
+    }
+
+    /// Points Git's writes at the scratch store while leaving the repository's
+    /// own objects readable through it.
+    fn apply(self, command: &mut Command, repository_path: &Path) {
+        if let Some(scratch_path) = self.scratch_path {
+            command.env("GIT_OBJECT_DIRECTORY", scratch_path).env(
+                "GIT_ALTERNATE_OBJECT_DIRECTORIES",
+                repository_path.join("objects"),
+            );
+        }
+    }
+}
 
 pub(super) struct ResolvedMergeRefs {
     pub repository_path: PathBuf,
@@ -17,6 +59,24 @@ pub(super) struct ResolvedMergeRefs {
 pub(super) enum MergeTreeOutcome {
     Clean(Vec<u8>),
     Conflicted(Vec<u8>),
+}
+
+/// One commit to write. Author and committer are separate because a rebase
+/// keeps the original author — name, address and date — and records the person
+/// who merged as the committer, exactly as `git rebase` does.
+pub(super) struct CommitTreeRequest<'a> {
+    pub tree_sha: &'a str,
+    pub parents: &'a [&'a str],
+    pub author_name: &'a str,
+    pub author_email: &'a str,
+    /// Absent lets Git stamp the current time, which is what an authored merge
+    /// or squash commit wants.
+    pub author_date: Option<&'a str>,
+    pub committer_name: &'a str,
+    pub committer_email: &'a str,
+    /// Bytes rather than text: a replayed commit keeps the message the author
+    /// wrote, and Git does not require it to be UTF-8.
+    pub message: &'a [u8],
 }
 
 pub(super) async fn resolve_merge_refs(
@@ -47,9 +107,16 @@ pub(super) async fn resolve_merge_refs(
 pub(super) async fn run_merge_tree<const N: usize>(
     storage: &RepositoryStorage,
     repository_path: &Path,
+    objects: ObjectStore<'_>,
     args: [&str; N],
 ) -> Result<MergeTreeOutcome, RepositoryError> {
-    let output = storage.git(repository_path, args).await?;
+    let mut command = Command::new(&storage.git_binary);
+    command.arg("--git-dir").arg(repository_path).args(args);
+    objects.apply(&mut command, repository_path);
+    let output = timeout(MERGE_COMMAND_TIMEOUT, command.kill_on_drop(true).output())
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?
+        .map_err(RepositoryError::GitProcessIo)?;
 
     if output.status.success() {
         return Ok(MergeTreeOutcome::Clean(output.stdout));
@@ -59,4 +126,156 @@ pub(super) async fn run_merge_tree<const N: usize>(
         Some(1) => Ok(MergeTreeOutcome::Conflicted(output.stdout)),
         _ => Err(RepositoryError::GitProcessFailed),
     }
+}
+
+/// The tree `git merge-tree --write-tree` produced, which every strategy that
+/// combines two tips commits as-is.
+pub(super) async fn write_merge_tree(
+    storage: &RepositoryStorage,
+    repository_path: &Path,
+    base_sha: &str,
+    head_sha: &str,
+) -> Result<String, RepositoryError> {
+    let stdout = match run_merge_tree(
+        storage,
+        repository_path,
+        ObjectStore::repository(),
+        [
+            "merge-tree",
+            "--write-tree",
+            "--messages",
+            base_sha,
+            head_sha,
+        ],
+    )
+    .await?
+    {
+        MergeTreeOutcome::Clean(stdout) => stdout,
+        MergeTreeOutcome::Conflicted(_) => return Err(RepositoryError::MergeConflict),
+    };
+    let tree_sha = utf8_trimmed(&stdout)?
+        .lines()
+        .next()
+        .ok_or(RepositoryError::InvalidGitOutput)?
+        .to_string();
+
+    if tree_sha.is_empty() {
+        return Err(RepositoryError::InvalidGitOutput);
+    }
+
+    Ok(tree_sha)
+}
+
+pub(super) async fn resolve_commit_tree(
+    storage: &RepositoryStorage,
+    repository_path: &Path,
+    commit_sha: &str,
+) -> Result<String, RepositoryError> {
+    let tree_ref = format!("{commit_sha}^{{tree}}");
+    let output = storage
+        .git(
+            repository_path,
+            ["rev-parse", "--verify", "--end-of-options", &tree_ref],
+        )
+        .await?;
+
+    if !output.status.success() {
+        return Err(RepositoryError::RepositoryObjectNotFound);
+    }
+
+    let tree_sha = utf8_trimmed(&output.stdout)?;
+    if tree_sha.is_empty() {
+        return Err(RepositoryError::InvalidGitOutput);
+    }
+
+    Ok(tree_sha)
+}
+
+pub(super) async fn is_ancestor(
+    storage: &RepositoryStorage,
+    repository_path: &Path,
+    ancestor_sha: &str,
+    descendant_sha: &str,
+) -> Result<bool, RepositoryError> {
+    let output = storage
+        .git(
+            repository_path,
+            ["merge-base", "--is-ancestor", ancestor_sha, descendant_sha],
+        )
+        .await?;
+
+    match output.status.code() {
+        Some(0) => Ok(true),
+        Some(1) => Ok(false),
+        _ => Err(RepositoryError::GitProcessFailed),
+    }
+}
+
+/// Writes one commit object. The message goes in over stdin rather than as an
+/// argument: pull request bodies run to tens of kilobytes, and an argument list
+/// has a limit a commit message does not.
+pub(super) async fn create_commit(
+    storage: &RepositoryStorage,
+    repository_path: &Path,
+    objects: ObjectStore<'_>,
+    request: CommitTreeRequest<'_>,
+) -> Result<String, RepositoryError> {
+    let mut command = Command::new(&storage.git_binary);
+
+    objects.apply(&mut command, repository_path);
+    command
+        .arg("--git-dir")
+        .arg(repository_path)
+        .arg("commit-tree")
+        .arg(request.tree_sha);
+
+    for parent in request.parents {
+        command.arg("-p").arg(parent);
+    }
+
+    command
+        .arg("-F")
+        .arg("-")
+        .env("GIT_AUTHOR_NAME", request.author_name)
+        .env("GIT_AUTHOR_EMAIL", request.author_email)
+        .env("GIT_COMMITTER_NAME", request.committer_name)
+        .env("GIT_COMMITTER_EMAIL", request.committer_email)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .kill_on_drop(true);
+
+    if let Some(author_date) = request.author_date {
+        command.env("GIT_AUTHOR_DATE", author_date);
+    }
+
+    let mut child = command.spawn().map_err(RepositoryError::GitProcessIo)?;
+    let mut stdin = child
+        .stdin
+        .take()
+        .ok_or(RepositoryError::GitProcessFailed)?;
+    let write_result = stdin.write_all(request.message).await;
+    drop(stdin);
+    let output = timeout(MERGE_COMMAND_TIMEOUT, child.wait_with_output())
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?
+        .map_err(RepositoryError::GitProcessIo)?;
+
+    if !output.status.success() {
+        tracing::warn!(
+            stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+            "git commit-tree failed"
+        );
+
+        return Err(RepositoryError::GitProcessFailed);
+    }
+
+    write_result.map_err(RepositoryError::GitProcessIo)?;
+
+    let commit_sha = utf8_trimmed(&output.stdout)?;
+    if commit_sha.is_empty() {
+        return Err(RepositoryError::InvalidGitOutput);
+    }
+
+    Ok(commit_sha)
 }

@@ -7,7 +7,6 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
 
 use tempfile::TempDir;
-use tessera_git::RepositoryId;
 use tessera_git::proto::git_push_events_service_server::{
     GitPushEventsService, GitPushEventsServiceServer,
 };
@@ -16,6 +15,7 @@ use tessera_git::push_events::domain::{PushEventContext, PushHookConfig};
 use tessera_git::push_events::infrastructure::{ApiPushEventNotifier, PushEventSpool};
 use tessera_git::push_events::sweep_push_events;
 use tessera_git::storage::infrastructure::RepositoryStorage;
+use tessera_git::{RepositoryId, RepositoryMergeRequest, RepositoryMergeStrategy};
 use tonic::transport::Server;
 use tonic::{Request, Response, Status};
 
@@ -318,18 +318,21 @@ async fn imports_fetches_merges_and_mirror_pushes_never_reach_the_hook() {
 
     repository
         .storage()
-        .merge_repository_refs(
-            REPOSITORY_ID,
-            &storage_path,
-            "main",
-            "rewrite",
-            &repository.second_commit,
-            &repository.rewritten_commit,
-            "Tessera Test",
-            "test@example.com",
-            "Merge rewrite",
-            "operation",
-        )
+        .merge_repository_refs(RepositoryMergeRequest {
+            repository_id: REPOSITORY_ID,
+            storage_path: &storage_path,
+            base_ref: "main",
+            head_ref: "rewrite",
+            expected_base_sha: &repository.second_commit,
+            expected_head_sha: &repository.rewritten_commit,
+            author_name: "Tessera Test",
+            author_email: "test@example.com",
+            message: "Merge rewrite",
+            squash_title: "",
+            squash_body: "",
+            strategy: RepositoryMergeStrategy::MergeCommit,
+            operation_id: "018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7",
+        })
         .await
         .unwrap();
     // The repository already exists, so this is the refresh-fetch path rather

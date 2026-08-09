@@ -4,8 +4,11 @@ use crate::domain::{
     RepositoryChangedFileStatus as DomainRepositoryChangedFileStatus,
     RepositoryCommitIdentity as DomainRepositoryCommitIdentity,
     RepositoryDiffHunk as DomainRepositoryDiffHunk, RepositoryDiffLine as DomainRepositoryDiffLine,
-    RepositoryDiffLineKind as DomainRepositoryDiffLineKind, RepositoryError, RepositoryRefKind,
-    RepositorySignature as DomainRepositorySignature,
+    RepositoryDiffLineKind as DomainRepositoryDiffLineKind, RepositoryError,
+    RepositoryMergeRequest, RepositoryMergeStrategy as DomainRepositoryMergeStrategy,
+    RepositoryMergeStrategyAvailability as DomainRepositoryMergeStrategyAvailability,
+    RepositoryMergeStrategyUnavailableReason as DomainRepositoryMergeStrategyUnavailableReason,
+    RepositoryRefKind, RepositorySignature as DomainRepositorySignature,
     RepositorySignatureState as DomainRepositorySignatureState, RepositoryTreeEntryKind,
     TrustedGpgKey as DomainTrustedGpgKey,
 };
@@ -13,7 +16,8 @@ use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
     CheckRepositoryMergeabilityRequest, CheckRepositoryMergeabilityResponse,
     CompareRepositoryRefsRequest, CompareRepositoryRefsResponse, CreateRepositoryRequest,
-    CreateRepositoryResponse, GetRepositoryBlobRequest, GetRepositoryBlobResponse,
+    CreateRepositoryResponse, FindRepositoryMergeReceiptRequest,
+    FindRepositoryMergeReceiptResponse, GetRepositoryBlobRequest, GetRepositoryBlobResponse,
     GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse,
     GetRepositoryFileDiffRequest, GetRepositoryFileDiffResponse, GetRepositoryRawBlobRequest,
     GetRepositoryRawBlobResponse, GetRepositoryTreeRequest, GetRepositoryTreeResponse,
@@ -24,6 +28,8 @@ use crate::proto::{
     RepositoryBlobPreviewState as ProtoRepositoryBlobPreviewState, RepositoryChangedFile,
     RepositoryChangedFileStatus, RepositoryCommit, RepositoryCommitIdentity,
     RepositoryComparisonCommit, RepositoryDiffHunk, RepositoryDiffLine, RepositoryDiffLineKind,
+    RepositoryMergeStrategy as ProtoRepositoryMergeStrategy, RepositoryMergeStrategyAvailability,
+    RepositoryMergeStrategyUnavailableReason as ProtoRepositoryMergeStrategyUnavailableReason,
     RepositoryReadme, RepositoryRef, RepositoryRefKind as ProtoRepositoryRefKind,
     RepositorySignature, RepositorySignatureState as ProtoRepositorySignatureState,
     RepositoryTreeEntry, RepositoryTreeEntryKind as ProtoRepositoryTreeEntryKind, TrustedGpgKey,
@@ -371,25 +377,55 @@ impl GitStorageService for GitStorageGrpcService {
         request: Request<MergeRepositoryRefsRequest>,
     ) -> Result<Response<MergeRepositoryRefsResponse>, Status> {
         let request = request.into_inner();
+        let strategy = domain_merge_strategy(request.strategy)?;
         let merge = self
             .application
-            .merge_repository_refs(
-                &request.repository_id,
-                &request.storage_path,
-                &request.base_ref,
-                &request.head_ref,
-                &request.expected_base_sha,
-                &request.expected_head_sha,
-                &request.author_name,
-                &request.author_email,
-                &request.message,
-                &request.operation_id,
-            )
+            .merge_repository_refs(RepositoryMergeRequest {
+                repository_id: &request.repository_id,
+                storage_path: &request.storage_path,
+                base_ref: &request.base_ref,
+                head_ref: &request.head_ref,
+                expected_base_sha: &request.expected_base_sha,
+                expected_head_sha: &request.expected_head_sha,
+                author_name: &request.author_name,
+                author_email: &request.author_email,
+                message: &request.message,
+                squash_title: &request.squash_title,
+                squash_body: &request.squash_body,
+                strategy,
+                operation_id: &request.operation_id,
+            })
             .await
             .map_err(repository_error_to_status)?;
 
         Ok(Response::new(MergeRepositoryRefsResponse {
-            merge_commit_sha: merge.merge_commit_sha,
+            merge_commit_sha: merge.resulting_sha.clone(),
+            resulting_sha: merge.resulting_sha,
+        }))
+    }
+
+    async fn find_repository_merge_receipt(
+        &self,
+        request: Request<FindRepositoryMergeReceiptRequest>,
+    ) -> Result<Response<FindRepositoryMergeReceiptResponse>, Status> {
+        let request = request.into_inner();
+        let strategy = domain_merge_strategy(request.strategy)?;
+        let resulting_sha = self
+            .application
+            .find_repository_merge_receipt(
+                &request.repository_id,
+                &request.storage_path,
+                &request.operation_id,
+                strategy,
+                &request.expected_base_sha,
+                &request.expected_head_sha,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(FindRepositoryMergeReceiptResponse {
+            found: resulting_sha.is_some(),
+            resulting_sha: resulting_sha.unwrap_or_default(),
         }))
     }
 
@@ -417,7 +453,80 @@ impl GitStorageService for GitStorageGrpcService {
             conflict_paths: mergeability.conflict_paths,
             conflict_paths_truncated: mergeability.conflict_paths_truncated,
             conflict_path_limit: mergeability.conflict_path_limit,
+            strategy_availability: mergeability
+                .strategy_availability
+                .into_iter()
+                .map(proto_strategy_availability)
+                .collect(),
         }))
+    }
+}
+
+/// An unrecognised strategy is refused rather than defaulted. Silently merging by
+/// a strategy nobody asked for is the one failure mode a caller cannot audit its
+/// way out of afterwards.
+///
+/// An unset strategy is the exception, and only because of what it can mean: a
+/// caller old enough not to send the field predates every strategy but the
+/// two-parent merge, so that is not a guess about what it wanted — it is the
+/// only thing it could have meant. This keeps a git service deployed ahead of
+/// the API serving the API it is deployed beside.
+fn domain_merge_strategy(value: i32) -> Result<DomainRepositoryMergeStrategy, Status> {
+    match ProtoRepositoryMergeStrategy::try_from(value) {
+        Ok(
+            ProtoRepositoryMergeStrategy::MergeCommit | ProtoRepositoryMergeStrategy::Unspecified,
+        ) => Ok(DomainRepositoryMergeStrategy::MergeCommit),
+        Ok(ProtoRepositoryMergeStrategy::Squash) => Ok(DomainRepositoryMergeStrategy::Squash),
+        Ok(ProtoRepositoryMergeStrategy::Rebase) => Ok(DomainRepositoryMergeStrategy::Rebase),
+        Ok(ProtoRepositoryMergeStrategy::FastForward) => {
+            Ok(DomainRepositoryMergeStrategy::FastForward)
+        }
+        _ => Err(Status::invalid_argument("merge strategy is invalid")),
+    }
+}
+
+fn proto_merge_strategy(strategy: DomainRepositoryMergeStrategy) -> ProtoRepositoryMergeStrategy {
+    match strategy {
+        DomainRepositoryMergeStrategy::MergeCommit => ProtoRepositoryMergeStrategy::MergeCommit,
+        DomainRepositoryMergeStrategy::Squash => ProtoRepositoryMergeStrategy::Squash,
+        DomainRepositoryMergeStrategy::Rebase => ProtoRepositoryMergeStrategy::Rebase,
+        DomainRepositoryMergeStrategy::FastForward => ProtoRepositoryMergeStrategy::FastForward,
+    }
+}
+
+fn proto_strategy_unavailable_reason(
+    reason: DomainRepositoryMergeStrategyUnavailableReason,
+) -> ProtoRepositoryMergeStrategyUnavailableReason {
+    match reason {
+        DomainRepositoryMergeStrategyUnavailableReason::Conflict => {
+            ProtoRepositoryMergeStrategyUnavailableReason::Conflict
+        }
+        DomainRepositoryMergeStrategyUnavailableReason::NotFastForward => {
+            ProtoRepositoryMergeStrategyUnavailableReason::NotFastForward
+        }
+        DomainRepositoryMergeStrategyUnavailableReason::AlreadyUpToDate => {
+            ProtoRepositoryMergeStrategyUnavailableReason::AlreadyUpToDate
+        }
+        DomainRepositoryMergeStrategyUnavailableReason::NothingToRebase => {
+            ProtoRepositoryMergeStrategyUnavailableReason::NothingToRebase
+        }
+        DomainRepositoryMergeStrategyUnavailableReason::UnsupportedHistory => {
+            ProtoRepositoryMergeStrategyUnavailableReason::UnsupportedHistory
+        }
+    }
+}
+
+fn proto_strategy_availability(
+    availability: DomainRepositoryMergeStrategyAvailability,
+) -> RepositoryMergeStrategyAvailability {
+    RepositoryMergeStrategyAvailability {
+        strategy: proto_merge_strategy(availability.strategy).into(),
+        available: availability.available,
+        reason: availability
+            .reason
+            .map(proto_strategy_unavailable_reason)
+            .unwrap_or(ProtoRepositoryMergeStrategyUnavailableReason::Unspecified)
+            .into(),
     }
 }
 
@@ -447,6 +556,13 @@ fn repository_error_to_status(error: RepositoryError) -> Status {
         RepositoryError::MergeConflict => {
             Status::failed_precondition("repository refs cannot be merged cleanly")
         }
+        // The reason travels in the message because it is what the API turns
+        // into a blocking reason. Both sides of that string are named: the
+        // prefix here and `RepositoryMergeStrategyUnavailableReason::as_name`.
+        RepositoryError::MergeStrategyUnavailable(reason) => Status::failed_precondition(format!(
+            "repository merge strategy is unavailable: {}",
+            reason.as_name()
+        )),
         RepositoryError::StaleRepositoryRef => Status::aborted("repository ref moved"),
         RepositoryError::WrongObjectKind => {
             Status::failed_precondition("repository object has the wrong kind")

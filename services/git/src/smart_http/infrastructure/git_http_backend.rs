@@ -7,6 +7,7 @@ use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
+use crate::domain::HIDDEN_REFS_CONFIG_ARGUMENT;
 use crate::push_events::domain::{PushEventContext, PushHookConfig};
 use crate::smart_http::application::SmartHttpResponse;
 use crate::smart_http::domain::SmartHttpError;
@@ -51,6 +52,8 @@ impl GitHttpBackend {
         }
 
         command
+            .arg("-c")
+            .arg(HIDDEN_REFS_CONFIG_ARGUMENT)
             .arg("http-backend")
             .env_clear()
             .env("GIT_PROJECT_ROOT", project_root)

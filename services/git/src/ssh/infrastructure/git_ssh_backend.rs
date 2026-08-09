@@ -3,6 +3,7 @@ use std::process::Stdio;
 
 use tokio::process::{Child, Command};
 
+use crate::domain::HIDDEN_REFS_CONFIG_ARGUMENT;
 use crate::push_events::domain::{PushEventContext, PushHookConfig};
 use crate::ssh::domain::{SshGitError, SshGitOperation};
 
@@ -30,6 +31,8 @@ pub fn spawn_git_ssh_process(
     }
 
     command
+        .arg("-c")
+        .arg(HIDDEN_REFS_CONFIG_ARGUMENT)
         .arg(request.operation.git_subcommand())
         .arg(&request.repository_path)
         .env_clear()
