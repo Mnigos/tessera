@@ -34,6 +34,7 @@ import {
 } from './pull-request-navigation'
 import { PullRequestOverview } from './pull-request-overview'
 import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
+import { PullRequestRetargetDialog } from './pull-request-retarget-dialog'
 import { PullRequestSourceLink } from './pull-request-source-link'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 import { PullRequestsMessage } from './pull-requests-message'
@@ -207,6 +208,13 @@ function PullRequestDetailContent({
 									{pullRequest.targetBranch}
 								</span>
 							</span>
+							{canWrite && pullRequest.state === 'open' && (
+								<PullRequestRetargetDialog
+									pullRequest={pullRequest}
+									slug={slug}
+									username={username}
+								/>
+							)}
 							<span>
 								opened{' '}
 								<time

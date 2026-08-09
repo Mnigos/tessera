@@ -129,6 +129,20 @@ export function getPullRequestHeadUpdate(event: PullRequestEvent) {
 }
 
 /**
+ * Reads where a retarget moved the pull request's target branch, so the
+ * timeline can name both branches instead of only saying the target changed.
+ * Provider-synchronized retargets carry no payload and keep the generic label.
+ */
+export function getPullRequestRetarget(event: PullRequestEvent) {
+	const { payload } = event
+
+	if (!(event.type === 'retargeted' && payload && 'toBranch' in payload))
+		return undefined
+
+	return { fromBranch: payload.fromBranch, toBranch: payload.toBranch }
+}
+
+/**
  * Formats a pull request timestamp deterministically in UTC for SSR hydration.
  */
 export function formatPullRequestDate(date: Date) {

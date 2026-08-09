@@ -5,6 +5,7 @@ import type {
 } from '@repo/contracts'
 import { pullRequestSchema } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useClosePullRequestMutation } from '../hooks/use-close-pull-request.mutation'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
@@ -93,6 +94,19 @@ vi.mock('../hooks/use-pull-request-checks.query', () => ({
 		data: undefined,
 		isLoading: false,
 		isError: false,
+	}),
+}))
+
+vi.mock('@/modules/repositories/hooks/use-repository-refs.query', () => ({
+	useRepositoryRefsQuery: () => ({ data: undefined, isError: false }),
+}))
+
+vi.mock('../hooks/use-retarget-pull-request.mutation', () => ({
+	useRetargetPullRequestMutation: () => ({
+		isError: false,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
 	}),
 }))
 
@@ -234,6 +248,128 @@ describe('pull request review findings', () => {
 			'Title must contain at least one non-space character.'
 		)
 		expect(titleInput.getAttribute('aria-invalid')).toBe('true')
+	})
+
+	// The description is a controlled field inside the Write panel now, so the
+	// edit still has to carry what the pull request was already saying plus
+	// whatever was typed on top of it.
+	test('edits the description through the write and preview editor', async () => {
+		const mutate = vi.fn()
+		useEditPullRequestMutationMock.mockReturnValue({
+			isError: false,
+			isPending: false,
+			mutate,
+		} as never)
+		const user = userEvent.setup()
+		const { container } = render(
+			<PullRequestEditForm
+				onDone={vi.fn()}
+				pullRequest={{ ...PULL_REQUEST, body: 'Original body' }}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		await user.click(screen.getByRole('tab', { name: 'Preview' }))
+		expect(screen.getByRole('tabpanel').textContent).toBe('Original body')
+
+		await user.click(screen.getByRole('tab', { name: 'Write' }))
+		await user.type(screen.getByLabelText('Description'), ' extended')
+
+		const form = container.querySelector('form')
+		expect(form).toBeTruthy()
+		if (!form) return
+
+		fireEvent.submit(form)
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ body: 'Original body extended' }),
+			expect.anything()
+		)
+	})
+
+	// Enough of the write-side surface for the detail header to render: the
+	// lifecycle buttons and merge panel come with it and read their own mutations.
+	function primeWriteControls() {
+		usePullRequestComparisonQueryMock.mockReturnValue({
+			data: COMPARISON,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+		usePullRequestMergeRequirementsQueryMock.mockReturnValue({
+			data: undefined,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+		for (const mutation of [
+			useMergePullRequestMutationMock,
+			useClosePullRequestMutationMock,
+			useReopenPullRequestMutationMock,
+		])
+			mutation.mockReturnValue({
+				error: undefined,
+				isError: false,
+				isPending: false,
+				mutate: vi.fn(),
+			} as never)
+	}
+
+	// The affordance moves a branch, which is a write on an open pull request. A
+	// closed one has nowhere to move to, and a repository GitHub owns is not
+	// Tessera's to move — the server refuses both, and the UI must not offer them.
+	test.each([
+		[
+			'a closed pull request',
+			{
+				viewerRole: 'write',
+				pullRequest: { ...PULL_REQUEST, state: 'closed' },
+			},
+		],
+		[
+			'a GitHub-authoritative repository',
+			{ viewerRole: 'write', authority: 'github' },
+		],
+		['a read-only viewer', { viewerRole: 'read' }],
+	])('hides the retarget affordance for %s', (_name, overrides) => {
+		primeWriteControls()
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData(overrides),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
+	})
+
+	test('offers the retarget affordance on an open pull request a viewer may write', () => {
+		primeWriteControls()
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({ viewerRole: 'write' }),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
 	})
 
 	test('distinguishes not found from generic detail query failures', () => {

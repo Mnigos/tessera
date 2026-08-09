@@ -4,6 +4,7 @@ import { Label } from '@repo/ui/components/label'
 import { type ComponentProps, useState } from 'react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
+import { PullRequestMarkdownEditor } from './pull-request-markdown-editor'
 
 interface PullRequestEditFormProps {
 	username: string
@@ -67,16 +68,12 @@ export function PullRequestEditForm({
 					</p>
 				)}
 			</div>
-			<div className="flex flex-col gap-2">
-				<Label htmlFor="pull-request-edit-body">Description</Label>
-				<textarea
-					className="min-h-32 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
-					defaultValue={pullRequest.body}
-					id="pull-request-edit-body"
-					maxLength={65_536}
-					name="body"
-				/>
-			</div>
+			<PullRequestMarkdownEditor
+				defaultValue={pullRequest.body}
+				id="pull-request-edit-body"
+				label="Description"
+				name="body"
+			/>
 			{editMutation.isError && (
 				<p className="text-destructive text-sm" role="alert">
 					{getPullRequestErrorMessage(
