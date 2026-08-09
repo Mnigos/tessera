@@ -68,7 +68,7 @@ describe(PullRequestChecksPanel.name, () => {
 		expect(useChecksQueryMock).not.toHaveBeenCalled()
 	})
 
-	test('stays quiet when nothing reported and nothing is required', () => {
+	test('stays quiet once a settled read proves nothing is required', () => {
 		useChecksQueryMock.mockReturnValue({
 			data: { checks: [], missingRequiredContexts: [] },
 			isLoading: false,
@@ -85,6 +85,27 @@ describe(PullRequestChecksPanel.name, () => {
 		)
 
 		expect(screen.queryByText('Checks')).toBeNull()
+	})
+
+	test('keeps the panel up while a checkless read is still in flight', () => {
+		// Requirements are unknown until the read settles, not absent, so the
+		// skeleton stands in rather than the panel disappearing and reappearing.
+		useChecksQueryMock.mockReturnValue({
+			data: undefined,
+			isLoading: true,
+			isError: false,
+		} as never)
+
+		const { container } = render(
+			<PullRequestChecksPanel
+				checksSummary={NO_CHECKS_SUMMARY}
+				number="1"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(container.querySelector('.animate-pulse')).toBeTruthy()
 	})
 
 	test('shows the failure instead of vanishing when a checkless read errors', () => {
