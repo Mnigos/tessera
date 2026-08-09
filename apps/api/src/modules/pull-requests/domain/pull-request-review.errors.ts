@@ -42,6 +42,12 @@ export class PullRequestReviewAuthorForbiddenError extends ForbiddenError {
 	}
 }
 
+export class PullRequestReviewNotFoundError extends NotFoundError {
+	constructor(context?: Record<string, unknown>) {
+		super('pull request review', context)
+	}
+}
+
 export class PullRequestPendingReviewNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super('pull request pending review', context)

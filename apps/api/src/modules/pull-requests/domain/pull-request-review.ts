@@ -1,5 +1,6 @@
 import type {
 	PullRequestEffectiveReviewState,
+	PullRequestReviewComparisonContext,
 	PullRequestReviewerRequest as PullRequestReviewerRequestOutput,
 	PullRequestReview as PullRequestReviewOutput,
 	PullRequestReviewSummary,
@@ -51,6 +52,31 @@ export function toPullRequestReviewOutput(
 		dismissedAt: review.dismissedAt ?? undefined,
 		dismissedBy: toPullRequestActorOutput(review.dismissedBy),
 		sourceUrl: review.sourceUrl ?? undefined,
+	}
+}
+
+/**
+ * The header a since-review comparison is presented with, or nothing when the
+ * row is not a review anybody may compare against. A pending review is sealed
+ * until it is submitted, and a row with no attributable reviewer is left out of
+ * the history the selector is built from — neither may be reachable by naming
+ * its id.
+ */
+export function toPullRequestReviewComparisonContext(
+	review: PullRequestReviewReadModel
+): PullRequestReviewComparisonContext | undefined {
+	const reviewer = toPullRequestActorOutput(review.reviewer)
+
+	if (!(reviewer && review.submittedAt)) return undefined
+	if (review.state === 'pending') return undefined
+
+	return {
+		id: review.id,
+		reviewer,
+		state: review.state,
+		outcome: review.outcome ?? undefined,
+		headSha: review.headSha,
+		submittedAt: review.submittedAt,
 	}
 }
 

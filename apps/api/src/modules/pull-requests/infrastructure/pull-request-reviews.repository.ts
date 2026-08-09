@@ -43,6 +43,10 @@ interface PullRequestParams {
 	pullRequestId: PullRequestId
 }
 
+interface ReviewParams extends PullRequestParams {
+	reviewId: PullRequestReviewId
+}
+
 interface ReviewerParams extends PullRequestParams {
 	reviewerUserId: UserId
 }
@@ -228,6 +232,27 @@ export class PullRequestReviewsRepository {
 				)
 			)
 			.orderBy(asc(pullRequestReviews.submittedAt), asc(pullRequestReviews.id))
+	}
+
+	/**
+	 * One review, scoped to the pull request it belongs to. A review id that
+	 * names somebody else's pull request resolves to nothing here rather than
+	 * leaking a row across pull requests.
+	 */
+	async findReview({
+		pullRequestId,
+		reviewId,
+	}: ReviewParams): Promise<PullRequestReviewReadModel | undefined> {
+		const [review] = await this.reviewQuery(this.db)
+			.where(
+				and(
+					eq(pullRequestReviews.pullRequestId, pullRequestId),
+					eq(pullRequestReviews.id, reviewId)
+				)
+			)
+			.limit(1)
+
+		return review
 	}
 
 	async listActiveReviewerRequests({

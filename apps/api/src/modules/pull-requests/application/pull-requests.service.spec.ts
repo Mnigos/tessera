@@ -1,4 +1,7 @@
-import { GitStorageClient } from '@config/git-storage'
+import {
+	GitStorageClient,
+	type GitStorageRepositoryComparison,
+} from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { ChecksReadService } from '@modules/checks'
 import { RepositoriesService } from '@modules/repositories'
@@ -8,6 +11,7 @@ import type { PullRequest, PullRequestEvent } from '@repo/db'
 import type {
 	PullRequestEventId,
 	PullRequestId,
+	PullRequestReviewId,
 	RepositoryId,
 	RepositorySlug,
 } from '@repo/domain'
@@ -20,7 +24,12 @@ import {
 	PullRequestNotFoundError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
+import {
+	type PullRequestReviewReadModel,
+	PullRequestReviewsRepository,
+} from '../infrastructure/pull-request-reviews.repository'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
 import { MergeQueueStatusService } from './merge-queue-status.service'
 import { MergeRequirementsService } from './merge-requirements.service'
@@ -113,12 +122,68 @@ const mergeInput = {
 	expectedBaseSha: 'a'.repeat(40),
 	expectedHeadSha: 'b'.repeat(40),
 }
+const reviewId = '00000000-0000-4000-8000-000000000077' as PullRequestReviewId
+const reviewHeadSha = 'd'.repeat(40)
+const currentHeadSha = 'e'.repeat(40)
+const reviewComparisonInput = { ...repositoryInput, number: 1, reviewId }
+const noActor = {
+	userId: null,
+	username: null,
+	externalNodeId: null,
+	externalLogin: null,
+	externalAvatarUrl: null,
+	externalHtmlUrl: null,
+}
+const submittedReview: PullRequestReviewReadModel = {
+	id: reviewId,
+	reviewer: { ...noActor, userId: mockUserId, username: 'ada' },
+	state: 'submitted',
+	outcome: 'approve',
+	body: 'Looks good',
+	headSha: reviewHeadSha,
+	submittedAt: createdAt,
+	dismissedAt: null,
+	dismissedBy: noActor,
+	sourceUrl: null,
+}
+const canonicalComparison: GitStorageRepositoryComparison = {
+	baseSha: 'base-sha',
+	headSha: currentHeadSha,
+	mergeBaseSha: 'base-sha',
+	commits: [],
+	files: [],
+	isTruncated: false,
+	commitsTruncated: false,
+	commitLimit: 500,
+	fileLimit: 300,
+}
+const reviewComparison: GitStorageRepositoryComparison = {
+	...canonicalComparison,
+	baseSha: reviewHeadSha,
+	mergeBaseSha: reviewHeadSha,
+	commits: [
+		{
+			sha: currentHeadSha,
+			shortSha: currentHeadSha.slice(0, 7),
+			summary: 'Address review feedback',
+			author: undefined,
+		},
+		{
+			sha: 'f'.repeat(40),
+			shortSha: 'fffffff',
+			summary: 'Rename the helper',
+			author: undefined,
+		},
+	],
+}
 
 describe(PullRequestsService.name, () => {
 	let moduleRef: TestingModule
 	let service: PullRequestsService
 	let repository: PullRequestsRepository
+	let checksReadService: ChecksReadService
 	let repositoriesService: RepositoriesService
+	let reviewsRepository: PullRequestReviewsRepository
 	let gitStorageClient: GitStorageClient
 	let mergeRequirementsService: MergeRequirementsService
 	let mergeQueueRepository: MergeQueueRepository
@@ -143,6 +208,10 @@ describe(PullRequestsService.name, () => {
 						releaseMerge: vi.fn(),
 						recordMergeBlocked: vi.fn(),
 					},
+				},
+				{
+					provide: PullRequestReviewsRepository,
+					useValue: { findReview: vi.fn() },
 				},
 				{
 					provide: PullRequestReviewsService,
@@ -206,7 +275,9 @@ describe(PullRequestsService.name, () => {
 
 		service = moduleRef.get(PullRequestsService)
 		repository = moduleRef.get(PullRequestsRepository)
+		checksReadService = moduleRef.get(ChecksReadService)
 		repositoriesService = moduleRef.get(RepositoriesService)
+		reviewsRepository = moduleRef.get(PullRequestReviewsRepository)
 		gitStorageClient = moduleRef.get(GitStorageClient)
 		mergeRequirementsService = moduleRef.get(MergeRequirementsService)
 		mergeQueueRepository = moduleRef.get(MergeQueueRepository)
@@ -627,6 +698,145 @@ describe(PullRequestsService.name, () => {
 			baseRef: 'a'.repeat(40),
 			headRef: 'b'.repeat(40),
 		})
+	})
+
+	test('returns what the current head holds beyond a reviewed commit', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+		const compareSpy = vi
+			.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValueOnce(canonicalComparison)
+			.mockResolvedValueOnce(reviewComparison)
+		const listSummariesSpy = vi.spyOn(checksReadService, 'listSummaries')
+
+		expect(
+			await service.reviewComparison(undefined, reviewComparisonInput)
+		).toMatchObject({
+			status: 'ready',
+			review: {
+				id: reviewId,
+				reviewer: { username: 'ada' },
+				state: 'submitted',
+				outcome: 'approve',
+				headSha: reviewHeadSha,
+			},
+			canonicalBaseSha: 'base-sha',
+			currentHeadSha,
+			historiesDiverged: false,
+			comparison: { baseSha: reviewHeadSha, headSha: currentHeadSha },
+		})
+		expect(compareSpy).toHaveBeenLastCalledWith({
+			...repositoryContext,
+			baseRef: reviewHeadSha,
+			headRef: currentHeadSha,
+		})
+		// The interdiff commit rows carry the same batched check rollups the full
+		// comparison shows, with only the current head marked current.
+		expect(listSummariesSpy).toHaveBeenLastCalledWith({
+			heads: [
+				{ key: currentHeadSha, sha: currentHeadSha, isCurrent: true },
+				{ key: 'f'.repeat(40), sha: 'f'.repeat(40), isCurrent: false },
+			],
+			repositoryId,
+		})
+	})
+
+	test('discloses that the reviewed history diverged from the current head', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValueOnce(canonicalComparison)
+			.mockResolvedValueOnce({
+				...reviewComparison,
+				mergeBaseSha: 'ancestor-sha',
+			})
+
+		expect(
+			await service.reviewComparison(undefined, reviewComparisonInput)
+		).toMatchObject({ status: 'ready', historiesDiverged: true })
+	})
+
+	test('reports nothing new when the review already covers the current head', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue({
+			...submittedReview,
+			headSha: currentHeadSha,
+		})
+		const compareSpy = vi
+			.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValue(canonicalComparison)
+
+		expect(
+			await service.reviewComparison(undefined, reviewComparisonInput)
+		).toMatchObject({
+			status: 'nothing_new',
+			canonicalBaseSha: 'base-sha',
+			currentHeadSha,
+		})
+		expect(compareSpy).toHaveBeenCalledTimes(1)
+	})
+
+	// The pull request's own comparison already resolved against this repository,
+	// so the only object the second call can be missing is the reviewed commit.
+	test('reports an unavailable reviewed head when storage no longer holds it', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValueOnce(canonicalComparison)
+			.mockRejectedValueOnce(
+				new ExternalServiceError('git storage', { grpcCode: status.NOT_FOUND })
+			)
+
+		expect(
+			await service.reviewComparison(undefined, reviewComparisonInput)
+		).toMatchObject({
+			status: 'review_head_unavailable',
+			review: { headSha: reviewHeadSha },
+			currentHeadSha,
+		})
+	})
+
+	test('keeps storage failures that are not a missing commit as failures', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs')
+			.mockResolvedValueOnce(canonicalComparison)
+			.mockRejectedValueOnce(
+				new ExternalServiceError('git storage', { grpcCode: status.INTERNAL })
+			)
+
+		await expect(
+			service.reviewComparison(undefined, reviewComparisonInput)
+		).rejects.toBeInstanceOf(ExternalServiceError)
+	})
+
+	test('keeps a missing canonical comparison as a failure', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', { grpcCode: status.NOT_FOUND })
+		)
+
+		await expect(
+			service.reviewComparison(undefined, reviewComparisonInput)
+		).rejects.toBeInstanceOf(ExternalServiceError)
+	})
+
+	test.each([
+		['a review of another pull request', undefined],
+		[
+			'a review still pending',
+			{ ...submittedReview, state: 'pending' as const },
+		],
+	])('refuses to compare against %s', async (_context, review) => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(review)
+		const compareSpy = vi.spyOn(gitStorageClient, 'compareRepositoryRefs')
+
+		await expect(
+			service.reviewComparison(undefined, reviewComparisonInput)
+		).rejects.toBeInstanceOf(PullRequestReviewNotFoundError)
+		expect(compareSpy).not.toHaveBeenCalled()
 	})
 
 	test('pins lazy file diffs to the displayed comparison SHAs', async () => {

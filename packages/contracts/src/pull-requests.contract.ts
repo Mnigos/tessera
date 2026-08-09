@@ -446,6 +446,61 @@ export type PullRequestEffectiveReviewState = z.infer<
 	typeof pullRequestEffectiveReviewStateSchema
 >
 
+/**
+ * The review a since-review comparison is anchored to. Trimmed to what the
+ * comparison itself has to name: the body and the dismissal record belong to
+ * the review history, not to the diff header.
+ */
+const pullRequestReviewComparisonContextSchema = z.object({
+	id: pullRequestReviewIdSchema,
+	reviewer: pullRequestActorSchema,
+	state: z.enum(['submitted', 'dismissed']),
+	outcome: pullRequestReviewOutcomeSchema.optional(),
+	headSha: z.string(),
+	submittedAt: z.coerce.date(),
+})
+export type PullRequestReviewComparisonContext = z.infer<
+	typeof pullRequestReviewComparisonContextSchema
+>
+
+const pullRequestReviewComparisonBaseSchema = z.object({
+	review: pullRequestReviewComparisonContextSchema,
+	/**
+	 * The full pull request pair. Threads opened while reading a since-review
+	 * comparison anchor to it rather than to the pair being displayed, or the
+	 * normal files view would treat them as outdated the moment they are made.
+	 */
+	canonicalBaseSha: z.string(),
+	currentHeadSha: z.string(),
+})
+
+/**
+ * What arrived after a review, or why nothing can be shown. The exceptional
+ * states are named rather than inferred: two different commits can legitimately
+ * produce an empty file list, and a reviewed commit the repository no longer
+ * holds is a fact about history rather than a failure of the request.
+ */
+export const pullRequestReviewComparisonSchema = z.discriminatedUnion(
+	'status',
+	[
+		pullRequestReviewComparisonBaseSchema.extend({
+			status: z.literal('ready'),
+			/** The reviewed commit is no longer an ancestor of the current head. */
+			historiesDiverged: z.boolean(),
+			comparison: pullRequestComparisonSchema,
+		}),
+		pullRequestReviewComparisonBaseSchema.extend({
+			status: z.literal('nothing_new'),
+		}),
+		pullRequestReviewComparisonBaseSchema.extend({
+			status: z.literal('review_head_unavailable'),
+		}),
+	]
+)
+export type PullRequestReviewComparison = z.infer<
+	typeof pullRequestReviewComparisonSchema
+>
+
 export const pullRequestPendingReviewSchema = z.object({
 	id: pullRequestReviewIdSchema,
 	headSha: z.string(),
@@ -665,6 +720,15 @@ export type GetPullRequestFileDiffInput = z.input<
 >
 export type ParsedGetPullRequestFileDiffInput = z.infer<
 	typeof getPullRequestFileDiffInputSchema
+>
+
+export const getPullRequestReviewComparisonInputSchema =
+	getPullRequestInputSchema.extend({ reviewId: pullRequestReviewIdSchema })
+export type GetPullRequestReviewComparisonInput = z.input<
+	typeof getPullRequestReviewComparisonInputSchema
+>
+export type ParsedGetPullRequestReviewComparisonInput = z.infer<
+	typeof getPullRequestReviewComparisonInputSchema
 >
 
 /**
@@ -897,6 +961,13 @@ export const pullRequestsContract = {
 		})
 		.input(getPullRequestInputSchema)
 		.output(pullRequestComparisonSchema),
+	reviewComparison: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/reviews/{reviewId}/comparison',
+		})
+		.input(getPullRequestReviewComparisonInputSchema)
+		.output(pullRequestReviewComparisonSchema),
 	fileDiff: oc
 		.route({
 			method: 'GET',

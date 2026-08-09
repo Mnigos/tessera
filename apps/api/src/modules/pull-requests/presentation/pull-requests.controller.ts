@@ -39,6 +39,14 @@ export class PullRequestsController {
 		)
 	}
 
+	@Implement(contract.pullRequests.reviewComparison)
+	reviewComparison(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.reviewComparison).handler(
+			({ input }) =>
+				this.pullRequestsService.reviewComparison(session?.user.id, input)
+		)
+	}
+
 	@Implement(contract.pullRequests.fileDiff)
 	fileDiff(@Session() session?: UserSession) {
 		return implement(contract.pullRequests.fileDiff).handler(({ input }) =>
