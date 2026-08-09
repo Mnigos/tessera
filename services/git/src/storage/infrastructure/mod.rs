@@ -6,10 +6,15 @@ mod repository_comparison;
 mod repository_gpg;
 mod repository_merge;
 mod repository_merge_helpers;
+mod repository_merge_message;
+mod repository_merge_rebase;
+mod repository_merge_receipt;
 mod repository_mergeability;
 mod repository_paths;
 mod repository_ref_helpers;
 mod repository_security;
 mod repository_storage;
 
+pub use repository_merge::MERGE_OPERATION_TIMEOUT;
+pub use repository_mergeability::MERGEABILITY_OPERATION_TIMEOUT;
 pub use repository_storage::RepositoryStorage;

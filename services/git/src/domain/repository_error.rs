@@ -1,5 +1,7 @@
 use std::fmt;
 
+use crate::domain::repository::RepositoryMergeStrategyUnavailableReason;
+
 #[derive(Debug)]
 pub enum RepositoryError {
     InvalidRepositoryId,
@@ -19,6 +21,9 @@ pub enum RepositoryError {
     GitProcessFailed,
     ComparisonFileNotFound,
     MergeConflict,
+    /// The requested strategy cannot run against these tips at all, which is a
+    /// different refusal from the files failing to combine.
+    MergeStrategyUnavailable(RepositoryMergeStrategyUnavailableReason),
     StaleRepositoryRef,
 }
 
@@ -51,6 +56,11 @@ impl fmt::Display for RepositoryError {
             Self::GitProcessFailed => write!(formatter, "git process failed"),
             Self::ComparisonFileNotFound => write!(formatter, "comparison file was not found"),
             Self::MergeConflict => write!(formatter, "repository refs cannot be merged cleanly"),
+            Self::MergeStrategyUnavailable(reason) => write!(
+                formatter,
+                "repository merge strategy is unavailable: {}",
+                reason.as_name()
+            ),
             Self::StaleRepositoryRef => write!(formatter, "repository ref moved"),
         }
     }

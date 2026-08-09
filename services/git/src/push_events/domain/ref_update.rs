@@ -75,6 +75,18 @@ mod tests {
     const NEW_SHA: &str = "2222222222222222222222222222222222222222";
     const NULL_SHA: &str = "0000000000000000000000000000000000000000";
 
+    /// Merges file an operation receipt under `refs/tessera`, and a receipt is
+    /// not something a pull request's timeline has anything to say about. The
+    /// prefix filter is what keeps it out; nothing downstream guards against it.
+    #[test]
+    fn ignores_refs_outside_the_branch_namespace() {
+        let updates = parse_post_receive_updates(&format!(
+            "{OLD_SHA} {NEW_SHA} refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7\n{OLD_SHA} {NEW_SHA} refs/tags/v1\n"
+        ));
+
+        assert_eq!(updates, Vec::new());
+    }
+
     #[test]
     fn parses_every_moved_branch() {
         let updates = parse_post_receive_updates(&format!(

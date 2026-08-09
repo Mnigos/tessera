@@ -15,8 +15,10 @@ pub use domain::{
     RepositoryChangedFileStatus, RepositoryCommit, RepositoryCommitIdentity, RepositoryCommitList,
     RepositoryComparison, RepositoryComparisonCommit, RepositoryCreated, RepositoryDiffHunk,
     RepositoryDiffLine, RepositoryDiffLineKind, RepositoryError, RepositoryFileDiff, RepositoryId,
-    RepositoryMerge, RepositoryMergeability, RepositoryRawBlob, RepositoryReadme, RepositoryRef,
-    RepositoryRefKind, RepositoryRefList, RepositorySignature, RepositorySignatureState,
-    RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
+    RepositoryMerge, RepositoryMergeRequest, RepositoryMergeStrategy,
+    RepositoryMergeStrategyAvailability, RepositoryMergeStrategyUnavailableReason,
+    RepositoryMergeability, RepositoryRawBlob, RepositoryReadme, RepositoryRef, RepositoryRefKind,
+    RepositoryRefList, RepositorySignature, RepositorySignatureState, RepositoryTree,
+    RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
 };
 pub use storage::{GitStorageApplication, GitStorageGrpcService, RepositoryStorage};

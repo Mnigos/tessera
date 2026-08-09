@@ -16,6 +16,7 @@ service GitStorageService {
   rpc CompareRepositoryRefs(CompareRepositoryRefsRequest) returns (CompareRepositoryRefsResponse);
   rpc GetRepositoryFileDiff(GetRepositoryFileDiffRequest) returns (GetRepositoryFileDiffResponse);
   rpc MergeRepositoryRefs(MergeRepositoryRefsRequest) returns (MergeRepositoryRefsResponse);
+  rpc FindRepositoryMergeReceipt(FindRepositoryMergeReceiptRequest) returns (FindRepositoryMergeReceiptResponse);
   rpc CheckRepositoryMergeability(CheckRepositoryMergeabilityRequest) returns (CheckRepositoryMergeabilityResponse);
 }
 
@@ -178,12 +179,44 @@ message MergeRepositoryRefsRequest {
   string expected_head_sha = 6;
   string author_name = 7;
   string author_email = 8;
+  // The merge commit message. Only merge_commit authors one; squash builds its
+  // message from the fields below and the other strategies author none.
   string message = 9;
+  // Identifies this merge for the lifetime of the repository. The operation
+  // receipt is filed under it, so a retry recognises its own earlier work.
   string operation_id = 10;
+  RepositoryMergeStrategy strategy = 11;
+  string squash_title = 12;
+  string squash_body = 13;
 }
 
 message MergeRepositoryRefsResponse {
+  // Where the target branch now points. Named for the two-parent merge that was
+  // once the only way to get there; `resulting_sha` says the same thing without
+  // claiming a merge commit exists.
   string merge_commit_sha = 1;
+  string resulting_sha = 2;
+}
+
+// Asks whether one merge operation already happened, and moves nothing.
+//
+// This is what lets a caller finish recording a merge it lost the answer to
+// without ever performing one: an operation with no receipt was never carried
+// out, and the caller has to decide afresh whether it still should be.
+message FindRepositoryMergeReceiptRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string operation_id = 3;
+  // The receipt has to describe the merge being asked about, or it belongs to
+  // some other merge that happens to share an identifier.
+  RepositoryMergeStrategy strategy = 4;
+  string expected_base_sha = 5;
+  string expected_head_sha = 6;
+}
+
+message FindRepositoryMergeReceiptResponse {
+  bool found = 1;
+  string resulting_sha = 2;
 }
 
 message CheckRepositoryMergeabilityRequest {
@@ -201,6 +234,33 @@ message CheckRepositoryMergeabilityResponse {
   repeated string conflict_paths = 5;
   bool conflict_paths_truncated = 6;
   uint32 conflict_path_limit = 7;
+  // One entry per strategy, always complete. `mergeable` answers only for the
+  // strategies that combine both tips; ancestry and replay have answers of
+  // their own.
+  repeated RepositoryMergeStrategyAvailability strategy_availability = 8;
+}
+
+message RepositoryMergeStrategyAvailability {
+  RepositoryMergeStrategy strategy = 1;
+  bool available = 2;
+  RepositoryMergeStrategyUnavailableReason reason = 3;
+}
+
+enum RepositoryMergeStrategy {
+  REPOSITORY_MERGE_STRATEGY_UNSPECIFIED = 0;
+  REPOSITORY_MERGE_STRATEGY_MERGE_COMMIT = 1;
+  REPOSITORY_MERGE_STRATEGY_SQUASH = 2;
+  REPOSITORY_MERGE_STRATEGY_REBASE = 3;
+  REPOSITORY_MERGE_STRATEGY_FAST_FORWARD = 4;
+}
+
+enum RepositoryMergeStrategyUnavailableReason {
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSPECIFIED = 0;
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_CONFLICT = 1;
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOT_FAST_FORWARD = 2;
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_ALREADY_UP_TO_DATE = 3;
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_NOTHING_TO_REBASE = 4;
+  REPOSITORY_MERGE_STRATEGY_UNAVAILABLE_REASON_UNSUPPORTED_HISTORY = 5;
 }
 
 message RepositoryComparisonCommit {

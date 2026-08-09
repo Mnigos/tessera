@@ -3,10 +3,12 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use tempfile::TempDir;
 use tessera_git::RepositoryId;
+use tessera_git::domain::HIDDEN_REFS_CONFIG_ARGUMENT;
 use tessera_git::ssh::{
-    SshAuthenticatedKey, SshGitApplication, SshGitAuthenticationRequest,
+    GitSshBackendRequest, SshAuthenticatedKey, SshGitApplication, SshGitAuthenticationRequest,
     SshGitAuthorizationRequest, SshGitAuthorizer, SshGitError, SshGitOperation,
-    SshRepositoryMetadata, authorization_request, parse_ssh_git_command, ssh_exec_failure_message,
+    SshRepositoryMetadata, authorization_request, parse_ssh_git_command, spawn_git_ssh_process,
+    ssh_exec_failure_message,
 };
 use tessera_git::storage::infrastructure::RepositoryStorage;
 
@@ -174,6 +176,179 @@ async fn ssh_application_rejects_authorized_storage_path_mismatch() {
         .unwrap_err();
 
     assert_eq!(error, SshGitError::RepositoryUnavailable);
+}
+
+#[tokio::test]
+async fn ssh_backend_hides_tessera_refs_from_both_advertisements() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    seed_repository_with_a_hidden_ref(&repository.path);
+
+    for operation in [SshGitOperation::UploadPack, SshGitOperation::ReceivePack] {
+        let child = spawn_git_ssh_process(
+            PathBuf::from("git"),
+            None,
+            GitSshBackendRequest {
+                operation,
+                repository_path: repository.path.clone(),
+                push_context: None,
+            },
+        )
+        .unwrap();
+        let advertisement = read_advertisement(child).await;
+
+        assert!(
+            contains(&advertisement, b"refs/heads/main"),
+            "{operation:?} should still advertise the branch"
+        );
+        assert!(
+            !contains(&advertisement, b"refs/tessera"),
+            "{operation:?} must never advertise Tessera's own refs"
+        );
+    }
+}
+
+/// Both transports inject the same configuration, so this is the one place the
+/// behaviour Tessera depends on is checked against Git itself: a push aimed at
+/// the hidden namespace is refused, while an ordinary branch still goes through.
+#[tokio::test]
+async fn git_refuses_a_push_into_the_hidden_namespace() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    seed_repository_with_a_hidden_ref(&repository.path);
+    let worktree = TempDir::new().unwrap();
+    run(
+        worktree.path(),
+        &["git", "init", "--initial-branch", "main"],
+    );
+    run(worktree.path(), &["git", "config", "user.name", "Mona"]);
+    run(
+        worktree.path(),
+        &["git", "config", "user.email", "mona@example.com"],
+    );
+    run(
+        worktree.path(),
+        &["git", "commit", "--allow-empty", "-m", "pushed"],
+    );
+    let receive_pack = format!("git -c {HIDDEN_REFS_CONFIG_ARGUMENT} receive-pack");
+    let remote = repository.path.to_str().unwrap();
+
+    let hidden = std::process::Command::new("git")
+        .current_dir(worktree.path())
+        .args([
+            "push",
+            "--receive-pack",
+            &receive_pack,
+            remote,
+            "+HEAD:refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7",
+        ])
+        .output()
+        .unwrap();
+    let ordinary = std::process::Command::new("git")
+        .current_dir(worktree.path())
+        .args([
+            "push",
+            "--receive-pack",
+            &receive_pack,
+            remote,
+            "+HEAD:refs/heads/pushed",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !hidden.status.success(),
+        "a push into the hidden namespace must be refused"
+    );
+    assert!(
+        ordinary.status.success(),
+        "an ordinary branch push must still go through: {}",
+        String::from_utf8_lossy(&ordinary.stderr)
+    );
+}
+
+async fn read_advertisement(mut child: tokio::process::Child) -> Vec<u8> {
+    use tokio::io::AsyncReadExt;
+
+    let mut stdout = child.stdout.take().unwrap();
+    let mut advertisement = vec![0_u8; 8192];
+    let read_bytes = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        stdout.read(&mut advertisement),
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    advertisement.truncate(read_bytes);
+    let _ = child.kill().await;
+
+    advertisement
+}
+
+fn seed_repository_with_a_hidden_ref(bare_repository_path: &Path) {
+    let worktree = TempDir::new().unwrap();
+    run(
+        worktree.path(),
+        &["git", "init", "--initial-branch", "main"],
+    );
+    run(
+        worktree.path(),
+        &["git", "config", "user.name", "Tessera Test"],
+    );
+    run(
+        worktree.path(),
+        &["git", "config", "user.email", "test@example.com"],
+    );
+    run(
+        worktree.path(),
+        &["git", "commit", "--allow-empty", "-m", "base"],
+    );
+    run(
+        worktree.path(),
+        &[
+            "git",
+            "push",
+            bare_repository_path.to_str().unwrap(),
+            "HEAD:refs/heads/main",
+        ],
+    );
+    run(
+        Path::new("."),
+        &[
+            "git",
+            "--git-dir",
+            bare_repository_path.to_str().unwrap(),
+            "update-ref",
+            "refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7",
+            "refs/heads/main",
+        ],
+    );
+}
+
+fn run(current_dir: &Path, args: &[&str]) {
+    let output = std::process::Command::new(args[0])
+        .current_dir(current_dir)
+        .args(&args[1..])
+        .output()
+        .unwrap();
+
+    assert!(
+        output.status.success(),
+        "command failed: {args:?}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
+fn repository_id() -> RepositoryId {
+    RepositoryId::parse(REPOSITORY_ID).unwrap()
 }
 
 fn storage(storage_root: &Path, git_binary: &str) -> RepositoryStorage {

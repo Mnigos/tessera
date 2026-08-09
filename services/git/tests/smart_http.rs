@@ -121,6 +121,73 @@ async fn smart_http_authorizes_receive_pack_before_backend() {
     assert_eq!(error, SmartHttpError::BackendFailed);
 }
 
+#[tokio::test]
+async fn smart_http_hides_tessera_refs_from_both_advertisements() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    seed_repository_with_a_hidden_ref(&repository.path);
+    let application = application(temp_dir.path(), "git", REPOSITORY_ID);
+
+    let fetch = application.handle(info_refs_request()).await.unwrap();
+    let push = application
+        .handle(receive_pack_info_refs_request())
+        .await
+        .unwrap();
+
+    for advertisement in [&fetch.body, &push.body] {
+        assert!(
+            contains(advertisement, b"refs/heads/main"),
+            "the branch should still be advertised"
+        );
+        assert!(
+            !contains(advertisement, b"refs/tessera"),
+            "Tessera's own refs must never be advertised"
+        );
+    }
+}
+
+fn seed_repository_with_a_hidden_ref(bare_repository_path: &Path) {
+    let worktree = TempDir::new().unwrap();
+    for args in [
+        vec!["git", "init", "--initial-branch", "main"],
+        vec!["git", "config", "user.name", "Tessera Test"],
+        vec!["git", "config", "user.email", "test@example.com"],
+        vec!["git", "commit", "--allow-empty", "-m", "base"],
+        vec![
+            "git",
+            "push",
+            bare_repository_path.to_str().unwrap(),
+            "HEAD:refs/heads/main",
+        ],
+    ] {
+        let output = std::process::Command::new(args[0])
+            .current_dir(worktree.path())
+            .args(&args[1..])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "command failed: {args:?}");
+    }
+
+    let output = std::process::Command::new("git")
+        .args([
+            "--git-dir",
+            bare_repository_path.to_str().unwrap(),
+            "update-ref",
+            "refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7",
+            "refs/heads/main",
+        ])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+}
+
+fn contains(haystack: &[u8], needle: &[u8]) -> bool {
+    haystack
+        .windows(needle.len())
+        .any(|window| window == needle)
+}
+
 fn application(
     storage_root: &Path,
     git_binary: &str,
@@ -165,6 +232,23 @@ fn receive_pack_request(basic_credentials: Option<BasicCredentials>) -> SmartHtt
         content_length: Some(0),
         body: Body::empty(),
         basic_credentials,
+    }
+}
+
+fn receive_pack_info_refs_request() -> SmartHttpRequest {
+    SmartHttpRequest {
+        username: "mona".to_string(),
+        repo_slug: "repo".to_string(),
+        method: Method::GET,
+        path: "info/refs".to_string(),
+        query: Some("service=git-receive-pack".to_string()),
+        headers: HeaderMap::new(),
+        content_length: Some(0),
+        body: Body::empty(),
+        basic_credentials: Some(BasicCredentials {
+            username: "mona".to_string(),
+            token: "token".to_string(),
+        }),
     }
 }
 
