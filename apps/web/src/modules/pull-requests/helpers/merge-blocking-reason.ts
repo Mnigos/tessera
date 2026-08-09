@@ -1,4 +1,8 @@
 import type { MergeBlockingReason, MergeQueueState } from '@repo/contracts'
+import {
+	getMergeStrategyLabel,
+	getMergeStrategyUnavailableMessage,
+} from './merge-strategy'
 import { formatPullRequestShortSha } from './pull-request-formatting'
 
 /** One sentence per refusal, said in the terms the reader can act on. */
@@ -18,6 +22,10 @@ export function getMergeBlockingReasonMessage(
 			return 'The source or target branch changed. Refresh and try again.'
 		case 'merge_conflict':
 			return 'The source branch conflicts with the target branch.'
+		case 'merge_strategy_unavailable':
+			return `${getMergeStrategyLabel(reason.strategy)} is not possible here. ${getMergeStrategyUnavailableMessage(reason.reason)}`
+		case 'merge_strategies_unsupported':
+			return 'Merge methods cannot be checked right now.'
 		case 'approvals_required':
 			return toApprovalsMessage(reason)
 		case 'changes_requested':
@@ -64,6 +72,10 @@ export function getMergeBlockingReasonHint(
 			return `The branches now point at ${formatPullRequestShortSha(reason.actualBaseSha)} and ${formatPullRequestShortSha(reason.actualHeadSha)}.`
 		case 'merge_conflict':
 			return 'Merge the target branch into the source branch and resolve the conflicts.'
+		case 'merge_strategy_unavailable':
+			return 'Choose another merge method above.'
+		case 'merge_strategies_unsupported':
+			return 'The Git service is still being updated. Try again shortly.'
 		case 'changes_requested':
 			return 'The review has to be approved or dismissed before this can merge.'
 		case 'checks_failed':

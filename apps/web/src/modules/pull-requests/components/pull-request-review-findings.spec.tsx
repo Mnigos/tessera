@@ -327,9 +327,7 @@ describe('pull request review findings', () => {
 		expect(
 			screen.getByRole('button', { name: 'Close pull request' })
 		).toBeTruthy()
-		expect(
-			screen.getByRole('button', { name: 'Merge pull request' })
-		).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Merge commit' })).toBeTruthy()
 	})
 
 	test('hides edit, lifecycle, and merge controls for read-only viewers', () => {
@@ -358,9 +356,7 @@ describe('pull request review findings', () => {
 		expect(
 			screen.queryByRole('button', { name: 'Close pull request' })
 		).toBeNull()
-		expect(
-			screen.queryByRole('button', { name: 'Merge pull request' })
-		).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Merge commit' })).toBeNull()
 	})
 
 	test('renders safe Markdown and exposes the current detail page', () => {

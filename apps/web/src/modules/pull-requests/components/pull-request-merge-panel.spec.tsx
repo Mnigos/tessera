@@ -5,7 +5,7 @@ import type {
 	PullRequest,
 } from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
+import userEvent, { type UserEvent } from '@testing-library/user-event'
 import { useJoinMergeQueueMutation } from '../hooks/use-join-merge-queue.mutation'
 import { useLeaveMergeQueueMutation } from '../hooks/use-leave-merge-queue.mutation'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
@@ -41,13 +41,16 @@ const useRetryMutationMock = vi.mocked(useRetryMergeQueueEntryMutation)
 
 const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
-const MERGE_BUTTON = { name: 'Merge pull request' }
+const MERGE_BUTTON = { name: 'Merge commit' }
 const BLOCKED_HEADING_REGEX = /cannot be merged yet/
 const APPROVALS_REGEX = /1 of 2 required approvals/
 const STALE_APPROVAL_REGEX = /no longer counts because the branch moved/
 const THREADS_REGEX = /2 comment threads are unresolved/
 const CHANGES_REQUESTED_REGEX = /requested changes/
 const QUEUE_POSITION_REGEX = /number 2 in line/
+const FAST_FORWARD_OPTION_REGEX = /Fast-forward/
+const REBASE_OPTION_REGEX = /Rebase and merge/
+const QUEUED_REBASE_REGEX = /Will merge by rebase and merge/
 const createdAt = new Date('2026-08-06T10:00:00Z')
 
 const pullRequest: PullRequest = {
@@ -68,12 +71,20 @@ const pullRequest: PullRequest = {
 	updatedAt: createdAt,
 }
 
+const ALL_STRATEGIES_AVAILABLE: MergeRequirements['strategyAvailability'] = [
+	{ strategy: 'merge_commit', available: true },
+	{ strategy: 'squash', available: true },
+	{ strategy: 'rebase', available: true },
+	{ strategy: 'fast_forward', available: true },
+]
+
 const eligibleRequirements: MergeRequirements = {
 	eligible: true,
 	canBypass: false,
 	evaluatedBaseSha: BASE_SHA,
 	evaluatedHeadSha: HEAD_SHA,
 	reasons: [],
+	strategyAvailability: ALL_STRATEGIES_AVAILABLE,
 }
 
 interface MergeMutateOptions {
@@ -168,6 +179,29 @@ function mockQueueMutations() {
 	return { join, leave, retry }
 }
 
+function panelElement(mergeQueue: MergeQueueStatus) {
+	return (
+		<PullRequestMergePanel
+			mergeQueue={mergeQueue}
+			pullRequest={pullRequest}
+			slug="notes"
+			username="marta"
+		/>
+	)
+}
+
+/**
+ * A render the test can drive a second time, for the case where the server's
+ * answer changes under a selection the reader already made.
+ */
+function renderPanelForRerender(
+	mergeQueue: MergeQueueStatus = { runnableCount: 0 }
+) {
+	const view = render(panelElement(mergeQueue))
+
+	return { rerender: () => view.rerender(panelElement(mergeQueue)) }
+}
+
 function renderPanel(mergeQueue: MergeQueueStatus = { runnableCount: 0 }) {
 	render(
 		<PullRequestMergePanel
@@ -177,6 +211,12 @@ function renderPanel(mergeQueue: MergeQueueStatus = { runnableCount: 0 }) {
 			username="marta"
 		/>
 	)
+}
+
+/** Picks a merge method through the select the panel renders. */
+async function chooseStrategy(user: UserEvent, name: string) {
+	await user.click(screen.getByRole('combobox', { name: 'Merge method' }))
+	await user.click(screen.getByRole('option', { name: new RegExp(name) }))
 }
 
 describe(PullRequestMergePanel.name, () => {
@@ -403,6 +443,7 @@ describe(PullRequestMergePanel.name, () => {
 			username: 'marta',
 			slug: 'notes',
 			number: 1,
+			strategy: 'merge_commit',
 		})
 	})
 
@@ -414,6 +455,7 @@ describe(PullRequestMergePanel.name, () => {
 			entry: {
 				entryId: '00000000-0000-4000-8000-000000000066' as never,
 				state: 'queued',
+				strategy: 'merge_commit',
 				position: 2,
 				enqueuedAt: createdAt,
 				stateChangedAt: createdAt,
@@ -438,6 +480,7 @@ describe(PullRequestMergePanel.name, () => {
 			entry: {
 				entryId: '00000000-0000-4000-8000-000000000066' as never,
 				state: 'merging',
+				strategy: 'merge_commit',
 				position: 1,
 				enqueuedAt: createdAt,
 				stateChangedAt: createdAt,
@@ -462,6 +505,7 @@ describe(PullRequestMergePanel.name, () => {
 			entry: {
 				entryId: '00000000-0000-4000-8000-000000000066' as never,
 				state: 'paused',
+				strategy: 'merge_commit',
 				blockingReasons: [{ code: 'threads_unresolved', count: 2 }],
 				enqueuedAt: createdAt,
 				stateChangedAt: createdAt,
@@ -489,5 +533,260 @@ describe(PullRequestMergePanel.name, () => {
 		)
 
 		expect(container.textContent).toBe('')
+	})
+})
+
+describe('choosing a merge method', () => {
+	beforeEach(() => {
+		mockQueueMutations()
+	})
+
+	afterEach(() => vi.resetAllMocks())
+
+	test('starts on the merge commit every repository can take', () => {
+		mockMergeMutation()
+		mockRequirements()
+		renderPanel()
+
+		expect(screen.getByRole('button', { name: 'Merge commit' })).toBeTruthy()
+		expect(
+			screen.getByText('Create a two-parent merge commit on main.')
+		).toBeTruthy()
+	})
+
+	test('merges by the method the reader picked', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements()
+		renderPanel()
+
+		await chooseStrategy(user, 'Rebase and merge')
+		await user.click(screen.getByRole('button', { name: 'Rebase and merge' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'rebase' }),
+			expect.anything()
+		)
+	})
+
+	// A method that cannot run stays on the list and says why, because a reader
+	// who cannot find fast-forward has no idea what happened to it.
+	test('keeps an unavailable method visible with its reason', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements({
+			...eligibleRequirements,
+			strategyAvailability: [
+				{ strategy: 'merge_commit', available: true },
+				{ strategy: 'squash', available: true },
+				{ strategy: 'rebase', available: false, reason: 'nothing_to_rebase' },
+				{
+					strategy: 'fast_forward',
+					available: false,
+					reason: 'not_fast_forward',
+				},
+			],
+		})
+		renderPanel()
+
+		await user.click(screen.getByRole('combobox', { name: 'Merge method' }))
+		const fastForward = screen.getByRole('option', {
+			name: FAST_FORWARD_OPTION_REGEX,
+		})
+
+		expect(
+			within(fastForward).getByText('The branches have diverged.')
+		).toBeTruthy()
+		expect(
+			within(
+				screen.getByRole('option', { name: REBASE_OPTION_REGEX })
+			).getByText('There is nothing left to replay.')
+		).toBeTruthy()
+		expect(fastForward.getAttribute('data-disabled')).not.toBeNull()
+	})
+
+	// A refreshed availability that contradicts the selection gives way on the
+	// next render rather than leaving a button that is certain to be refused.
+	test('falls back to an available method when the branches move', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements()
+		const { rerender } = renderPanelForRerender()
+
+		await chooseStrategy(user, 'Fast-forward')
+		expect(screen.getByRole('button', { name: 'Fast-forward' })).toBeTruthy()
+
+		mockRequirements({
+			...eligibleRequirements,
+			strategyAvailability: [
+				{ strategy: 'merge_commit', available: true },
+				{ strategy: 'squash', available: true },
+				{ strategy: 'rebase', available: true },
+				{
+					strategy: 'fast_forward',
+					available: false,
+					reason: 'not_fast_forward',
+				},
+			],
+		})
+		rerender()
+
+		await user.click(screen.getByRole('button', { name: 'Merge commit' }))
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'merge_commit' }),
+			expect.anything()
+		)
+	})
+
+	// The squash commit is the only record of this work the target branch keeps,
+	// so its message is confirmed rather than assumed.
+	test('asks for the squash message before merging', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements()
+		renderPanel()
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Squash and merge' }))
+
+		const title = screen.getByLabelText('Title')
+		expect((title as HTMLInputElement).value).toBe('Add feature (#1)')
+
+		await user.clear(title)
+		await user.type(title, 'A better title')
+		await user.click(
+			within(screen.getByRole('dialog')).getByRole('button', {
+				name: 'Squash and merge',
+			})
+		)
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				squashTitle: 'A better title',
+			}),
+			expect.anything()
+		)
+	})
+
+	// One decision, one dialog: waiving policy and writing the commit message the
+	// waiver produces are the same act, and splitting them would let a reader
+	// waive a requirement without ever seeing the commit it is for.
+	test('asks for the squash message and the waiver together', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements({
+			...eligibleRequirements,
+			eligible: false,
+			canBypass: true,
+			reasons: [
+				{
+					code: 'approvals_required',
+					required: 2,
+					approved: 1,
+					staleApprovals: 0,
+				},
+			],
+		})
+		renderPanel()
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Merge anyway' }))
+
+		const dialog = screen.getByRole('dialog')
+		const title = within(dialog).getByLabelText('Title')
+
+		expect((title as HTMLInputElement).value).toBe('Add feature (#1)')
+
+		await user.clear(title)
+		await user.type(title, 'A better title')
+		await user.type(
+			within(dialog).getByLabelText('Reason for the waiver'),
+			'The release cannot wait.'
+		)
+		await user.click(
+			within(dialog).getByRole('button', { name: 'Squash and merge' })
+		)
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				squashTitle: 'A better title',
+				bypass: { reason: 'The release cannot wait.' },
+			}),
+			expect.anything()
+		)
+	})
+
+	test('carries the chosen method through the bypass dialog', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements({
+			...eligibleRequirements,
+			eligible: false,
+			canBypass: true,
+			reasons: [
+				{
+					code: 'approvals_required',
+					required: 2,
+					approved: 1,
+					staleApprovals: 0,
+				},
+			],
+		})
+		renderPanel()
+
+		await chooseStrategy(user, 'Rebase and merge')
+		await user.click(screen.getByRole('button', { name: 'Merge anyway' }))
+		await user.type(screen.getByLabelText('Reason'), 'The release cannot wait.')
+		await user.click(
+			within(screen.getByRole('dialog')).getByRole('button', {
+				name: 'Merge anyway',
+			})
+		)
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'rebase',
+				bypass: { reason: 'The release cannot wait.' },
+			}),
+			expect.anything()
+		)
+	})
+
+	test('joins the queue with the method the reader picked', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements()
+		const { join } = mockQueueMutations()
+		renderPanel({ runnableCount: 2 })
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Join merge queue' }))
+
+		expect(join).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'squash' })
+		)
+	})
+
+	// The method was settled when the entry was created and the queue never
+	// re-chooses it, so it is reported rather than offered.
+	test('reports the method a queued entry will merge by', () => {
+		mockMergeMutation()
+		mockRequirements()
+		renderPanel({
+			runnableCount: 2,
+			entry: {
+				entryId: '00000000-0000-4000-8000-000000000066' as never,
+				state: 'queued',
+				strategy: 'rebase',
+				position: 2,
+				enqueuedAt: createdAt,
+				stateChangedAt: createdAt,
+			},
+		})
+
+		expect(screen.getByText(QUEUED_REBASE_REGEX)).toBeTruthy()
 	})
 })

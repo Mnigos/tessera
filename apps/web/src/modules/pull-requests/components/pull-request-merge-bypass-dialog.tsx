@@ -19,6 +19,8 @@ const BYPASS_REASON_MAX_LENGTH = 1000
 
 interface PullRequestMergeBypassDialogProps {
 	isPending: boolean
+	/** The chosen method, named so the waiver says what it is waiving for. */
+	mergeLabel: string
 	onConfirm: (reason: string) => void
 	reasons: MergeBlockingReason[]
 	targetBranch: string
@@ -33,6 +35,7 @@ interface PullRequestMergeBypassDialogProps {
  */
 export function PullRequestMergeBypassDialog({
 	isPending,
+	mergeLabel,
 	onConfirm,
 	reasons,
 	targetBranch,
@@ -66,9 +69,9 @@ export function PullRequestMergeBypassDialog({
 					<DialogHeader>
 						<DialogTitle>Merge past the branch protection rule</DialogTitle>
 						<DialogDescription>
-							This merges into {targetBranch} without satisfying the
-							requirements below. The waiver is recorded on the pull request
-							with your reason and the commits it was granted for.
+							This runs {mergeLabel.toLowerCase()} into {targetBranch} without
+							satisfying the requirements below. The waiver is recorded on the
+							pull request with your reason and the commits it was granted for.
 						</DialogDescription>
 					</DialogHeader>
 					<ul className="flex list-disc flex-col gap-1 pl-4 text-muted-foreground text-sm">
