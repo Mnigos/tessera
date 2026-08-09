@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
 	GitStorageClient,
 	type GitStorageRepositoryBlob,
+	type GitStorageRepositoryComparison,
 } from '@config/git-storage'
 import { ChecksReadService } from '@modules/checks'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
@@ -17,6 +18,7 @@ import type {
 	ParsedEditPullRequestInput,
 	ParsedGetPullRequestFileDiffInput,
 	ParsedGetPullRequestInput,
+	ParsedGetPullRequestReviewComparisonInput,
 	ParsedListPullRequestChecksInput,
 	ParsedListPullRequestsInput,
 	ParsedMergePullRequestInput,
@@ -25,12 +27,15 @@ import type {
 	PullRequestComparison,
 	PullRequestFileDiff,
 	PullRequestListItem,
+	PullRequestReviewComparison,
+	PullRequestReviewComparisonContext,
 	PullRequestReviewSummary,
 	RepositoryViewerRole,
 } from '@repo/contracts'
 import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
 import type {
 	PullRequestId,
+	PullRequestReviewId,
 	RepositoryId,
 	RepositoryRole,
 	UserId,
@@ -50,12 +55,16 @@ import {
 	PullRequestNotFoundError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { toPullRequestReviewComparisonContext } from '../domain/pull-request-review'
+import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
 import { toMergeAuthorityReasons } from '../helpers/merge-authority-reasons'
 import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
+import { isMissingGitObjectError } from '../helpers/pull-request-storage-error'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
+import { PullRequestReviewsRepository } from '../infrastructure/pull-request-reviews.repository'
 import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
@@ -108,6 +117,7 @@ export class PullRequestsService {
 
 	constructor(
 		private readonly pullRequestsRepository: PullRequestsRepository,
+		private readonly pullRequestReviewsRepository: PullRequestReviewsRepository,
 		private readonly pullRequestReviewsService: PullRequestReviewsService,
 		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
 		private readonly checksReadService: ChecksReadService,
@@ -366,26 +376,67 @@ export class PullRequestsService {
 			baseRef,
 			headRef,
 		})
-		// One query for the whole commit list: a status dot per row must never cost
-		// a request per row.
-		const checksSummaries = await this.checksReadService.listSummaries({
-			heads: comparison.commits.map(commit => ({
-				key: commit.sha,
-				sha: commit.sha,
-				isCurrent: commit.sha === comparison.headSha,
-			})),
+
+		return await this.toComparisonOutput(repositoryId, comparison)
+	}
+
+	/**
+	 * What the current head holds that the reviewed commit did not. The pull
+	 * request's own comparison is resolved first so the reviewed commit is
+	 * compared against the head the files view is showing, and so a missing
+	 * object on the second call can only be the reviewed one.
+	 */
+	async reviewComparison(
+		viewerUserId: UserId | undefined,
+		{
+			number,
+			reviewId,
+			slug,
+			username,
+		}: ParsedGetPullRequestReviewComparisonInput
+	): Promise<PullRequestReviewComparison> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+		const review = await this.findReviewComparisonContext(
+			pullRequest.id,
+			reviewId
+		)
+		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
+		const canonical = await this.gitStorageClient.compareRepositoryRefs({
 			repositoryId,
+			storagePath,
+			baseRef,
+			headRef,
+		})
+		const context = {
+			review,
+			canonicalBaseSha: canonical.baseSha,
+			currentHeadSha: canonical.headSha,
+		}
+
+		if (review.headSha === canonical.headSha)
+			return { status: 'nothing_new', ...context }
+
+		const comparison = await this.compareReviewedHead({
+			currentHeadSha: canonical.headSha,
+			repositoryId,
+			reviewHeadSha: review.headSha,
+			storagePath,
 		})
 
+		if (!comparison) return { status: 'review_head_unavailable', ...context }
+
 		return {
-			...comparison,
-			commits: comparison.commits.map(commit => ({
-				...commit,
-				author: commit.author
-					? { ...commit.author, date: new Date(commit.author.date) }
-					: undefined,
-				checksSummary: checksSummaries.get(commit.sha),
-			})),
+			status: 'ready',
+			...context,
+			// The reviewed commit stops being the merge base once history is
+			// rewritten under it, which is what makes rebased changes reappear here.
+			historiesDiverged: comparison.mergeBaseSha !== review.headSha,
+			comparison: await this.toComparisonOutput(repositoryId, comparison),
 		}
 	}
 
@@ -897,6 +948,84 @@ export class PullRequestsService {
 		})
 
 		return await this.checksReadService.findSummary({ head, repositoryId })
+	}
+
+	/**
+	 * Attaches each commit's check rollup. One query for the whole list: a status
+	 * dot per row must never cost a request per row.
+	 */
+	private async toComparisonOutput(
+		repositoryId: RepositoryId,
+		comparison: GitStorageRepositoryComparison
+	): Promise<PullRequestComparison> {
+		const checksSummaries = await this.checksReadService.listSummaries({
+			heads: comparison.commits.map(commit => ({
+				key: commit.sha,
+				sha: commit.sha,
+				isCurrent: commit.sha === comparison.headSha,
+			})),
+			repositoryId,
+		})
+
+		return {
+			...comparison,
+			commits: comparison.commits.map(commit => ({
+				...commit,
+				author: commit.author
+					? { ...commit.author, date: new Date(commit.author.date) }
+					: undefined,
+				checksSummary: checksSummaries.get(commit.sha),
+			})),
+		}
+	}
+
+	/**
+	 * The comparison from the reviewed commit to the current head, or nothing
+	 * when git storage no longer holds the reviewed commit — which a force-push
+	 * followed by object cleanup is enough to cause. Every other failure stays a
+	 * failure; only the reviewed commit can be the missing object here, because
+	 * the pull request's own comparison already resolved against the same
+	 * repository.
+	 */
+	private async compareReviewedHead({
+		currentHeadSha,
+		repositoryId,
+		reviewHeadSha,
+		storagePath,
+	}: {
+		currentHeadSha: string
+		repositoryId: RepositoryId
+		reviewHeadSha: string
+		storagePath: string
+	}): Promise<GitStorageRepositoryComparison | undefined> {
+		try {
+			return await this.gitStorageClient.compareRepositoryRefs({
+				repositoryId,
+				storagePath,
+				baseRef: reviewHeadSha,
+				headRef: currentHeadSha,
+			})
+		} catch (error) {
+			if (isMissingGitObjectError(error)) return undefined
+
+			throw error
+		}
+	}
+
+	private async findReviewComparisonContext(
+		pullRequestId: PullRequestId,
+		reviewId: PullRequestReviewId
+	): Promise<PullRequestReviewComparisonContext> {
+		const review = await this.pullRequestReviewsRepository.findReview({
+			pullRequestId,
+			reviewId,
+		})
+		const context = review && toPullRequestReviewComparisonContext(review)
+
+		if (!context)
+			throw new PullRequestReviewNotFoundError({ pullRequestId, reviewId })
+
+		return context
 	}
 
 	private async getDiffBlob(

@@ -3,6 +3,7 @@ import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
 import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
+import { status } from '@grpc/grpc-js'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import { PullRequestsModule } from '@modules/pull-requests'
@@ -10,9 +11,12 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
 	account,
+	gitHubActors,
+	gitHubPullRequestMappings,
 	pullRequestComments,
 	pullRequestEvents,
 	pullRequestReviewerRequests,
@@ -26,9 +30,10 @@ import {
 	session,
 	user,
 } from '@repo/db/schema'
-import type { UserId } from '@repo/domain'
+import type { PullRequestReviewId, UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
+import { ExternalServiceError } from '~/shared/errors'
 
 const MIGRATIONS_FOLDER = fileURLToPath(
 	new URL('../../../../packages/db/migrations', import.meta.url)
@@ -62,6 +67,7 @@ describe('Pull request reviews integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let currentHeadSha: string
+	let gitStorageCompareRepositoryRefs: ReturnType<typeof vi.fn>
 	let owner: IntegrationUser
 	let reviewer: IntegrationUser
 	let otherUser: IntegrationUser
@@ -72,6 +78,7 @@ describe('Pull request reviews integration', () => {
 		vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
+		gitStorageCompareRepositoryRefs = vi.fn()
 
 		moduleRef = await Test.createTestingModule({
 			imports: [PullRequestReviewsIntegrationTestModule],
@@ -98,23 +105,20 @@ describe('Pull request reviews integration', () => {
 								qualifiedName: 'refs/heads/feature',
 								target: currentHeadSha,
 							},
+							{
+								type: 'branch',
+								name: 'feature-two',
+								qualifiedName: 'refs/heads/feature-two',
+								target: currentHeadSha,
+							},
 						],
 						tags: [],
 					})
 				),
-				compareRepositoryRefs: vi.fn().mockImplementation(() =>
-					Promise.resolve({
-						baseSha: BASE_SHA,
-						headSha: currentHeadSha,
-						mergeBaseSha: BASE_SHA,
-						commits: [],
-						files: [],
-						isTruncated: false,
-						commitsTruncated: false,
-						commitLimit: 500,
-						fileLimit: 300,
-					})
-				),
+				// Branch names resolve to whichever commits they point at now; an exact
+				// object id resolves to itself, which is how the reviewed commit is
+				// compared against the current head.
+				compareRepositoryRefs: gitStorageCompareRepositoryRefs,
 			})
 			.compile()
 
@@ -126,6 +130,25 @@ describe('Pull request reviews integration', () => {
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
 		currentHeadSha = HEAD_SHA
+		gitStorageCompareRepositoryRefs.mockReset()
+		gitStorageCompareRepositoryRefs.mockImplementation(
+			({ baseRef, headRef }) => {
+				const baseSha = baseRef === 'main' ? BASE_SHA : baseRef
+				const headSha = headRef === 'feature' ? currentHeadSha : headRef
+
+				return Promise.resolve({
+					baseSha,
+					headSha,
+					mergeBaseSha: baseSha,
+					commits: [],
+					files: [],
+					isTruncated: false,
+					commitsTruncated: false,
+					commitLimit: 500,
+					fileLimit: 300,
+				})
+			}
+		)
 		owner = await createIntegrationUser('owner')
 		reviewer = await createIntegrationUser('reviewer')
 		otherUser = await createIntegrationUser('other')
@@ -297,6 +320,276 @@ describe('Pull request reviews integration', () => {
 		})
 	})
 
+	test('reads what a submitted review has not seen over HTTP', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: PullRequestReviewId }
+
+		// Readable like the pull request's own comparison: no session, no reviewer
+		// identity, and no write authority.
+		const unchanged = await getReviewComparison(review.id)
+		expect(unchanged.status).toBe(200)
+		expect(await unchanged.json()).toMatchObject({
+			status: 'nothing_new',
+			review: {
+				id: review.id,
+				reviewer: { username: reviewer.username },
+				state: 'submitted',
+				outcome: 'approve',
+				headSha: HEAD_SHA,
+			},
+			canonicalBaseSha: BASE_SHA,
+			currentHeadSha: HEAD_SHA,
+		})
+
+		currentHeadSha = MOVED_HEAD_SHA
+		const moved = await getReviewComparison(review.id)
+		expect(moved.status).toBe(200)
+		expect(await moved.json()).toMatchObject({
+			status: 'ready',
+			canonicalBaseSha: BASE_SHA,
+			currentHeadSha: MOVED_HEAD_SHA,
+			historiesDiverged: false,
+			comparison: {
+				baseSha: HEAD_SHA,
+				headSha: MOVED_HEAD_SHA,
+				commitLimit: 500,
+				fileLimit: 300,
+			},
+		})
+
+		const draftThread = await reviewAction(
+			'threads',
+			'POST',
+			reviewer.headers,
+			{
+				body: 'Not submitted yet',
+				review: { expectedHeadSha: MOVED_HEAD_SHA },
+			}
+		)
+		expect(draftThread.status).toBe(200)
+		const pendingReview = await db.query.pullRequestReviews.findFirst({
+			where: (reviews, { eq }) => eq(reviews.state, 'pending'),
+		})
+		if (!pendingReview) throw new Error('Failed to open a pending review')
+
+		// A sealed review stays sealed: naming its id says no more than naming one
+		// that never existed.
+		expect((await getReviewComparison(pendingReview.id)).status).toBe(404)
+		expect((await getReviewComparison(crypto.randomUUID())).status).toBe(404)
+	})
+
+	test('hides a review belonging to another pull request like an unknown review', async () => {
+		const secondPullRequest = await request(
+			'http://localhost/repositories/owner/notes/pulls',
+			'POST',
+			owner.headers,
+			{ sourceBranch: 'feature-two', targetBranch: 'main', title: 'Second' }
+		)
+		expect(secondPullRequest.status).toBe(200)
+		const submitted = await reviewAction(
+			'reviews',
+			'POST',
+			reviewer.headers,
+			{ outcome: 'approve', expectedHeadSha: HEAD_SHA },
+			2
+		)
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+
+		const otherPullRequestResponse = await getReviewComparison(review.id)
+		const unknownResponse = await getReviewComparison(crypto.randomUUID())
+
+		expect(otherPullRequestResponse.status).toBe(unknownResponse.status)
+		expect(await otherPullRequestResponse.json()).toEqual(
+			await unknownResponse.json()
+		)
+	})
+
+	test('compares a dismissed submitted review', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: PullRequestReviewId }
+		await db
+			.update(pullRequestReviews)
+			.set({
+				state: 'dismissed',
+				dismissedAt: new Date(),
+				dismissedByUserId: owner.id,
+			})
+			.where(eq(pullRequestReviews.id, review.id))
+
+		const response = await getReviewComparison(review.id)
+		const body = (await response.json()) as {
+			status: string
+			review: { state: string }
+		}
+
+		expect(response.status).toBe(200)
+		expect(['ready', 'nothing_new']).toContain(body.status)
+		expect(body.review.state).toBe('dismissed')
+	})
+
+	test('uses the same readable-repository authorization as comparison', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+		await db.update(repositories).set({ visibility: 'private' })
+
+		expect((await getReviewComparison(review.id, owner.headers)).status).toBe(
+			200
+		)
+		for (const headers of [otherUser.headers, undefined]) {
+			const reviewResponse = await getReviewComparison(review.id, headers)
+			const comparisonResponse = await getComparison(headers)
+
+			expect(reviewResponse.status).toBe(comparisonResponse.status)
+		}
+	})
+
+	test('reports a missing reviewed head over HTTP', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+		currentHeadSha = MOVED_HEAD_SHA
+		gitStorageCompareRepositoryRefs
+			.mockResolvedValueOnce(comparisonResult(BASE_SHA, MOVED_HEAD_SHA))
+			.mockRejectedValueOnce(missingGitObjectError())
+
+		const response = await getReviewComparison(review.id)
+
+		expect(response.status).toBe(200)
+		expect(await response.json()).toMatchObject({
+			status: 'review_head_unavailable',
+		})
+	})
+
+	test('keeps a missing canonical comparison as an HTTP error', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+		gitStorageCompareRepositoryRefs.mockRejectedValueOnce(
+			missingGitObjectError()
+		)
+
+		expect((await getReviewComparison(review.id)).status).toBe(502)
+	})
+
+	test('preserves interdiff truncation metadata', async () => {
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+		currentHeadSha = MOVED_HEAD_SHA
+		gitStorageCompareRepositoryRefs
+			.mockResolvedValueOnce(comparisonResult(BASE_SHA, MOVED_HEAD_SHA))
+			.mockResolvedValueOnce({
+				...comparisonResult(HEAD_SHA, MOVED_HEAD_SHA),
+				commitsTruncated: true,
+				isTruncated: true,
+				commitLimit: 17,
+				fileLimit: 23,
+			})
+
+		const response = await getReviewComparison(review.id)
+
+		expect(response.status).toBe(200)
+		expect(await response.json()).toMatchObject({
+			comparison: {
+				commitsTruncated: true,
+				isTruncated: true,
+				commitLimit: 17,
+				fileLimit: 23,
+			},
+		})
+	})
+
+	test('compares a GitHub-mapped pull request using its stored SHAs', async () => {
+		const pullRequest = await db.query.pullRequests.findFirst()
+		const repository = await db.query.repositories.findFirst()
+		if (!(pullRequest && repository))
+			throw new Error('Failed to find integration pull request')
+		const submitted = await reviewAction('reviews', 'POST', reviewer.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(submitted.status).toBe(200)
+		const review = (await submitted.json()) as { id: string }
+		const [actor] = await db
+			.insert(gitHubActors)
+			.values({
+				externalNodeId: 'github-owner-node',
+				externalNumericId: 1n,
+				login: owner.username,
+				type: 'user',
+			})
+			.returning({ id: gitHubActors.id })
+		if (!actor) throw new Error('Failed to create GitHub actor')
+		const storedBaseSha = 'e'.repeat(40)
+		const storedHeadSha = 'f'.repeat(40)
+		await db.insert(gitHubPullRequestMappings).values({
+			repositoryId: repository.id,
+			pullRequestId: pullRequest.id,
+			externalNodeId: 'github-pr-node',
+			externalNumericId: 101n,
+			externalNumber: 1,
+			htmlUrl: 'https://github.com/owner/notes/pull/1',
+			authorActorId: actor.id,
+			headRepositoryNodeId: 'github-repository-node',
+			baseRepositoryNodeId: 'github-repository-node',
+			headSha: storedHeadSha,
+			baseSha: storedBaseSha,
+			providerCreatedAt: new Date(),
+			providerUpdatedAt: new Date(),
+			lastSyncedAt: new Date(),
+		})
+		gitStorageCompareRepositoryRefs.mockResolvedValueOnce(
+			comparisonResult(storedBaseSha, storedHeadSha)
+		)
+
+		const response = await getReviewComparison(review.id)
+
+		expect(response.status).toBe(200)
+		expect(gitStorageCompareRepositoryRefs).toHaveBeenNthCalledWith(1, {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			baseRef: storedBaseSha,
+			headRef: storedHeadSha,
+		})
+		expect(await response.json()).toMatchObject({ status: 'ready' })
+	})
+
+	function getReviewComparison(reviewId: string, headers?: Headers) {
+		return adapter.hono.request(
+			`http://localhost/repositories/owner/notes/pulls/1/reviews/${reviewId}/comparison`,
+			{ headers }
+		)
+	}
+
+	function getComparison(headers?: Headers) {
+		return adapter.hono.request(
+			'http://localhost/repositories/owner/notes/pulls/1/comparison',
+			{ headers }
+		)
+	}
+
 	async function createIntegrationUser(
 		username: string
 	): Promise<IntegrationUser> {
@@ -359,10 +652,11 @@ describe('Pull request reviews integration', () => {
 		path: string,
 		method: 'DELETE' | 'POST',
 		headers: Headers,
-		body?: object
+		body?: object,
+		number = 1
 	) {
 		return request(
-			`http://localhost/repositories/owner/notes/pulls/1/${path}`,
+			`http://localhost/repositories/owner/notes/pulls/${number}/${path}`,
 			method,
 			headers,
 			body
@@ -391,6 +685,8 @@ describe('Pull request reviews integration', () => {
 		await db.delete(pullRequestThreads)
 		await db.delete(pullRequestReviews)
 		await db.delete(pullRequests)
+		await db.delete(gitHubPullRequestMappings)
+		await db.delete(gitHubActors)
 		await db.delete(repositoryPullRequestCounters)
 		await db.delete(repositoryCollaborators)
 		await db.delete(repositoryExternalSources)
@@ -398,5 +694,33 @@ describe('Pull request reviews integration', () => {
 		await db.delete(session)
 		await db.delete(account)
 		await db.delete(user)
+	}
+
+	function comparisonResult(baseSha: string, headSha: string) {
+		return {
+			baseSha,
+			headSha,
+			mergeBaseSha: baseSha,
+			commits: [],
+			files: [],
+			isTruncated: false,
+			commitsTruncated: false,
+			commitLimit: 500,
+			fileLimit: 300,
+		}
+	}
+
+	function missingGitObjectError() {
+		const error = Object.assign(new Error('object not found'), {
+			code: status.NOT_FOUND,
+			details: 'object not found',
+		})
+
+		return new ExternalServiceError(
+			'git storage',
+			{ grpcCode: status.NOT_FOUND, grpcDetails: 'object not found' },
+			undefined,
+			{ cause: error }
+		)
 	}
 })

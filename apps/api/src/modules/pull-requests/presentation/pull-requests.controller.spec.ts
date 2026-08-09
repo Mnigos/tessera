@@ -8,9 +8,14 @@ import type {
 	PullRequest,
 	PullRequestComparison,
 	PullRequestFileDiff,
+	PullRequestReviewComparison,
 	PullRequestReviewSummary,
 } from '@repo/contracts'
-import type { PullRequestId, RepositoryId } from '@repo/domain'
+import type {
+	PullRequestId,
+	PullRequestReviewId,
+	RepositoryId,
+} from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { PullRequestsService } from '../application/pull-requests.service'
 import { PullRequestsController } from './pull-requests.controller'
@@ -70,6 +75,7 @@ describe(PullRequestsController.name, () => {
 						list: vi.fn(),
 						get: vi.fn(),
 						comparison: vi.fn(),
+						reviewComparison: vi.fn(),
 						fileDiff: vi.fn(),
 						edit: vi.fn(),
 						close: vi.fn(),
@@ -215,6 +221,48 @@ describe(PullRequestsController.name, () => {
 			})
 		).toEqual(output)
 		expect(comparisonSpy).toHaveBeenCalledWith(mockUserId, input)
+	})
+
+	test('delegates review comparison requests with an optional viewer', async () => {
+		const input = {
+			...repositoryInput,
+			number: 1,
+			reviewId: '00000000-0000-4000-8000-000000000077' as PullRequestReviewId,
+		}
+		const output: PullRequestReviewComparison = {
+			status: 'nothing_new',
+			review: {
+				id: input.reviewId,
+				reviewer: {
+					key: mockUserId,
+					provider: 'tessera',
+					userId: mockUserId,
+					username: 'ada',
+				},
+				state: 'submitted',
+				outcome: 'approve',
+				headSha: 'b'.repeat(40),
+				submittedAt: createdAt,
+			},
+			canonicalBaseSha: 'a'.repeat(40),
+			currentHeadSha: 'b'.repeat(40),
+		}
+		const reviewComparisonSpy = vi
+			.spyOn(service, 'reviewComparison')
+			.mockResolvedValue(output)
+		const procedure = controller.reviewComparison(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'reviewComparison'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(output)
+		expect(reviewComparisonSpy).toHaveBeenCalledWith(mockUserId, input)
 	})
 
 	test('delegates file diff requests with an optional viewer', async () => {

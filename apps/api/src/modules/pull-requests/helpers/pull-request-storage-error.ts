@@ -10,6 +10,18 @@ interface PullRequestStorageErrorContext {
 	repositoryId: string
 }
 
+/**
+ * A revision git storage does not hold, as opposed to storage failing to answer
+ * or refusing the request. The client wraps every unmapped gRPC failure the
+ * same way, so the code it carried is all that separates a commit that is gone
+ * from a service that is broken.
+ */
+export function isMissingGitObjectError(error: unknown): boolean {
+	if (!(error instanceof ExternalServiceError)) return false
+
+	return error.context?.grpcCode === status.NOT_FOUND
+}
+
 export function toPullRequestStorageError(
 	error: unknown,
 	context: PullRequestStorageErrorContext
