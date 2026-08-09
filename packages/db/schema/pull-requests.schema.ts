@@ -1,4 +1,7 @@
 import type {
+	BranchProtectionRuleId,
+	MergeBlockingReasonCode,
+	MergeQueueEntryId,
 	PullRequestCommentId,
 	PullRequestEventId,
 	PullRequestId,
@@ -54,6 +57,12 @@ export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'review_request_removed',
 	'review_submitted',
 	'review_dismissed',
+	'merge_blocked',
+	'merge_bypassed',
+	'queue_entered',
+	'queue_paused',
+	'queue_resumed',
+	'queue_removed',
 ])
 
 export interface PullRequestThreadEventPayload {
@@ -75,10 +84,62 @@ export interface PullRequestReviewEventPayload {
 	headSha: string
 }
 
+/**
+ * A merge attempt that was refused. Only the codes are recorded: the details
+ * behind them describe state that has already moved on by the time anyone reads
+ * the timeline, while the evaluated SHAs and rule version pin what was judged.
+ */
+export interface PullRequestMergeBlockedEventPayload {
+	ruleId?: BranchProtectionRuleId
+	ruleVersion?: number
+	reasonCodes: MergeBlockingReasonCode[]
+	baseSha?: string
+	headSha?: string
+}
+
+export interface PullRequestMergeBypassedEventPayload {
+	ruleId?: BranchProtectionRuleId
+	ruleVersion?: number
+	reason: string
+	bypassedReasonCodes: MergeBlockingReasonCode[]
+	baseSha: string
+	headSha: string
+}
+
+export interface PullRequestQueueEnteredEventPayload {
+	queueEntryId: MergeQueueEntryId
+	position: number
+	enqueuedHeadSha: string
+}
+
+export interface PullRequestQueuePausedEventPayload {
+	queueEntryId: MergeQueueEntryId
+	reasonCodes: MergeBlockingReasonCode[]
+	evaluatedBaseSha?: string
+	evaluatedHeadSha?: string
+}
+
+export interface PullRequestQueueResumedEventPayload {
+	queueEntryId: MergeQueueEntryId
+	position: number
+}
+
+export interface PullRequestQueueRemovedEventPayload {
+	queueEntryId: MergeQueueEntryId
+	position: number
+	reason: 'user' | 'admin' | 'closed' | 'merged'
+}
+
 export type PullRequestEventPayload =
 	| PullRequestThreadEventPayload
 	| PullRequestReviewerEventPayload
 	| PullRequestReviewEventPayload
+	| PullRequestMergeBlockedEventPayload
+	| PullRequestMergeBypassedEventPayload
+	| PullRequestQueueEnteredEventPayload
+	| PullRequestQueuePausedEventPayload
+	| PullRequestQueueResumedEventPayload
+	| PullRequestQueueRemovedEventPayload
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',
@@ -187,10 +248,31 @@ export const pullRequestEvents = pgTable(
 		index('pull_request_events_actor_user_id_idx').on(table.actorUserId),
 		check(
 			'pull_request_events_actor_check',
-			sql`${table.provider}::text = 'github' or ${table.actorUserId} is not null`
+			// System-authored queue transitions (worker pauses, reconciler cleanup)
+			// have no acting user, mirroring how GitHub-provider events carry
+			// external attribution instead of a native actor.
+			sql`${table.provider}::text = 'github' or ${table.actorUserId} is not null or ${table.type}::text in ('queue_paused', 'queue_removed', 'queue_resumed')`
 		),
 	]
 )
+
+/**
+ * What a merge attempt was allowed to waive, recorded before Git is called and
+ * kept on the intent row until the merge completes. The audit event is written
+ * from this rather than from the request, so the evidence outlives the process
+ * that produced it: a crash between the Git merge and the database completion
+ * leaves the waiver on the row, and a later attempt that reclaims the aged-out
+ * intent carries it forward. Turning such an abandoned attempt back into a
+ * completed, audited merge on its own is not implemented.
+ */
+export interface PullRequestMergeBypass {
+	ruleId?: BranchProtectionRuleId
+	ruleVersion?: number
+	reason: string
+	bypassedReasonCodes: MergeBlockingReasonCode[]
+	baseSha: string
+	headSha: string
+}
 
 export const pullRequestMergeIntents = pgTable(
 	'pull_request_merge_intents',
@@ -204,6 +286,8 @@ export const pullRequestMergeIntents = pgTable(
 			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
+		/** Absent on an ordinary merge; present only when policy was waived. */
+		bypass: jsonb('bypass').$type<PullRequestMergeBypass>(),
 		startedAt: timestamp('started_at').notNull(),
 	},
 	table => [

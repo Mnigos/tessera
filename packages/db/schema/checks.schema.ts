@@ -1,4 +1,9 @@
-import type { CheckId, CheckObservationId, RepositoryId } from '@repo/domain'
+import {
+	type CheckId,
+	type CheckObservationId,
+	checkKinds,
+	type RepositoryId,
+} from '@repo/domain'
 import { relations, sql } from 'drizzle-orm'
 import {
 	bigint,
@@ -23,7 +28,7 @@ import { repositories } from './repositories.schema'
  * treats them as separately requirable — so the kind is part of the identity of
  * a context rather than a provider detail.
  */
-export const checkKindEnum = pgEnum('check_kind', ['status', 'check_run'])
+export const checkKindEnum = pgEnum('check_kind', checkKinds)
 
 /**
  * The canonical result vocabulary every provider normalizes into. `stale` is

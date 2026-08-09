@@ -134,6 +134,13 @@
       "when": 1786218491645,
       "tag": "0018_rich_black_widow",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1786232760315,
+      "tag": "0019_aspiring_agent_zero",
+      "breakpoints": true
     }
   ]
 }

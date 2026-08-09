@@ -1,4 +1,5 @@
 import type {
+	BranchProtectionRuleId,
 	RepositoryCollaboratorRole,
 	RepositoryEventId,
 	RepositoryId,
@@ -14,12 +15,16 @@ import {
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { user } from './auth.schema'
+import type { BranchProtectionRuleSnapshot } from './branch-protection.schema'
 import { repositories } from './repositories.schema'
 
 export const repositoryEventTypeEnum = pgEnum('repository_event_type', [
 	'collaborator_added',
 	'collaborator_role_changed',
 	'collaborator_removed',
+	'branch_protection_created',
+	'branch_protection_updated',
+	'branch_protection_deleted',
 ])
 
 export type RepositoryEventPayload =
@@ -38,6 +43,25 @@ export type RepositoryEventPayload =
 			type: 'collaborator_removed'
 			collaboratorUserId: UserId
 			role: RepositoryCollaboratorRole
+	  }
+	| {
+			type: 'branch_protection_created'
+			ruleId: BranchProtectionRuleId
+			targetBranch: string
+			current: BranchProtectionRuleSnapshot
+	  }
+	| {
+			type: 'branch_protection_updated'
+			ruleId: BranchProtectionRuleId
+			targetBranch: string
+			previous: BranchProtectionRuleSnapshot
+			current: BranchProtectionRuleSnapshot
+	  }
+	| {
+			type: 'branch_protection_deleted'
+			ruleId: BranchProtectionRuleId
+			targetBranch: string
+			previous: BranchProtectionRuleSnapshot
 	  }
 
 export const repositoryEvents = pgTable(
