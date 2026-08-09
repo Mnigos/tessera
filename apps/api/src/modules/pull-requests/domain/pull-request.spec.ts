@@ -5,6 +5,7 @@ import {
 	assertPullRequestClosable,
 	assertPullRequestEditable,
 	assertPullRequestReopenable,
+	assertPullRequestRetargetable,
 	toPullRequestOutput,
 } from './pull-request'
 import { PullRequestStateConflictError } from './pull-request.errors'
@@ -84,5 +85,22 @@ describe('pull request domain', () => {
 		expect(() => assertPullRequestReopenable(pullRequest)).toThrow(
 			PullRequestStateConflictError
 		)
+	})
+})
+
+// Retargeting is open-only, unlike editing: a closed pull request's target is a
+// record of where it was going, and a merged one's is where it went.
+describe('retargetable pull requests', () => {
+	test('allows an open pull request', () => {
+		expect(() => assertPullRequestRetargetable(pullRequest)).not.toThrow()
+	})
+
+	test.each([
+		'closed',
+		'merged',
+	] as const)('refuses a %s pull request', state => {
+		expect(() =>
+			assertPullRequestRetargetable({ ...pullRequest, state })
+		).toThrow(PullRequestStateConflictError)
 	})
 })

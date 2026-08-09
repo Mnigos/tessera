@@ -36,6 +36,27 @@ const MIGRATIONS_FOLDER = fileURLToPath(
 const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
 const MOVED_HEAD_SHA = 'c'.repeat(40)
+const RELEASE_SHA = 'd'.repeat(40)
+const BRANCHES = [
+	{
+		type: 'branch',
+		name: 'main',
+		qualifiedName: 'refs/heads/main',
+		target: BASE_SHA,
+	},
+	{
+		type: 'branch',
+		name: 'feature',
+		qualifiedName: 'refs/heads/feature',
+		target: HEAD_SHA,
+	},
+	{
+		type: 'branch',
+		name: 'release',
+		qualifiedName: 'refs/heads/release',
+		target: RELEASE_SHA,
+	},
+]
 
 @Module({
 	imports: [
@@ -70,6 +91,7 @@ describe('Pull request threads integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let compareRepositoryRefs: ReturnType<typeof vi.fn>
+	let listRepositoryRefs: ReturnType<typeof vi.fn>
 	let owner: IntegrationUser
 
 	beforeAll(async () => {
@@ -80,6 +102,7 @@ describe('Pull request threads integration', () => {
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
 		compareRepositoryRefs = vi.fn()
+		listRepositoryRefs = vi.fn()
 		moduleRef = await Test.createTestingModule({
 			imports: [PullRequestThreadsIntegrationTestModule],
 		})
@@ -90,23 +113,7 @@ describe('Pull request threads integration', () => {
 						storagePath: `/var/lib/tessera/repositories/${repositoryId}.git`,
 					})
 				),
-				listRepositoryRefs: vi.fn().mockResolvedValue({
-					branches: [
-						{
-							type: 'branch',
-							name: 'main',
-							qualifiedName: 'refs/heads/main',
-							target: BASE_SHA,
-						},
-						{
-							type: 'branch',
-							name: 'feature',
-							qualifiedName: 'refs/heads/feature',
-							target: HEAD_SHA,
-						},
-					],
-					tags: [],
-				}),
+				listRepositoryRefs,
 				compareRepositoryRefs,
 			})
 			.compile()
@@ -120,6 +127,8 @@ describe('Pull request threads integration', () => {
 		await resetIntegrationDatabase()
 		compareRepositoryRefs.mockReset()
 		compareRepositoryRefs.mockResolvedValue(comparison(HEAD_SHA))
+		listRepositoryRefs.mockReset()
+		listRepositoryRefs.mockResolvedValue({ branches: BRANCHES, tags: [] })
 		owner = await createIntegrationUser('owner')
 		await createRepository('private', owner.headers)
 		const response = await request(
@@ -251,6 +260,42 @@ describe('Pull request threads integration', () => {
 		})
 	})
 
+	// Moving the target moves the base every inline anchor was measured against,
+	// so the threads on it go outdated exactly as they do when the head moves.
+	// They still block the merge: the unresolved count ignores outdatedness.
+	test('marks inline threads outdated after the target branch moves', async () => {
+		await createThread(
+			{
+				body: 'Inline',
+				anchor: {
+					path: 'src/index.ts',
+					side: 'right',
+					line: 7,
+					anchorSha: HEAD_SHA,
+					baseSha: BASE_SHA,
+					headSha: HEAD_SHA,
+					lineExcerpt: 'const value = 1',
+				},
+			},
+			owner.headers
+		)
+
+		const retargeted = await request(
+			'http://localhost/repositories/owner/notes/pulls/1/retarget',
+			'POST',
+			owner.headers,
+			{ targetBranch: 'release' }
+		)
+		expect(retargeted.status).toBe(200)
+
+		compareRepositoryRefs.mockResolvedValue(comparison(HEAD_SHA, RELEASE_SHA))
+
+		expect(await (await listThreads(owner.headers)).json()).toMatchObject({
+			threads: [{ outdated: true }],
+			comparison: { baseSha: RELEASE_SHA, headSha: HEAD_SHA },
+		})
+	})
+
 	test('requires authentication for mutations', async () => {
 		expect((await createThread({ body: 'Anonymous' })).status).toBe(401)
 	})
@@ -327,11 +372,11 @@ describe('Pull request threads integration', () => {
 		])
 	})
 
-	function comparison(headSha: string) {
+	function comparison(headSha: string, baseSha = BASE_SHA) {
 		return {
-			baseSha: BASE_SHA,
+			baseSha,
 			headSha,
-			mergeBaseSha: BASE_SHA,
+			mergeBaseSha: baseSha,
 			commits: [],
 			files: [],
 			isTruncated: false,

@@ -10,6 +10,22 @@ export class MergeQueueEntryAlreadyExistsError extends ConflictError {
 	}
 }
 
+/**
+ * The repository's merge lease is held by somebody else, or was lost while this
+ * caller was working. The hold is repository-wide — another pull request's merge
+ * may own it — so the refusal names the repository rather than claiming this
+ * pull request is the one merging.
+ */
+export class RepositoryMergeInProgressError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'repository merge',
+			context,
+			'Merge work is in progress on this repository. Try again once it settles.'
+		)
+	}
+}
+
 export class MergeQueueEntryNotFoundError extends NotFoundError {
 	constructor(context?: Record<string, unknown>) {
 		super('merge queue entry', context)

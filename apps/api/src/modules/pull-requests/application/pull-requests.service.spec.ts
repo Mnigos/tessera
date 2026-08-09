@@ -18,11 +18,14 @@ import type {
 } from '@repo/domain'
 import { ExternalServiceError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
+import { RepositoryMergeInProgressError } from '../domain/merge-queue.errors'
 import {
 	PullRequestAlreadyOpenError,
 	PullRequestInvalidBranchesError,
+	PullRequestMergeInProgressError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
+	PullRequestQueuedError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
@@ -219,6 +222,7 @@ describe(PullRequestsService.name, () => {
 						edit: vi.fn(),
 						close: vi.fn(),
 						reopen: vi.fn(),
+						retarget: vi.fn(),
 						claimMerge: vi.fn(),
 						findRecoverableMergeIntent: vi.fn(),
 						completeMerge: vi.fn(),
@@ -604,6 +608,314 @@ describe(PullRequestsService.name, () => {
 		await expect(
 			service.reopen(mockUserId, { ...repositoryInput, number: 1 })
 		).rejects.toBeInstanceOf(PullRequestAlreadyOpenError)
+	})
+
+	// Only the target moves. The source is what the pull request is, and every
+	// review, check and thread on it was made about that history.
+	describe('retargeting a pull request', () => {
+		const retargetInput = {
+			...repositoryInput,
+			number: 1,
+			targetBranch: 'release',
+		}
+		const retargeted = { ...pullRequest, targetBranch: 'release' }
+
+		beforeEach(() => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue(
+				undefined
+			)
+			vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
+				branches: [
+					{
+						type: 'branch',
+						name: 'main',
+						qualifiedName: 'refs/heads/main',
+						target: 'base-sha',
+					},
+					{
+						type: 'branch',
+						name: 'feature',
+						qualifiedName: 'refs/heads/feature',
+						target: 'head-sha',
+					},
+					{
+						type: 'branch',
+						name: 'release',
+						qualifiedName: 'refs/heads/release',
+						target: 'release-sha',
+					},
+				],
+				tags: [],
+			})
+		})
+
+		test('moves the target against the one it validated', async () => {
+			const retargetSpy = vi
+				.spyOn(repository, 'retarget')
+				.mockResolvedValue({ status: 'retargeted', pullRequest: retargeted })
+
+			expect(await service.retarget(mockUserId, retargetInput)).toEqual(
+				expect.objectContaining({ targetBranch: 'release' })
+			)
+			expect(retargetSpy).toHaveBeenCalledWith({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				expectedTargetBranch: 'main',
+				leaseOwner: expect.any(String),
+				targetBranch: 'release',
+			})
+			expect(
+				mergeQueueRepository.releaseRepositoryMergeLease
+			).toHaveBeenCalled()
+		})
+
+		// The write is fenced on the same lease the service took, so the transaction
+		// can prove the hold still exists rather than trusting that it once did.
+		test('hands the lease it acquired to the write that is fenced on it', async () => {
+			const retargetSpy = vi
+				.spyOn(repository, 'retarget')
+				.mockResolvedValue({ status: 'retargeted', pullRequest: retargeted })
+
+			await service.retarget(mockUserId, retargetInput)
+
+			const [acquired] =
+				vi
+					.mocked(mergeQueueRepository.acquireRepositoryMergeLease)
+					.mock.calls.at(-1) ?? []
+			const [written] = retargetSpy.mock.calls.at(-1) ?? []
+
+			expect(written?.leaseOwner).toBe(acquired?.owner)
+		})
+
+		// An identical request committed first, so the state this one asked for
+		// holds. A retry must not be failed for having succeeded.
+		test('reports a target already moved where it asked as a success', async () => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'unchanged',
+				pullRequest: retargeted,
+			})
+
+			expect(await service.retarget(mockUserId, retargetInput)).toEqual(
+				expect.objectContaining({ targetBranch: 'release' })
+			)
+		})
+
+		test('refuses once the repository merge lease has been lost', async () => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'lease_lost',
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(RepositoryMergeInProgressError)
+		})
+
+		// Asking for the target it already has changes nothing, so nothing is
+		// written and no timeline entry claims the branch moved.
+		test('writes nothing when the target is already the one asked for', async () => {
+			const retargetSpy = vi.spyOn(repository, 'retarget')
+
+			expect(
+				await service.retarget(mockUserId, {
+					...retargetInput,
+					targetBranch: 'main',
+				})
+			).toEqual(expect.objectContaining({ targetBranch: 'main' }))
+			expect(retargetSpy).not.toHaveBeenCalled()
+			expect(
+				mergeQueueRepository.acquireRepositoryMergeLease
+			).not.toHaveBeenCalled()
+		})
+
+		test('rejects a target branch that does not exist', async () => {
+			await expect(
+				service.retarget(mockUserId, {
+					...retargetInput,
+					targetBranch: 'missing',
+				})
+			).rejects.toBeInstanceOf(PullRequestInvalidBranchesError)
+		})
+
+		test('rejects targeting the pull request’s own source branch', async () => {
+			await expect(
+				service.retarget(mockUserId, {
+					...retargetInput,
+					targetBranch: 'feature',
+				})
+			).rejects.toBeInstanceOf(PullRequestInvalidBranchesError)
+		})
+
+		test('rejects a target resolving to the source revision', async () => {
+			vi.spyOn(gitStorageClient, 'listRepositoryRefs').mockResolvedValue({
+				branches: [
+					{
+						type: 'branch',
+						name: 'feature',
+						qualifiedName: 'refs/heads/feature',
+						target: 'same',
+					},
+					{
+						type: 'branch',
+						name: 'release',
+						qualifiedName: 'refs/heads/release',
+						target: 'same',
+					},
+				],
+				tags: [],
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestNoChangesError)
+		})
+
+		test.each([
+			'closed',
+			'merged',
+		] as const)('refuses to retarget a %s pull request', async state => {
+			vi.spyOn(repository, 'find').mockResolvedValue({
+				...pullRequest,
+				state,
+				closedAt: createdAt,
+			})
+			const retargetSpy = vi.spyOn(repository, 'retarget')
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestStateConflictError)
+			expect(retargetSpy).not.toHaveBeenCalled()
+		})
+
+		test('maps open branch pair uniqueness to a conflict', async () => {
+			vi.spyOn(repository, 'retarget').mockRejectedValue({
+				code: '23505',
+				constraint: 'pull_requests_open_branch_pair_unique',
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestAlreadyOpenError)
+			expect(
+				mergeQueueRepository.releaseRepositoryMergeLease
+			).toHaveBeenCalled()
+		})
+
+		// Somebody is merging this repository right now, against the target this
+		// would move out from under them.
+		test('refuses while another merge holds the repository', async () => {
+			vi.spyOn(
+				mergeQueueRepository,
+				'acquireRepositoryMergeLease'
+			).mockResolvedValue(false)
+			const retargetSpy = vi.spyOn(repository, 'retarget')
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(RepositoryMergeInProgressError)
+			expect(retargetSpy).not.toHaveBeenCalled()
+		})
+
+		test('refuses when an intent is still held under the row lock', async () => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'merge_in_progress',
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestMergeInProgressError)
+		})
+
+		// Blocked rather than removed: the entry says what its author queued. What
+		// they can do about it depends on the state — a `merging` entry cannot be
+		// taken back out, so it must not be answered with "leave the queue".
+		test.each([
+			['queued', 'Leave the merge queue before changing the target branch.'],
+			[
+				'merging',
+				'This pull request is being merged right now. Change the target once that merge has settled.',
+			],
+		] as const)('refuses a %s pull request with an actionable message', async (queueState, message) => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'queued',
+				queueState,
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestQueuedError)
+			await expect(service.retarget(mockUserId, retargetInput)).rejects.toThrow(
+				message
+			)
+		})
+
+		test('refuses a move the pull request state no longer allows', async () => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'pull_request_unavailable',
+			})
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestStateConflictError)
+		})
+
+		// An abandoned attempt already merged this pull request onto the target
+		// being moved away from, and only recovery could say so.
+		test('records an abandoned merge and refuses the move', async () => {
+			vi.spyOn(repository, 'find').mockResolvedValue({
+				...pullRequest,
+				authorUsername: 'marta',
+			})
+			vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue({
+				actor: { id: mockUserId, name: 'Grace', email: 'grace@example.com' },
+				attemptId: '00000000-0000-4000-8000-000000000099',
+				request: {
+					strategy: 'squash',
+					expectedBaseSha: 'c'.repeat(40),
+					expectedHeadSha: 'd'.repeat(40),
+					squashTitle: 'The abandoned title',
+					squashBody: '',
+				},
+				startedAt: createdAt,
+			})
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				'merge-sha'
+			)
+			vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+				...pullRequest,
+				state: 'merged',
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: createdAt,
+				closedAt: createdAt,
+			})
+			const retargetSpy = vi.spyOn(repository, 'retarget')
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toBeInstanceOf(PullRequestStateConflictError)
+			expect(repository.completeMerge).toHaveBeenCalledWith(
+				expect.objectContaining({ resultingSha: 'merge-sha' })
+			)
+			expect(retargetSpy).not.toHaveBeenCalled()
+		})
+
+		// Authority is enforced at the repository context, so a repository GitHub
+		// took over is refused before a single ref is read.
+		test('refuses on a repository GitHub is the source of truth for', async () => {
+			vi.spyOn(
+				repositoriesService,
+				'getWritableRepositoryContext'
+			).mockRejectedValue(new Error('github is the source of truth'))
+			const retargetSpy = vi.spyOn(repository, 'retarget')
+
+			await expect(
+				service.retarget(mockUserId, retargetInput)
+			).rejects.toThrow()
+			expect(gitStorageClient.listRepositoryRefs).not.toHaveBeenCalled()
+			expect(retargetSpy).not.toHaveBeenCalled()
+		})
 	})
 
 	test('returns the current three-dot branch comparison', async () => {

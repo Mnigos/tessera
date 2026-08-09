@@ -45,6 +45,22 @@ const entry: MergeQueueEntryReadModel = {
 	stateChangedAt: enqueuedAt,
 }
 
+const openPullRequestRow = {
+	id: pullRequestId,
+	sourceBranch: 'feature',
+	targetBranch: 'main',
+}
+const enqueueInput = {
+	repositoryId,
+	pullRequestId,
+	enqueuedByUserId: mockUserId,
+	enqueuedBaseSha: 'a'.repeat(40),
+	enqueuedHeadSha: 'b'.repeat(40),
+	expectedSourceBranch: openPullRequestRow.sourceBranch,
+	expectedTargetBranch: openPullRequestRow.targetBranch,
+	selection: { strategy: 'merge_commit' },
+} as const
+
 /**
  * A Drizzle builder that answers whatever the test queued for the table it was
  * addressed to. Every chain method returns the builder itself and the builder
@@ -337,7 +353,7 @@ describe(MergeQueueRepository.name, () => {
 	// rather than behind the highest one still active, so no place is handed out
 	// twice and nothing is renumbered.
 	test('enqueues behind the highest position the repository has used', async () => {
-		db.queueRows(pullRequests, [{ id: pullRequestId }])
+		db.queueRows(pullRequests, [openPullRequestRow])
 		db.queueRows(
 			mergeQueueEntries,
 			[],
@@ -350,16 +366,7 @@ describe(MergeQueueRepository.name, () => {
 			[{ requestedVersion: 5 }]
 		)
 
-		expect(
-			await repository.enqueueEntry({
-				repositoryId,
-				pullRequestId,
-				enqueuedByUserId: mockUserId,
-				enqueuedBaseSha: 'a'.repeat(40),
-				enqueuedHeadSha: 'b'.repeat(40),
-				selection: { strategy: 'merge_commit' },
-			})
-		).toEqual({
+		expect(await repository.enqueueEntry(enqueueInput)).toEqual({
 			status: 'enqueued',
 			entry: { ...entry, position: 12 },
 			requestedVersion: 5,
@@ -381,7 +388,7 @@ describe(MergeQueueRepository.name, () => {
 	// The queue-state lock orders joins against each other and says nothing about
 	// the pull request being joined, so the pull request's own row is taken too.
 	test('takes the pull request row it is queueing for the transaction', async () => {
-		db.queueRows(pullRequests, [{ id: pullRequestId }])
+		db.queueRows(pullRequests, [openPullRequestRow])
 		db.queueRows(mergeQueueEntries, [], [{ highest: 1 }], [entry])
 		db.queueRows(
 			repositoryMergeQueueStates,
@@ -389,14 +396,7 @@ describe(MergeQueueRepository.name, () => {
 			[{ requestedVersion: 2 }]
 		)
 
-		await repository.enqueueEntry({
-			repositoryId,
-			pullRequestId,
-			enqueuedByUserId: mockUserId,
-			enqueuedBaseSha: 'a'.repeat(40),
-			enqueuedHeadSha: 'b'.repeat(40),
-			selection: { strategy: 'merge_commit' },
-		})
+		await repository.enqueueEntry(enqueueInput)
 
 		expect(db.findCall(pullRequests, 'for')?.argument).toBe('update')
 		expect(db.findCall(pullRequests, 'where')?.argument).toEqual(
@@ -413,16 +413,24 @@ describe(MergeQueueRepository.name, () => {
 	test('enqueues nothing for a pull request that stopped being open', async () => {
 		db.queueRows(pullRequests, [])
 
-		expect(
-			await repository.enqueueEntry({
-				repositoryId,
-				pullRequestId,
-				enqueuedByUserId: mockUserId,
-				enqueuedBaseSha: 'a'.repeat(40),
-				enqueuedHeadSha: 'b'.repeat(40),
-				selection: { strategy: 'merge_commit' },
-			})
-		).toEqual({ status: 'pull_request_unavailable' })
+		expect(await repository.enqueueEntry(enqueueInput)).toEqual({
+			status: 'pull_request_unavailable',
+		})
+		expect(db.findCall(mergeQueueEntries, 'values')).toBeUndefined()
+		expect(db.findCall(pullRequestEvents, 'values')).toBeUndefined()
+	})
+
+	// A retarget that commits between the join resolving refs and this transaction
+	// would otherwise be snapshotted against the target the pull request has just
+	// stopped having, and the queue would merge something nobody asked for.
+	test('enqueues nothing once the branches stopped matching what was resolved', async () => {
+		db.queueRows(pullRequests, [
+			{ ...openPullRequestRow, targetBranch: 'release' },
+		])
+
+		expect(await repository.enqueueEntry(enqueueInput)).toEqual({
+			status: 'branches_changed',
+		})
 		expect(db.findCall(mergeQueueEntries, 'values')).toBeUndefined()
 		expect(db.findCall(pullRequestEvents, 'values')).toBeUndefined()
 	})
@@ -430,19 +438,12 @@ describe(MergeQueueRepository.name, () => {
 	// The partial unique index says the same thing, but reporting it as a decision
 	// rather than as a constraint violation keeps the conflict readable.
 	test('refuses to enqueue a pull request that already holds an entry', async () => {
-		db.queueRows(pullRequests, [{ id: pullRequestId }])
+		db.queueRows(pullRequests, [openPullRequestRow])
 		db.queueRows(mergeQueueEntries, [{ id: entryId }])
 
-		expect(
-			await repository.enqueueEntry({
-				repositoryId,
-				pullRequestId,
-				enqueuedByUserId: mockUserId,
-				enqueuedBaseSha: 'a'.repeat(40),
-				enqueuedHeadSha: 'b'.repeat(40),
-				selection: { strategy: 'merge_commit' },
-			})
-		).toEqual({ status: 'already_queued' })
+		expect(await repository.enqueueEntry(enqueueInput)).toEqual({
+			status: 'already_queued',
+		})
 		expect(db.findCall(pullRequestEvents, 'values')).toBeUndefined()
 	})
 

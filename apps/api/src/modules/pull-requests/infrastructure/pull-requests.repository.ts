@@ -29,6 +29,7 @@ import {
 } from '@repo/db'
 import type {
 	MergeQueueEntryId,
+	MergeQueueState,
 	MergeStrategy,
 	PullRequestId,
 	RepositoryId,
@@ -39,6 +40,8 @@ import type { PullRequestPushRefUpdate } from '../domain/pull-request-push.schem
 import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import {
 	completeMergeQueueEntry,
+	findActiveMergeQueueState,
+	holdsRepositoryMergeLease,
 	removeActiveMergeQueueEntry,
 } from './merge-queue.transactions'
 
@@ -89,6 +92,29 @@ interface LifecycleParams extends PullRequestMutationParams {
 interface CloseParams extends LifecycleParams {
 	staleBefore: Date
 }
+
+interface RetargetParams extends PullRequestMutationParams {
+	/** The target the refs were validated against, so a move that raced this one is refused. */
+	expectedTargetBranch: string
+	/** The repository merge lease this caller took, re-proved inside the transaction. */
+	leaseOwner: string
+	targetBranch: string
+}
+
+/**
+ * What became of an attempt to move a target branch. The refusals are different
+ * things to tell the person who asked: one is worth retrying after a refresh,
+ * one once the repository's merge work settles, one once this pull request's own
+ * merge does, and one only after they take it out of the queue. `unchanged` is
+ * not a refusal at all — the target is already where it was asked to be.
+ */
+export type RetargetPullRequestResult =
+	| { status: 'retargeted'; pullRequest: PullRequest }
+	| { status: 'unchanged'; pullRequest: PullRequest }
+	| { status: 'pull_request_unavailable' }
+	| { status: 'lease_lost' }
+	| { status: 'merge_in_progress' }
+	| { status: 'queued'; queueState: MergeQueueState }
 
 interface ClaimMergeParams extends PullRequestMutationParams {
 	attemptId: string
@@ -633,6 +659,99 @@ export class PullRequestsRepository {
 			})
 
 			return pullRequest
+		})
+	}
+
+	/**
+	 * Moves an open pull request onto another target branch, and records where it
+	 * was moved from.
+	 *
+	 * Everything that could contradict the move is re-read under the pull
+	 * request's own row lock rather than trusted from the service's earlier look:
+	 * the target it validated against, the merge intent it settled, and the queue
+	 * entry it found nothing of. The caller holds the repository merge lease
+	 * throughout, so an intent still here is a merge in flight or one recovery
+	 * could not resolve — and both were cleared against the target this would
+	 * move.
+	 *
+	 * Nothing else on the row is touched. The opening SHAs are what the pull
+	 * request was created against and stay that way; every comparison an open pull
+	 * request has is resolved from the live branches and self-heals on the next
+	 * read.
+	 */
+	async retarget({
+		actorUserId,
+		expectedTargetBranch,
+		leaseOwner,
+		pullRequestId,
+		repositoryId,
+		targetBranch,
+	}: RetargetParams): Promise<RetargetPullRequestResult> {
+		return await this.db.transaction(async tx => {
+			// Fenced before anything is read, because the caller acquiring the lease
+			// is not the same thing as still holding it: recovery can outlast the
+			// TTL, and a merge that took the expired lease may already have resolved
+			// the branches this transaction would move underneath it.
+			if (
+				!(await holdsRepositoryMergeLease(tx, {
+					owner: leaseOwner,
+					repositoryId,
+				}))
+			)
+				return { status: 'lease_lost' }
+
+			const lockedPullRequest = await this.lockPullRequest(tx, {
+				pullRequestId,
+				repositoryId,
+			})
+
+			if (lockedPullRequest?.state !== 'open')
+				return { status: 'pull_request_unavailable' }
+
+			// The move already happened — by an identical request that got here
+			// first, so this one asked for a state that now holds. Reporting a
+			// conflict would fail a retry for having succeeded, so the row comes back
+			// unchanged and no second event claims the branch moved twice.
+			if (lockedPullRequest.targetBranch === targetBranch)
+				return { status: 'unchanged', pullRequest: lockedPullRequest }
+
+			if (lockedPullRequest.targetBranch !== expectedTargetBranch)
+				return { status: 'pull_request_unavailable' }
+
+			const mergeIntent = await this.findMergeIntent(tx, pullRequestId)
+			if (mergeIntent) return { status: 'merge_in_progress' }
+
+			// Blocked rather than removed: the entry says what its author queued, and
+			// deciding for them that a differently-targeted merge is what they meant
+			// is not this endpoint's to make.
+			const queueState = await findActiveMergeQueueState(tx, pullRequestId)
+			if (queueState) return { status: 'queued', queueState }
+
+			const [pullRequest] = await tx
+				.update(pullRequests)
+				.set({ targetBranch })
+				.where(
+					and(
+						eq(pullRequests.id, pullRequestId),
+						eq(pullRequests.repositoryId, repositoryId),
+						eq(pullRequests.state, 'open')
+					)
+				)
+				.returning(PULL_REQUEST_COLUMNS)
+
+			if (!pullRequest) return { status: 'pull_request_unavailable' }
+
+			await this.createEvent(tx, {
+				pullRequestId,
+				actorUserId,
+				type: 'retargeted',
+				payload: {
+					fromBranch: lockedPullRequest.targetBranch,
+					toBranch: targetBranch,
+				},
+			})
+
+			return { status: 'retargeted', pullRequest }
 		})
 	}
 

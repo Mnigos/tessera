@@ -2,6 +2,7 @@ import {
 	and,
 	type DrizzleTransaction,
 	eq,
+	gt,
 	inArray,
 	type MergeQueueBlockingReasonSnapshot,
 	mergeQueueEntries,
@@ -152,6 +153,64 @@ export async function requestMergeQueueWakeup(
 	if (!state) throw new Error('merge queue state row is missing')
 
 	return state.requestedVersion
+}
+
+/**
+ * Takes the repository's queue-state row and reports whether this caller still
+ * holds its merge lease.
+ *
+ * A lease that aged out is indistinguishable from one that was never held: the
+ * repository may have been handed to a merge that has already read the branches
+ * this transaction is about to change. Holding the row for the rest of the
+ * transaction is what stops the lease moving again underneath it, so this is
+ * taken before the pull request's own row — the same order the queue join uses,
+ * because two orders would be a deadlock.
+ *
+ * The deadline is compared by the database rather than by the caller, so a
+ * process whose clock has drifted cannot talk itself into still owning a lease
+ * PostgreSQL has already expired.
+ */
+export async function holdsRepositoryMergeLease(
+	tx: DrizzleTransaction,
+	{ owner, repositoryId }: { owner: string; repositoryId: RepositoryId }
+): Promise<boolean> {
+	const [state] = await tx
+		.select({ repositoryId: repositoryMergeQueueStates.repositoryId })
+		.from(repositoryMergeQueueStates)
+		.where(
+			and(
+				eq(repositoryMergeQueueStates.repositoryId, repositoryId),
+				eq(repositoryMergeQueueStates.leaseOwner, owner),
+				gt(repositoryMergeQueueStates.leaseExpiresAt, sql`now()`)
+			)
+		)
+		.for('update')
+
+	return Boolean(state)
+}
+
+/**
+ * The state the pull request is still in the queue under, for a transaction
+ * that has already taken its row. Read rather than removed: a lifecycle change
+ * that cannot go ahead while an entry exists refuses instead of deciding for
+ * whoever queued it, and what the person should do about it differs by state.
+ */
+export async function findActiveMergeQueueState(
+	tx: DrizzleTransaction,
+	pullRequestId: PullRequestId
+): Promise<MergeQueueState | undefined> {
+	const [entry] = await tx
+		.select({ state: mergeQueueEntries.state })
+		.from(mergeQueueEntries)
+		.where(
+			and(
+				eq(mergeQueueEntries.pullRequestId, pullRequestId),
+				inArray(mergeQueueEntries.state, [...ACTIVE_MERGE_QUEUE_STATES])
+			)
+		)
+		.limit(1)
+
+	return entry?.state
 }
 
 /**

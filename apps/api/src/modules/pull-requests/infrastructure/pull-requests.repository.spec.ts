@@ -9,6 +9,7 @@ import {
 	pullRequestEvents,
 	pullRequestMergeIntents,
 	pullRequests,
+	repositoryMergeQueueStates,
 	repositoryPullRequestCounters,
 	sql,
 } from '@repo/db'
@@ -528,6 +529,157 @@ describe(PullRequestsRepository.name, () => {
 		).toBeUndefined()
 		expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
 		expect(deleteMock).not.toHaveBeenCalled()
+	})
+
+	// Only the target moves. The opening SHAs are the creation facts they always
+	// were, and every comparison an open pull request has is resolved from the
+	// live branches on the next read.
+	describe('retargeting', () => {
+		const retargetParams = {
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			expectedTargetBranch: 'main',
+			leaseOwner: 'attempt-1',
+			targetBranch: 'release',
+		}
+
+		beforeEach(() => {
+			selectLimitMock.mockResolvedValue([])
+		})
+
+		// The lease is re-proved inside the transaction before anything is read: a
+		// hold that aged out during recovery may already have been taken by a merge
+		// that resolved the branches this would move.
+		test('writes nothing once the repository merge lease is gone', async () => {
+			selectForMock.mockResolvedValueOnce([])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'lease_lost',
+			})
+			expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		// The queue-state row is taken before the pull request's, the same order the
+		// queue join takes them in. Two orders would be a deadlock.
+		test('takes the queue-state row before the pull request row', async () => {
+			await repository.retarget(retargetParams)
+
+			const tables = selectFromMock.mock.calls.map(([table]) => table)
+
+			expect(tables.indexOf(repositoryMergeQueueStates)).toBeLessThan(
+				tables.indexOf(pullRequests)
+			)
+		})
+
+		test('moves the target and records where it came from', async () => {
+			const retargeted = { ...pullRequest, targetBranch: 'release' }
+			pullRequestUpdateReturningMock.mockResolvedValue([retargeted])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'retargeted',
+				pullRequest: retargeted,
+			})
+			expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
+				targetBranch: 'release',
+			})
+			expect(eventValuesMock).toHaveBeenCalledWith({
+				pullRequestId,
+				actorUserId: mockUserId,
+				type: 'retargeted',
+				payload: { fromBranch: 'main', toBranch: 'release' },
+			})
+		})
+
+		test('takes the pull request row for the transaction', async () => {
+			await repository.retarget(retargetParams)
+
+			expect(selectForMock).toHaveBeenCalledWith('update')
+		})
+
+		test.each([
+			'closed',
+			'merged',
+		] as const)('writes nothing for a %s pull request', async state => {
+			selectForMock.mockResolvedValue([{ ...pullRequest, state }])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'pull_request_unavailable',
+			})
+			expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		// Another retarget committed between the refs being validated and this
+		// transaction, and it moved the target somewhere else entirely, so the move
+		// this one describes is no longer the move it was asked to make.
+		test('writes nothing once the target moved under it', async () => {
+			selectForMock.mockResolvedValue([
+				{ ...pullRequest, targetBranch: 'develop' },
+			])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'pull_request_unavailable',
+			})
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		// Two identical requests both read `main`; this is the second one arriving
+		// after the first committed. The state it asked for holds, so it is a retry
+		// that succeeded rather than a conflict, and it records no second event.
+		test('reports a target already moved where it was asked to go as unchanged', async () => {
+			const retargeted = { ...pullRequest, targetBranch: 'release' }
+			selectForMock.mockResolvedValue([retargeted])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'unchanged',
+				pullRequest: retargeted,
+			})
+			expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		// The service settled what it could under the repository lease and holds it
+		// still, so an intent here is a merge in flight or one recovery could not
+		// resolve — and both were cleared against the target this would move.
+		test('refuses while a merge intent is held', async () => {
+			selectLimitMock.mockResolvedValueOnce([
+				{
+					...mergeRequestColumns,
+					attemptId: 'attempt-1',
+					startedAt: createdAt,
+				},
+			])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'merge_in_progress',
+			})
+			expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		test('refuses while the pull request holds an active queue entry', async () => {
+			selectLimitMock
+				.mockResolvedValueOnce([])
+				.mockResolvedValueOnce([{ state: 'merging' }])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'queued',
+				queueState: 'merging',
+			})
+			expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
+
+		test('records no event when the guarded update matches nothing', async () => {
+			pullRequestUpdateReturningMock.mockResolvedValue([])
+
+			expect(await repository.retarget(retargetParams)).toEqual({
+				status: 'pull_request_unavailable',
+			})
+			expect(eventValuesMock).not.toHaveBeenCalled()
+		})
 	})
 
 	test('reopens a closed pull request and clears the closed timestamp', async () => {
