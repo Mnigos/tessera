@@ -36,6 +36,7 @@ const input = {
 	slug: 'notes' as RepositorySlug,
 	number: 1,
 }
+const joinInput = { ...input, strategy: 'merge_commit' as const }
 const repositoryAccessContext = {
 	repositoryId,
 	storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -56,6 +57,9 @@ const pullRequest = {
 	body: '',
 	state: 'open' as const,
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -67,6 +71,9 @@ const entry: MergeQueueEntryReadModel = {
 	pullRequestId,
 	position: 4,
 	state: 'queued',
+	strategy: 'merge_commit',
+	squashTitle: null,
+	squashBody: null,
 	blockingReasons: null,
 	enqueuedByUserId: mockUserId,
 	enqueuedAt: createdAt,
@@ -146,6 +153,12 @@ describe(MergeQueueService.name, () => {
 				conflictPaths: [],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: [
+					{ strategy: 'merge_commit', available: true },
+					{ strategy: 'squash', available: true },
+					{ strategy: 'rebase', available: true },
+					{ strategy: 'fast_forward', available: true },
+				],
 			}
 		)
 	})
@@ -163,7 +176,7 @@ describe(MergeQueueService.name, () => {
 			.mockResolvedValue({ status: 'enqueued', entry, requestedVersion: 9 })
 		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(entry)
 
-		expect(await service.join(mockUserId, input)).toMatchObject({
+		expect(await service.join(mockUserId, joinInput)).toMatchObject({
 			entry: { entryId, state: 'queued', position: 1 },
 		})
 		expect(enqueueSpy).toHaveBeenCalledWith({
@@ -172,6 +185,7 @@ describe(MergeQueueService.name, () => {
 			enqueuedByUserId: mockUserId,
 			enqueuedBaseSha: 'a'.repeat(40),
 			enqueuedHeadSha: 'b'.repeat(40),
+			selection: joinInput,
 		})
 		expect(mergeQueue.enqueueWakeup).toHaveBeenCalledWith({
 			repositoryId,
@@ -179,12 +193,95 @@ describe(MergeQueueService.name, () => {
 		})
 	})
 
+	// The queue decides when a pull request merges, not how. What the joiner chose
+	// is stored on the entry and never re-chosen.
+	test('locks the chosen method onto the entry', async () => {
+		const enqueueSpy = vi
+			.spyOn(mergeQueueRepository, 'enqueueEntry')
+			.mockResolvedValue({ status: 'enqueued', entry, requestedVersion: 9 })
+		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(entry)
+		const squashInput = {
+			...input,
+			strategy: 'squash' as const,
+			squashTitle: 'Add search (#1)',
+			squashBody: 'Why it changed',
+		}
+
+		await service.join(mockUserId, squashInput)
+
+		expect(enqueueSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				selection: {
+					strategy: 'squash',
+					squashTitle: 'Add search (#1)',
+					squashBody: 'Why it changed',
+				},
+			})
+		)
+	})
+
+	// The message is settled at the door, not when the entry runs, so editing the
+	// pull request afterwards cannot change the commit the queue writes.
+	test('derives and locks the squash message when the joiner sends none', async () => {
+		const enqueueSpy = vi
+			.spyOn(mergeQueueRepository, 'enqueueEntry')
+			.mockResolvedValue({ status: 'enqueued', entry, requestedVersion: 9 })
+		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(entry)
+
+		await service.join(mockUserId, { ...input, strategy: 'squash' })
+
+		expect(enqueueSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				selection: {
+					strategy: 'squash',
+					squashTitle: 'Add feature (#1)',
+					squashBody: '',
+				},
+			})
+		)
+	})
+
+	// The queue re-evaluates before it runs, so a method the branches cannot take
+	// right now is still worth recording: the target moving may make it possible.
+	test('queues a method the branches cannot currently run', async () => {
+		vi.spyOn(gitStorageClient, 'checkRepositoryMergeability').mockResolvedValue(
+			{
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+				mergeBaseSha: 'a'.repeat(40),
+				mergeable: true,
+				conflictPaths: [],
+				conflictPathsTruncated: false,
+				conflictPathLimit: 100,
+				strategyAvailability: [
+					{
+						strategy: 'fast_forward',
+						available: false,
+						reason: 'not_fast_forward',
+					},
+				],
+			}
+		)
+		const enqueueSpy = vi
+			.spyOn(mergeQueueRepository, 'enqueueEntry')
+			.mockResolvedValue({ status: 'enqueued', entry, requestedVersion: 9 })
+		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(entry)
+
+		await service.join(mockUserId, { ...input, strategy: 'fast_forward' })
+
+		expect(enqueueSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				selection: expect.objectContaining({ strategy: 'fast_forward' }),
+			})
+		)
+	})
+
 	test('refuses to queue a pull request that already holds an entry', async () => {
 		vi.spyOn(mergeQueueRepository, 'enqueueEntry').mockResolvedValue({
 			status: 'already_queued',
 		})
 
-		await expect(service.join(mockUserId, input)).rejects.toBeInstanceOf(
+		await expect(service.join(mockUserId, joinInput)).rejects.toBeInstanceOf(
 			MergeQueueEntryAlreadyExistsError
 		)
 	})
@@ -195,7 +292,7 @@ describe(MergeQueueService.name, () => {
 			state: 'closed',
 		})
 
-		await expect(service.join(mockUserId, input)).rejects.toBeInstanceOf(
+		await expect(service.join(mockUserId, joinInput)).rejects.toBeInstanceOf(
 			PullRequestStateConflictError
 		)
 	})
@@ -212,7 +309,7 @@ describe(MergeQueueService.name, () => {
 			.mockResolvedValueOnce(pullRequest)
 			.mockResolvedValue({ ...pullRequest, state: 'closed' })
 
-		await expect(service.join(mockUserId, input)).rejects.toBeInstanceOf(
+		await expect(service.join(mockUserId, joinInput)).rejects.toBeInstanceOf(
 			PullRequestStateConflictError
 		)
 		expect(mergeQueue.enqueueWakeup).not.toHaveBeenCalled()
@@ -357,7 +454,7 @@ describe(MergeQueueService.name, () => {
 		)
 		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(entry)
 
-		await expect(service.join(mockUserId, input)).resolves.toMatchObject({
+		await expect(service.join(mockUserId, joinInput)).resolves.toMatchObject({
 			entry: { entryId },
 		})
 	})

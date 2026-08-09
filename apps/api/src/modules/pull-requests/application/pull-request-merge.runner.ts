@@ -5,11 +5,19 @@ import type {
 	PullRequest as PullRequestEntity,
 	PullRequestMergeBypass,
 } from '@repo/db'
-import type { MergeQueueEntryId, RepositoryId, UserId } from '@repo/domain'
+import type {
+	MergeQueueEntryId,
+	MergeStrategy,
+	MergeStrategyUnavailableReason,
+	RepositoryId,
+	UserId,
+} from '@repo/domain'
 import {
 	PullRequestMergeConflictError,
+	PullRequestMergeStrategyUnavailableError,
 	PullRequestStaleComparisonError,
 } from '../domain/pull-request.errors'
+import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { toPullRequestStorageError } from '../helpers/pull-request-storage-error'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import {
@@ -17,6 +25,13 @@ import {
 	PullRequestsRepository,
 } from '../infrastructure/pull-requests.repository'
 
+/**
+ * How long a merge intent stands before another attempt may assume the one that
+ * wrote it died. It has to outlive the git storage round trip it covers, or a
+ * concurrent close can delete the intent of a merge that is still in flight and
+ * leave the target moved with nothing recording it. See `MERGE_RPC_TIMEOUT_MS`,
+ * which this is asserted against.
+ */
 export const MERGE_INTENT_LEASE_MS = 60_000
 /**
  * How long one merge may hold a repository before another may assume it died.
@@ -35,13 +50,13 @@ export interface RunPullRequestMergeParams {
 	actor: PullRequestMergeActor
 	/** Present only when the attempt is deliberately merging past policy. */
 	bypass?: PullRequestMergeBypass
-	evaluatedBaseSha: string
-	evaluatedHeadSha: string
 	leaseOwner: string
 	pullRequest: PullRequestReadModel
 	/** Present when a queue run is merging, so its entry finishes with the merge. */
 	queueEntryId?: MergeQueueEntryId
 	repositoryId: RepositoryId
+	/** Exactly what Git is to be asked for, resolved by the caller's evaluation. */
+	request: PullRequestMergeRequest
 	storagePath: string
 }
 
@@ -58,9 +73,24 @@ export type PullRequestMergeAttempt =
 	| {
 			outcome: 'refs_moved'
 			error: unknown
-			kind: 'merge_conflict' | 'stale_refs'
+			kind: PullRequestMergeRefusal
 	  }
 	| { outcome: 'state_conflict'; state: PullRequestEntity['state'] }
+
+/**
+ * Why Git refused a merge it was asked to make. All three describe the world
+ * rather than the request, so all three are worth attempting again once it
+ * changes — and all three are reported back as blocking reasons rather than
+ * failures.
+ */
+export type PullRequestMergeRefusal =
+	| { code: 'merge_conflict' }
+	| { code: 'stale_refs' }
+	| {
+			code: 'merge_strategy_unavailable'
+			strategy: MergeStrategy
+			reason: MergeStrategyUnavailableReason
+	  }
 
 /**
  * The part of merging that both merge paths share: claim the pull request's
@@ -83,27 +113,27 @@ export class PullRequestMergeRunner {
 	async run({
 		actor,
 		bypass,
-		evaluatedBaseSha,
-		evaluatedHeadSha,
 		leaseOwner,
 		pullRequest,
 		queueEntryId,
 		repositoryId,
+		request,
 		storagePath,
 	}: RunPullRequestMergeParams): Promise<PullRequestMergeAttempt> {
 		const attemptId = randomUUID()
 		const startedAt = new Date()
-		const claimedPullRequest = await this.pullRequestsRepository.claimMerge({
+		const claimed = await this.pullRequestsRepository.claimMerge({
 			repositoryId,
 			pullRequestId: pullRequest.id,
 			actorUserId: actor.id,
 			attemptId,
 			bypass,
+			request,
 			startedAt,
 			staleBefore: new Date(startedAt.getTime() - MERGE_INTENT_LEASE_MS),
 		})
 
-		if (!claimedPullRequest) {
+		if (!claimed) {
 			const currentPullRequest = await this.pullRequestsRepository.findById({
 				pullRequestId: pullRequest.id,
 			})
@@ -144,10 +174,9 @@ export class PullRequestMergeRunner {
 		const mergeResult = await this.mergeRepositoryRefs({
 			actor,
 			attemptId,
-			expectedBaseSha: evaluatedBaseSha,
-			expectedHeadSha: evaluatedHeadSha,
 			pullRequest,
 			repositoryId,
+			request: claimed.request,
 			storagePath,
 		})
 
@@ -159,7 +188,7 @@ export class PullRequestMergeRunner {
 			actorUserId: actor.id,
 			attemptId,
 			changedAt: new Date(),
-			mergeCommitSha: mergeResult.mergeCommitSha,
+			resultingSha: mergeResult.resultingSha,
 			queueEntryId,
 		})
 
@@ -182,45 +211,47 @@ export class PullRequestMergeRunner {
 	private async mergeRepositoryRefs({
 		actor,
 		attemptId,
-		expectedBaseSha,
-		expectedHeadSha,
 		pullRequest,
 		repositoryId,
+		request,
 		storagePath,
 	}: {
 		actor: PullRequestMergeActor
 		attemptId: string
-		expectedBaseSha: string
-		expectedHeadSha: string
 		pullRequest: PullRequestReadModel
 		repositoryId: RepositoryId
+		request: PullRequestMergeRequest
 		storagePath: string
 	}): Promise<
-		| { mergeCommitSha: string }
-		| { error: unknown; kind: 'merge_conflict' | 'stale_refs' }
+		{ resultingSha: string } | { error: unknown; kind: PullRequestMergeRefusal }
 	> {
 		try {
 			return {
-				mergeCommitSha: await this.gitStorageClient.mergeRepositoryRefs({
+				resultingSha: await this.gitStorageClient.mergeRepositoryRefs({
 					repositoryId,
 					storagePath,
 					baseRef: pullRequest.targetBranch,
 					headRef: pullRequest.sourceBranch,
-					expectedBaseSha,
-					expectedHeadSha,
+					expectedBaseSha: request.expectedBaseSha,
+					expectedHeadSha: request.expectedHeadSha,
 					authorName: actor.name,
 					authorEmail: actor.email,
-					message: `Merge pull request #${pullRequest.number}: ${pullRequest.title}`,
+					message: request.commitMessage ?? '',
+					squashTitle: request.squashTitle,
+					squashBody: request.squashBody,
+					strategy: request.strategy,
+					// Stable across every attempt, which is what lets git storage
+					// recognise a merge it has already made under this identifier.
 					operationId: pullRequest.id,
 				}),
 			}
 		} catch (error) {
-			const storageError = toPullRequestStorageError(error, {
-				repositoryId,
-				number: pullRequest.number,
-			})
-
-			const kind = toRefsMovedKind(storageError)
+			const storageError = toPullRequestStorageError(
+				error,
+				{ repositoryId, number: pullRequest.number },
+				request.strategy
+			)
+			const kind = toRefusal(storageError)
 
 			if (!kind) throw storageError
 
@@ -242,13 +273,19 @@ export class PullRequestMergeRunner {
 
 /**
  * Whether Git refused because the world moved rather than because the request
- * was wrong. Only these two rejections leave a merge worth attempting again.
+ * was wrong. Only these rejections leave a merge worth attempting again.
  */
-function toRefsMovedKind(
-	error: unknown
-): 'merge_conflict' | 'stale_refs' | undefined {
-	if (error instanceof PullRequestMergeConflictError) return 'merge_conflict'
-	if (error instanceof PullRequestStaleComparisonError) return 'stale_refs'
+function toRefusal(error: unknown): PullRequestMergeRefusal | undefined {
+	if (error instanceof PullRequestMergeConflictError)
+		return { code: 'merge_conflict' }
+	if (error instanceof PullRequestStaleComparisonError)
+		return { code: 'stale_refs' }
+	if (error instanceof PullRequestMergeStrategyUnavailableError)
+		return {
+			code: 'merge_strategy_unavailable',
+			strategy: error.strategy,
+			reason: error.unavailableReason,
+		}
 
 	return undefined
 }

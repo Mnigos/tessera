@@ -1,4 +1,4 @@
-import { GitStorageClient } from '@config/git-storage'
+import { GitStorageClient, MERGE_RPC_TIMEOUT_MS } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
@@ -10,7 +10,11 @@ import { ExternalServiceError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
-import { PullRequestMergeRunner } from './pull-request-merge.runner'
+import {
+	MERGE_INTENT_LEASE_MS,
+	PullRequestMergeRunner,
+	REPOSITORY_MERGE_LEASE_MS,
+} from './pull-request-merge.runner'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
@@ -30,21 +34,31 @@ const pullRequest = {
 	body: '',
 	state: 'open' as const,
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
 	closedAt: null,
 	mergedAt: null,
 }
+const actor = { id: mockUserId, email: 'ada@example.com', name: 'Ada' }
+const mergeRequest = {
+	strategy: 'merge_commit' as const,
+	expectedBaseSha: 'a'.repeat(40),
+	expectedHeadSha: 'b'.repeat(40),
+	commitMessage: 'Merge pull request #1: Add feature',
+}
 const runParams = {
-	actor: { id: mockUserId, email: 'ada@example.com', name: 'Ada' },
-	evaluatedBaseSha: 'a'.repeat(40),
-	evaluatedHeadSha: 'b'.repeat(40),
+	actor,
 	leaseOwner: 'attempt-1',
 	pullRequest,
 	repositoryId,
+	request: mergeRequest,
 	storagePath: '/var/lib/tessera/repositories/repo.git',
 }
+const claimedMerge = { actor, pullRequest, request: mergeRequest }
 
 describe(PullRequestMergeRunner.name, () => {
 	let moduleRef: TestingModule
@@ -83,7 +97,7 @@ describe(PullRequestMergeRunner.name, () => {
 		gitStorageClient = moduleRef.get(GitStorageClient)
 
 		vi.spyOn(pullRequestsRepository, 'claimMerge').mockResolvedValue(
-			pullRequest
+			claimedMerge
 		)
 		vi.spyOn(pullRequestsRepository, 'releaseMerge').mockResolvedValue()
 		vi.spyOn(pullRequestsRepository, 'completeMerge').mockResolvedValue({
@@ -115,7 +129,7 @@ describe(PullRequestMergeRunner.name, () => {
 			outcome: 'merged',
 		})
 		expect(pullRequestsRepository.completeMerge).toHaveBeenCalledWith(
-			expect.objectContaining({ queueEntryId, mergeCommitSha: 'merge-sha' })
+			expect.objectContaining({ queueEntryId, resultingSha: 'merge-sha' })
 		)
 	})
 
@@ -143,15 +157,30 @@ describe(PullRequestMergeRunner.name, () => {
 	})
 
 	test.each([
-		{ context: { grpcCode: status.ABORTED }, kind: 'stale_refs' as const },
+		{
+			context: { grpcCode: status.ABORTED },
+			kind: { code: 'stale_refs' } as const,
+		},
 		{
 			context: {
 				grpcCode: status.FAILED_PRECONDITION,
 				grpcDetails: 'repository refs cannot be merged cleanly',
 			},
-			kind: 'merge_conflict' as const,
+			kind: { code: 'merge_conflict' } as const,
 		},
-	])('reports Git refusing the swap as $kind and hands the claim back', async ({
+		{
+			context: {
+				grpcCode: status.FAILED_PRECONDITION,
+				grpcDetails:
+					'repository merge strategy is unavailable: not_fast_forward',
+			},
+			kind: {
+				code: 'merge_strategy_unavailable',
+				strategy: 'merge_commit',
+				reason: 'not_fast_forward',
+			} as const,
+		},
+	])('reports Git refusing the swap as $kind.code and hands the claim back', async ({
 		context,
 		kind,
 	}) => {
@@ -164,6 +193,83 @@ describe(PullRequestMergeRunner.name, () => {
 			kind,
 		})
 		expect(pullRequestsRepository.releaseMerge).toHaveBeenCalledOnce()
+	})
+
+	// The claim decides what Git is asked for. An attempt that took over an
+	// abandoned intent is finishing that merge, and git storage recognises its own
+	// completed work only by the request that intent recorded.
+	test('asks Git for the request the claim handed back, not the one it brought', async () => {
+		const persisted = {
+			strategy: 'squash' as const,
+			expectedBaseSha: 'c'.repeat(40),
+			expectedHeadSha: 'd'.repeat(40),
+			squashTitle: 'The abandoned title',
+			squashBody: 'The abandoned body',
+		}
+		vi.spyOn(pullRequestsRepository, 'claimMerge').mockResolvedValue({
+			pullRequest,
+			request: persisted,
+		})
+
+		await runner.run(runParams)
+
+		expect(gitStorageClient.mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+				squashTitle: 'The abandoned title',
+				squashBody: 'The abandoned body',
+				message: '',
+			})
+		)
+	})
+
+	test.each([
+		{
+			request: {
+				strategy: 'rebase' as const,
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+			},
+			expected: { strategy: 'rebase', message: '', squashTitle: undefined },
+		},
+		{
+			request: {
+				strategy: 'fast_forward' as const,
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+			},
+			expected: {
+				strategy: 'fast_forward',
+				message: '',
+				squashTitle: undefined,
+			},
+		},
+	])('carries $request.strategy through to git storage', async ({
+		request,
+		expected,
+	}) => {
+		vi.spyOn(pullRequestsRepository, 'claimMerge').mockResolvedValue({
+			pullRequest,
+			request,
+		})
+
+		await runner.run({ ...runParams, request })
+
+		expect(gitStorageClient.mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining(expected)
+		)
+	})
+
+	// The identifier has to be the same on every attempt, or git storage cannot
+	// recognise the operation receipt it filed for the first one.
+	test('names the pull request as the operation on every attempt', async () => {
+		await runner.run(runParams)
+
+		expect(gitStorageClient.mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({ operationId: pullRequestId })
+		)
 	})
 
 	// Somebody else's attempt holds the intent, or the pull request moved on. The
@@ -188,5 +294,45 @@ describe(PullRequestMergeRunner.name, () => {
 		})
 
 		expect(await runner.run(runParams)).toMatchObject({ outcome: 'merged' })
+	})
+})
+
+/**
+ * Git storage's own deadlines, mirrored here because they live in Rust and this
+ * is the only place the whole ordering can be stated. `services/git` asserts the
+ * same two values against these numbers, so a change on either side fails on
+ * both.
+ */
+const GIT_STORAGE_MERGE_TIMEOUT_MS = 45_000
+const GIT_STORAGE_MERGEABILITY_TIMEOUT_MS = 45_000
+
+// Five deadlines, and they have to fire from the inside out. Git storage gives
+// up first, so an overrunning merge is refused by the layer that knows what
+// happened; the RPC deadline next; the merge intent must outlive both, or a
+// concurrent close can delete the record of a merge still in flight; and the
+// repository lease outlives everything, so nothing else starts merging the same
+// repository while one attempt is still going.
+describe('merge timeout ordering', () => {
+	test('fires from the inside out', () => {
+		const ordering = [
+			GIT_STORAGE_MERGE_TIMEOUT_MS,
+			MERGE_RPC_TIMEOUT_MS,
+			MERGE_INTENT_LEASE_MS,
+			REPOSITORY_MERGE_LEASE_MS,
+		]
+
+		expect(ordering).toEqual([...ordering].sort((left, right) => left - right))
+		expect(new Set(ordering).size).toBe(ordering.length)
+	})
+
+	// Mergeability runs under the same lease a merge does and is waited on by the
+	// same caller, so it may not outlast the merge deadline either.
+	test('bounds the mergeability answer like the merge it clears', () => {
+		expect(GIT_STORAGE_MERGEABILITY_TIMEOUT_MS).toBeLessThanOrEqual(
+			MERGE_RPC_TIMEOUT_MS
+		)
+		expect(GIT_STORAGE_MERGEABILITY_TIMEOUT_MS).toBeLessThan(
+			MERGE_INTENT_LEASE_MS
+		)
 	})
 })

@@ -36,6 +36,9 @@ const entry: MergeQueueEntryReadModel = {
 	pullRequestId,
 	position: 7,
 	state: 'queued',
+	strategy: 'merge_commit',
+	squashTitle: null,
+	squashBody: null,
 	blockingReasons: null,
 	enqueuedByUserId: mockUserId,
 	enqueuedAt,
@@ -354,6 +357,7 @@ describe(MergeQueueRepository.name, () => {
 				enqueuedByUserId: mockUserId,
 				enqueuedBaseSha: 'a'.repeat(40),
 				enqueuedHeadSha: 'b'.repeat(40),
+				selection: { strategy: 'merge_commit' },
 			})
 		).toEqual({
 			status: 'enqueued',
@@ -363,6 +367,9 @@ describe(MergeQueueRepository.name, () => {
 		expect(db.findCall(mergeQueueEntries, 'values')?.argument).toMatchObject({
 			position: 12,
 			enqueuedByUserId: mockUserId,
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 		})
 		expect(db.findCall(pullRequestEvents, 'values')?.argument).toMatchObject({
 			pullRequestId,
@@ -388,6 +395,7 @@ describe(MergeQueueRepository.name, () => {
 			enqueuedByUserId: mockUserId,
 			enqueuedBaseSha: 'a'.repeat(40),
 			enqueuedHeadSha: 'b'.repeat(40),
+			selection: { strategy: 'merge_commit' },
 		})
 
 		expect(db.findCall(pullRequests, 'for')?.argument).toBe('update')
@@ -412,6 +420,7 @@ describe(MergeQueueRepository.name, () => {
 				enqueuedByUserId: mockUserId,
 				enqueuedBaseSha: 'a'.repeat(40),
 				enqueuedHeadSha: 'b'.repeat(40),
+				selection: { strategy: 'merge_commit' },
 			})
 		).toEqual({ status: 'pull_request_unavailable' })
 		expect(db.findCall(mergeQueueEntries, 'values')).toBeUndefined()
@@ -431,6 +440,7 @@ describe(MergeQueueRepository.name, () => {
 				enqueuedByUserId: mockUserId,
 				enqueuedBaseSha: 'a'.repeat(40),
 				enqueuedHeadSha: 'b'.repeat(40),
+				selection: { strategy: 'merge_commit' },
 			})
 		).toEqual({ status: 'already_queued' })
 		expect(db.findCall(pullRequestEvents, 'values')).toBeUndefined()

@@ -26,6 +26,7 @@ import {
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
+import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import {
 	type PullRequestReviewReadModel,
@@ -79,6 +80,9 @@ const pullRequest: PullRequest = {
 	body: '',
 	state: 'open',
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -123,7 +127,17 @@ const mergeInput = {
 	number: 1,
 	expectedBaseSha: 'a'.repeat(40),
 	expectedHeadSha: 'b'.repeat(40),
+	strategy: 'merge_commit' as const,
 }
+/**
+ * A claim with no abandoned intent to take over, which hands back exactly the
+ * request the attempt arrived with.
+ */
+const claimMerge = async ({
+	request,
+}: {
+	request: PullRequestMergeRequest
+}) => ({ pullRequest, request })
 const reviewId = '00000000-0000-4000-8000-000000000077' as PullRequestReviewId
 const reviewHeadSha = 'd'.repeat(40)
 const currentHeadSha = 'e'.repeat(40)
@@ -206,6 +220,7 @@ describe(PullRequestsService.name, () => {
 						close: vi.fn(),
 						reopen: vi.fn(),
 						claimMerge: vi.fn(),
+						findRecoverableMergeIntent: vi.fn(),
 						completeMerge: vi.fn(),
 						releaseMerge: vi.fn(),
 						recordMergeBlocked: vi.fn(),
@@ -274,6 +289,7 @@ describe(PullRequestsService.name, () => {
 						getRepositoryFileDiff: vi.fn(),
 						getRepositoryBlob: vi.fn(),
 						mergeRepositoryRefs: vi.fn(),
+						findMergeReceipt: vi.fn(),
 					},
 				},
 			],
@@ -882,11 +898,320 @@ describe(PullRequestsService.name, () => {
 		})
 	})
 
+	// An abandoned attempt may already have moved the target, and a fresh
+	// evaluation would read that as staleness and refuse this attempt. So the
+	// operation's receipt is read first: it says whether git storage actually
+	// performed the merge, which is the only thing that may be recorded after the
+	// fact.
+	describe('recovering an abandoned merge', () => {
+		const abandoned = {
+			actor: { id: mockUserId, name: 'Grace', email: 'grace@example.com' },
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			request: {
+				strategy: 'squash' as const,
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+				squashTitle: 'The abandoned title',
+				squashBody: '',
+			},
+			startedAt: new Date('2026-07-11T00:00:00Z'),
+		}
+
+		beforeEach(() => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
+			vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+			vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+				...pullRequest,
+				state: 'merged',
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: createdAt,
+				closedAt: createdAt,
+			})
+			vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue(
+				abandoned
+			)
+			vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
+				'merge-sha'
+			)
+		})
+
+		test('records a merge git storage had already made', async () => {
+			const findReceipt = vi
+				.spyOn(gitStorageClient, 'findMergeReceipt')
+				.mockResolvedValue('merge-sha')
+			const evaluateSpy = vi.spyOn(mergeRequirementsService, 'evaluate')
+
+			expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+				status: 'merged',
+			})
+			expect(findReceipt).toHaveBeenCalledWith(
+				expect.objectContaining({
+					operationId: pullRequestId,
+					strategy: 'squash',
+					expectedBaseSha: 'c'.repeat(40),
+					expectedHeadSha: 'd'.repeat(40),
+				})
+			)
+			// Nothing was judged and nothing was merged: the merge already existed.
+			expect(evaluateSpy).not.toHaveBeenCalled()
+			expect(gitStorageClient.mergeRepositoryRefs).not.toHaveBeenCalled()
+			expect(repository.completeMerge).toHaveBeenCalledWith(
+				expect.objectContaining({
+					attemptId: abandoned.attemptId,
+					actorUserId: abandoned.actor.id,
+					resultingSha: 'merge-sha',
+				})
+			)
+		})
+
+		// The attempt died before git storage ever performed the merge. Replaying
+		// it would merge on the strength of an evaluation nobody repeated, under an
+		// actor and a waiver it inherited.
+		test('never merges an intent git storage has no receipt for', async () => {
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				undefined
+			)
+			const evaluateSpy = vi
+				.spyOn(mergeRequirementsService, 'evaluate')
+				.mockResolvedValue(blockedRequirements)
+			vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+
+			expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+				status: 'blocked',
+			})
+			expect(repository.releaseMerge).toHaveBeenCalledWith(
+				expect.objectContaining({ attemptId: abandoned.attemptId })
+			)
+			expect(repository.completeMerge).not.toHaveBeenCalled()
+			// The merge is decided again from scratch, like any other.
+			expect(evaluateSpy).toHaveBeenCalled()
+		})
+
+		// A repository GitHub has taken over is no longer Tessera's to record
+		// merges on.
+		test('leaves a mirrored repository alone', async () => {
+			vi.spyOn(
+				repositoriesService,
+				'getReadableRepositoryContext'
+			).mockResolvedValue({
+				...repositoryAccessContext,
+				tesseraWritesAllowed: false,
+			})
+			const findReceipt = vi.spyOn(gitStorageClient, 'findMergeReceipt')
+			vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+				blockedRequirements
+			)
+			vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+
+			await service.merge(mergeActor, mergeInput)
+
+			expect(findReceipt).not.toHaveBeenCalled()
+			expect(repository.completeMerge).not.toHaveBeenCalled()
+		})
+
+		test('evaluates normally when no intent was abandoned', async () => {
+			vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue(
+				undefined
+			)
+			const findReceipt = vi.spyOn(gitStorageClient, 'findMergeReceipt')
+			const evaluateSpy = vi
+				.spyOn(mergeRequirementsService, 'evaluate')
+				.mockResolvedValue(eligibleRequirements)
+
+			await service.merge(mergeActor, mergeInput)
+
+			expect(findReceipt).not.toHaveBeenCalled()
+			expect(evaluateSpy).toHaveBeenCalled()
+		})
+	})
+
+	// An intent that recorded its request is only ever resolved by recovery. It
+	// can age past the recovery cutoff in the moment between recovery looking and
+	// the claim arriving, and overwriting it there would destroy the evidence of
+	// a merge git storage had already made.
+	test('never claims past an intent that recorded its request', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue(
+			undefined
+		)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			eligibleRequirements
+		)
+		// The claim finds what recovery did not: an intent that crossed the cutoff
+		// while the requirements were being evaluated.
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(undefined)
+		vi.spyOn(repository, 'findById').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+		const mergeGitSpy = vi.spyOn(gitStorageClient, 'mergeRepositoryRefs')
+
+		expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+			status: 'blocked',
+		})
+		expect(mergeGitSpy).not.toHaveBeenCalled()
+	})
+
+	// Closing deletes the intent, and the intent is the only record of which
+	// merge an abandoned attempt was making.
+	describe('closing a pull request with an abandoned merge', () => {
+		const abandoned = {
+			actor: { id: mockUserId, name: 'Grace', email: 'grace@example.com' },
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			request: {
+				strategy: 'squash' as const,
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+				squashTitle: 'The abandoned title',
+				squashBody: '',
+			},
+			startedAt: new Date('2026-07-11T00:00:00Z'),
+		}
+
+		beforeEach(() => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+			vi.spyOn(
+				mergeQueueRepository,
+				'acquireRepositoryMergeLease'
+			).mockResolvedValue(true)
+			vi.spyOn(
+				mergeQueueRepository,
+				'releaseRepositoryMergeLease'
+			).mockResolvedValue(undefined)
+			vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue(
+				abandoned
+			)
+		})
+
+		// The pull request was merged, whatever the person clicking believed.
+		test('records the merge and refuses the close', async () => {
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				'merge-sha'
+			)
+			vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+				...pullRequest,
+				state: 'merged',
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: createdAt,
+				closedAt: createdAt,
+			})
+			const closeSpy = vi.spyOn(repository, 'close')
+
+			await expect(
+				service.close(mockUserId, { ...repositoryInput, number: 1 })
+			).rejects.toThrow()
+			expect(repository.completeMerge).toHaveBeenCalledWith(
+				expect.objectContaining({ resultingSha: 'merge-sha' })
+			)
+			expect(closeSpy).not.toHaveBeenCalled()
+		})
+
+		test('releases an intent nothing merged and closes', async () => {
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				undefined
+			)
+			vi.spyOn(repository, 'completeMerge').mockResolvedValue(undefined)
+			vi.spyOn(repository, 'close').mockResolvedValue({
+				...pullRequest,
+				state: 'closed',
+				closedAt: createdAt,
+			})
+
+			expect(
+				await service.close(mockUserId, { ...repositoryInput, number: 1 })
+			).toMatchObject({ state: 'closed' })
+			expect(repository.releaseMerge).toHaveBeenCalledWith(
+				expect.objectContaining({ attemptId: abandoned.attemptId })
+			)
+		})
+
+		// Somebody is merging this repository right now; their attempt owns the
+		// intent and the close does not race it.
+		test('refuses while another merge holds the repository', async () => {
+			vi.spyOn(
+				mergeQueueRepository,
+				'acquireRepositoryMergeLease'
+			).mockResolvedValue(false)
+			const closeSpy = vi.spyOn(repository, 'close')
+
+			await expect(
+				service.close(mockUserId, { ...repositoryInput, number: 1 })
+			).rejects.toThrow()
+			expect(closeSpy).not.toHaveBeenCalled()
+		})
+	})
+
+	// The strategies migration left old intents in place rather than requiring a
+	// quiesce. They recorded no request, so they cannot be looked up or replayed.
+	test('releases a migrated intent that recorded no request', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+		vi.spyOn(repository, 'findRecoverableMergeIntent').mockResolvedValue({
+			actor: { id: mockUserId, name: 'Grace', email: 'grace@example.com' },
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			startedAt: new Date('2026-07-11T00:00:00Z'),
+		})
+		const findReceipt = vi.spyOn(gitStorageClient, 'findMergeReceipt')
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			blockedRequirements
+		)
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+
+		await service.merge(mergeActor, mergeInput)
+
+		// Nothing to look up, so nothing is asked; the intent is handed back and
+		// the merge is judged from scratch.
+		expect(findReceipt).not.toHaveBeenCalled()
+		expect(repository.releaseMerge).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attemptId: '00000000-0000-4000-8000-000000000099',
+			})
+		)
+	})
+
+	// The strategy the caller chose is what the evaluation judges and what Git is
+	// asked for; nothing in between may substitute another.
+	test.each([
+		'merge_commit',
+		'squash',
+		'rebase',
+		'fast_forward',
+	] as const)('merges by the %s the caller chose', async strategy => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
+		vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		})
+		const evaluateSpy = vi
+			.spyOn(mergeRequirementsService, 'evaluate')
+			.mockResolvedValue(eligibleRequirements)
+		const mergeGitSpy = vi
+			.spyOn(gitStorageClient, 'mergeRepositoryRefs')
+			.mockResolvedValue('merge-sha')
+
+		await service.merge(mergeActor, { ...mergeInput, strategy })
+
+		expect(evaluateSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy })
+		)
+		expect(mergeGitSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy })
+		)
+	})
+
 	test('claims the merge before Git and completes persistence afterward', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
 		const claimMergeSpy = vi
 			.spyOn(repository, 'claimMerge')
-			.mockResolvedValue(pullRequest)
+			.mockImplementation(claimMerge)
 		const mergeGitSpy = vi
 			.spyOn(gitStorageClient, 'mergeRepositoryRefs')
 			.mockResolvedValue('merge-sha')
@@ -908,12 +1233,7 @@ describe(PullRequestsService.name, () => {
 					name: 'Ada',
 					email: 'ada@example.com',
 				},
-				{
-					...repositoryInput,
-					number: 1,
-					expectedBaseSha: 'a'.repeat(40),
-					expectedHeadSha: 'b'.repeat(40),
-				}
+				mergeInput
 			)
 		).toMatchObject({
 			status: 'merged',
@@ -935,7 +1255,7 @@ describe(PullRequestsService.name, () => {
 		expect(completeMergeSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				pullRequestId,
-				mergeCommitSha: 'merge-sha',
+				resultingSha: 'merge-sha',
 				attemptId: expect.any(String),
 			})
 		)
@@ -961,18 +1281,13 @@ describe(PullRequestsService.name, () => {
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
 			'merge-sha'
 		)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(repository, 'completeMerge').mockResolvedValue(undefined)
 
 		expect(
 			await service.merge(
 				{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
-				{
-					...repositoryInput,
-					number: 1,
-					expectedBaseSha: 'a'.repeat(40),
-					expectedHeadSha: 'b'.repeat(40),
-				}
+				mergeInput
 			)
 		).toMatchObject({
 			status: 'merged',
@@ -982,7 +1297,7 @@ describe(PullRequestsService.name, () => {
 
 	test('releases the merge intent after a deterministic stale-ref failure', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', { grpcCode: status.ABORTED })
@@ -993,12 +1308,7 @@ describe(PullRequestsService.name, () => {
 
 		await service.merge(
 			{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
-			{
-				...repositoryInput,
-				number: 1,
-				expectedBaseSha: 'a'.repeat(40),
-				expectedHeadSha: 'b'.repeat(40),
-			}
+			mergeInput
 		)
 
 		expect(releaseMergeSpy).toHaveBeenCalledWith(
@@ -1031,7 +1341,7 @@ describe(PullRequestsService.name, () => {
 		}
 
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', { grpcCode: status.ABORTED })
@@ -1069,7 +1379,7 @@ describe(PullRequestsService.name, () => {
 	// from what the refused attempt knew.
 	test('records what Git refused when the fresh look has nothing to say', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', {
@@ -1105,7 +1415,7 @@ describe(PullRequestsService.name, () => {
 	// error the caller can retry rather than a refusal it would act on.
 	test('still raises a transport failure rather than reporting it as blocked', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', {
 				grpcCode: status.UNAVAILABLE,
@@ -1117,7 +1427,7 @@ describe(PullRequestsService.name, () => {
 
 	test('merges the refs the evaluation resolved, not the ones the caller sent', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(repository, 'completeMerge').mockResolvedValue({
 			...pullRequest,
 			state: 'merged',
@@ -1192,7 +1502,7 @@ describe(PullRequestsService.name, () => {
 		})
 		const claimMergeSpy = vi
 			.spyOn(repository, 'claimMerge')
-			.mockResolvedValue(pullRequest)
+			.mockImplementation(claimMerge)
 		const recordMergeBlockedSpy = vi
 			.spyOn(repository, 'recordMergeBlocked')
 			.mockResolvedValue()
@@ -1332,7 +1642,7 @@ describe(PullRequestsService.name, () => {
 
 	test('abandons the merge when the lease was lost between evaluation and Git', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(
 			mergeQueueRepository,
 			'renewRepositoryMergeLease'
@@ -1361,7 +1671,7 @@ describe(PullRequestsService.name, () => {
 
 	test('releases the repository lease even when the merge fails', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', {
 				grpcCode: status.UNAVAILABLE,
@@ -1385,7 +1695,7 @@ describe(PullRequestsService.name, () => {
 	// merge into an error the caller would retry.
 	test('keeps the merge result when the lease cannot be released', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockImplementation(claimMerge)
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
 			'merge-sha'
 		)

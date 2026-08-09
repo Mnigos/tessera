@@ -1,4 +1,5 @@
 import type { GitAccessTokenPermission } from '@repo/auth'
+import type { MergeStrategySelection } from '@repo/contracts'
 import { session, user } from '@repo/db'
 import { db } from '@repo/db/client'
 import { makeSignature } from 'better-auth/crypto'
@@ -183,13 +184,23 @@ export async function comparePullRequest({
 	return await orpc.pullRequests.comparison({ username, slug, number })
 }
 
+interface MergePullRequestOptions extends PullRequestRepositoryOptions {
+	/** Defaults to the two-parent merge, which every history can take. */
+	selection?: MergeStrategySelection
+}
+
+/**
+ * Merges through the API against the refs the comparison currently reports,
+ * which is what the web panel sends too.
+ */
 export async function mergePullRequest({
 	apiBaseUrl,
 	number = 1,
 	headers,
+	selection = { strategy: 'merge_commit' },
 	slug,
 	username,
-}: PullRequestRepositoryOptions) {
+}: MergePullRequestOptions) {
 	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
 	const comparison = await orpc.pullRequests.comparison({
 		username,
@@ -203,5 +214,62 @@ export async function mergePullRequest({
 		number,
 		expectedBaseSha: comparison.baseSha,
 		expectedHeadSha: comparison.headSha,
+		...selection,
 	})
+}
+
+/** Merges with SHAs the caller chose, for the cases that must be refused. */
+export async function mergePullRequestWithRefs({
+	apiBaseUrl,
+	expectedBaseSha,
+	expectedHeadSha,
+	number = 1,
+	headers,
+	selection = { strategy: 'merge_commit' },
+	slug,
+	username,
+}: MergePullRequestOptions & {
+	expectedBaseSha: string
+	expectedHeadSha: string
+}) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.pullRequests.merge({
+		username,
+		slug,
+		number,
+		expectedBaseSha,
+		expectedHeadSha,
+		...selection,
+	})
+}
+
+export async function joinMergeQueue({
+	apiBaseUrl,
+	number = 1,
+	headers,
+	selection = { strategy: 'merge_commit' },
+	slug,
+	username,
+}: MergePullRequestOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.pullRequests.joinMergeQueue({
+		username,
+		slug,
+		number,
+		...selection,
+	})
+}
+
+export async function getPullRequest({
+	apiBaseUrl,
+	number = 1,
+	headers,
+	slug,
+	username,
+}: PullRequestRepositoryOptions) {
+	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
+
+	return await orpc.pullRequests.get({ username, slug, number })
 }

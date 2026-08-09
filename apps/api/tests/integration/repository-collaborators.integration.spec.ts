@@ -335,6 +335,14 @@ describe('Repository collaborators integration', () => {
 			conflictPaths: [],
 			conflictPathsTruncated: false,
 			conflictPathLimit: 100,
+			// A git storage that answers for merge methods answers for all four;
+			// anything less is refused as an answer that never reached them.
+			strategyAvailability: [
+				{ strategy: 'merge_commit', available: true },
+				{ strategy: 'squash', available: true },
+				{ strategy: 'rebase', available: true },
+				{ strategy: 'fast_forward', available: true },
+			],
 		})
 		await addCollaborator(writeCollaborator.username, 'write', owner.headers)
 		await createPullRequest(owner.headers)
@@ -600,11 +608,14 @@ describe('Repository collaborators integration', () => {
 	}
 
 	function mergePullRequest(headers: Headers, input: object) {
+		// The merge method is an explicit choice the contract requires, exactly as
+		// the web client always sends one. A body that names none merges the way
+		// every merge did before strategies existed.
 		return request(
 			'http://localhost/repositories/owner/notes/pulls/1/merge',
 			'POST',
 			headers,
-			input
+			{ strategy: 'merge_commit', ...input }
 		)
 	}
 

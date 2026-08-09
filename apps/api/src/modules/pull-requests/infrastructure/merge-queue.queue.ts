@@ -38,6 +38,11 @@ export class MergeQueue {
 	 * The job is keyed by the version the repository's queue state was at, so
 	 * every waker of the same committed change collapses onto one job while a
 	 * later change always gets its own.
+	 *
+	 * The two parts are joined with a hyphen rather than a colon because BullMQ
+	 * reserves the colon for its own key namespacing and rejects a custom job id
+	 * containing one. The repository id is a fixed-length UUID, so a hyphen
+	 * cannot make two different pairs collide.
 	 */
 	async enqueueWakeup({
 		repositoryId,
@@ -52,7 +57,7 @@ export class MergeQueue {
 					type: 'exponential',
 					delay: MERGE_QUEUE_JOB_BACKOFF_DELAY_MS,
 				},
-				jobId: `${repositoryId}:${requestedVersion}`,
+				jobId: `${repositoryId}-${requestedVersion}`,
 				removeOnComplete: true,
 				removeOnFail: true,
 			}

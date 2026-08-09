@@ -3,7 +3,9 @@ import { RepositoriesService } from '@modules/repositories'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	MergeQueueStatus,
+	MergeStrategySelection,
 	ParsedGetPullRequestInput,
+	ParsedJoinMergeQueueInput,
 } from '@repo/contracts'
 import {
 	hasRepositoryRole,
@@ -22,6 +24,7 @@ import {
 	PullRequestNotFoundError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { toPullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { MergeQueue } from '../infrastructure/merge-queue.queue'
 import {
 	type MergeQueueMutationResult,
@@ -63,8 +66,9 @@ export class MergeQueueService {
 	 */
 	async join(
 		userId: UserId,
-		{ number, slug, username }: ParsedGetPullRequestInput
+		input: ParsedJoinMergeQueueInput
 	): Promise<MergeQueueStatus> {
+		const { number, slug, username } = input
 		const { repositoryId, storagePath } =
 			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
@@ -78,12 +82,23 @@ export class MergeQueueService {
 				baseRef: pullRequest.targetBranch,
 				headRef: pullRequest.sourceBranch,
 			})
+		// The chosen method is recorded whether or not it is available right now:
+		// the queue re-evaluates before it runs, and a method that the target
+		// branch moving has since made possible should not have been discarded at
+		// the door.
+		//
+		// The message is settled here too, not when the entry eventually runs.
+		// Deriving it later would read the pull request as it is then, so editing
+		// the title after queueing would silently change the commit the queue
+		// writes — and the whole point of locking the method at the door is that
+		// what was queued is what happens.
 		const result = await this.mergeQueueRepository.enqueueEntry({
 			repositoryId,
 			pullRequestId: pullRequest.id,
 			enqueuedByUserId: userId,
 			enqueuedBaseSha: mergeability.baseSha,
 			enqueuedHeadSha: mergeability.headSha,
+			selection: toEnqueuedStrategySelection(pullRequest, input),
 		})
 
 		// The pull request was open when this join started and is not any more, so
@@ -307,5 +322,31 @@ export class MergeQueueService {
 			throw new PullRequestNotFoundError({ repositoryId, number })
 
 		return pullRequest
+	}
+}
+
+/**
+ * The method and, for a squash, the exact message the entry will merge with.
+ *
+ * The defaults are derived once, here, from the pull request as it stands at the
+ * moment of queueing. Everything the queue later executes comes off the row.
+ */
+function toEnqueuedStrategySelection(
+	pullRequest: PullRequestReadModel,
+	selection: MergeStrategySelection
+): MergeStrategySelection {
+	if (selection.strategy !== 'squash') return selection
+
+	const request = toPullRequestMergeRequest({
+		evaluatedBaseSha: pullRequest.openingBaseSha,
+		evaluatedHeadSha: pullRequest.openingHeadSha,
+		pullRequest,
+		selection,
+	})
+
+	return {
+		strategy: 'squash',
+		squashTitle: request.squashTitle,
+		squashBody: request.squashBody,
 	}
 }

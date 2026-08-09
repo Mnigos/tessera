@@ -10,6 +10,8 @@ export const mergeBlockingReasonCodes = [
 	'read_only_mirror',
 	'stale_refs',
 	'merge_conflict',
+	'merge_strategy_unavailable',
+	'merge_strategies_unsupported',
 	'approvals_required',
 	'changes_requested',
 	'checks_pending',

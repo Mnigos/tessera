@@ -15,6 +15,7 @@ import type {
 	MergeBlockingReason,
 	MergePullRequestResult,
 	MergeRequirements,
+	MergeStrategySelection,
 	ParsedCreatePullRequestInput,
 	ParsedEditPullRequestInput,
 	ParsedGetPullRequestFileDiffInput,
@@ -35,6 +36,8 @@ import type {
 } from '@repo/contracts'
 import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
 import type {
+	MergeQueueEntryId,
+	MergeStrategy,
 	PullRequestId,
 	PullRequestReviewId,
 	RepositoryId,
@@ -63,12 +66,14 @@ import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
+import { toPullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { isMissingGitObjectError } from '../helpers/pull-request-storage-error'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import { PullRequestReviewsRepository } from '../infrastructure/pull-request-reviews.repository'
 import {
 	type PullRequestReadModel,
 	PullRequestsRepository,
+	type RecoverableMergeIntent,
 } from '../infrastructure/pull-requests.repository'
 import { MergeQueueStatusService } from './merge-queue-status.service'
 import { MergeRequirementsService } from './merge-requirements.service'
@@ -76,6 +81,7 @@ import { PullRequestHeadResolver } from './pull-request-head.resolver'
 import {
 	MERGE_INTENT_LEASE_MS,
 	type PullRequestMergeActor,
+	type PullRequestMergeRefusal,
 	PullRequestMergeRunner,
 	REPOSITORY_MERGE_LEASE_MS,
 } from './pull-request-merge.runner'
@@ -106,6 +112,7 @@ interface MergeUnderLeaseParams {
 	leaseOwner: string
 	number: number
 	repositoryId: RepositoryId
+	selection: MergeStrategySelection
 	storagePath: string
 	tesseraWritesAllowed: boolean
 	username: string
@@ -516,13 +523,23 @@ export class PullRequestsService {
 		userId: UserId,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
-		const { repositoryId } =
+		const { repositoryId, storagePath, tesseraWritesAllowed } =
 			await this.repositoriesService.getWritableRepositoryContext(userId, {
 				username,
 				slug,
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestClosable(pullRequest)
+		// An abandoned attempt may already have merged this pull request in Git.
+		// Closing it would delete the only record of that, so the intent is
+		// resolved first — and a pull request that turns out to be merged is no
+		// longer closable.
+		await this.resolveAbandonedMergeBeforeClose({
+			pullRequest,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+		})
 		const changedAt = new Date()
 
 		// Closing takes this pull request's queue entry with it, in the same
@@ -624,15 +641,10 @@ export class PullRequestsService {
 	 */
 	async merge(
 		actor: PullRequestMergeActor,
-		{
-			bypass,
-			expectedBaseSha,
-			expectedHeadSha,
-			number,
-			slug,
-			username,
-		}: ParsedMergePullRequestInput
+		input: ParsedMergePullRequestInput
 	): Promise<MergePullRequestResult> {
+		const { bypass, expectedBaseSha, expectedHeadSha, number, slug, username } =
+			input
 		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(actor.id, {
 				username,
@@ -679,6 +691,7 @@ export class PullRequestsService {
 				leaseOwner,
 				number,
 				repositoryId,
+				selection: input,
 				storagePath,
 				tesseraWritesAllowed,
 				username,
@@ -759,6 +772,7 @@ export class PullRequestsService {
 		leaseOwner,
 		number,
 		repositoryId,
+		selection,
 		storagePath,
 		tesseraWritesAllowed,
 		username,
@@ -772,12 +786,23 @@ export class PullRequestsService {
 				pullRequest: toPullRequestOutput(pullRequest, username),
 			}
 
+		const recovered = await this.recoverAbandonedMerge({
+			pullRequest,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			username,
+		})
+
+		if (recovered) return recovered
+
 		const requirements = await this.mergeRequirementsService.evaluate({
 			expected,
 			leaseOwner,
 			pullRequest,
 			repositoryId,
 			storagePath,
+			strategy: selection.strategy,
 			tesseraWritesAllowed,
 			viewerRole,
 		})
@@ -814,11 +839,15 @@ export class PullRequestsService {
 		const attempt = await this.pullRequestMergeRunner.run({
 			actor,
 			bypass: bypassContext,
-			evaluatedBaseSha,
-			evaluatedHeadSha,
 			leaseOwner,
 			pullRequest,
 			repositoryId,
+			request: toPullRequestMergeRequest({
+				evaluatedBaseSha,
+				evaluatedHeadSha,
+				pullRequest,
+				selection,
+			}),
 			storagePath,
 		})
 
@@ -852,6 +881,7 @@ export class PullRequestsService {
 					pullRequest,
 					repositoryId,
 					storagePath,
+					strategy: selection.strategy,
 					tesseraWritesAllowed,
 					toFallbackReasons: fresh => [
 						toRefusedMergeReason({
@@ -870,11 +900,200 @@ export class PullRequestsService {
 					pullRequest,
 					repositoryId,
 					storagePath,
+					strategy: selection.strategy,
 					tesseraWritesAllowed,
 					toFallbackReasons: () => [toStateConflictReason(attempt.state)],
 					viewerRole,
 				})
 		}
+	}
+
+	/**
+	 * Settles any abandoned merge intent before the pull request is closed.
+	 *
+	 * Closing deletes the intent, and the intent is the only thing that says
+	 * which merge an abandoned attempt was making. If Git carried that merge out,
+	 * deleting it would leave a closed pull request whose target branch had moved
+	 * and nothing anywhere recording why — so the merge is recorded instead, and
+	 * the close then fails as it would for any merged pull request.
+	 *
+	 * The repository lease is taken for the same reason merging takes it: the
+	 * recovery completes a merge, and nothing else may be moving the same
+	 * repository while it does.
+	 */
+	private async resolveAbandonedMergeBeforeClose({
+		pullRequest,
+		repositoryId,
+		storagePath,
+		tesseraWritesAllowed,
+	}: {
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		storagePath: string
+		tesseraWritesAllowed: boolean
+	}): Promise<void> {
+		const leaseOwner = randomUUID()
+		const leaseAcquired =
+			await this.mergeQueueRepository.acquireRepositoryMergeLease({
+				repositoryId,
+				owner: leaseOwner,
+				ttlMs: REPOSITORY_MERGE_LEASE_MS,
+			})
+
+		// Somebody is merging this repository right now. Their attempt owns the
+		// intent, and the close is refused rather than racing it.
+		if (!leaseAcquired)
+			throw new PullRequestStateConflictError({
+				pullRequestId: pullRequest.id,
+				state: pullRequest.state,
+				action: 'close',
+			})
+
+		try {
+			const merged = await this.recoverAbandonedMerge({
+				pullRequest,
+				repositoryId,
+				storagePath,
+				tesseraWritesAllowed,
+				username: pullRequest.authorUsername ?? '',
+			})
+
+			if (merged)
+				throw new PullRequestStateConflictError({
+					pullRequestId: pullRequest.id,
+					state: 'merged',
+					action: 'close',
+				})
+		} finally {
+			await this.mergeQueueRepository
+				.releaseRepositoryMergeLease({ repositoryId, owner: leaseOwner })
+				.catch((error: unknown) =>
+					this.logger.warn(
+						`Failed to release the merge lease on repository ${repositoryId}; it expires in ${REPOSITORY_MERGE_LEASE_MS}ms: ${String(error)}`
+					)
+				)
+		}
+	}
+
+	/**
+	 * Finishes recording a merge an earlier attempt made and never wrote down.
+	 *
+	 * A process can die between Git returning and the completion committing, and
+	 * the target is then somewhere a fresh evaluation reads as staleness — so this
+	 * runs first, before anything is judged again.
+	 *
+	 * It records; it never merges. Git is asked only whether the operation left a
+	 * receipt, which is a read that moves nothing. An abandoned attempt that never
+	 * reached Git — the service was unreachable, the deadline passed, the process
+	 * died before the call — has no receipt, and replaying it would be performing
+	 * a merge on the strength of an evaluation nobody has repeated, under an actor
+	 * and a waiver it inherited. Those intents are released instead, and the merge
+	 * is decided again from scratch like any other.
+	 */
+	private async recoverAbandonedMerge({
+		pullRequest,
+		repositoryId,
+		storagePath,
+		tesseraWritesAllowed,
+		username,
+	}: {
+		pullRequest: PullRequestReadModel
+		repositoryId: RepositoryId
+		storagePath: string
+		tesseraWritesAllowed: boolean
+		username: string
+	}): Promise<MergePullRequestResult | undefined> {
+		// A repository GitHub has taken over is no longer Tessera's to record
+		// merges on; its pull request state is reconciled from the provider.
+		if (!tesseraWritesAllowed) return undefined
+
+		const intent = await this.pullRequestsRepository.findRecoverableMergeIntent(
+			{
+				pullRequestId: pullRequest.id,
+				staleBefore: new Date(Date.now() - MERGE_INTENT_LEASE_MS),
+			}
+		)
+
+		if (!intent) return undefined
+
+		const merged = await this.completeRecoveredMerge({
+			intent,
+			pullRequest,
+			repositoryId,
+			storagePath,
+		})
+
+		return (
+			merged && {
+				status: 'merged',
+				pullRequest: toPullRequestOutput(merged, username),
+			}
+		)
+	}
+
+	/**
+	 * The half of recovery both merge paths share: ask Git whether the operation
+	 * left a receipt, record the merge it describes, and hand back the abandoned
+	 * intent when it did not.
+	 */
+	private async completeRecoveredMerge({
+		intent,
+		pullRequest,
+		queueEntryId,
+		repositoryId,
+		storagePath,
+	}: {
+		intent: RecoverableMergeIntent
+		pullRequest: PullRequestReadModel
+		queueEntryId?: MergeQueueEntryId
+		repositoryId: RepositoryId
+		storagePath: string
+	}): Promise<PullRequestEntity | undefined> {
+		const resultingSha =
+			intent.request &&
+			(await this.gitStorageClient.findMergeReceipt({
+				repositoryId,
+				storagePath,
+				// The same identifier every attempt at this merge has used, which is
+				// what git storage files its receipt under.
+				operationId: pullRequest.id,
+				strategy: intent.request.strategy,
+				expectedBaseSha: intent.request.expectedBaseSha,
+				expectedHeadSha: intent.request.expectedHeadSha,
+			}))
+
+		// An intent written before requests were recorded — which the strategies
+		// migration deliberately left in place rather than requiring a quiesce —
+		// cannot be looked up and cannot be replayed. Releasing it hands the merge
+		// back to a fresh evaluation, and the bounded legacy trailer scan is what
+		// still stops a pre-receipt merge_commit from being made twice.
+		if (!resultingSha) {
+			this.logger.log(
+				`Releasing the abandoned merge intent of pull request ${pullRequest.id}; git storage has no receipt for it`
+			)
+			await this.pullRequestsRepository.releaseMerge({
+				repositoryId,
+				pullRequestId: pullRequest.id,
+				actorUserId: intent.actor.id,
+				attemptId: intent.attemptId,
+			})
+
+			return undefined
+		}
+
+		this.logger.log(
+			`Recording the abandoned merge of pull request ${pullRequest.id}, which git storage had already made`
+		)
+
+		return await this.pullRequestsRepository.completeMerge({
+			repositoryId,
+			pullRequestId: pullRequest.id,
+			actorUserId: intent.actor.id,
+			attemptId: intent.attemptId,
+			changedAt: new Date(),
+			resultingSha,
+			queueEntryId,
+		})
 	}
 
 	/**
@@ -897,6 +1116,7 @@ export class PullRequestsService {
 		pullRequest,
 		repositoryId,
 		storagePath,
+		strategy,
 		tesseraWritesAllowed,
 		toFallbackReasons,
 		viewerRole,
@@ -907,6 +1127,7 @@ export class PullRequestsService {
 		pullRequest: PullRequestReadModel
 		repositoryId: RepositoryId
 		storagePath: string
+		strategy?: MergeStrategy
 		tesseraWritesAllowed: boolean
 		toFallbackReasons: (fresh: MergeRequirements) => MergeBlockingReason[]
 		viewerRole?: RepositoryRole
@@ -918,6 +1139,7 @@ export class PullRequestsService {
 			pullRequest: current,
 			repositoryId,
 			storagePath,
+			strategy,
 			tesseraWritesAllowed,
 			viewerRole,
 		})
@@ -1097,16 +1319,18 @@ function toRefusedMergeReason({
 	triedHeadSha,
 }: {
 	fresh: MergeRequirements
-	kind: 'merge_conflict' | 'stale_refs'
+	kind: PullRequestMergeRefusal
 	triedBaseSha: string
 	triedHeadSha: string
 }): MergeBlockingReason {
-	if (kind === 'merge_conflict')
+	if (kind.code === 'merge_conflict')
 		return {
 			code: 'merge_conflict',
 			baseSha: triedBaseSha,
 			headSha: triedHeadSha,
 		}
+
+	if (kind.code === 'merge_strategy_unavailable') return kind
 
 	return {
 		code: 'stale_refs',

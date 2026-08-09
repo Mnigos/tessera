@@ -8,12 +8,15 @@ import { Injectable } from '@nestjs/common'
 import {
 	type MergeBlockingReason,
 	type MergeRequirements,
+	type MergeStrategyAvailability,
 	type PullRequestEffectiveReviewState,
 } from '@repo/contracts'
 import {
 	hasRepositoryRole,
 	type MergeBlockingReasonCode,
 	type MergeQueueEntryId,
+	type MergeStrategy,
+	mergeStrategies,
 	type RepositoryId,
 	type RepositoryRole,
 } from '@repo/domain'
@@ -53,6 +56,19 @@ export interface EvaluateMergeRequirementsParams {
 	 * ordering already settled — so its own presence is not reported back to it.
 	 */
 	queueEntryId?: MergeQueueEntryId
+	/**
+	 * The method the caller intends to merge by. Only that one can block: the
+	 * others are reported as availability for whoever is still choosing, and a
+	 * read that has not chosen is refused by none of them.
+	 */
+	strategy?: MergeStrategy
+}
+
+interface ResolvedMergeRefs {
+	baseSha: string
+	headSha: string
+	mergeable?: boolean
+	strategyAvailability?: MergeStrategyAvailability[]
 }
 
 /**
@@ -81,16 +97,18 @@ const MERGE_BLOCKING_REASON_RANK: Record<MergeBlockingReasonCode, number> = {
 	draft_pull_request: 3,
 	stale_refs: 4,
 	merge_conflict: 5,
-	approvals_required: 6,
-	changes_requested: 7,
-	checks_failed: 8,
-	checks_pending: 9,
-	threads_unresolved: 10,
-	merge_queue_required: 11,
-	already_queued: 12,
-	not_queue_head: 13,
-	queue_paused: 14,
-	repository_merge_in_progress: 15,
+	merge_strategy_unavailable: 6,
+	merge_strategies_unsupported: 7,
+	approvals_required: 8,
+	changes_requested: 9,
+	checks_failed: 10,
+	checks_pending: 11,
+	threads_unresolved: 12,
+	merge_queue_required: 13,
+	already_queued: 14,
+	not_queue_head: 15,
+	queue_paused: 16,
+	repository_merge_in_progress: 17,
 }
 
 /**
@@ -123,6 +141,7 @@ export class MergeRequirementsService {
 		queueEntryId,
 		repositoryId,
 		storagePath,
+		strategy,
 		tesseraWritesAllowed,
 		viewerRole,
 	}: EvaluateMergeRequirementsParams): Promise<MergeRequirements> {
@@ -167,12 +186,7 @@ export class MergeRequirementsService {
 				actualHeadSha: refs.headSha,
 			})
 
-		if (refs.mergeable === false)
-			reasons.push({
-				code: 'merge_conflict',
-				baseSha: refs.baseSha,
-				headSha: refs.headSha,
-			})
+		reasons.push(...toStrategyReasons({ refs, strategy }))
 
 		const [policyReasons, queueReasons] = await Promise.all([
 			this.evaluatePolicy({
@@ -196,6 +210,7 @@ export class MergeRequirementsService {
 			headSha: refs.headSha,
 			reasons,
 			rule,
+			strategyAvailability: refs.strategyAvailability,
 			viewerRole,
 		})
 	}
@@ -221,7 +236,7 @@ export class MergeRequirementsService {
 		repositoryId: RepositoryId
 		storagePath: string
 		tesseraWritesAllowed: boolean
-	}): Promise<{ baseSha: string; headSha: string; mergeable?: boolean }> {
+	}): Promise<ResolvedMergeRefs> {
 		if (!tesseraWritesAllowed)
 			return pullRequest.github
 				? {
@@ -245,6 +260,7 @@ export class MergeRequirementsService {
 			baseSha: mergeability.baseSha,
 			headSha: mergeability.headSha,
 			mergeable: mergeability.mergeable,
+			strategyAvailability: mergeability.strategyAvailability,
 		}
 	}
 
@@ -430,12 +446,14 @@ export class MergeRequirementsService {
 		headSha,
 		reasons,
 		rule,
+		strategyAvailability,
 		viewerRole,
 	}: {
 		baseSha?: string
 		headSha?: string
 		reasons: MergeBlockingReason[]
 		rule?: BranchProtectionRuleView
+		strategyAvailability?: MergeStrategyAvailability[]
 		viewerRole?: RepositoryRole
 	}): MergeRequirements {
 		const orderedReasons = [...reasons].sort(
@@ -448,6 +466,7 @@ export class MergeRequirementsService {
 			eligible: orderedReasons.length === 0,
 			evaluatedBaseSha: baseSha,
 			evaluatedHeadSha: headSha,
+			strategyAvailability,
 			rule: rule
 				? {
 						id: rule.id,
@@ -459,6 +478,75 @@ export class MergeRequirementsService {
 			reasons: orderedReasons,
 		}
 	}
+}
+
+/** Whether git storage answered for every method Tessera can merge with. */
+function hasEveryStrategy(
+	strategyAvailability: MergeStrategyAvailability[] | undefined
+): strategyAvailability is MergeStrategyAvailability[] {
+	const answered = new Set(strategyAvailability?.map(entry => entry.strategy))
+
+	return mergeStrategies.every(strategy => answered.has(strategy))
+}
+
+/**
+ * What the branches themselves refuse.
+ *
+ * Only the strategy the caller means to use can block the merge. The old
+ * two-tip `mergeable` bit is descriptive from here on: branches whose files
+ * conflict may still rebase cleanly, commit by commit, and refusing that merge
+ * because a single three-way merge would have conflicted would be wrong.
+ *
+ * A read that has chosen nothing is refused only when no method at all could
+ * run — otherwise every pull request whose branches diverged would look blocked
+ * because it cannot fast-forward.
+ */
+function toStrategyReasons({
+	refs,
+	strategy,
+}: {
+	refs: ResolvedMergeRefs
+	strategy?: MergeStrategy
+}): MergeBlockingReason[] {
+	// Nothing asked Git, so there is nothing to refuse yet.
+	if (refs.mergeable === undefined) return []
+
+	// Git storage could not say what each method would do. During a rolling
+	// deployment that means it is old enough not to know about methods at all,
+	// and it would quietly make a merge commit for whatever was asked for.
+	//
+	// The completeness check is here, at the point the decision is made, rather
+	// than only where the response is decoded: a set missing any strategy is not
+	// an answer, whatever produced it, and protobuf decodes an omitted list to an
+	// empty one that is indistinguishable from a genuine answer by shape alone.
+	if (!hasEveryStrategy(refs.strategyAvailability))
+		return [{ code: 'merge_strategies_unsupported' }]
+
+	const conflict: MergeBlockingReason = {
+		code: 'merge_conflict',
+		baseSha: refs.baseSha,
+		headSha: refs.headSha,
+	}
+
+	if (!strategy)
+		return refs.strategyAvailability.every(entry => !entry.available)
+			? [conflict]
+			: []
+
+	const availability = refs.strategyAvailability.find(
+		entry => entry.strategy === strategy
+	)
+
+	if (!availability || availability.available) return []
+	if (availability.reason === 'conflict') return [conflict]
+
+	return [
+		{
+			code: 'merge_strategy_unavailable',
+			strategy,
+			reason: availability.reason ?? 'unsupported_history',
+		},
+	]
 }
 
 /**

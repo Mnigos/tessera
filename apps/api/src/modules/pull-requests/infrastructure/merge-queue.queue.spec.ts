@@ -48,12 +48,24 @@ describe(MergeQueue.name, () => {
 			MERGE_QUEUE_WAKEUP_JOB,
 			{ repositoryId, requestedVersion: 7 },
 			expect.objectContaining({
-				jobId: `${repositoryId}:7`,
+				jobId: `${repositoryId}-7`,
 				attempts: 5,
 				removeOnComplete: true,
 				removeOnFail: true,
 			})
 		)
+	})
+
+	// BullMQ reserves the colon for its own key namespacing and rejects a custom
+	// job id containing one. It surfaces as a refused wakeup, which leaves the
+	// queue waiting for the reconciler's next cron tick instead of running now.
+	test('keys a wakeup with an id BullMQ will accept', async () => {
+		await service.enqueueWakeup({ repositoryId, requestedVersion: 7 })
+
+		const [, , options] = vi.mocked(queue.add).mock.calls[0] ?? []
+
+		expect(options?.jobId).toBeTruthy()
+		expect(options?.jobId).not.toContain(':')
 	})
 
 	test('upserts and reads the singleton reconciler schedule', async () => {

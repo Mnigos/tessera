@@ -46,6 +46,9 @@ const pullRequest: PullRequestReadModel = {
 	body: '',
 	state: 'open',
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -190,6 +193,12 @@ describe(MergeRequirementsService.name, () => {
 				conflictPaths: [],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: [
+					{ strategy: 'merge_commit', available: true },
+					{ strategy: 'squash', available: true },
+					{ strategy: 'rebase', available: true },
+					{ strategy: 'fast_forward', available: true },
+				],
 			}
 		)
 	})
@@ -212,11 +221,109 @@ describe(MergeRequirementsService.name, () => {
 		})
 	}
 
+	// Every strategy is reported so the client can offer all four, and only the
+	// one the caller means to use is allowed to refuse the merge.
+	describe('per-strategy availability', () => {
+		const strategyAvailability = [
+			{ strategy: 'merge_commit' as const, available: true },
+			{ strategy: 'squash' as const, available: true },
+			{
+				strategy: 'rebase' as const,
+				available: false,
+				reason: 'nothing_to_rebase' as const,
+			},
+			{
+				strategy: 'fast_forward' as const,
+				available: false,
+				reason: 'not_fast_forward' as const,
+			},
+		]
+
+		beforeEach(() => {
+			vi.spyOn(
+				gitStorageClient,
+				'checkRepositoryMergeability'
+			).mockResolvedValue({
+				baseSha,
+				headSha,
+				mergeBaseSha: baseSha,
+				mergeable: true,
+				conflictPaths: [],
+				conflictPathsTruncated: false,
+				conflictPathLimit: 100,
+				strategyAvailability,
+			})
+		})
+
+		test('reports what every strategy could do with these branches', async () => {
+			expect((await evaluate()).strategyAvailability).toEqual(
+				strategyAvailability
+			)
+		})
+
+		// A read has chosen nothing yet. Refusing it because one of the four is
+		// impossible would make every diverged pull request look blocked.
+		test('refuses nothing when no strategy was chosen', async () => {
+			expect((await evaluate()).reasons).toEqual([])
+		})
+
+		test.each([
+			'merge_commit',
+			'squash',
+		] as const)('clears %s, which these branches can run', async strategy => {
+			expect((await evaluate({ strategy })).reasons).toEqual([])
+		})
+
+		test.each([
+			{ strategy: 'rebase' as const, reason: 'nothing_to_rebase' },
+			{ strategy: 'fast_forward' as const, reason: 'not_fast_forward' },
+		])('refuses $strategy with its own reason', async ({
+			strategy,
+			reason,
+		}) => {
+			expect((await evaluate({ strategy })).reasons).toEqual([
+				{ code: 'merge_strategy_unavailable', strategy, reason },
+			])
+		})
+
+		// A conflict is a fact about the files and is said once, as itself. The
+		// per-strategy entries still carry it for whoever is choosing.
+		test('reports a conflict as a conflict rather than per strategy', async () => {
+			vi.spyOn(
+				gitStorageClient,
+				'checkRepositoryMergeability'
+			).mockResolvedValue({
+				baseSha,
+				headSha,
+				mergeBaseSha: baseSha,
+				mergeable: false,
+				conflictPaths: ['src/index.ts'],
+				conflictPathsTruncated: false,
+				conflictPathLimit: 100,
+				strategyAvailability: strategyAvailability.map(entry => ({
+					...entry,
+					available: false,
+					reason: 'conflict' as const,
+				})),
+			})
+
+			expect((await evaluate({ strategy: 'rebase' })).reasons).toEqual([
+				{ code: 'merge_conflict', baseSha, headSha },
+			])
+		})
+	})
+
 	test('allows an unprotected branch with nothing standing in the way', async () => {
 		expect(await evaluate()).toEqual({
 			eligible: true,
 			evaluatedBaseSha: baseSha,
 			evaluatedHeadSha: headSha,
+			strategyAvailability: [
+				{ strategy: 'merge_commit', available: true },
+				{ strategy: 'squash', available: true },
+				{ strategy: 'rebase', available: true },
+				{ strategy: 'fast_forward', available: true },
+			],
 			rule: undefined,
 			canBypass: false,
 			reasons: [],
@@ -301,6 +408,12 @@ describe(MergeRequirementsService.name, () => {
 				conflictPaths: ['src/index.ts'],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: [
+					{ strategy: 'merge_commit', available: false, reason: 'conflict' },
+					{ strategy: 'squash', available: false, reason: 'conflict' },
+					{ strategy: 'rebase', available: false, reason: 'conflict' },
+					{ strategy: 'fast_forward', available: false, reason: 'conflict' },
+				],
 			}
 		)
 
@@ -349,6 +462,12 @@ describe(MergeRequirementsService.name, () => {
 				conflictPaths: ['src/index.ts'],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: [
+					{ strategy: 'merge_commit', available: false, reason: 'conflict' },
+					{ strategy: 'squash', available: false, reason: 'conflict' },
+					{ strategy: 'rebase', available: false, reason: 'conflict' },
+					{ strategy: 'fast_forward', available: false, reason: 'conflict' },
+				],
 			}
 		)
 
@@ -508,6 +627,9 @@ describe(MergeRequirementsService.name, () => {
 			pullRequestId,
 			position: 1,
 			state: 'queued',
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 			blockingReasons: null,
 			enqueuedByUserId: mockUserId,
 			enqueuedAt: createdAt,
@@ -531,6 +653,9 @@ describe(MergeRequirementsService.name, () => {
 			pullRequestId,
 			position: 9,
 			state: 'queued',
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 			blockingReasons: null,
 			enqueuedByUserId: mockUserId,
 			enqueuedAt: createdAt,
@@ -552,6 +677,9 @@ describe(MergeRequirementsService.name, () => {
 			pullRequestId,
 			position: 1,
 			state: 'paused',
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 			blockingReasons: [{ code: 'threads_unresolved', count: 3 }],
 			enqueuedByUserId: mockUserId,
 			enqueuedAt: createdAt,
@@ -574,6 +702,9 @@ describe(MergeRequirementsService.name, () => {
 			pullRequestId,
 			position: 1,
 			state: 'validating',
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 			blockingReasons: null,
 			enqueuedByUserId: mockUserId,
 			enqueuedAt: createdAt,
@@ -592,6 +723,9 @@ describe(MergeRequirementsService.name, () => {
 			pullRequestId,
 			position: 1,
 			state: 'queued',
+			strategy: 'merge_commit',
+			squashTitle: null,
+			squashBody: null,
 			blockingReasons: null,
 			enqueuedByUserId: mockUserId,
 			enqueuedAt: createdAt,
@@ -679,6 +813,12 @@ describe(MergeRequirementsService.name, () => {
 				conflictPaths: [],
 				conflictPathsTruncated: false,
 				conflictPathLimit: 100,
+				strategyAvailability: [
+					{ strategy: 'merge_commit', available: false, reason: 'conflict' },
+					{ strategy: 'squash', available: false, reason: 'conflict' },
+					{ strategy: 'rebase', available: false, reason: 'conflict' },
+					{ strategy: 'fast_forward', available: false, reason: 'conflict' },
+				],
 			}
 		)
 

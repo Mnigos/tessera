@@ -19,6 +19,7 @@ import {
 	type CheckRepositoryMergeabilityResponse,
 	type CompareRepositoryRefsResponse,
 	type CreateRepositoryResponse,
+	type FindRepositoryMergeReceiptResponse,
 	type GetRepositoryBlobResponse,
 	type GetRepositoryBrowserSummaryResponse,
 	type GetRepositoryFileDiffResponse,
@@ -38,6 +39,7 @@ import type {
 	GitStorageCompareRepositoryRefsParams,
 	GitStorageCreateRepositoryParams,
 	GitStorageCreateRepositoryResult,
+	GitStorageFindMergeReceiptParams,
 	GitStorageGetRepositoryBlobParams,
 	GitStorageGetRepositoryBrowserSummaryParams,
 	GitStorageGetRepositoryFileDiffParams,
@@ -60,6 +62,7 @@ import type {
 	GitStorageRepositoryTree,
 } from './git-storage.client.types'
 import {
+	toProtoMergeStrategy,
 	toRepositoryBlob,
 	toRepositoryBrowserSummary,
 	toRepositoryCommitHistory,
@@ -73,7 +76,21 @@ import {
 import { getGrpcCode, getGrpcDetails } from './helpers/grpc-error'
 
 export const GIT_STORAGE_GRPC_CLIENT = Symbol('GIT_STORAGE_GRPC_CLIENT')
-const MERGE_RPC_TIMEOUT_MS = 50_000
+/**
+ * How long a merge or a mergeability answer may take.
+ *
+ * One ordering has to hold across three layers, innermost first: git storage's
+ * own operation timeout, then this deadline, then the merge intent lease. The
+ * innermost must fire first, so an overrunning merge comes back as a refusal
+ * from the layer that knows what happened rather than being abandoned by a
+ * caller that gave up while Git was still working — and the intent must outlive
+ * both, or a concurrent close can delete the record of a merge still in flight.
+ *
+ * Git storage's side is `MERGE_OPERATION_TIMEOUT` in `services/git`;
+ * `MERGE_INTENT_LEASE_MS` in the merge runner holds the other end, and a unit
+ * test there asserts this pair.
+ */
+export const MERGE_RPC_TIMEOUT_MS = 50_000
 
 @Injectable()
 export class GitStorageClient implements OnModuleInit {
@@ -355,6 +372,7 @@ export class GitStorageClient implements OnModuleInit {
 		return toRepositoryFileDiff(response)
 	}
 
+	/** Where the target branch was left, whichever strategy put it there. */
 	async mergeRepositoryRefs({
 		authorEmail,
 		authorName,
@@ -365,7 +383,10 @@ export class GitStorageClient implements OnModuleInit {
 		message,
 		operationId,
 		repositoryId,
+		squashBody,
+		squashTitle,
 		storagePath,
+		strategy,
 	}: GitStorageMergeRepositoryRefsParams): Promise<string> {
 		const response = await firstValueFrom(
 			this.service
@@ -381,6 +402,9 @@ export class GitStorageClient implements OnModuleInit {
 						authorEmail,
 						message,
 						operationId,
+						strategy: toProtoMergeStrategy(strategy),
+						squashTitle: squashTitle ?? '',
+						squashBody: squashBody ?? '',
 					},
 					this.createAuthorizationMetadata()
 				)
@@ -389,14 +413,53 @@ export class GitStorageClient implements OnModuleInit {
 					mapGitStorageErrors<MergeRepositoryRefsResponse>()
 				)
 		)
+		// `mergeCommitSha` is the same value under the name it had when a merge
+		// commit was the only possible result, and a git storage that predates
+		// `resultingSha` still sends it.
+		const resultingSha = response.resultingSha || response.mergeCommitSha
 
-		if (!response.mergeCommitSha)
+		if (!resultingSha)
 			throw new ExternalServiceError('git storage', {
 				repositoryId,
 				reason: 'missing_merge_commit_sha',
 			})
 
-		return response.mergeCommitSha
+		return resultingSha
+	}
+
+	/**
+	 * Where a merge operation already left the target, or nothing when it never
+	 * ran. A read: it moves no ref and writes no object, which is what makes it
+	 * safe to ask on behalf of an attempt nobody is watching any more.
+	 */
+	async findMergeReceipt({
+		expectedBaseSha,
+		expectedHeadSha,
+		operationId,
+		repositoryId,
+		storagePath,
+		strategy,
+	}: GitStorageFindMergeReceiptParams): Promise<string | undefined> {
+		const response = await firstValueFrom(
+			this.service
+				.findRepositoryMergeReceipt(
+					{
+						repositoryId,
+						storagePath,
+						operationId,
+						strategy: toProtoMergeStrategy(strategy),
+						expectedBaseSha,
+						expectedHeadSha,
+					},
+					this.createAuthorizationMetadata()
+				)
+				.pipe(
+					timeout(MERGE_RPC_TIMEOUT_MS),
+					mapGitStorageErrors<FindRepositoryMergeReceiptResponse>()
+				)
+		)
+
+		return response.found ? response.resultingSha : undefined
 	}
 
 	async checkRepositoryMergeability({

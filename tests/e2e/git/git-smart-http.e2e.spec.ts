@@ -12,7 +12,10 @@ import {
 	createTestSessionHeaders,
 	getBlobPreview,
 	getBrowserSummary,
+	getPullRequest,
+	joinMergeQueue,
 	mergePullRequest,
+	mergePullRequestWithRefs,
 } from './helpers/api'
 import { migrateGitE2EDatabase, resetGitE2EDatabase } from './helpers/database'
 import {
@@ -256,6 +259,463 @@ describe('Git smart HTTP e2e', () => {
 			commits: [{ sha: headSha }],
 			files: [{ newPath: 'feature.txt' }],
 		})
+	})
+
+	/**
+	 * One repository with a pull request ready to merge, so each strategy's test
+	 * says only what is different about that strategy.
+	 */
+	async function createMergeFixture({
+		conflicting = false,
+		divergeTarget = true,
+		slug,
+		username,
+	}: {
+		/** Both branches change the same lines, so no method can combine them. */
+		conflicting?: boolean
+		divergeTarget?: boolean
+		slug: string
+		username: string
+	}) {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: `${username}@example.com`,
+			name: 'Pull Request Owner',
+			username,
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: slug,
+			slug,
+			visibility: 'public',
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const localRepository = `${runDirectory}/${slug}`
+		await createCommittedRepository(localRepository, 'README.md', '# Base\n')
+		await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, username, repository.slug, token)
+		)
+		await createAndPushBranch(
+			localRepository,
+			'feature',
+			conflicting ? 'README.md' : 'first.txt',
+			conflicting ? '# From the source\n' : 'first\n'
+		)
+		await commitAndPushBranch(
+			localRepository,
+			'feature',
+			'second.txt',
+			'second\n'
+		)
+		const headSha = await gitOutput(localRepository, ['rev-parse', 'feature'])
+
+		if (divergeTarget) {
+			await checkoutBranch(localRepository, 'main')
+			await commitAndPushBranch(
+				localRepository,
+				'main',
+				conflicting ? 'README.md' : 'target.txt',
+				conflicting ? '# From the target\n' : 'target\n'
+			)
+		}
+
+		const baseSha = await gitOutput(localRepository, ['rev-parse', 'main'])
+		const pullRequest = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			username,
+		})
+		await gitOutput(localRepository, [
+			'remote',
+			'set-url',
+			'origin',
+			smartHttpUrl(ports.gitHttp, username, repository.slug),
+		])
+
+		return {
+			baseSha,
+			headSha,
+			headers,
+			localRepository,
+			number: pullRequest.number,
+			slug: repository.slug,
+			/** Deleting the source branch is a write, so it needs the token URL. */
+			writableUrl: smartHttpUrl(
+				ports.gitHttp,
+				username,
+				repository.slug,
+				token
+			),
+			username,
+		}
+	}
+
+	/**
+	 * Drops the source branch, which is what a merged pull request's comparison
+	 * has to survive: only the operation receipt still reaches the commits it was
+	 * merged from.
+	 */
+	async function deleteSourceBranch(fixture: {
+		localRepository: string
+		writableUrl: string
+	}) {
+		await gitOutput(fixture.localRepository, [
+			'push',
+			fixture.writableUrl,
+			'--delete',
+			'feature',
+		])
+	}
+
+	/**
+	 * The queue merges on a worker of its own, so the pull request is polled
+	 * rather than waited on for a fixed span that a slow run would outlast.
+	 */
+	async function waitForMergedPullRequest(fixture: {
+		headers: Headers
+		number: number
+		slug: string
+		username: string
+	}) {
+		const deadline = Date.now() + 30_000
+		let latest = await getPullRequest({ apiBaseUrl, ...fixture })
+
+		while (latest.pullRequest.state !== 'merged' && Date.now() < deadline) {
+			await sleep(500)
+			latest = await getPullRequest({ apiBaseUrl, ...fixture })
+		}
+
+		return latest
+	}
+
+	/** The target branch as the server actually left it, read back over Git. */
+	async function readRemoteTarget(localRepository: string) {
+		const fetchResult = await fetchRepository(localRepository)
+
+		if (fetchResult.exitCode !== 0)
+			throw new Error(
+				`Failed to fetch the merged target: ${fetchResult.stderr}`
+			)
+
+		const remoteMainRef = await gitOutput(localRepository, [
+			'ls-remote',
+			'origin',
+			'refs/heads/main',
+		])
+		const sha = remoteMainRef.split('\t')[0]
+		if (!sha) throw new Error('remote main ref was not returned')
+
+		return sha
+	}
+
+	// A squash leaves one commit with one parent, and its tree is the merge's
+	// rather than the source head's, so work already on the target survives.
+	test('squashes a pull request into one real commit', async () => {
+		const fixture = await createMergeFixture({
+			slug: 'squash-repository',
+			username: 'squash-owner',
+		})
+
+		const merged = await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: {
+				strategy: 'squash',
+				squashTitle: 'Everything at once (#1)',
+				squashBody: 'Why it changed',
+			},
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+		const parents = await gitOutput(fixture.localRepository, [
+			'show',
+			'-s',
+			'--format=%P',
+			remoteMainSha,
+		])
+		const message = await gitOutput(fixture.localRepository, [
+			'show',
+			'-s',
+			'--format=%B',
+			remoteMainSha,
+		])
+		const files = await gitOutput(fixture.localRepository, [
+			'ls-tree',
+			'--name-only',
+			remoteMainSha,
+		])
+
+		expect(merged).toMatchObject({
+			status: 'merged',
+			pullRequest: {
+				state: 'merged',
+				mergeCommitSha: remoteMainSha,
+				mergeStrategy: 'squash',
+			},
+		})
+		expect(parents.split(' ')).toEqual([fixture.baseSha])
+		expect(message).toContain('Everything at once (#1)')
+		expect(message).toContain('Why it changed')
+		expect(files.split('\n')).toContain('target.txt')
+
+		// The source branch is gone, and only the operation receipt still reaches
+		// the commits the merged comparison is read from.
+		await deleteSourceBranch(fixture)
+		const mergedComparison = await comparePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+
+		expect(mergedComparison.commits).toHaveLength(2)
+		expect(mergedComparison.files.map(({ newPath }) => newPath)).toEqual(
+			expect.arrayContaining(['first.txt', 'second.txt'])
+		)
+	})
+
+	// A rebase leaves the author's commits, rewritten onto the target in order,
+	// with whoever merged recorded as the committer.
+	test('rebases a pull request into a real linear chain', async () => {
+		const fixture = await createMergeFixture({
+			slug: 'rebase-repository',
+			username: 'rebase-owner',
+		})
+
+		const merged = await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy: 'rebase' },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+		const replayed = await gitOutput(fixture.localRepository, [
+			'log',
+			'--reverse',
+			'--format=%s%x00%an%x00%cn',
+			`${fixture.baseSha}..${remoteMainSha}`,
+		])
+		const rows = replayed.split('\n').map(row => row.split('\0'))
+
+		expect(merged).toMatchObject({
+			status: 'merged',
+			pullRequest: { mergeStrategy: 'rebase', mergeCommitSha: remoteMainSha },
+		})
+		expect(rows).toHaveLength(2)
+		expect(rows[0]?.[0]).toBe('Add first.txt')
+		expect(rows[1]?.[0]).toBe('Add second.txt')
+		// Both were replayed, so neither is the original commit any more.
+		expect(remoteMainSha).not.toBe(fixture.headSha)
+		expect(rows.every(row => row[2] === 'Pull Request Owner')).toBeTruthy()
+
+		await deleteSourceBranch(fixture)
+		const mergedComparison = await comparePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+
+		expect(mergedComparison.commits).toHaveLength(2)
+	})
+
+	// A fast-forward writes no commit at all: the target is moved onto the source
+	// head, which is only possible while the two have not diverged.
+	test('fast-forwards a pull request onto the source head', async () => {
+		const fixture = await createMergeFixture({
+			divergeTarget: false,
+			slug: 'fast-forward-repository',
+			username: 'fast-forward-owner',
+		})
+
+		const merged = await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy: 'fast_forward' },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+
+		expect(remoteMainSha).toBe(fixture.headSha)
+		expect(merged).toMatchObject({
+			status: 'merged',
+			pullRequest: {
+				mergeStrategy: 'fast_forward',
+				mergeCommitSha: fixture.headSha,
+			},
+		})
+	})
+
+	// A conflict is a fact about the files, so every method that combines the two
+	// tips refuses it — against a real repository, not a mocked answer — and none
+	// of them moves the target.
+	test.each([
+		'merge_commit',
+		'squash',
+		'rebase',
+	] as const)('refuses a conflicting %s and leaves the target where it was', async strategy => {
+		const slug = `conflict-${strategy.replaceAll('_', '-')}-repository`
+		const username = `conflict-${strategy.replaceAll('_', '-')}-owner`
+		const fixture = await createMergeFixture({
+			conflicting: true,
+			slug,
+			username,
+		})
+
+		const refused = await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+
+		expect(refused.status).toBe('blocked')
+		expect(remoteMainSha).toBe(fixture.baseSha)
+	})
+
+	// The requirements say what each method could do, and the merge refuses the
+	// one that cannot run rather than silently substituting another.
+	test('refuses a fast-forward of branches that have diverged', async () => {
+		const fixture = await createMergeFixture({
+			slug: 'diverged-repository',
+			username: 'diverged-owner',
+		})
+
+		const refused = await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy: 'fast_forward' },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+
+		expect(refused).toMatchObject({
+			status: 'blocked',
+			requirements: {
+				reasons: [
+					{
+						code: 'merge_strategy_unavailable',
+						strategy: 'fast_forward',
+						reason: 'not_fast_forward',
+					},
+				],
+			},
+		})
+		expect(remoteMainSha).toBe(fixture.baseSha)
+	})
+
+	// Git has the last word on freshness, and a refused merge leaves the target
+	// exactly where it was — no strategy is an exception to that.
+	test.each([
+		'merge_commit',
+		'squash',
+		'rebase',
+		'fast_forward',
+	] as const)('refuses a stale %s and leaves the target where it was', async strategy => {
+		const fixture = await createMergeFixture({
+			slug: `stale-${strategy.replaceAll('_', '-')}-repository`,
+			username: `stale-${strategy.replaceAll('_', '-')}-owner`,
+		})
+
+		const refused = await mergePullRequestWithRefs({
+			apiBaseUrl,
+			expectedBaseSha: '0'.repeat(40),
+			expectedHeadSha: fixture.headSha,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+
+		expect(refused.status).toBe('blocked')
+		expect(remoteMainSha).toBe(fixture.baseSha)
+	})
+
+	// The method is settled when the entry is created, and the run that merges it
+	// uses that method rather than re-choosing one.
+	test('merges a queued pull request by the method it was queued with', async () => {
+		const fixture = await createMergeFixture({
+			slug: 'queued-strategy-repository',
+			username: 'queued-strategy-owner',
+		})
+
+		const status = await joinMergeQueue({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy: 'squash', squashTitle: 'Queued squash (#1)' },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+
+		expect(status.entry).toMatchObject({ strategy: 'squash' })
+
+		const merged = await waitForMergedPullRequest(fixture)
+		const remoteMainSha = await readRemoteTarget(fixture.localRepository)
+		const message = await gitOutput(fixture.localRepository, [
+			'show',
+			'-s',
+			'--format=%B',
+			remoteMainSha,
+		])
+
+		expect(merged.pullRequest).toMatchObject({
+			state: 'merged',
+			mergeStrategy: 'squash',
+		})
+		expect(message).toContain('Queued squash (#1)')
+	})
+
+	// Tessera keeps its operation receipts in a namespace Git transport never
+	// shows and never accepts writes into.
+	test('never advertises or accepts writes to the operation receipts', async () => {
+		const fixture = await createMergeFixture({
+			slug: 'hidden-refs-repository',
+			username: 'hidden-refs-owner',
+		})
+		await mergePullRequest({
+			apiBaseUrl,
+			headers: fixture.headers,
+			number: fixture.number,
+			selection: { strategy: 'squash' },
+			slug: fixture.slug,
+			username: fixture.username,
+		})
+
+		const advertised = await lsRemote(
+			smartHttpUrl(ports.gitHttp, fixture.username, fixture.slug)
+		)
+		const forcedPush =
+			await $`git push origin HEAD:refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7`
+				.cwd(fixture.localRepository)
+				.nothrow()
+				.quiet()
+
+		expect(advertised.stdout).toContain('refs/heads/main')
+		expect(advertised.stdout).not.toContain('refs/tessera')
+		expect(forcedPush.exitCode).not.toBe(0)
 	})
 
 	test('lets the owner push, clone, and fetch repositories over SSH', async () => {

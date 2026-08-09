@@ -1,4 +1,5 @@
 import { EnvService } from '@config/env'
+import { GitStorageClient } from '@config/git-storage'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { MergeRequirements } from '@repo/contracts'
@@ -50,6 +51,9 @@ const pullRequest = {
 	body: '',
 	state: 'open' as const,
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -61,6 +65,9 @@ const entry: MergeQueueRunnableEntry = {
 	pullRequestId,
 	position: 3,
 	state: 'queued',
+	strategy: 'merge_commit',
+	squashTitle: null,
+	squashBody: null,
 	blockingReasons: null,
 	enqueuedByUserId: mockUserId,
 	enqueuedAt: createdAt,
@@ -96,6 +103,7 @@ describe(MergeQueueProcessor.name, () => {
 	let mergeRequirementsService: MergeRequirementsService
 	let pullRequestMergeRunner: PullRequestMergeRunner
 	let pullRequestsRepository: PullRequestsRepository
+	let gitStorageClient: GitStorageClient
 	let repositoriesService: RepositoriesService
 
 	beforeEach(async () => {
@@ -138,7 +146,16 @@ describe(MergeQueueProcessor.name, () => {
 				},
 				{
 					provide: PullRequestsRepository,
-					useValue: { findById: vi.fn() },
+					useValue: {
+						findById: vi.fn(),
+						findRecoverableMergeIntent: vi.fn(),
+						releaseMerge: vi.fn(),
+						completeMerge: vi.fn(),
+					},
+				},
+				{
+					provide: GitStorageClient,
+					useValue: { findMergeReceipt: vi.fn() },
 				},
 				{
 					provide: RepositoriesService,
@@ -154,6 +171,7 @@ describe(MergeQueueProcessor.name, () => {
 		mergeRequirementsService = moduleRef.get(MergeRequirementsService)
 		pullRequestMergeRunner = moduleRef.get(PullRequestMergeRunner)
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository)
+		gitStorageClient = moduleRef.get(GitStorageClient)
 		repositoriesService = moduleRef.get(RepositoriesService)
 
 		vi.spyOn(
@@ -238,8 +256,12 @@ describe(MergeQueueProcessor.name, () => {
 		expect(pullRequestMergeRunner.run).toHaveBeenCalledWith(
 			expect.objectContaining({
 				queueEntryId: entryId,
-				evaluatedBaseSha: 'a'.repeat(40),
-				evaluatedHeadSha: 'b'.repeat(40),
+				request: {
+					strategy: 'merge_commit',
+					expectedBaseSha: 'a'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+					commitMessage: 'Merge pull request #1: Add feature',
+				},
 				actor: { id: mockUserId, email: 'ada@example.com', name: 'Ada' },
 			})
 		)
@@ -248,6 +270,121 @@ describe(MergeQueueProcessor.name, () => {
 		expect(
 			mergeQueueRepository.releaseRepositoryMergeLease
 		).toHaveBeenCalledOnce()
+	})
+
+	// The entry's method travels from the row to the merge unchanged, squash
+	// overrides included: nothing between the queue and Git may re-choose it.
+	test('merges the entry by the method it was queued with', async () => {
+		vi.spyOn(mergeQueueRepository, 'findNextRunnableEntry')
+			.mockResolvedValueOnce({
+				...entry,
+				strategy: 'squash',
+				squashTitle: 'Queued title',
+				squashBody: 'Queued body',
+			})
+			.mockResolvedValue(undefined)
+
+		await processor.process(wakeupJob())
+
+		expect(mergeRequirementsService.evaluate).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'squash' })
+		)
+		expect(pullRequestMergeRunner.run).toHaveBeenCalledWith(
+			expect.objectContaining({
+				request: {
+					strategy: 'squash',
+					expectedBaseSha: 'a'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+					squashTitle: 'Queued title',
+					squashBody: 'Queued body',
+				},
+			})
+		)
+	})
+
+	// An earlier attempt may have reached Git and died before recording it,
+	// leaving the target somewhere a fresh evaluation reads as stale. The receipt
+	// is what says whether that merge actually happened.
+	describe('recovering an abandoned merge', () => {
+		const abandoned = {
+			actor: { id: mockUserId, name: 'Grace', email: 'grace@example.com' },
+			attemptId: '00000000-0000-4000-8000-000000000099',
+			request: {
+				strategy: 'rebase' as const,
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+			},
+			startedAt: new Date('2026-07-11T00:00:00Z'),
+		}
+
+		beforeEach(() => {
+			vi.spyOn(
+				pullRequestsRepository,
+				'findRecoverableMergeIntent'
+			).mockResolvedValue(abandoned)
+			vi.spyOn(pullRequestsRepository, 'releaseMerge').mockResolvedValue()
+			vi.spyOn(pullRequestsRepository, 'completeMerge').mockResolvedValue({
+				...pullRequest,
+				state: 'merged',
+			})
+		})
+
+		test('records a merge git storage had already made and moves on', async () => {
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				'merge-sha'
+			)
+
+			await processor.process(wakeupJob())
+
+			expect(pullRequestsRepository.completeMerge).toHaveBeenCalledWith(
+				expect.objectContaining({
+					attemptId: abandoned.attemptId,
+					actorUserId: abandoned.actor.id,
+					resultingSha: 'merge-sha',
+				})
+			)
+			// The abandoned attempt may have been a direct merge rather than this
+			// entry's, so the entry is not named as the one that made it — the
+			// completion drops it as merged like any other leftover.
+			expect(pullRequestsRepository.completeMerge).toHaveBeenCalledWith(
+				expect.not.objectContaining({ queueEntryId: entryId })
+			)
+			expect(mergeRequirementsService.evaluate).not.toHaveBeenCalled()
+			expect(pullRequestMergeRunner.run).not.toHaveBeenCalled()
+		})
+
+		// Running it would merge unattended on the strength of an evaluation
+		// nobody repeated, under an actor and a waiver it inherited.
+		test('never merges an intent git storage has no receipt for', async () => {
+			vi.spyOn(gitStorageClient, 'findMergeReceipt').mockResolvedValue(
+				undefined
+			)
+
+			await processor.process(wakeupJob())
+
+			expect(pullRequestsRepository.releaseMerge).toHaveBeenCalledWith(
+				expect.objectContaining({ attemptId: abandoned.attemptId })
+			)
+			expect(pullRequestsRepository.completeMerge).not.toHaveBeenCalled()
+			// The entry is judged on its own merits instead.
+			expect(mergeRequirementsService.evaluate).toHaveBeenCalled()
+		})
+
+		test('leaves a mirrored repository alone', async () => {
+			vi.spyOn(
+				repositoriesService,
+				'findRepositoryMergeContext'
+			).mockResolvedValue({
+				...mergeContext,
+				tesseraWritesAllowed: false,
+			})
+			const findReceipt = vi.spyOn(gitStorageClient, 'findMergeReceipt')
+
+			await processor.process(wakeupJob())
+
+			expect(findReceipt).not.toHaveBeenCalled()
+			expect(pullRequestsRepository.completeMerge).not.toHaveBeenCalled()
+		})
 	})
 
 	// Being queued is why the evaluation is happening, so the entry's own presence
@@ -396,7 +533,7 @@ describe(MergeQueueProcessor.name, () => {
 		vi.spyOn(pullRequestMergeRunner, 'run').mockResolvedValue({
 			outcome: 'refs_moved',
 			error: new PullRequestStaleComparisonError(),
-			kind: 'stale_refs',
+			kind: { code: 'stale_refs' },
 		})
 		vi.spyOn(mergeRequirementsService, 'evaluate')
 			.mockResolvedValueOnce(eligibleRequirements)

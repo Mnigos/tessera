@@ -28,6 +28,20 @@ const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
 const gitHubActorId = '00000000-0000-4000-8000-000000000055' as GitHubActorId
 const createdAt = new Date('2026-07-11T00:00:00Z')
 const NO_LONGER_MERGING_REGEX = /no longer merging/
+const mergeRequest = {
+	strategy: 'merge_commit' as const,
+	expectedBaseSha: 'a'.repeat(40),
+	expectedHeadSha: 'b'.repeat(40),
+	commitMessage: 'Merge pull request #1: Add feature',
+}
+const mergeRequestColumns = {
+	strategy: 'merge_commit',
+	expectedBaseSha: 'a'.repeat(40),
+	expectedHeadSha: 'b'.repeat(40),
+	commitMessage: 'Merge pull request #1: Add feature',
+	squashTitle: null,
+	squashBody: null,
+}
 const pullRequest = {
 	id: pullRequestId,
 	repositoryId,
@@ -43,6 +57,9 @@ const pullRequest = {
 	body: '',
 	state: 'open' as const,
 	mergeCommitSha: null,
+	mergeStrategy: null,
+	mergedBaseSha: null,
+	mergedHeadSha: null,
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -543,15 +560,18 @@ describe(PullRequestsRepository.name, () => {
 				pullRequestId,
 				actorUserId: mockUserId,
 				attemptId: '00000000-0000-4000-8000-000000000046',
+				request: mergeRequest,
 				startedAt,
 				staleBefore: new Date('2026-07-11T00:02:00Z'),
 			})
-		).toEqual(pullRequest)
+		).toMatchObject({ pullRequest, request: mergeRequest })
 		expect(mergeIntentValuesMock).toHaveBeenCalledWith({
 			pullRequestId,
 			actorUserId: mockUserId,
 			attemptId: '00000000-0000-4000-8000-000000000046',
+			bypass: undefined,
 			startedAt,
+			...mergeRequestColumns,
 		})
 	})
 
@@ -569,6 +589,7 @@ describe(PullRequestsRepository.name, () => {
 				pullRequestId,
 				actorUserId: mockUserId,
 				attemptId: '00000000-0000-4000-8000-000000000047',
+				request: mergeRequest,
 				startedAt: new Date('2026-07-11T00:03:30Z'),
 				staleBefore: new Date('2026-07-11T00:02:30Z'),
 			})
@@ -593,15 +614,17 @@ describe(PullRequestsRepository.name, () => {
 				pullRequestId,
 				actorUserId: mockUserId,
 				attemptId: '00000000-0000-4000-8000-000000000047',
+				request: mergeRequest,
 				startedAt,
 				staleBefore: new Date('2026-07-11T00:03:00Z'),
 			})
-		).toEqual(pullRequest)
+		).toMatchObject({ pullRequest, request: mergeRequest })
 		expect(mergeIntentUpdateSetMock).toHaveBeenCalledWith({
 			attemptId: '00000000-0000-4000-8000-000000000047',
 			actorUserId: mockUserId,
-			bypass: null,
+			bypass: undefined,
 			startedAt,
+			...mergeRequestColumns,
 		})
 	})
 
@@ -627,6 +650,7 @@ describe(PullRequestsRepository.name, () => {
 			pullRequestId,
 			actorUserId: mockUserId,
 			attemptId: '00000000-0000-4000-8000-000000000047',
+			request: mergeRequest,
 			startedAt: new Date('2026-07-11T00:04:00Z'),
 			staleBefore: new Date('2026-07-11T00:03:00Z'),
 		})
@@ -657,6 +681,7 @@ describe(PullRequestsRepository.name, () => {
 			actorUserId: mockUserId,
 			attemptId: '00000000-0000-4000-8000-000000000047',
 			bypass: { ...bypass, reason: 'Release train' },
+			request: mergeRequest,
 			startedAt: new Date('2026-07-11T00:04:00Z'),
 			staleBefore: new Date('2026-07-11T00:03:00Z'),
 		})
@@ -666,6 +691,71 @@ describe(PullRequestsRepository.name, () => {
 				bypass: { ...bypass, reason: 'Release train' },
 			})
 		)
+	})
+
+	// An intent that recorded what it was asking Git for may describe a merge Git
+	// already made. Only recovery can find out, so the claim refuses rather than
+	// overwriting the evidence — including when the intent aged past the recovery
+	// cutoff in the moment between recovery looking and this claim arriving.
+	test('refuses to take over an intent that recorded its request', async () => {
+		selectLimitMock.mockResolvedValue([
+			{
+				actorUserId: mockUserId,
+				attemptId: '00000000-0000-4000-8000-000000000046',
+				bypass: null,
+				strategy: 'squash',
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+				commitMessage: null,
+				squashTitle: 'The abandoned title',
+				squashBody: '',
+				startedAt: new Date('2026-07-11T00:02:00Z'),
+			},
+		])
+
+		const claim = await repository.claimMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId: '00000000-0000-4000-8000-000000000047',
+			request: mergeRequest,
+			startedAt: new Date('2026-07-11T00:04:00Z'),
+			staleBefore: new Date('2026-07-11T00:03:00Z'),
+		})
+
+		expect(claim).toBeUndefined()
+		expect(mergeIntentUpdateSetMock).not.toHaveBeenCalled()
+	})
+
+	// An intent written before requests were snapshotted has nothing to replay,
+	// so it yields to this attempt's own request.
+	test('adopts its own request over an intent that recorded none', async () => {
+		selectLimitMock.mockResolvedValue([
+			{
+				actorUserId: mockUserId,
+				attemptId: '00000000-0000-4000-8000-000000000046',
+				bypass: null,
+				strategy: 'merge_commit',
+				expectedBaseSha: null,
+				expectedHeadSha: null,
+				commitMessage: null,
+				squashTitle: null,
+				squashBody: null,
+				startedAt: new Date('2026-07-11T00:02:00Z'),
+			},
+		])
+
+		const claim = await repository.claimMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId: '00000000-0000-4000-8000-000000000047',
+			request: mergeRequest,
+			startedAt: new Date('2026-07-11T00:04:00Z'),
+			staleBefore: new Date('2026-07-11T00:03:00Z'),
+		})
+
+		expect(claim?.request).toEqual(mergeRequest)
 	})
 
 	test('completes a claimed merge and records the actor event', async () => {
@@ -689,7 +779,7 @@ describe(PullRequestsRepository.name, () => {
 				actorUserId: mockUserId,
 				attemptId,
 				changedAt,
-				mergeCommitSha: 'merge-sha',
+				resultingSha: 'merge-sha',
 			})
 		).toEqual(mergedPullRequest)
 		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith({
@@ -705,6 +795,106 @@ describe(PullRequestsRepository.name, () => {
 			type: 'merged',
 		})
 		expect(deleteMock).toHaveBeenCalledWith(pullRequestMergeIntents)
+	})
+
+	// What was merged is read from the claimed intent rather than from the caller,
+	// for the same reason the bypass audit is: the intent is what Git was actually
+	// asked for, and it outlives the process that asked.
+	test('records the strategy and the tips the intent was claimed with', async () => {
+		const changedAt = new Date('2026-07-11T00:03:00Z')
+		const attemptId = '00000000-0000-4000-8000-000000000046'
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{ ...pullRequest, state: 'merged' as const },
+		])
+		selectLimitMock.mockResolvedValue([
+			{
+				actorUserId: mockUserId,
+				attemptId,
+				bypass: null,
+				strategy: 'rebase',
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+				commitMessage: null,
+				squashTitle: null,
+				squashBody: null,
+				startedAt: changedAt,
+			},
+		])
+
+		await repository.completeMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId,
+			changedAt,
+			resultingSha: 'rebased-sha',
+		})
+
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mergeCommitSha: 'rebased-sha',
+				mergeStrategy: 'rebase',
+				mergedBaseSha: 'a'.repeat(40),
+				mergedHeadSha: 'b'.repeat(40),
+			})
+		)
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'merged',
+			payload: {
+				strategy: 'rebase',
+				resultingSha: 'rebased-sha',
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+			},
+		})
+	})
+
+	// An intent written before requests were snapshotted has no pair to name, so
+	// the event stays payload-less exactly as it always was.
+	test('leaves the merged event payload-less for a legacy intent', async () => {
+		const changedAt = new Date('2026-07-11T00:03:00Z')
+		const attemptId = '00000000-0000-4000-8000-000000000046'
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{ ...pullRequest, state: 'merged' as const },
+		])
+		selectLimitMock.mockResolvedValue([
+			{
+				actorUserId: mockUserId,
+				attemptId,
+				bypass: null,
+				strategy: 'merge_commit',
+				expectedBaseSha: null,
+				expectedHeadSha: null,
+				commitMessage: null,
+				squashTitle: null,
+				squashBody: null,
+				startedAt: changedAt,
+			},
+		])
+
+		await repository.completeMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId,
+			changedAt,
+			resultingSha: 'merge-sha',
+		})
+
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'merged',
+			payload: undefined,
+		})
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				mergedBaseSha: undefined,
+				mergedHeadSha: undefined,
+			})
+		)
 	})
 
 	// The merge and the entry that produced it commit together, so the queue can
@@ -732,7 +922,7 @@ describe(PullRequestsRepository.name, () => {
 			actorUserId: mockUserId,
 			attemptId,
 			changedAt,
-			mergeCommitSha: 'merge-sha',
+			resultingSha: 'merge-sha',
 			queueEntryId,
 		})
 
@@ -768,7 +958,7 @@ describe(PullRequestsRepository.name, () => {
 				actorUserId: mockUserId,
 				attemptId,
 				changedAt,
-				mergeCommitSha: 'merge-sha',
+				resultingSha: 'merge-sha',
 				queueEntryId: '00000000-0000-4000-8000-000000000066' as never,
 			})
 		).rejects.toThrow(NO_LONGER_MERGING_REGEX)
@@ -783,6 +973,7 @@ describe(PullRequestsRepository.name, () => {
 				pullRequestId,
 				actorUserId: mockUserId,
 				attemptId: '00000000-0000-4000-8000-000000000046',
+				request: mergeRequest,
 				startedAt: new Date('2026-07-11T00:04:00Z'),
 				staleBefore: new Date('2026-07-11T00:03:00Z'),
 			})

@@ -21,7 +21,10 @@ import {
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { user } from './auth.schema'
-import { pullRequests } from './pull-requests.schema'
+import {
+	pullRequestMergeStrategyEnum,
+	pullRequests,
+} from './pull-requests.schema'
 import { repositories } from './repositories.schema'
 
 export const mergeQueueEntryStateEnum = pgEnum(
@@ -68,6 +71,17 @@ export const mergeQueueEntries = pgTable(
 			.references(() => user.id, { onDelete: 'restrict' }),
 		blockingReasons:
 			jsonb('blocking_reasons').$type<MergeQueueBlockingReasonSnapshot[]>(),
+		/**
+		 * The method chosen when the entry was created. The queue decides when a
+		 * pull request merges, not how, so this never changes while the entry
+		 * waits — including across a pause and a retry.
+		 */
+		strategy: pullRequestMergeStrategyEnum('strategy')
+			.default('merge_commit')
+			.notNull(),
+		/** The caller's overrides, kept only for the strategy that reads them. */
+		squashTitle: text('squash_title'),
+		squashBody: text('squash_body'),
 		/** The refs the entry was evaluated against, not what it will merge. */
 		enqueuedBaseSha: text('enqueued_base_sha'),
 		enqueuedHeadSha: text('enqueued_head_sha'),
@@ -115,6 +129,12 @@ export const mergeQueueEntries = pgTable(
 				or (${table.state}::text = 'removed' and ${table.removedAt} is not null and ${table.completedAt} is null)
 				or (${table.state}::text = 'completed' and ${table.completedAt} is not null and ${table.removedAt} is null and ${table.removedByUserId} is null)
 			)`
+		),
+		// Squash overrides belong to the one strategy that reads them; carrying
+		// them on any other entry would leave text nothing will ever write.
+		check(
+			'merge_queue_entries_squash_options_check',
+			sql`${table.strategy}::text = 'squash' or (${table.squashTitle} is null and ${table.squashBody} is null)`
 		),
 		check(
 			'merge_queue_entries_active_state_check',

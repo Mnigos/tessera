@@ -20,6 +20,9 @@ const entry: MergeQueueEntryReadModel = {
 	pullRequestId,
 	position: 4,
 	state: 'queued',
+	strategy: 'merge_commit',
+	squashTitle: null,
+	squashBody: null,
 	blockingReasons: null,
 	enqueuedByUserId: mockUserId,
 	enqueuedAt: createdAt,
@@ -89,6 +92,19 @@ describe(MergeQueueStatusService.name, () => {
 		expect(status.entry?.blockingReasons).toEqual([
 			{ code: 'threads_unresolved', count: 2 },
 		])
+	})
+
+	// The reader has to be able to see which method the entry will merge by: it
+	// was chosen at join time and cannot be changed while the entry waits.
+	test('reports the method the entry was queued with', async () => {
+		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue({
+			...entry,
+			strategy: 'rebase',
+		})
+
+		const status = await service.getStatus({ pullRequestId, repositoryId })
+
+		expect(status.entry?.strategy).toBe('rebase')
 	})
 
 	test('reports a pull request that is not queued at all', async () => {

@@ -14,6 +14,7 @@ import {
 	RepositoryBlobPreviewState,
 	RepositoryChangedFileStatus,
 	RepositoryDiffLineKind,
+	RepositoryMergeStrategy,
 	RepositoryRefKind,
 	RepositoryTreeEntryKind,
 } from './generated/tessera/git/v1/git_storage'
@@ -859,7 +860,8 @@ describe(GitStorageClient.name, () => {
 				authorName: 'Ada',
 				authorEmail: 'ada@example.com',
 				message: 'Merge',
-				operationId: 'pr-1',
+				operationId: '018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7',
+				strategy: 'merge_commit',
 			})
 			const assertion =
 				expect(promise).rejects.toBeInstanceOf(GatewayTimeoutError)
@@ -900,9 +902,62 @@ describe(GitStorageClient.name, () => {
 				authorName: 'Ada',
 				authorEmail: 'ada@example.com',
 				message: 'Merge',
-				operationId: 'pr-1',
+				operationId: '018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7',
+				strategy: 'merge_commit',
 			})
 		).toBe('merge-sha')
+	})
+
+	// The strategy crosses to the wire as its proto value here and nowhere else,
+	// and the squash options travel as empty strings when they are not in play.
+	test('sends the chosen strategy and its options to git storage', async () => {
+		await client.mergeRepositoryRefs({
+			repositoryId,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			baseRef: 'main',
+			headRef: 'feature',
+			expectedBaseSha: 'base-sha',
+			expectedHeadSha: 'head-sha',
+			authorName: 'Ada',
+			authorEmail: 'ada@example.com',
+			message: '',
+			operationId: '018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7',
+			strategy: 'squash',
+			squashTitle: 'Add search (#1)',
+		})
+
+		expect(gitStorageService.mergeRepositoryRefs).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: RepositoryMergeStrategy.REPOSITORY_MERGE_STRATEGY_SQUASH,
+				squashTitle: 'Add search (#1)',
+				squashBody: '',
+			}),
+			expect.anything()
+		)
+	})
+
+	// A git storage that predates `resulting_sha` still answers under the name a
+	// merge commit had when it was the only possible result.
+	test('reads the resulting commit under either name', async () => {
+		gitStorageService.mergeRepositoryRefs.mockReturnValue(
+			of({ mergeCommitSha: 'legacy-sha', resultingSha: '' })
+		)
+
+		expect(
+			await client.mergeRepositoryRefs({
+				repositoryId,
+				storagePath: '/var/lib/tessera/repositories/repo.git',
+				baseRef: 'main',
+				headRef: 'feature',
+				expectedBaseSha: 'base-sha',
+				expectedHeadSha: 'head-sha',
+				authorName: 'Ada',
+				authorEmail: 'ada@example.com',
+				message: 'Merge',
+				operationId: '018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7',
+				strategy: 'merge_commit',
+			})
+		).toBe('legacy-sha')
 	})
 
 	test('maps read-only mergeability checks', async () => {
@@ -921,6 +976,7 @@ describe(GitStorageClient.name, () => {
 			conflictPaths: ['src/index.ts'],
 			conflictPathsTruncated: true,
 			conflictPathLimit: 50,
+			strategyAvailability: undefined,
 		})
 		expect(
 			getGitStorageAuthorization(gitStorageService.checkRepositoryMergeability)
