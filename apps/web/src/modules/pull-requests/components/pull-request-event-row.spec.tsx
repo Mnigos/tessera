@@ -30,6 +30,28 @@ describe('pull request event row', () => {
 
 		expect(screen.getByText('Source branch updated by marta')).toBeTruthy()
 	})
+
+	test('names both branches of a retarget', () => {
+		const { container } = render(
+			<PullRequestEventRow
+				event={pushEvent('retargeted', {
+					fromBranch: 'main',
+					toBranch: 'release',
+				})}
+			/>
+		)
+
+		expect(container.textContent).toContain(
+			'Changed the target from main to release by marta'
+		)
+	})
+
+	// Synchronized history carries no payload of its own.
+	test('falls back to the generic label for a retarget without a payload', () => {
+		render(<PullRequestEventRow event={pushEvent('retargeted')} />)
+
+		expect(screen.getByText('Pull request retargeted by marta')).toBeTruthy()
+	})
 })
 
 function pushEvent(
