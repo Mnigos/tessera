@@ -1,3 +1,4 @@
+import { checkKinds } from '@repo/domain'
 import { z } from 'zod'
 
 export const checkIdSchema = z.uuid().brand<'check_id'>()
@@ -7,7 +8,7 @@ export type CheckId = z.infer<typeof checkIdSchema>
  * A commit status and a check run of the same name are different checks — GitHub
  * treats them as separately requirable — so the kind travels with the context.
  */
-export const checkKindSchema = z.enum(['status', 'check_run'])
+export const checkKindSchema = z.enum(checkKinds)
 export type CheckKind = z.infer<typeof checkKindSchema>
 
 /**
@@ -96,6 +97,33 @@ export const checksSummarySchema = z.object({
 	headIsCurrent: z.boolean(),
 })
 export type ChecksSummary = z.infer<typeof checksSummarySchema>
+
+/**
+ * A check a caller requires on a commit. `kind` and `providerAppId` are the
+ * selectors GitHub itself needs to tell two identically named checks apart; a
+ * requirement that omits them matches on the name alone.
+ */
+export const requiredContextSchema = z.object({
+	context: z.string().min(1),
+	kind: checkKindSchema.optional(),
+	providerAppId: z.string().min(1).optional(),
+})
+export type RequiredContext = z.infer<typeof requiredContextSchema>
+
+/**
+ * What one requirement got on one commit. `missing` is a check nothing ever
+ * reported, which is a failure to meet the requirement rather than an absent
+ * opinion about it.
+ */
+export const requiredContextEvaluationSchema = z.object({
+	requirement: requiredContextSchema,
+	state: z.union([checkStateSchema, z.literal('missing')]),
+	satisfied: z.boolean(),
+	check: checkSchema.optional(),
+})
+export type RequiredContextEvaluation = z.infer<
+	typeof requiredContextEvaluationSchema
+>
 
 export const checksListSchema = z.object({
 	checks: z.array(checkSchema),

@@ -1,6 +1,12 @@
 import { oc } from '@orpc/contract'
+import { mergeBlockingReasonCodes, mergeQueueStates } from '@repo/domain'
 import { z } from 'zod'
-import { checksListSchema, checksSummarySchema } from './checks.contract'
+import { branchProtectionRuleIdSchema } from './branch-protection.contract'
+import {
+	checksListSchema,
+	checksSummarySchema,
+	requiredContextEvaluationSchema,
+} from './checks.contract'
 import {
 	repositorySlugSchema,
 	repositoryViewerRoleSchema,
@@ -36,8 +42,16 @@ export type PullRequestReviewerRequestId = z.infer<
 	typeof pullRequestReviewerRequestIdSchema
 >
 
+export const mergeQueueEntryIdSchema = z.uuid().brand<'merge_queue_entry_id'>()
+export type MergeQueueEntryId = z.infer<typeof mergeQueueEntryIdSchema>
+
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
+
+export const mergeQueueStateSchema = z.enum(mergeQueueStates)
+export type MergeQueueState = z.infer<typeof mergeQueueStateSchema>
+
+export const mergeBlockingReasonCodeSchema = z.enum(mergeBlockingReasonCodes)
 
 export const pullRequestProviderSchema = z.enum(['tessera', 'github'])
 export type PullRequestProvider = z.infer<typeof pullRequestProviderSchema>
@@ -89,6 +103,12 @@ export const pullRequestEventTypeSchema = z.enum([
 	'review_request_removed',
 	'review_submitted',
 	'review_dismissed',
+	'merge_blocked',
+	'merge_bypassed',
+	'queue_entered',
+	'queue_paused',
+	'queue_resumed',
+	'queue_removed',
 ])
 export type PullRequestEventType = z.infer<typeof pullRequestEventTypeSchema>
 
@@ -183,10 +203,61 @@ const pullRequestReviewEventPayloadSchema = z.object({
 	headSha: z.string(),
 })
 
+const pullRequestMergeBlockedEventPayloadSchema = z.object({
+	ruleId: branchProtectionRuleIdSchema.optional(),
+	ruleVersion: z.number().int().positive().optional(),
+	reasonCodes: z.array(mergeBlockingReasonCodeSchema),
+	baseSha: z.string().optional(),
+	headSha: z.string().optional(),
+})
+
+const pullRequestMergeBypassedEventPayloadSchema = z.object({
+	ruleId: branchProtectionRuleIdSchema.optional(),
+	ruleVersion: z.number().int().positive().optional(),
+	reason: z.string().min(1),
+	bypassedReasonCodes: z.array(mergeBlockingReasonCodeSchema),
+	baseSha: z.string(),
+	headSha: z.string(),
+})
+
+const pullRequestQueueEnteredEventPayloadSchema = z.object({
+	queueEntryId: mergeQueueEntryIdSchema,
+	position: z.number().int().positive(),
+	enqueuedHeadSha: z.string(),
+})
+
+const pullRequestQueuePausedEventPayloadSchema = z.object({
+	queueEntryId: mergeQueueEntryIdSchema,
+	reasonCodes: z.array(mergeBlockingReasonCodeSchema),
+	evaluatedBaseSha: z.string().optional(),
+	evaluatedHeadSha: z.string().optional(),
+})
+
+const pullRequestQueueRemovedEventPayloadSchema = z.object({
+	queueEntryId: mergeQueueEntryIdSchema,
+	position: z.number().int().positive(),
+	reason: z.enum(['user', 'admin', 'closed', 'merged']),
+})
+
+const pullRequestQueueResumedEventPayloadSchema = z.object({
+	queueEntryId: mergeQueueEntryIdSchema,
+	position: z.number().int().positive(),
+})
+
+// Payloads carry no discriminator of their own and the first member that parses
+// wins, so a member whose required fields are a subset of another's would
+// silently strip the difference. Every shape is listed before any shape it is
+// contained by: paused before blocked, entered and removed before resumed.
 const pullRequestEventPayloadSchema = z.union([
 	pullRequestThreadEventPayloadSchema,
 	pullRequestReviewerEventPayloadSchema,
 	pullRequestReviewEventPayloadSchema,
+	pullRequestQueuePausedEventPayloadSchema,
+	pullRequestMergeBlockedEventPayloadSchema,
+	pullRequestMergeBypassedEventPayloadSchema,
+	pullRequestQueueEnteredEventPayloadSchema,
+	pullRequestQueueRemovedEventPayloadSchema,
+	pullRequestQueueResumedEventPayloadSchema,
 ])
 
 export const pullRequestEventSchema = z.object({
@@ -194,7 +265,9 @@ export const pullRequestEventSchema = z.object({
 	pullRequestId: pullRequestIdSchema,
 	provider: pullRequestProviderSchema,
 	actorUserId: z.uuid().brand<'user_id'>().optional(),
-	actorUsername: z.string().min(1),
+	// Absent for system-authored queue transitions; every other event names its
+	// actor.
+	actorUsername: z.string().min(1).optional(),
 	type: pullRequestEventTypeSchema,
 	payload: pullRequestEventPayloadSchema.optional(),
 	createdAt: z.coerce.date(),
@@ -409,6 +482,130 @@ export type PullRequestReviewViewer = z.infer<
 	typeof pullRequestReviewViewerSchema
 >
 
+/**
+ * Every reason a merge can be refused except `queue_paused` itself. A paused
+ * entry reports why its own evaluation failed, and that answer can never be
+ * "the entry is paused", so the nesting stays one level deep and the union
+ * stays non-recursive.
+ */
+const mergeQueuePauseReasonOptions = [
+	z.object({
+		code: z.literal('insufficient_permission'),
+		requiredRole: z.literal('write'),
+		actualRole: repositoryViewerRoleSchema.optional(),
+	}),
+	z.object({
+		code: z.literal('pull_request_not_open'),
+		state: pullRequestStateSchema,
+	}),
+	z.object({ code: z.literal('draft_pull_request') }),
+	z.object({
+		code: z.literal('read_only_mirror'),
+		authority: z.literal('github'),
+	}),
+	z.object({
+		code: z.literal('stale_refs'),
+		expectedBaseSha: z.string().optional(),
+		actualBaseSha: z.string(),
+		expectedHeadSha: z.string().optional(),
+		actualHeadSha: z.string(),
+	}),
+	z.object({
+		code: z.literal('merge_conflict'),
+		baseSha: z.string(),
+		headSha: z.string(),
+	}),
+	z.object({
+		code: z.literal('approvals_required'),
+		required: z.number().int().positive(),
+		approved: z.number().int().nonnegative(),
+		/** Approvals the rule discounted because the head moved past them. */
+		staleApprovals: z.number().int().nonnegative(),
+	}),
+	z.object({
+		code: z.literal('changes_requested'),
+		reviewers: z.array(pullRequestEffectiveReviewStateSchema),
+	}),
+	z.object({
+		code: z.literal('checks_pending'),
+		contexts: z.array(requiredContextEvaluationSchema),
+	}),
+	z.object({
+		code: z.literal('checks_failed'),
+		contexts: z.array(requiredContextEvaluationSchema),
+	}),
+	z.object({
+		code: z.literal('threads_unresolved'),
+		count: z.number().int().positive(),
+	}),
+	z.object({ code: z.literal('merge_queue_required') }),
+	z.object({
+		code: z.literal('already_queued'),
+		state: mergeQueueStateSchema,
+	}),
+	z.object({
+		code: z.literal('not_queue_head'),
+		position: z.number().int().positive(),
+	}),
+	z.object({ code: z.literal('repository_merge_in_progress') }),
+] as const
+
+export const mergeQueuePauseReasonSchema = z.discriminatedUnion(
+	'code',
+	mergeQueuePauseReasonOptions
+)
+export type MergeQueuePauseReason = z.infer<typeof mergeQueuePauseReasonSchema>
+
+export const mergeBlockingReasonSchema = z.discriminatedUnion('code', [
+	...mergeQueuePauseReasonOptions,
+	z.object({
+		code: z.literal('queue_paused'),
+		reasons: z.array(mergeQueuePauseReasonSchema),
+	}),
+])
+export type MergeBlockingReason = z.infer<typeof mergeBlockingReasonSchema>
+
+/**
+ * The verdict on merging as of this evaluation. `canBypass` is true only when
+ * the viewer holds the role the rule configured and every current blocker is
+ * one policy is allowed to waive; permission, state, freshness, conflict and
+ * queue ordering never are.
+ */
+export const mergeRequirementsSchema = z.object({
+	eligible: z.boolean(),
+	evaluatedBaseSha: z.string().optional(),
+	evaluatedHeadSha: z.string().optional(),
+	rule: z
+		.object({
+			id: branchProtectionRuleIdSchema,
+			version: z.number().int().positive(),
+			targetBranch: z.string(),
+		})
+		.optional(),
+	canBypass: z.boolean(),
+	reasons: z.array(mergeBlockingReasonSchema),
+})
+export type MergeRequirements = z.infer<typeof mergeRequirementsSchema>
+
+export const mergeQueueEntrySchema = z.object({
+	entryId: mergeQueueEntryIdSchema,
+	state: mergeQueueStateSchema,
+	/** Place among runnable entries, counted fresh; absent when not runnable. */
+	position: z.number().int().positive().optional(),
+	blockingReasons: z.array(mergeQueuePauseReasonSchema).optional(),
+	enqueuedAt: z.coerce.date(),
+	stateChangedAt: z.coerce.date(),
+})
+export type MergeQueueEntry = z.infer<typeof mergeQueueEntrySchema>
+
+export const mergeQueueStatusSchema = z.object({
+	/** Absent when this pull request holds no active entry. */
+	entry: mergeQueueEntrySchema.optional(),
+	/** Runnable entries in the repository, paused ones excluded. */
+	runnableCount: z.number().int().nonnegative(),
+})
+export type MergeQueueStatus = z.infer<typeof mergeQueueStatusSchema>
+
 export const pullRequestListItemSchema = pullRequestSchema.extend({
 	reviewSummary: pullRequestReviewSummarySchema,
 	/** Absent when the head commit has no result to roll up yet. */
@@ -487,10 +684,53 @@ export type ParsedListPullRequestChecksInput = z.infer<
 export const mergePullRequestInputSchema = getPullRequestInputSchema.extend({
 	expectedBaseSha: pullRequestShaSchema,
 	expectedHeadSha: pullRequestShaSchema,
+	/**
+	 * Present only when the caller is deliberately merging past waivable
+	 * requirements. The reason is mandatory because it is what the audit row
+	 * carries; the server still decides whether the role and the blockers allow
+	 * it.
+	 */
+	bypass: z.object({ reason: z.string().trim().min(1).max(1000) }).optional(),
 })
 export type MergePullRequestInput = z.input<typeof mergePullRequestInputSchema>
 export type ParsedMergePullRequestInput = z.infer<
 	typeof mergePullRequestInputSchema
+>
+
+/**
+ * Blocked is a result, not a failure: the caller asked whether this merge may
+ * happen and got a complete answer. Only authentication, authorization and
+ * not-found stay errors.
+ */
+export const mergePullRequestResultSchema = z.discriminatedUnion('status', [
+	z.object({ status: z.literal('merged'), pullRequest: pullRequestSchema }),
+	z.object({
+		status: z.literal('blocked'),
+		requirements: mergeRequirementsSchema,
+	}),
+])
+export type MergePullRequestResult = z.infer<
+	typeof mergePullRequestResultSchema
+>
+
+export const joinMergeQueueInputSchema = getPullRequestInputSchema
+export type JoinMergeQueueInput = z.input<typeof joinMergeQueueInputSchema>
+export type ParsedJoinMergeQueueInput = z.infer<
+	typeof joinMergeQueueInputSchema
+>
+
+export const leaveMergeQueueInputSchema = getPullRequestInputSchema
+export type LeaveMergeQueueInput = z.input<typeof leaveMergeQueueInputSchema>
+export type ParsedLeaveMergeQueueInput = z.infer<
+	typeof leaveMergeQueueInputSchema
+>
+
+export const retryMergeQueueEntryInputSchema = getPullRequestInputSchema
+export type RetryMergeQueueEntryInput = z.input<
+	typeof retryMergeQueueEntryInputSchema
+>
+export type ParsedRetryMergeQueueEntryInput = z.infer<
+	typeof retryMergeQueueEntryInputSchema
 >
 
 export const editPullRequestInputSchema = getPullRequestInputSchema
@@ -645,6 +885,7 @@ export const pullRequestsContract = {
 				viewerPendingReview: pullRequestPendingReviewSchema.optional(),
 				reviewerCandidates: z.array(pullRequestReviewerCandidateSchema),
 				viewer: pullRequestReviewViewerSchema,
+				mergeQueue: mergeQueueStatusSchema,
 				authority: pullRequestAuthoritySchema,
 				viewerRole: repositoryViewerRoleSchema,
 			})
@@ -697,7 +938,35 @@ export const pullRequestsContract = {
 			path: '/repositories/{username}/{slug}/pulls/{number}/merge',
 		})
 		.input(mergePullRequestInputSchema)
-		.output(pullRequestSchema),
+		.output(mergePullRequestResultSchema),
+	getMergeRequirements: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/merge-requirements',
+		})
+		.input(getPullRequestInputSchema)
+		.output(mergeRequirementsSchema),
+	joinMergeQueue: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/merge-queue',
+		})
+		.input(joinMergeQueueInputSchema)
+		.output(mergeQueueStatusSchema),
+	leaveMergeQueue: oc
+		.route({
+			method: 'DELETE',
+			path: '/repositories/{username}/{slug}/pulls/{number}/merge-queue',
+		})
+		.input(leaveMergeQueueInputSchema)
+		.output(mergeQueueStatusSchema),
+	retryMergeQueueEntry: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/merge-queue/retry',
+		})
+		.input(retryMergeQueueEntryInputSchema)
+		.output(mergeQueueStatusSchema),
 	listThreads: oc
 		.route({
 			method: 'GET',
