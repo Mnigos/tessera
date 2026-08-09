@@ -1,4 +1,5 @@
 import type { MergeQueueStatus } from '@repo/contracts'
+import type { MergeStrategy } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
 import { ListOrdered, LogOut, RotateCcw } from 'lucide-react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
@@ -6,6 +7,7 @@ import {
 	getMergeBlockingReasonMessage,
 	getMergeQueueStateLabel,
 } from '../helpers/merge-blocking-reason'
+import { getMergeStrategyLabel } from '../helpers/merge-strategy'
 import { useJoinMergeQueueMutation } from '../hooks/use-join-merge-queue.mutation'
 import { useLeaveMergeQueueMutation } from '../hooks/use-leave-merge-queue.mutation'
 import { useRetryMergeQueueEntryMutation } from '../hooks/use-retry-merge-queue-entry.mutation'
@@ -15,6 +17,8 @@ interface PullRequestMergeQueuePanelProps {
 	slug: string
 	number: number
 	mergeQueue: MergeQueueStatus
+	/** The method the entry will be created with, fixed at that moment. */
+	strategy: MergeStrategy
 }
 
 /**
@@ -30,6 +34,7 @@ export function PullRequestMergeQueuePanel({
 	slug,
 	number,
 	mergeQueue,
+	strategy,
 }: Readonly<PullRequestMergeQueuePanelProps>) {
 	const joinQueue = useJoinMergeQueueMutation()
 	const leaveQueue = useLeaveMergeQueueMutation()
@@ -63,6 +68,11 @@ export function PullRequestMergeQueuePanel({
 								— number {entry.position} in line
 							</span>
 						)}
+					</p>
+					{/* The method was settled when the entry was created and the queue
+					never re-chooses it, so it is reported rather than offered. */}
+					<p className="text-muted-foreground text-xs">
+						Will merge by {getMergeStrategyLabel(entry.strategy).toLowerCase()}
 					</p>
 					{entry.blockingReasons && entry.blockingReasons.length > 0 && (
 						<ul className="flex list-disc flex-col gap-1 pl-4 text-muted-foreground text-xs">
@@ -105,12 +115,13 @@ export function PullRequestMergeQueuePanel({
 				<div className="flex flex-col gap-2">
 					<p className="text-muted-foreground text-sm">
 						Queued pull requests merge one at a time, each re-checked against
-						the target branch as it moves.
+						the target branch as it moves. This one would join as{' '}
+						{getMergeStrategyLabel(strategy).toLowerCase()}.
 					</p>
 					<Button
 						className="w-fit"
 						disabled={joinQueue.isPending}
-						onClick={() => joinQueue.mutate(input)}
+						onClick={() => joinQueue.mutate({ ...input, strategy })}
 						size="sm"
 						variant="outline"
 					>

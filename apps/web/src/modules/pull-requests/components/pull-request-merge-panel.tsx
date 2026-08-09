@@ -1,18 +1,18 @@
-import type {
-	MergeQueueStatus,
-	MergeRequirements,
-	PullRequest,
-} from '@repo/contracts'
-import { Button } from '@repo/ui/components/button'
+import type { MergeQueueStatus, PullRequest } from '@repo/contracts'
+import { DEFAULT_MERGE_STRATEGY, type MergeStrategy } from '@repo/domain'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
-import { CheckCircle2, GitMerge } from 'lucide-react'
+import { useState } from 'react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
+import { resolveMergeStrategy } from '../helpers/merge-strategy'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
 import { usePullRequestMergeRequirementsQuery } from '../hooks/use-pull-request-merge-requirements.query'
-import { PullRequestMergeBypassDialog } from './pull-request-merge-bypass-dialog'
 import { PullRequestMergeQueuePanel } from './pull-request-merge-queue-panel'
-import { PullRequestMergeRequirementsList } from './pull-request-merge-requirements-list'
+import { PullRequestMergeStrategySelect } from './pull-request-merge-strategy-select'
+import {
+	type PullRequestMergeCommand,
+	PullRequestMergeVerdict,
+} from './pull-request-merge-verdict'
 
 interface PullRequestMergePanelProps {
 	username: string
@@ -42,6 +42,9 @@ export function PullRequestMergePanel({
 		isOpen
 	)
 	const mergeMutation = useMergePullRequestMutation()
+	const [selectedStrategy, setSelectedStrategy] = useState<MergeStrategy>(
+		DEFAULT_MERGE_STRATEGY
+	)
 	// A refusal is what the server returned, not how it failed, so the merge
 	// attempt's verdict replaces the one the panel was showing — until the query
 	// answers again from after the attempt was sent, which is the case where the
@@ -53,10 +56,17 @@ export function PullRequestMergePanel({
 			? mergeMutation.data.requirements
 			: undefined
 	const requirements = blockedRequirements ?? requirementsQuery.data
+	// Derived rather than stored, so a method the branches have made impossible
+	// since it was picked gives way on the next render instead of waiting for an
+	// effect to notice and correct it.
+	const strategy = resolveMergeStrategy(
+		selectedStrategy,
+		requirements?.strategyAvailability
+	)
 
 	if (!isOpen) return null
 
-	function handleMerge(bypassReason?: string) {
+	function handleMerge({ bypassReason, squash }: PullRequestMergeCommand) {
 		if (!(requirements?.evaluatedBaseSha && requirements.evaluatedHeadSha))
 			return
 
@@ -68,6 +78,9 @@ export function PullRequestMergePanel({
 				expectedBaseSha: requirements.evaluatedBaseSha,
 				expectedHeadSha: requirements.evaluatedHeadSha,
 				bypass: bypassReason ? { reason: bypassReason } : undefined,
+				...(strategy === 'squash'
+					? { strategy: 'squash' as const, ...squash }
+					: { strategy }),
 			},
 			{
 				// The refs this panel offered have moved on, so the next attempt would
@@ -87,14 +100,16 @@ export function PullRequestMergePanel({
 
 	return (
 		<Card className="gap-4 border-emerald-500/25 bg-emerald-500/5">
-			<div className="flex flex-col gap-1">
-				<h2 className="font-semibold text-base tracking-normal">
-					Merge pull request
-				</h2>
-				<p className="text-muted-foreground text-sm">
-					Create a two-parent merge commit on {pullRequest.targetBranch}.
-				</p>
-			</div>
+			<h2 className="font-semibold text-base tracking-normal">
+				Merge pull request
+			</h2>
+			<PullRequestMergeStrategySelect
+				disabled={mergeMutation.isPending}
+				onStrategyChange={setSelectedStrategy}
+				strategy={strategy}
+				strategyAvailability={requirements?.strategyAvailability}
+				targetBranch={pullRequest.targetBranch}
+			/>
 			{requirementsQuery.isLoading && !requirements ? (
 				<div className="flex flex-col gap-2">
 					<Skeleton className="h-4 max-w-64" />
@@ -107,8 +122,9 @@ export function PullRequestMergePanel({
 					isPending={mergeMutation.isPending}
 					onMerge={handleMerge}
 					onRetryRequirements={() => requirementsQuery.refetch()}
+					pullRequest={pullRequest}
 					requirements={requirements}
-					targetBranch={pullRequest.targetBranch}
+					strategy={strategy}
 				/>
 			)}
 			{mergeMutation.isError && (
@@ -123,87 +139,9 @@ export function PullRequestMergePanel({
 				mergeQueue={mergeQueue}
 				number={pullRequest.number}
 				slug={slug}
+				strategy={strategy}
 				username={username}
 			/>
 		</Card>
-	)
-}
-
-interface PullRequestMergeVerdictProps {
-	error: unknown
-	isError: boolean
-	isPending: boolean
-	onMerge: (bypassReason?: string) => void
-	onRetryRequirements: () => void
-	requirements?: MergeRequirements
-	targetBranch: string
-}
-
-function PullRequestMergeVerdict({
-	error,
-	isError,
-	isPending,
-	onMerge,
-	onRetryRequirements,
-	requirements,
-	targetBranch,
-}: Readonly<PullRequestMergeVerdictProps>) {
-	if (isError || !requirements)
-		return (
-			<div className="flex flex-col gap-2">
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						error,
-						'The merge requirements could not be checked.'
-					)}
-				</p>
-				<Button
-					className="w-fit"
-					onClick={onRetryRequirements}
-					size="sm"
-					variant="outline"
-				>
-					Check again
-				</Button>
-			</div>
-		)
-
-	if (requirements.eligible)
-		return (
-			<div className="flex flex-col gap-3">
-				<p className="inline-flex items-center gap-2 text-sm">
-					<CheckCircle2
-						aria-hidden
-						className="size-4 text-emerald-600 dark:text-emerald-500"
-					/>
-					Everything this branch requires is satisfied.
-				</p>
-				<Button
-					className="w-fit"
-					disabled={isPending}
-					onClick={() => onMerge()}
-					size="sm"
-				>
-					<GitMerge className="size-4" />
-					{isPending ? 'Merging' : 'Merge pull request'}
-				</Button>
-			</div>
-		)
-
-	return (
-		<div className="flex flex-col gap-3">
-			<p className="font-medium text-sm">
-				This pull request cannot be merged yet.
-			</p>
-			<PullRequestMergeRequirementsList reasons={requirements.reasons} />
-			{requirements.canBypass && (
-				<PullRequestMergeBypassDialog
-					isPending={isPending}
-					onConfirm={reason => onMerge(reason)}
-					reasons={requirements.reasons}
-					targetBranch={targetBranch}
-				/>
-			)}
-		</div>
 	)
 }
