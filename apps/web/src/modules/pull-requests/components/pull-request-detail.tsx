@@ -1,6 +1,7 @@
 import { ORPCError } from '@orpc/client'
 import type {
 	ChecksSummary,
+	MergeQueueStatus,
 	PullRequest,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
@@ -100,6 +101,7 @@ export function PullRequestDetail({
 			effectiveReviewStates={data.effectiveReviewStates}
 			events={data.events}
 			isReadOnly={isReadOnly}
+			mergeQueue={data.mergeQueue}
 			pullRequest={data.pullRequest}
 			reviewerCandidates={data.reviewerCandidates}
 			reviewerRequests={data.reviewerRequests}
@@ -124,6 +126,7 @@ interface PullRequestDetailContentProps {
 	effectiveReviewStates: PullRequestEffectiveReviewState[]
 	reviewerCandidates: PullRequestReviewerCandidate[]
 	checksSummary?: ChecksSummary
+	mergeQueue: MergeQueueStatus
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
@@ -142,6 +145,7 @@ function PullRequestDetailContent({
 	effectiveReviewStates,
 	reviewerCandidates,
 	checksSummary,
+	mergeQueue,
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
@@ -241,6 +245,7 @@ function PullRequestDetailContent({
 					checksSummary={checksSummary}
 					effectiveReviewStates={effectiveReviewStates}
 					events={events}
+					mergeQueue={mergeQueue}
 					pullRequest={pullRequest}
 					reviewerCandidates={reviewerCandidates}
 					reviewerRequests={reviewerRequests}

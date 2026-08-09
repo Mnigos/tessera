@@ -15,7 +15,8 @@ export function PullRequestEventRow({
 	return (
 		<div className="flex flex-wrap items-baseline justify-between gap-2 px-1 text-muted-foreground text-sm">
 			<span>
-				{getPullRequestEventDescription(event)} by {event.actorUsername}
+				{getPullRequestEventDescription(event)} by{' '}
+				{event.actorUsername ?? 'Tessera'}
 			</span>
 			<time
 				className="text-xs"

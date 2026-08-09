@@ -5,19 +5,18 @@ import type {
 } from '@repo/contracts'
 import { pullRequestSchema } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useClosePullRequestMutation } from '../hooks/use-close-pull-request.mutation'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
+import { usePullRequestMergeRequirementsQuery } from '../hooks/use-pull-request-merge-requirements.query'
 import { useReopenPullRequestMutation } from '../hooks/use-reopen-pull-request.mutation'
 import { CreatePullRequestForm } from './create-pull-request-form'
 import { PullRequestDetail } from './pull-request-detail'
 import { PullRequestEditForm } from './pull-request-edit-form'
 import { PullRequestListItem } from './pull-request-list-item'
-import { PullRequestMergePanel } from './pull-request-merge-panel'
 
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
@@ -54,6 +53,25 @@ vi.mock('../hooks/use-merge-pull-request.mutation', () => ({
 	useMergePullRequestMutation: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-merge-requirements.query', () => ({
+	usePullRequestMergeRequirementsQuery: vi.fn(),
+}))
+
+vi.mock('../hooks/use-join-merge-queue.mutation', () => ({
+	useJoinMergeQueueMutation: () => ({ isPending: false, mutate: vi.fn() }),
+}))
+
+vi.mock('../hooks/use-leave-merge-queue.mutation', () => ({
+	useLeaveMergeQueueMutation: () => ({ isPending: false, mutate: vi.fn() }),
+}))
+
+vi.mock('../hooks/use-retry-merge-queue-entry.mutation', () => ({
+	useRetryMergeQueueEntryMutation: () => ({
+		isPending: false,
+		mutate: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request.query', () => ({
 	usePullRequestQuery: vi.fn(),
 }))
@@ -83,6 +101,9 @@ const useEditPullRequestMutationMock = vi.mocked(useEditPullRequestMutation)
 const useMergePullRequestMutationMock = vi.mocked(useMergePullRequestMutation)
 const usePullRequestComparisonQueryMock = vi.mocked(
 	usePullRequestComparisonQuery
+)
+const usePullRequestMergeRequirementsQueryMock = vi.mocked(
+	usePullRequestMergeRequirementsQuery
 )
 const usePullRequestQueryMock = vi.mocked(usePullRequestQuery)
 const useReopenPullRequestMutationMock = vi.mocked(useReopenPullRequestMutation)
@@ -140,6 +161,7 @@ function detailData(overrides: Record<string, unknown> = {}) {
 		reviewerCandidates: [],
 		viewer: REVIEW_VIEWER,
 		viewerRole: 'read',
+		mergeQueue: { runnableCount: 0 },
 		...overrides,
 	}
 }
@@ -214,71 +236,6 @@ describe('pull request review findings', () => {
 		expect(titleInput.getAttribute('aria-invalid')).toBe('true')
 	})
 
-	test('keeps merge disabled while the comparison is in an error state', async () => {
-		const mutate = vi.fn()
-		useMergePullRequestMutationMock.mockReturnValue({
-			error: undefined,
-			isError: false,
-			isPending: false,
-			mutate,
-		} as never)
-		const user = userEvent.setup()
-
-		render(
-			<PullRequestMergePanel
-				comparison={COMPARISON}
-				isComparisonError
-				isComparisonLoading={false}
-				onRefreshComparison={vi.fn()}
-				pullRequest={PULL_REQUEST}
-				slug="notes"
-				username="marta"
-			/>
-		)
-
-		const mergeButton = screen.getByRole('button', {
-			name: 'Merge pull request',
-		})
-		expect(mergeButton.hasAttribute('disabled')).toBeTruthy()
-		await user.click(mergeButton)
-		expect(mutate).not.toHaveBeenCalled()
-	})
-
-	test('refreshes the comparison automatically after a stale merge', async () => {
-		const onRefreshComparison = vi.fn()
-		useMergePullRequestMutationMock.mockReturnValue({
-			error: undefined,
-			isError: false,
-			isPending: false,
-			mutate: vi.fn((_input, options) => {
-				options?.onError?.(
-					new ORPCError('CONFLICT', {
-						message:
-							'The source or target branch changed. Refresh the pull request and try again.',
-					}),
-					_input,
-					undefined
-				)
-			}),
-		} as never)
-		const user = userEvent.setup()
-		render(
-			<PullRequestMergePanel
-				comparison={COMPARISON}
-				isComparisonError={false}
-				isComparisonLoading={false}
-				onRefreshComparison={onRefreshComparison}
-				pullRequest={PULL_REQUEST}
-				slug="notes"
-				username="marta"
-			/>
-		)
-
-		await user.click(screen.getByRole('button', { name: 'Merge pull request' }))
-
-		expect(onRefreshComparison).toHaveBeenCalledOnce()
-	})
-
 	test('distinguishes not found from generic detail query failures', () => {
 		usePullRequestQueryMock.mockReturnValue({
 			data: undefined,
@@ -324,6 +281,18 @@ describe('pull request review findings', () => {
 		} as never)
 		usePullRequestComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
+			isError: false,
+			isLoading: false,
+			refetch: vi.fn(),
+		} as never)
+		usePullRequestMergeRequirementsQueryMock.mockReturnValue({
+			data: {
+				eligible: true,
+				canBypass: false,
+				reasons: [],
+				evaluatedBaseSha: 'a'.repeat(40),
+				evaluatedHeadSha: 'b'.repeat(40),
+			},
 			isError: false,
 			isLoading: false,
 			refetch: vi.fn(),

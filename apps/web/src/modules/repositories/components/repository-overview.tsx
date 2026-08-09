@@ -1,6 +1,6 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
-import { GitPullRequest, History, Settings } from 'lucide-react'
+import { GitPullRequest, History, Settings, ShieldCheck } from 'lucide-react'
 import {
 	getRepositoryRefDisplayName,
 	getRepositoryRefOptions,
@@ -89,14 +89,24 @@ export function RepositoryOverview({
 						Pull requests
 					</Link>
 					{canAdministerRepository(summary.viewerRole) && (
-						<Link
-							className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-							params={{ username: owner.username, slug: repository.slug }}
-							to="/$username/$slug/settings/collaborators"
-						>
-							<Settings className="size-4" />
-							Collaborators
-						</Link>
+						<>
+							<Link
+								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+								params={{ username: owner.username, slug: repository.slug }}
+								to="/$username/$slug/settings/collaborators"
+							>
+								<Settings className="size-4" />
+								Collaborators
+							</Link>
+							<Link
+								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+								params={{ username: owner.username, slug: repository.slug }}
+								to="/$username/$slug/settings/branch-protection"
+							>
+								<ShieldCheck className="size-4" />
+								Branch protection
+							</Link>
+						</>
 					)}
 				</div>
 				{repository.description && (
