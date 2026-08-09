@@ -1,4 +1,5 @@
 import type { MergeBlockingReason, MergeQueueState } from '@repo/contracts'
+import { formatPullRequestShortSha } from './pull-request-formatting'
 
 /** One sentence per refusal, said in the terms the reader can act on. */
 export function getMergeBlockingReasonMessage(
@@ -60,7 +61,7 @@ export function getMergeBlockingReasonHint(
 ): string | undefined {
 	switch (reason.code) {
 		case 'stale_refs':
-			return `The branches now point at ${toShortSha(reason.actualBaseSha)} and ${toShortSha(reason.actualHeadSha)}.`
+			return `The branches now point at ${formatPullRequestShortSha(reason.actualBaseSha)} and ${formatPullRequestShortSha(reason.actualHeadSha)}.`
 		case 'merge_conflict':
 			return 'Merge the target branch into the source branch and resolve the conflicts.'
 		case 'changes_requested':
@@ -94,10 +95,6 @@ export function getMergeQueueStateLabel(state: MergeQueueState): string {
 		default:
 			return 'Left the queue'
 	}
-}
-
-function toShortSha(sha: string): string {
-	return sha.slice(0, 7)
 }
 
 function toApprovalsMessage({

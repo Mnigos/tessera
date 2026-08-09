@@ -7,7 +7,8 @@ import type {
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
-import { History, X } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { GitCompareArrows, History, X } from 'lucide-react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { formatPullRequestDate } from '../helpers/pull-request-formatting'
 import {
@@ -70,6 +71,7 @@ export function PullRequestReviewersPanel({
 									entry.reviewer.username
 							}
 							key={entry.key}
+							number={number}
 							onRemove={() =>
 								removeRequest.mutate({
 									username,
@@ -78,6 +80,8 @@ export function PullRequestReviewersPanel({
 									reviewerUsername: entry.reviewer.username,
 								})
 							}
+							slug={slug}
+							username={username}
 						/>
 					))}
 				</ul>
@@ -116,6 +120,9 @@ export function PullRequestReviewersPanel({
 }
 
 interface PullRequestReviewerRowProps {
+	username: string
+	slug: string
+	number: string
 	entry: PullRequestReviewerEntry
 	canRemove: boolean
 	isRemoving: boolean
@@ -123,6 +130,9 @@ interface PullRequestReviewerRowProps {
 }
 
 function PullRequestReviewerRow({
+	username,
+	slug,
+	number,
 	entry,
 	canRemove,
 	isRemoving,
@@ -183,6 +193,22 @@ function PullRequestReviewerRow({
 							</span>
 						)}
 					</span>
+				)}
+				{entry.reviewId && (
+					<Link
+						className="inline-flex w-fit items-center gap-1 text-muted-foreground text-xs hover:underline"
+						params={{ username, slug, number }}
+						search={{ reviewId: entry.reviewId }}
+						title={
+							entry.headSha
+								? `The review was left against ${entry.headSha}`
+								: undefined
+						}
+						to="/$username/$slug/pulls/$number/files"
+					>
+						<GitCompareArrows aria-hidden className="size-3" />
+						View changes since
+					</Link>
 				)}
 			</div>
 			{canRemove && entry.isRequested && (

@@ -2,9 +2,11 @@ import type {
 	PullRequestActor,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
+	PullRequestReview,
 	PullRequestReviewerRequest,
 	PullRequestReviewId,
 	PullRequestReviewOutcome,
+	SessionUser,
 } from '@repo/contracts'
 import {
 	CircleCheck,
@@ -24,6 +26,16 @@ export interface PullRequestReviewContext {
 	canSubmitReview: boolean
 	hasPendingReview: boolean
 	headSha?: string
+}
+
+/**
+ * Which review the files view reads the changes since, and how to change that.
+ * The two travel together: a selection nothing can clear would strand the
+ * reader in a comparison they have no way out of.
+ */
+export interface PullRequestReviewSelection {
+	reviewId?: PullRequestReviewId
+	onReviewIdChange: (reviewId?: PullRequestReviewId) => void
 }
 
 export interface PullRequestReviewOutcomePresentation {
@@ -113,6 +125,13 @@ export interface PullRequestReviewerEntry {
 	outcome?: PullRequestReviewOutcome
 	stale: boolean
 	submittedAt?: Date
+	/**
+	 * The review the row's verdict comes from, and the commit it was left
+	 * against. Absent for a reviewer who has only been asked: there is no review
+	 * to read the changes since.
+	 */
+	reviewId?: PullRequestReviewId
+	headSha?: string
 }
 
 /**
@@ -138,6 +157,8 @@ export function getPullRequestReviewerEntries(
 			outcome: state.outcome,
 			stale: state.stale,
 			submittedAt: state.submittedAt,
+			reviewId: state.reviewId,
+			headSha: state.headSha,
 		})
 
 	for (const request of reviewerRequests) {
@@ -149,6 +170,8 @@ export function getPullRequestReviewerEntries(
 			stale: entry?.stale ?? false,
 			outcome: entry?.outcome,
 			submittedAt: entry?.submittedAt,
+			reviewId: entry?.reviewId,
+			headSha: entry?.headSha,
 			isRequested: true,
 			requestedAt: request.createdAt,
 		})
@@ -171,6 +194,37 @@ function comparePullRequestReviewerEntries(
 		(firstDate?.getTime() ?? 0) - (secondDate?.getTime() ?? 0) ||
 		first.reviewer.username.localeCompare(second.reviewer.username)
 	)
+}
+
+/**
+ * Which review the since-review switch lands on: the viewer's own latest
+ * submission when they left one, and otherwise the most recent review anybody
+ * left. History arrives oldest first.
+ */
+export function getDefaultPullRequestReviewId(
+	reviews: readonly PullRequestReview[],
+	viewerUserId?: SessionUser['id']
+): PullRequestReviewId | undefined {
+	const ownReview = viewerUserId
+		? reviews.findLast(review => review.reviewer.userId === viewerUserId)
+		: undefined
+
+	return (ownReview ?? reviews.at(-1))?.id
+}
+
+/**
+ * What a review decided, as the selector lists it. A dismissed review keeps its
+ * place in the history and says so, because its verdict no longer counts even
+ * though the changes it saw are still worth comparing against. One the provider
+ * had already dismissed before Tessera saw it carries no verdict at all, and
+ * says only that — never that it is still awaited.
+ */
+export function getPullRequestReviewLabel(review: PullRequestReview) {
+	const { label } = getPullRequestReviewOutcomePresentation(review.outcome)
+
+	if (review.state !== 'dismissed') return label
+
+	return review.outcome ? `${label} (dismissed)` : 'Dismissed'
 }
 
 /**

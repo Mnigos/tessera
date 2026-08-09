@@ -80,7 +80,10 @@ export function PullRequestTimeline({
 								(entry.event.type === 'review_submitted' ? (
 									<PullRequestReviewEventCard
 										event={entry.event}
+										number={number}
 										review={findPullRequestReview(entry.event, reviews)}
+										slug={slug}
+										username={username}
 									/>
 								) : (
 									<PullRequestEventRow event={entry.event} />

@@ -1,18 +1,42 @@
 import { ORPCError, safe } from '@orpc/client'
+import {
+	type PullRequestReviewId,
+	pullRequestReviewIdSchema,
+} from '@repo/contracts'
 import { createFileRoute, notFound } from '@tanstack/react-router'
+import { z } from 'zod'
 import { PullRequestDetail } from '../components/pull-request-detail'
 import { getPullRequestQueryOptions } from '../hooks/use-pull-request.query'
 import { getPullRequestComparisonQueryOptions } from '../hooks/use-pull-request-comparison.query'
+import { getPullRequestReviewComparisonQueryOptions } from '../hooks/use-pull-request-review-comparison.query'
 
 export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
-	loader: async ({ context, params: { username, slug, number } }) => {
+	// One optional review rather than a mode beside it: naming a review is what
+	// selects the since-review comparison, so no combination of the two can be
+	// contradictory.
+	validateSearch: z.object({
+		reviewId: pullRequestReviewIdSchema.optional(),
+	}),
+	loaderDeps: ({ search: { reviewId } }) => ({ reviewId }),
+	loader: async ({
+		context,
+		deps: { reviewId },
+		params: { username, slug, number },
+	}) => {
 		const input = { username, slug, number }
 		const [error] = await safe(
 			Promise.all([
 				context.queryClient.ensureQueryData(getPullRequestQueryOptions(input)),
-				context.queryClient.ensureQueryData(
-					getPullRequestComparisonQueryOptions(input)
-				),
+				// A review the server will not compare against is answered on the page,
+				// beside the switch back to the full diff, instead of replacing the
+				// pull request with a not-found.
+				reviewId
+					? context.queryClient.prefetchQuery(
+							getPullRequestReviewComparisonQueryOptions({ ...input, reviewId })
+						)
+					: context.queryClient.ensureQueryData(
+							getPullRequestComparisonQueryOptions(input)
+						),
 			])
 		)
 
@@ -32,11 +56,28 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
 
 function PullRequestFilesRoute() {
 	const { username, slug, number } = Route.useParams()
+	const { reviewId } = Route.useSearch()
+	const navigate = Route.useNavigate()
+
+	function handleSelectedReviewIdChange(
+		selectedReviewId?: PullRequestReviewId
+	) {
+		navigate({
+			search: previousSearch => ({
+				...previousSearch,
+				reviewId: selectedReviewId,
+			}),
+		})
+	}
 
 	return (
 		<main className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
 			<PullRequestDetail
 				number={number}
+				reviewSelection={{
+					reviewId,
+					onReviewIdChange: handleSelectedReviewIdChange,
+				}}
 				slug={slug}
 				tab="files"
 				username={username}

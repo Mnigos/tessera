@@ -1,6 +1,7 @@
 import type { PullRequestEvent, PullRequestReview } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
-import { MessageSquare } from 'lucide-react'
+import { Link } from '@tanstack/react-router'
+import { GitCompareArrows, MessageSquare } from 'lucide-react'
 import { MarkdownContent } from '@/shared/components/markdown-content'
 import {
 	formatPullRequestDate,
@@ -13,11 +14,17 @@ import {
 import { PullRequestSourceLink } from './pull-request-source-link'
 
 interface PullRequestReviewEventCardProps {
+	username: string
+	slug: string
+	number: string
 	event: PullRequestEvent
 	review?: PullRequestReview
 }
 
 export function PullRequestReviewEventCard({
+	username,
+	slug,
+	number,
 	event,
 	review,
 }: Readonly<PullRequestReviewEventCardProps>) {
@@ -58,11 +65,24 @@ export function PullRequestReviewEventCard({
 				</time>
 			</div>
 			{review?.body && <MarkdownContent>{review.body}</MarkdownContent>}
-			{review?.sourceUrl && (
-				<PullRequestSourceLink
-					className="text-muted-foreground text-xs"
-					href={review.sourceUrl}
-				/>
+			{review && (
+				<div className="flex flex-wrap items-center gap-3">
+					<Link
+						className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:underline"
+						params={{ username, slug, number }}
+						search={{ reviewId: review.id }}
+						to="/$username/$slug/pulls/$number/files"
+					>
+						<GitCompareArrows aria-hidden className="size-3" />
+						View changes since this review
+					</Link>
+					{review.sourceUrl && (
+						<PullRequestSourceLink
+							className="text-muted-foreground text-xs"
+							href={review.sourceUrl}
+						/>
+					)}
+				</div>
 			)}
 		</div>
 	)

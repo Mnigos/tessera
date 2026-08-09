@@ -23,6 +23,7 @@ import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
+import type { PullRequestReviewSelection } from '../helpers/pull-request-review'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestEditForm } from './pull-request-edit-form'
@@ -42,6 +43,7 @@ interface PullRequestDetailProps {
 	slug: string
 	number: string
 	tab: PullRequestDetailTab
+	reviewSelection?: PullRequestReviewSelection
 }
 
 export function PullRequestDetail({
@@ -49,6 +51,7 @@ export function PullRequestDetail({
 	slug,
 	number,
 	tab,
+	reviewSelection,
 }: Readonly<PullRequestDetailProps>) {
 	const { user } = useAuth()
 	const { data, error, isError, isLoading } = usePullRequestQuery({
@@ -105,6 +108,7 @@ export function PullRequestDetail({
 			pullRequest={data.pullRequest}
 			reviewerCandidates={data.reviewerCandidates}
 			reviewerRequests={data.reviewerRequests}
+			reviewSelection={reviewSelection}
 			reviews={data.reviews}
 			reviewViewer={data.viewer}
 			slug={slug}
@@ -133,6 +137,7 @@ interface PullRequestDetailContentProps {
 	isReadOnly: boolean
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
+	reviewSelection?: PullRequestReviewSelection
 }
 
 function PullRequestDetailContent({
@@ -152,6 +157,7 @@ function PullRequestDetailContent({
 	isReadOnly,
 	viewerUserId,
 	tab,
+	reviewSelection,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
 	const sourceUrl = pullRequest.github?.htmlUrl
@@ -263,6 +269,8 @@ function PullRequestDetailContent({
 						canSubmitReview: reviewViewer.canSubmitReview,
 						hasPendingReview: Boolean(viewerPendingReview),
 					}}
+					reviewSelection={reviewSelection}
+					reviews={reviews}
 					slug={slug}
 					tab={tab}
 					username={username}

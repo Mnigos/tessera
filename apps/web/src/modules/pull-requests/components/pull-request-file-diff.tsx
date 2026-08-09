@@ -2,6 +2,7 @@ import type {
 	PullRequestFileDiff,
 	PullRequestThread,
 	PullRequestThreadAnchor,
+	PullRequestThreadSide,
 } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 import { Plus } from 'lucide-react'
@@ -18,9 +19,26 @@ import {
 	PullRequestOutdatedThreads,
 } from './pull-request-file-threads'
 
+/** The base and head a thread records itself against. */
+export interface PullRequestDiffAnchorComparison {
+	baseSha: string
+	headSha: string
+}
+
 interface PullRequestFileDiffViewProps {
 	expectedBaseSha: string
 	expectedHeadSha: string
+	/**
+	 * Where threads made here belong, which is the pull request's own comparison
+	 * even when the diff on screen is a narrower one.
+	 */
+	anchorComparison: PullRequestDiffAnchorComparison
+	/**
+	 * Sides of this diff whose line numbers mean the same thing in the anchor
+	 * comparison. Threads are placed on those sides and opened from them; a side
+	 * left out is numbered against something else entirely.
+	 */
+	anchorableSides: readonly PullRequestThreadSide[]
 	username: string
 	slug: string
 	number: string
@@ -32,6 +50,8 @@ interface PullRequestFileDiffViewProps {
 export function PullRequestFileDiffView({
 	expectedBaseSha,
 	expectedHeadSha,
+	anchorComparison,
+	anchorableSides,
 	username,
 	slug,
 	number,
@@ -82,6 +102,8 @@ export function PullRequestFileDiffView({
 
 	return (
 		<FileDiff
+			anchorableSides={anchorableSides}
+			anchorComparison={anchorComparison}
 			diff={diffQuery.data}
 			number={number}
 			permissions={permissions}
@@ -94,6 +116,8 @@ export function PullRequestFileDiffView({
 
 interface FileDiffProps {
 	diff: PullRequestFileDiff
+	anchorComparison: PullRequestDiffAnchorComparison
+	anchorableSides: readonly PullRequestThreadSide[]
 	threads: PullRequestThread[]
 	permissions: PullRequestThreadPermissions
 	username: string
@@ -103,6 +127,8 @@ interface FileDiffProps {
 
 function FileDiff({
 	diff,
+	anchorComparison,
+	anchorableSides,
 	threads,
 	permissions,
 	username,
@@ -137,9 +163,18 @@ function FileDiff({
 			</div>
 		)
 
-	const leftoverThreads = getLeftoverInlineThreads(threads, diff)
+	const placeableThreads = threads.filter(thread =>
+		thread.anchor ? anchorableSides.includes(thread.anchor.side) : false
+	)
+	// A thread this diff cannot place is listed below rather than dropped: the
+	// side it was left on is numbered against a base this diff never had.
+	const leftoverThreads = [
+		...getLeftoverInlineThreads(placeableThreads, diff),
+		...threads.filter(thread => !placeableThreads.includes(thread)),
+	]
 	const threading: PullRequestDiffThreading = {
 		activeAnchor,
+		anchorableSides,
 		number,
 		onComment: (anchor, content) =>
 			setActiveAnchor({
@@ -147,14 +182,14 @@ function FileDiff({
 				side: anchor.side,
 				line: anchor.line,
 				anchorSha: anchor.sha,
-				baseSha: diff.baseSha,
-				headSha: diff.headSha,
+				baseSha: anchorComparison.baseSha,
+				headSha: anchorComparison.headSha,
 				lineExcerpt: toThreadLineExcerpt(content),
 			}),
 		onComposerDone: () => setActiveAnchor(undefined),
 		permissions,
 		slug,
-		threads,
+		threads: placeableThreads,
 		username,
 	}
 
@@ -207,6 +242,7 @@ interface PullRequestDiffThreading {
 	number: string
 	permissions: PullRequestThreadPermissions
 	threads: PullRequestThread[]
+	anchorableSides: readonly PullRequestThreadSide[]
 	activeAnchor?: PullRequestThreadAnchor
 	onComment: (anchor: PullRequestDiffAnchor, content: string) => void
 	onComposerDone: () => void
@@ -218,8 +254,15 @@ interface DiffRowProps {
 }
 
 function DiffRow({ row, threading }: Readonly<DiffRowProps>) {
-	const { activeAnchor, number, permissions, slug, threads, username } =
-		threading
+	const {
+		activeAnchor,
+		anchorableSides,
+		number,
+		permissions,
+		slug,
+		threads,
+		username,
+	} = threading
 	const leftLine = row.left?.old?.line
 	const rightLine = row.right?.new?.line
 	const leftThreads = leftLine
@@ -241,8 +284,16 @@ function DiffRow({ row, threading }: Readonly<DiffRowProps>) {
 	return (
 		<>
 			<div className="group/diff-row grid grid-cols-[3.5rem_2rem_minmax(32rem,1fr)_3.5rem_2rem_minmax(32rem,1fr)]">
-				<DiffSide line={row.left} onComment={onComment} side="left" />
-				<DiffSide line={row.right} onComment={onComment} side="right" />
+				<DiffSide
+					line={row.left}
+					onComment={anchorableSides.includes('left') ? onComment : undefined}
+					side="left"
+				/>
+				<DiffSide
+					line={row.right}
+					onComment={anchorableSides.includes('right') ? onComment : undefined}
+					side="right"
+				/>
 			</div>
 			{(leftThreads.length > 0 || leftAnchor) && (
 				<PullRequestDiffThreadRow
