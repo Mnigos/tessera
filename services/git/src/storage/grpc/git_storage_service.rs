@@ -11,6 +11,7 @@ use crate::domain::{
 };
 use crate::proto::git_storage_service_server::GitStorageService;
 use crate::proto::{
+    CheckRepositoryMergeabilityRequest, CheckRepositoryMergeabilityResponse,
     CompareRepositoryRefsRequest, CompareRepositoryRefsResponse, CreateRepositoryRequest,
     CreateRepositoryResponse, GetRepositoryBlobRequest, GetRepositoryBlobResponse,
     GetRepositoryBrowserSummaryRequest, GetRepositoryBrowserSummaryResponse,
@@ -389,6 +390,33 @@ impl GitStorageService for GitStorageGrpcService {
 
         Ok(Response::new(MergeRepositoryRefsResponse {
             merge_commit_sha: merge.merge_commit_sha,
+        }))
+    }
+
+    async fn check_repository_mergeability(
+        &self,
+        request: Request<CheckRepositoryMergeabilityRequest>,
+    ) -> Result<Response<CheckRepositoryMergeabilityResponse>, Status> {
+        let request = request.into_inner();
+        let mergeability = self
+            .application
+            .check_repository_mergeability(
+                &request.repository_id,
+                &request.storage_path,
+                &request.base_ref,
+                &request.head_ref,
+            )
+            .await
+            .map_err(repository_error_to_status)?;
+
+        Ok(Response::new(CheckRepositoryMergeabilityResponse {
+            mergeable: mergeability.mergeable,
+            base_sha: mergeability.base_sha,
+            head_sha: mergeability.head_sha,
+            merge_base_sha: mergeability.merge_base_sha,
+            conflict_paths: mergeability.conflict_paths,
+            conflict_paths_truncated: mergeability.conflict_paths_truncated,
+            conflict_path_limit: mergeability.conflict_path_limit,
         }))
     }
 }

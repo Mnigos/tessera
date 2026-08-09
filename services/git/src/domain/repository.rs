@@ -229,3 +229,14 @@ pub enum RepositoryDiffLineKind {
 pub struct RepositoryMerge {
     pub merge_commit_sha: String,
 }
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct RepositoryMergeability {
+    pub mergeable: bool,
+    pub base_sha: String,
+    pub head_sha: String,
+    pub merge_base_sha: String,
+    pub conflict_paths: Vec<String>,
+    pub conflict_paths_truncated: bool,
+    pub conflict_path_limit: u32,
+}

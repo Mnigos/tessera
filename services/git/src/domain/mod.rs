@@ -7,9 +7,9 @@ pub use repository::{
     RepositoryChangedFileStatus, RepositoryCommit, RepositoryCommitIdentity, RepositoryCommitList,
     RepositoryComparison, RepositoryComparisonCommit, RepositoryCreated, RepositoryDiffHunk,
     RepositoryDiffLine, RepositoryDiffLineKind, RepositoryFileDiff, RepositoryImported,
-    RepositoryMerge, RepositoryRawBlob, RepositoryReadme, RepositoryRef, RepositoryRefKind,
-    RepositoryRefList, RepositorySignature, RepositorySignatureState, RepositoryTree,
-    RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
+    RepositoryMerge, RepositoryMergeability, RepositoryRawBlob, RepositoryReadme, RepositoryRef,
+    RepositoryRefKind, RepositoryRefList, RepositorySignature, RepositorySignatureState,
+    RepositoryTree, RepositoryTreeEntry, RepositoryTreeEntryKind, TrustedGpgKey,
 };
 pub use repository_error::RepositoryError;
 pub use repository_id::RepositoryId;

@@ -7,9 +7,10 @@ use tokio::time::{Duration, timeout};
 
 use crate::domain::{RepositoryError, RepositoryMerge};
 use crate::storage::infrastructure::repository_browser_helpers::validate_object_id;
-use crate::storage::infrastructure::repository_ref_helpers::{
-    qualified_branch_ref, resolve_commit_ref, utf8_trimmed,
+use crate::storage::infrastructure::repository_merge_helpers::{
+    MergeTreeOutcome, ResolvedMergeRefs, resolve_merge_refs, run_merge_tree,
 };
+use crate::storage::infrastructure::repository_ref_helpers::{resolve_commit_ref, utf8_trimmed};
 use crate::storage::infrastructure::repository_storage::RepositoryStorage;
 
 const MERGE_TIMEOUT: Duration = Duration::from_secs(30);
@@ -66,13 +67,13 @@ impl RepositoryStorage {
         validate_merge_input(author_name, author_email, message, operation_id)?;
         validate_object_id(expected_base_sha)?;
         validate_object_id(expected_head_sha)?;
-        let repository_path = self
-            .existing_bare_repository_path(repository_id, storage_path)
-            .await?;
-        let base_ref = qualified_branch_ref(base_ref)?;
-        let head_ref = qualified_branch_ref(head_ref)?;
-        let current_base_sha = resolve_commit_ref(self, &repository_path, &base_ref).await?;
-        let current_head_sha = resolve_commit_ref(self, &repository_path, &head_ref).await?;
+        let ResolvedMergeRefs {
+            repository_path,
+            base_ref,
+            head_ref,
+            base_sha: current_base_sha,
+            head_sha: current_head_sha,
+        } = resolve_merge_refs(self, repository_id, storage_path, base_ref, head_ref).await?;
         if let Some(merge_commit_sha) = self
             .existing_merge_for_operation(
                 &repository_path,
@@ -198,27 +199,24 @@ impl RepositoryStorage {
         base_sha: &str,
         head_sha: &str,
     ) -> Result<String, RepositoryError> {
-        let output = self
-            .git(
-                repository_path,
-                [
-                    "merge-tree",
-                    "--write-tree",
-                    "--messages",
-                    base_sha,
-                    head_sha,
-                ],
-            )
-            .await?;
+        let stdout = match run_merge_tree(
+            self,
+            repository_path,
+            [
+                "merge-tree",
+                "--write-tree",
+                "--messages",
+                base_sha,
+                head_sha,
+            ],
+        )
+        .await?
+        {
+            MergeTreeOutcome::Clean(stdout) => stdout,
+            MergeTreeOutcome::Conflicted(_) => return Err(RepositoryError::MergeConflict),
+        };
 
-        if !output.status.success() {
-            return match output.status.code() {
-                Some(1) => Err(RepositoryError::MergeConflict),
-                _ => Err(RepositoryError::GitProcessFailed),
-            };
-        }
-
-        let tree_sha = utf8_trimmed(&output.stdout)?
+        let tree_sha = utf8_trimmed(&stdout)?
             .lines()
             .next()
             .ok_or(RepositoryError::InvalidGitOutput)?

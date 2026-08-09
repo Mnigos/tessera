@@ -91,6 +91,9 @@ export interface GitStorageMergeRepositoryRefsParams
 	operationId: string
 }
 
+export type GitStorageCheckRepositoryMergeabilityParams =
+	GitStorageCompareRepositoryRefsParams
+
 export type GitStorageTrustedGpgKey = TrustedGpgKey
 
 export interface GitStorageRepositoryTreeEntry {
@@ -251,6 +254,16 @@ export interface GitStorageRepositoryDiffLine {
 export interface GitStorageRepositoryDiffHunk {
 	header: string
 	lines: GitStorageRepositoryDiffLine[]
+}
+
+export interface GitStorageRepositoryMergeability {
+	baseSha: string
+	conflictPathLimit: number
+	conflictPaths: string[]
+	conflictPathsTruncated: boolean
+	headSha: string
+	mergeable: boolean
+	mergeBaseSha: string
 }
 
 export interface GitStorageRepositoryFileDiff {

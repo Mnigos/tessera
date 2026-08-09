@@ -16,6 +16,7 @@ service GitStorageService {
   rpc CompareRepositoryRefs(CompareRepositoryRefsRequest) returns (CompareRepositoryRefsResponse);
   rpc GetRepositoryFileDiff(GetRepositoryFileDiffRequest) returns (GetRepositoryFileDiffResponse);
   rpc MergeRepositoryRefs(MergeRepositoryRefsRequest) returns (MergeRepositoryRefsResponse);
+  rpc CheckRepositoryMergeability(CheckRepositoryMergeabilityRequest) returns (CheckRepositoryMergeabilityResponse);
 }
 
 message HealthRequest {}
@@ -183,6 +184,23 @@ message MergeRepositoryRefsRequest {
 
 message MergeRepositoryRefsResponse {
   string merge_commit_sha = 1;
+}
+
+message CheckRepositoryMergeabilityRequest {
+  string repository_id = 1;
+  string storage_path = 2;
+  string base_ref = 3;
+  string head_ref = 4;
+}
+
+message CheckRepositoryMergeabilityResponse {
+  bool mergeable = 1;
+  string base_sha = 2;
+  string head_sha = 3;
+  string merge_base_sha = 4;
+  repeated string conflict_paths = 5;
+  bool conflict_paths_truncated = 6;
+  uint32 conflict_path_limit = 7;
 }
 
 message RepositoryComparisonCommit {

@@ -5,7 +5,8 @@ use std::process::Command;
 use tempfile::TempDir;
 use tessera_git::proto::git_storage_service_server::GitStorageService;
 use tessera_git::proto::{
-    GetRepositoryRawBlobRequest, ListRepositoryCommitsRequest, ListRepositoryRefsRequest,
+    CheckRepositoryMergeabilityRequest, GetRepositoryRawBlobRequest, ListRepositoryCommitsRequest,
+    ListRepositoryRefsRequest,
 };
 use tessera_git::storage::infrastructure::RepositoryStorage;
 use tessera_git::{
@@ -2407,6 +2408,332 @@ async fn repository_merge_rejects_stale_refs_and_conflicting_trees() {
         git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
         base_sha
     );
+}
+
+#[tokio::test]
+async fn repository_mergeability_reports_clean_refs_without_writing() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    let merge_base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("main.txt", "main\n")],
+        "main commit",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let head_sha = git_stdout(&repository.path, ["rev-parse", "feature"])
+        .trim()
+        .to_string();
+    let commit_count = git_stdout(&repository.path, ["rev-list", "--all", "--count"])
+        .trim()
+        .to_string();
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert!(mergeability.mergeable);
+    assert_eq!(mergeability.base_sha, base_sha);
+    assert_eq!(mergeability.head_sha, head_sha);
+    assert_eq!(mergeability.merge_base_sha, merge_base_sha);
+    assert!(mergeability.conflict_paths.is_empty());
+    assert!(!mergeability.conflict_paths_truncated);
+    assert_eq!(mergeability.conflict_path_limit, 50);
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        base_sha
+    );
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "feature"]).trim(),
+        head_sha
+    );
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-list", "--all", "--count"]).trim(),
+        commit_count
+    );
+}
+
+#[tokio::test]
+async fn repository_mergeability_bounds_conflict_paths() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    let conflicting_paths: Vec<String> = (0..60).map(|index| format!("src/{index}.txt")).collect();
+    let base_files: Vec<(&str, &str)> = conflicting_paths
+        .iter()
+        .map(|path| (path.as_str(), "base\n"))
+        .collect();
+    push_commit(temp_dir.path(), &repository.path, "main", &base_files);
+    git(&repository.path, ["branch", "feature", "main"]);
+    let main_files: Vec<(&str, &str)> = conflicting_paths
+        .iter()
+        .map(|path| (path.as_str(), "main\n"))
+        .collect();
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &main_files,
+        "main change",
+    );
+    let feature_files: Vec<(&str, &str)> = conflicting_paths
+        .iter()
+        .map(|path| (path.as_str(), "feature\n"))
+        .collect();
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &feature_files,
+        "feature change",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert!(!mergeability.mergeable);
+    assert_eq!(mergeability.conflict_paths.len(), 50);
+    assert!(mergeability.conflict_paths_truncated);
+    assert!(
+        mergeability
+            .conflict_paths
+            .iter()
+            .all(|path| conflicting_paths.contains(path))
+    );
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        base_sha
+    );
+}
+
+#[tokio::test]
+async fn repository_mergeability_reports_unbounded_conflict_paths_below_the_limit() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n"), ("src/lib.rs", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n"), ("src/lib.rs", "main\n")],
+        "main change",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("README.md", "feature\n"), ("src/lib.rs", "feature\n")],
+        "feature change",
+    );
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+
+    assert!(!mergeability.mergeable);
+    assert_eq!(mergeability.conflict_paths, ["README.md", "src/lib.rs"]);
+    assert!(!mergeability.conflict_paths_truncated);
+}
+
+#[tokio::test]
+async fn repository_mergeability_rejects_missing_and_invalid_refs() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+
+    let missing = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "missing")
+        .await
+        .unwrap_err();
+    let invalid = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "../main", "main")
+        .await
+        .unwrap_err();
+    let mismatched_storage_path = storage
+        .check_repository_mergeability(REPOSITORY_ID, "/elsewhere.git", "main", "main")
+        .await
+        .unwrap_err();
+
+    assert!(matches!(missing, RepositoryError::InvalidRepositoryRef));
+    assert!(matches!(invalid, RepositoryError::InvalidRepositoryRef));
+    assert!(matches!(
+        mismatched_storage_path,
+        RepositoryError::StoragePathMismatch
+    ));
+}
+
+#[tokio::test]
+async fn repository_mergeability_grpc_maps_refs_and_conflicts() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "main\n")],
+        "main change",
+    );
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("README.md", "feature\n")],
+        "feature change",
+    );
+    let service = grpc_service(temp_dir.path());
+
+    let conflicted = service
+        .check_repository_mergeability(Request::new(CheckRepositoryMergeabilityRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path.clone(),
+            base_ref: "main".to_string(),
+            head_ref: "feature".to_string(),
+        }))
+        .await
+        .unwrap()
+        .into_inner();
+    let missing_ref = service
+        .check_repository_mergeability(Request::new(CheckRepositoryMergeabilityRequest {
+            repository_id: REPOSITORY_ID.to_string(),
+            storage_path: repository.storage_path,
+            base_ref: "main".to_string(),
+            head_ref: "missing".to_string(),
+        }))
+        .await
+        .unwrap_err();
+
+    assert!(!conflicted.mergeable);
+    assert_eq!(conflicted.conflict_paths, ["README.md"]);
+    assert!(!conflicted.conflict_paths_truncated);
+    assert_eq!(conflicted.conflict_path_limit, 50);
+    assert_eq!(missing_ref.code(), Code::InvalidArgument);
+}
+
+#[tokio::test]
+async fn repository_mergeability_check_leaves_merge_and_cas_behavior_intact() {
+    let temp_dir = TempDir::new().unwrap();
+    let storage = storage(temp_dir.path(), "git");
+    let repository = storage.create_repository(&repository_id()).await.unwrap();
+    push_commit(
+        temp_dir.path(),
+        &repository.path,
+        "main",
+        &[("README.md", "base\n")],
+    );
+    git(&repository.path, ["branch", "feature", "main"]);
+    append_commit(
+        temp_dir.path(),
+        &repository.path,
+        "feature",
+        &[("feature.txt", "feature\n")],
+        "feature commit",
+    );
+    let base_sha = git_stdout(&repository.path, ["rev-parse", "main"])
+        .trim()
+        .to_string();
+    let head_sha = git_stdout(&repository.path, ["rev-parse", "feature"])
+        .trim()
+        .to_string();
+
+    let mergeability = storage
+        .check_repository_mergeability(REPOSITORY_ID, &repository.storage_path, "main", "feature")
+        .await
+        .unwrap();
+    let stale = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &"0".repeat(40),
+            &head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap_err();
+    let merged = storage
+        .merge_repository_refs(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            "main",
+            "feature",
+            &mergeability.base_sha,
+            &mergeability.head_sha,
+            "Ada",
+            "ada@example.com",
+            "Merge pull request #1",
+            "pr-1",
+        )
+        .await
+        .unwrap();
+
+    assert!(mergeability.mergeable);
+    assert_eq!(mergeability.base_sha, base_sha);
+    assert_eq!(mergeability.head_sha, head_sha);
+    assert!(matches!(stale, RepositoryError::StaleRepositoryRef));
+    assert_eq!(
+        git_stdout(&repository.path, ["rev-parse", "main"]).trim(),
+        merged.merge_commit_sha
+    );
+    let parents = git_stdout(
+        &repository.path,
+        ["show", "-s", "--format=%P", &merged.merge_commit_sha],
+    );
+    assert_eq!(parents.split_whitespace().count(), 2);
+    assert!(parents.contains(&base_sha));
+    assert!(parents.contains(&head_sha));
 }
 
 fn clone_branch<'a>(temp_root: &'a Path, bare_repository_path: &Path, branch: &str) -> TempDir {

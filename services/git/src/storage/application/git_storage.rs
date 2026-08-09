@@ -1,7 +1,8 @@
 use crate::domain::{
     RepositoryBlobPreview, RepositoryBrowserSummary, RepositoryCommitList, RepositoryComparison,
     RepositoryCreated, RepositoryError, RepositoryFileDiff, RepositoryId, RepositoryImported,
-    RepositoryMerge, RepositoryRawBlob, RepositoryRefList, RepositoryTree, TrustedGpgKey,
+    RepositoryMerge, RepositoryMergeability, RepositoryRawBlob, RepositoryRefList, RepositoryTree,
+    TrustedGpgKey,
 };
 use crate::storage::infrastructure::RepositoryStorage;
 
@@ -191,6 +192,18 @@ impl GitStorageApplication {
                 message,
                 operation_id,
             )
+            .await
+    }
+
+    pub async fn check_repository_mergeability(
+        &self,
+        repository_id: &str,
+        storage_path: &str,
+        base_ref: &str,
+        head_ref: &str,
+    ) -> Result<RepositoryMergeability, RepositoryError> {
+        self.storage
+            .check_repository_mergeability(repository_id, storage_path, base_ref, head_ref)
             .await
     }
 }
