@@ -4,8 +4,28 @@ import type {
 	PullRequestReviewerRequest,
 } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
+import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { PullRequestEventRow } from './pull-request-event-row'
 import { PullRequestReviewEventCard } from './pull-request-review-event-card'
+
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({
+		children,
+		params,
+		search,
+		to,
+		...props
+	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+		children: ReactNode
+		params: Record<string, string>
+		search?: { reviewId?: string }
+		to: string
+	}) => (
+		<a data-review-id={search?.reviewId} href={to} {...props}>
+			{children}
+		</a>
+	),
+}))
 
 const createdAt = new Date('2026-08-08T10:00:00.000Z')
 const REVIEW_REQUESTED_REGEX = /Review requested from jan by marta/
@@ -54,12 +74,24 @@ describe('pull request review timeline', () => {
 			submittedAt: createdAt,
 		}
 		const { container } = render(
-			<PullRequestReviewEventCard event={reviewEvent} review={review} />
+			<PullRequestReviewEventCard
+				event={reviewEvent}
+				number="1"
+				review={review}
+				slug="notes"
+				username="marta"
+			/>
 		)
 
 		expect(screen.getByText(`marta ${label}`)).toBeTruthy()
 		expect(screen.getByText('Important review').tagName).toBe('STRONG')
 		expect(container.firstElementChild?.className).toContain(className)
+		// The card is the entry point into the files view for exactly this review.
+		expect(
+			screen
+				.getByRole('link', { name: 'View changes since this review' })
+				.getAttribute('data-review-id')
+		).toBe(review.id)
 	})
 
 	test('renders a dismissed review whose original outcome GitHub replaced', () => {
@@ -82,7 +114,15 @@ describe('pull request review timeline', () => {
 			dismissedAt: createdAt,
 		}
 
-		render(<PullRequestReviewEventCard event={reviewEvent} review={review} />)
+		render(
+			<PullRequestReviewEventCard
+				event={reviewEvent}
+				number="1"
+				review={review}
+				slug="notes"
+				username="marta"
+			/>
+		)
 
 		expect(screen.getByText('marta left a review')).toBeTruthy()
 		expect(screen.getByText('Dismissed')).toBeTruthy()

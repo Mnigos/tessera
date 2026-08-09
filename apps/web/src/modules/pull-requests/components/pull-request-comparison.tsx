@@ -1,24 +1,20 @@
 import type {
-	PullRequestChangedFile,
 	PullRequestComparison as PullRequestComparisonData,
+	PullRequestReview,
 	SessionUser,
 } from '@repo/contracts'
-import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
-import { cn } from '@repo/ui/utils'
-import { ChevronRight, FileCode2, GitCommitHorizontal } from 'lucide-react'
-import { useState } from 'react'
-import {
-	getInlineThreadsForFile,
-	getUnanchoredInlineThreads,
-} from '../helpers/pull-request-inline-threads'
-import type { PullRequestReviewContext } from '../helpers/pull-request-review'
-import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
+import { GitCommitHorizontal } from 'lucide-react'
+import type {
+	PullRequestReviewContext,
+	PullRequestReviewSelection,
+} from '../helpers/pull-request-review'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
-import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestChecksStatusDot } from './pull-request-checks-status-dot'
-import { PullRequestFileDiffView } from './pull-request-file-diff'
-import { PullRequestOutdatedThreads } from './pull-request-file-threads'
+import { PullRequestComparisonFiles } from './pull-request-comparison-files'
+import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
+import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
+import { PullRequestReviewComparisonFiles } from './pull-request-review-comparison-files'
 import { PullRequestsMessage } from './pull-requests-message'
 
 type PullRequestDetailTab = 'overview' | 'commits' | 'files'
@@ -29,7 +25,10 @@ interface PullRequestComparisonProps {
 	number: string
 	tab: PullRequestDetailTab
 	review?: PullRequestReviewContext
+	reviews?: readonly PullRequestReview[]
 	viewerUserId?: SessionUser['id']
+	/** Absent on surfaces that carry no review selection in their URL. */
+	reviewSelection?: PullRequestReviewSelection
 }
 
 export function PullRequestComparison({
@@ -38,16 +37,35 @@ export function PullRequestComparison({
 	number,
 	tab,
 	review,
+	reviews,
 	viewerUserId,
+	reviewSelection,
 }: Readonly<PullRequestComparisonProps>) {
+	const selectedReviewId = reviewSelection?.reviewId
 	const comparisonQuery = usePullRequestComparisonQuery(
 		{ username, slug, number },
-		tab !== 'overview'
+		tab !== 'overview' && !selectedReviewId
 	)
 
 	if (tab === 'overview') return null
 
-	if (comparisonQuery.isLoading) return <ComparisonLoadingState />
+	// The full comparison is not fetched at all while a review is selected, so
+	// its states describe the selected one instead.
+	if (tab === 'files' && reviewSelection && selectedReviewId)
+		return (
+			<PullRequestReviewComparisonFiles
+				number={number}
+				onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
+				review={review}
+				reviewId={selectedReviewId}
+				reviews={reviews ?? []}
+				slug={slug}
+				username={username}
+				viewerUserId={viewerUserId}
+			/>
+		)
+
+	if (comparisonQuery.isLoading) return <PullRequestComparisonSkeleton />
 
 	if (comparisonQuery.isError)
 		return (
@@ -69,23 +87,24 @@ export function PullRequestComparison({
 		return <PullRequestCommits comparison={comparisonQuery.data} />
 
 	return (
-		<PullRequestFiles
-			comparison={comparisonQuery.data}
-			number={number}
-			review={review}
-			slug={slug}
-			username={username}
-			viewerUserId={viewerUserId}
-		/>
-	)
-}
-
-function ComparisonLoadingState() {
-	return (
-		<Card className="gap-3">
-			<div className="h-5 w-40 animate-pulse rounded bg-muted" />
-			<div className="h-20 animate-pulse rounded bg-muted/70" />
-		</Card>
+		<div className="flex flex-col gap-3">
+			{reviewSelection && reviews && reviews.length > 0 && (
+				<PullRequestReviewComparisonBanner
+					onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
+					reviews={reviews}
+					viewerUserId={viewerUserId}
+				/>
+			)}
+			<PullRequestComparisonFiles
+				anchorComparison={comparisonQuery.data}
+				comparison={comparisonQuery.data}
+				number={number}
+				review={review}
+				slug={slug}
+				username={username}
+				viewerUserId={viewerUserId}
+			/>
+		</div>
 	)
 }
 
@@ -130,156 +149,5 @@ function PullRequestCommits({ comparison }: Readonly<PullRequestCommitsProps>) {
 				</ul>
 			</Card>
 		</div>
-	)
-}
-
-interface PullRequestFilesProps {
-	comparison: PullRequestComparisonData
-	username: string
-	slug: string
-	number: string
-	review?: PullRequestReviewContext
-	viewerUserId?: SessionUser['id']
-}
-
-function PullRequestFiles({
-	comparison,
-	username,
-	slug,
-	number,
-	review,
-	viewerUserId,
-}: Readonly<PullRequestFilesProps>) {
-	const [expandedPaths, setExpandedPaths] = useState<string[]>([])
-	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
-
-	const threads = threadsQuery.data?.threads ?? []
-	const permissions = getPullRequestThreadPermissions({
-		viewer: threadsQuery.data?.viewer,
-		viewerUserId,
-		review: review && { ...review, headSha: comparison.headSha },
-	})
-	const unanchoredThreads = getUnanchoredInlineThreads(
-		threads,
-		comparison.files
-	)
-
-	if (comparison.files.length === 0)
-		return (
-			<div className="flex flex-col gap-3">
-				<PullRequestsMessage
-					description="The source and target branches contain the same files."
-					title="No changed files"
-				/>
-				{unanchoredThreads.length > 0 && (
-					<Card className="gap-0 overflow-hidden p-0">
-						<PullRequestOutdatedThreads
-							number={number}
-							permissions={permissions}
-							slug={slug}
-							threads={unanchoredThreads}
-							title="Outdated discussions"
-							username={username}
-						/>
-					</Card>
-				)}
-			</div>
-		)
-
-	function togglePath(path: string) {
-		setExpandedPaths(paths =>
-			paths.includes(path)
-				? paths.filter(expandedPath => expandedPath !== path)
-				: [...paths, path]
-		)
-	}
-
-	return (
-		<div className="flex flex-col gap-3">
-			{comparison.isTruncated && (
-				<PullRequestsMessage
-					description={`Only the first ${comparison.fileLimit} changed files are shown.`}
-					title="File list truncated"
-				/>
-			)}
-			{threadsQuery.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					The comments for these files could not be loaded.
-				</p>
-			)}
-			{comparison.files.map(file => {
-				const path = file.newPath || file.oldPath
-				const displayPath =
-					file.status === 'renamed' ? `${file.oldPath} → ${file.newPath}` : path
-				const isExpanded = expandedPaths.includes(path)
-
-				return (
-					<Card
-						className="gap-0 overflow-hidden p-0"
-						key={`${file.oldPath}:${file.newPath}`}
-					>
-						<Button
-							aria-expanded={isExpanded}
-							className="h-auto w-full justify-start rounded-none px-4 py-3 text-left"
-							onClick={() => togglePath(path)}
-							variant="ghost"
-						>
-							<ChevronRight
-								className={cn(
-									'size-4 shrink-0 transition-transform',
-									isExpanded && 'rotate-90'
-								)}
-							/>
-							<FileCode2 className="size-4 shrink-0 text-muted-foreground" />
-							<span
-								className="min-w-0 flex-1 truncate font-mono text-xs"
-								title={displayPath}
-							>
-								{displayPath}
-							</span>
-							<FileStats file={file} />
-						</Button>
-						{isExpanded && (
-							<PullRequestFileDiffView
-								expectedBaseSha={comparison.baseSha}
-								expectedHeadSha={comparison.headSha}
-								number={number}
-								path={path}
-								permissions={permissions}
-								slug={slug}
-								threads={getInlineThreadsForFile(
-									threads,
-									file,
-									comparison.files
-								)}
-								username={username}
-							/>
-						)}
-					</Card>
-				)
-			})}
-			{unanchoredThreads.length > 0 && (
-				<Card className="gap-0 overflow-hidden p-0">
-					<PullRequestOutdatedThreads
-						number={number}
-						permissions={permissions}
-						slug={slug}
-						threads={unanchoredThreads}
-						title="Outdated discussions"
-						username={username}
-					/>
-				</Card>
-			)}
-		</div>
-	)
-}
-
-function FileStats({ file }: Readonly<{ file: PullRequestChangedFile }>) {
-	return (
-		<span className="flex shrink-0 items-center gap-2 text-xs">
-			<span className="text-muted-foreground capitalize">{file.status}</span>
-			<span className="text-emerald-400">+{file.additions}</span>
-			<span className="text-red-400">−{file.deletions}</span>
-		</span>
 	)
 }

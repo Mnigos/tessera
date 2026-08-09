@@ -5,9 +5,29 @@ import type {
 } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { useRemovePullRequestReviewerRequestMutation } from '../hooks/use-remove-pull-request-reviewer-request.mutation'
 import { useRequestPullRequestReviewerMutation } from '../hooks/use-request-pull-request-reviewer.mutation'
 import { PullRequestReviewersPanel } from './pull-request-reviewers-panel'
+
+vi.mock('@tanstack/react-router', () => ({
+	Link: ({
+		children,
+		params,
+		search,
+		to,
+		...props
+	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
+		children: ReactNode
+		params: Record<string, string>
+		search?: { reviewId?: string }
+		to: string
+	}) => (
+		<a data-review-id={search?.reviewId} href={to} {...props}>
+			{children}
+		</a>
+	),
+}))
 
 vi.mock('../hooks/use-remove-pull-request-reviewer-request.mutation', () => ({
 	useRemovePullRequestReviewerRequestMutation: vi.fn(),
@@ -94,11 +114,13 @@ describe(PullRequestReviewersPanel.name, () => {
 	})
 
 	test('renders requested and submitted reviewer states including stale reviews', () => {
+		const approved = state('approved-user', 'approve')
+
 		render(
 			<PullRequestReviewersPanel
 				{...repositoryProps}
 				effectiveReviewStates={[
-					state('approved-user', 'approve'),
+					approved,
 					state('changes-user', 'request_changes', true),
 					state('commented-user', 'comment'),
 				]}
@@ -115,6 +137,13 @@ describe(PullRequestReviewersPanel.name, () => {
 		expect(screen.getByText('Changes requested')).toBeTruthy()
 		expect(screen.getByText('Commented')).toBeTruthy()
 		expect(screen.getByText('Stale')).toBeTruthy()
+		// One entry point per review that exists, staleness being emphasis rather
+		// than a gate: a current review still leads to its own explicit answer.
+		expect(
+			screen
+				.getAllByRole('link', { name: 'View changes since' })
+				.map(link => link.getAttribute('data-review-id'))
+		).toEqual([approved.reviewId, expect.any(String), expect.any(String)])
 	})
 
 	test('submits the exact typed username and removes a requested reviewer', async () => {
@@ -169,5 +198,9 @@ describe(PullRequestReviewersPanel.name, () => {
 			screen.queryByRole('button', { name: 'Remove review request for jan' })
 		).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Review changes' })).toBeNull()
+		// A reviewer who has only been asked has left nothing to compare against.
+		expect(
+			screen.queryByRole('link', { name: 'View changes since' })
+		).toBeNull()
 	})
 })

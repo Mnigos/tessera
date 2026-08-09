@@ -104,6 +104,14 @@ export function formatPullRequestDate(date: Date) {
 }
 
 /**
+ * Abbreviates a commit for display. The full value belongs in a title or
+ * tooltip beside it: seven characters name a commit, they do not identify it.
+ */
+export function formatPullRequestShortSha(sha: string) {
+	return sha.slice(0, 7)
+}
+
+/**
  * Converts a pull request timestamp to the ISO value used by time elements.
  */
 export function formatPullRequestDateTime(date: Date) {
