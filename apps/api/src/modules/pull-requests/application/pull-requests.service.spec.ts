@@ -91,6 +91,7 @@ const event: PullRequestEvent = {
 	actorUserId: mockUserId,
 	type: 'opened',
 	payload: null,
+	idempotencyKey: null,
 	createdAt,
 }
 const repositoryInput = {

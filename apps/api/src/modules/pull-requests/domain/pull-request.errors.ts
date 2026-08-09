@@ -13,6 +13,16 @@ export class PullRequestInvalidBranchesError extends BadRequestError {
 	}
 }
 
+export class PullRequestPushNotificationInvalidError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'pull request push notification',
+			context,
+			'The push notification is malformed.'
+		)
+	}
+}
+
 export class PullRequestNoChangesError extends BadRequestError {
 	constructor(context?: Record<string, unknown>) {
 		super(

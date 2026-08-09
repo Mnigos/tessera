@@ -1,7 +1,8 @@
 import { db } from '@repo/db/client'
-import { repositoryExternalSources } from '@repo/db/schema'
-import type { RepositoryId } from '@repo/domain'
-import { $, file } from 'bun'
+import { pullRequestEvents, repositoryExternalSources } from '@repo/db/schema'
+import type { PullRequestId, RepositoryId } from '@repo/domain'
+import { $, file, sleep } from 'bun'
+import { asc, eq } from 'drizzle-orm'
 import {
 	comparePullRequest,
 	createGitAccessToken,
@@ -15,8 +16,10 @@ import {
 } from './helpers/api'
 import { migrateGitE2EDatabase, resetGitE2EDatabase } from './helpers/database'
 import {
+	checkoutBranch,
 	cloneRepository,
 	cloneRepositoryOverSsh,
+	commitAndPushBranch,
 	createAndPushBranch,
 	createCommittedRepository,
 	fetchRepository,
@@ -25,6 +28,7 @@ import {
 	lsRemote,
 	pushRepository,
 	pushRepositoryOverSsh,
+	rewriteAndForcePushBranchOverSsh,
 	smartHttpUrl,
 	sshUrl,
 } from './helpers/git-cli'
@@ -309,6 +313,235 @@ describe('Git smart HTTP e2e', () => {
 		})
 	})
 
+	test('writes a head update on every open pull request a fast-forwarded branch backs', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'push-events@example.com',
+			username: 'push-events',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'Push Events',
+			slug: 'push-events',
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const localRepository = `${runDirectory}/push-events-http`
+		await createCommittedRepository(localRepository, 'README.md', '# Base\n')
+		await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, 'push-events', repository.slug, token)
+		)
+		await createAndPushBranch(
+			localRepository,
+			'release',
+			'release.txt',
+			'release\n'
+		)
+		await checkoutBranch(localRepository, 'main')
+		await createAndPushBranch(
+			localRepository,
+			'feature',
+			'feature.txt',
+			'feature\n'
+		)
+		const openedHeadSha = await gitOutput(localRepository, [
+			'rev-parse',
+			'feature',
+		])
+		const toMain = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			username: 'push-events',
+		})
+		const toRelease = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			targetBranch: 'release',
+			title: 'Merge feature into release',
+			username: 'push-events',
+		})
+
+		const pushResult = await commitAndPushBranch(
+			localRepository,
+			'feature',
+			'more.txt',
+			'more\n'
+		)
+		const pushedHeadSha = await gitOutput(localRepository, [
+			'rev-parse',
+			'feature',
+		])
+
+		expect(pushResult.exitCode, pushResult.stderr).toBe(0)
+		for (const pullRequest of [toMain, toRelease]) {
+			const events = await waitForPullRequestPushEvents(pullRequest.id)
+
+			expect(events).toMatchObject([
+				{
+					type: 'head_updated',
+					provider: 'tessera',
+					actorUserId: pullRequest.authorUserId,
+					payload: {
+						ref: 'refs/heads/feature',
+						oldSha: openedHeadSha,
+						newSha: pushedHeadSha,
+					},
+				},
+			])
+		}
+	})
+
+	test('writes a force push on every open pull request a rewritten branch backs', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'force-push@example.com',
+			username: 'force-push',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'Force Push',
+			slug: 'force-push',
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const key = await createSshKeyPair('force-push')
+		await createSshPublicKey({
+			apiBaseUrl,
+			headers,
+			publicKey: key.publicKey,
+			title: 'E2E SSH key',
+		})
+		const localRepository = `${runDirectory}/push-events-ssh`
+		await createCommittedRepository(localRepository, 'README.md', '# Base\n')
+		await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, 'force-push', repository.slug, token)
+		)
+		await createAndPushBranch(
+			localRepository,
+			'release',
+			'release.txt',
+			'release\n'
+		)
+		await checkoutBranch(localRepository, 'main')
+		await createAndPushBranch(
+			localRepository,
+			'feature',
+			'feature.txt',
+			'feature\n'
+		)
+		const openedHeadSha = await gitOutput(localRepository, [
+			'rev-parse',
+			'feature',
+		])
+		const toMain = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			username: 'force-push',
+		})
+		const toRelease = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			targetBranch: 'release',
+			title: 'Merge feature into release',
+			username: 'force-push',
+		})
+		await pushRepositoryOverSsh(
+			localRepository,
+			sshUrl(ports.gitSsh, 'force-push', repository.slug),
+			key.privateKeyPath
+		)
+
+		const pushResult = await rewriteAndForcePushBranchOverSsh(
+			localRepository,
+			'feature',
+			'rewritten.txt',
+			'rewritten\n',
+			key.privateKeyPath
+		)
+		const rewrittenHeadSha = await gitOutput(localRepository, [
+			'rev-parse',
+			'feature',
+		])
+
+		expect(pushResult.exitCode, pushResult.stderr).toBe(0)
+		for (const pullRequest of [toMain, toRelease]) {
+			const events = await waitForPullRequestPushEvents(pullRequest.id)
+
+			expect(events).toMatchObject([
+				{
+					type: 'force_pushed',
+					actorUserId: pullRequest.authorUserId,
+					payload: {
+						ref: 'refs/heads/feature',
+						oldSha: openedHeadSha,
+						newSha: rewrittenHeadSha,
+					},
+				},
+			])
+		}
+	})
+
+	test('writes no push event for a branch created before its pull request or for an API merge', async () => {
+		const headers = await createTestSessionHeaders({
+			apiBaseUrl,
+			email: 'no-push-events@example.com',
+			username: 'no-push-events',
+		})
+		const { repository } = await createRepository({
+			apiBaseUrl,
+			headers,
+			name: 'No Push Events',
+			slug: 'no-push-events',
+		})
+		const token = await createGitAccessToken({
+			apiBaseUrl,
+			headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const localRepository = `${runDirectory}/no-push-events`
+		await createCommittedRepository(localRepository, 'README.md', '# Base\n')
+		await pushRepository(
+			localRepository,
+			smartHttpUrl(ports.gitHttp, 'no-push-events', repository.slug, token)
+		)
+		await createAndPushBranch(
+			localRepository,
+			'feature',
+			'feature.txt',
+			'feature\n'
+		)
+		const pullRequest = await createPullRequest({
+			apiBaseUrl,
+			headers,
+			slug: repository.slug,
+			username: 'no-push-events',
+		})
+
+		await mergePullRequest({
+			apiBaseUrl,
+			headers,
+			number: pullRequest.number,
+			slug: repository.slug,
+			username: 'no-push-events',
+		})
+
+		expect(await listPullRequestPushEvents(pullRequest.id)).toEqual([])
+	})
+
 	test('rejects HTTP pushes to GitHub mirrored repositories without breaking fetches', async () => {
 		const headers = await createTestSessionHeaders({
 			apiBaseUrl,
@@ -523,6 +756,36 @@ describe('Git smart HTTP e2e', () => {
 		return { privateKeyPath, publicKey }
 	}
 })
+
+async function listPullRequestPushEvents(pullRequestId: PullRequestId) {
+	const events = await db
+		.select()
+		.from(pullRequestEvents)
+		.where(eq(pullRequestEvents.pullRequestId, pullRequestId))
+		.orderBy(asc(pullRequestEvents.createdAt))
+
+	return events.filter(
+		event => event.type === 'head_updated' || event.type === 'force_pushed'
+	)
+}
+
+/**
+ * The hook runs inside receive-pack, so the events exist by the time the push
+ * returns. The wait only covers a delivery the sweeper had to retry.
+ */
+async function waitForPullRequestPushEvents(pullRequestId: PullRequestId) {
+	const deadline = Date.now() + 60_000
+
+	while (Date.now() < deadline) {
+		const events = await listPullRequestPushEvents(pullRequestId)
+
+		if (events.length > 0) return events
+
+		await sleep(250)
+	}
+
+	throw new Error(`timed out waiting for push events on ${pullRequestId}`)
+}
 
 interface CreateGitHubMirroredExternalSourceOptions {
 	externalRepositoryId: bigint

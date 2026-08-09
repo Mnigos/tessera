@@ -63,6 +63,8 @@ export const pullRequestEventTypeEnum = pgEnum('pull_request_event_type', [
 	'queue_paused',
 	'queue_resumed',
 	'queue_removed',
+	'head_updated',
+	'force_pushed',
 ])
 
 export interface PullRequestThreadEventPayload {
@@ -130,6 +132,17 @@ export interface PullRequestQueueRemovedEventPayload {
 	reason: 'user' | 'admin' | 'closed' | 'merged'
 }
 
+/**
+ * Where a pull request's source branch moved, as the push that moved it
+ * reported it. The ref is kept fully qualified as the audit evidence; the
+ * branch the lookup used is derived from it.
+ */
+export interface PullRequestHeadUpdateEventPayload {
+	ref: string
+	oldSha: string
+	newSha: string
+}
+
 export type PullRequestEventPayload =
 	| PullRequestThreadEventPayload
 	| PullRequestReviewerEventPayload
@@ -140,6 +153,7 @@ export type PullRequestEventPayload =
 	| PullRequestQueuePausedEventPayload
 	| PullRequestQueueResumedEventPayload
 	| PullRequestQueueRemovedEventPayload
+	| PullRequestHeadUpdateEventPayload
 
 export const repositoryPullRequestCounters = pgTable(
 	'repository_pull_request_counters',
@@ -203,6 +217,9 @@ export const pullRequests = pgTable(
 			table.state,
 			table.number
 		),
+		index('pull_requests_open_source_branch_idx')
+			.on(table.repositoryId, table.sourceBranch)
+			.where(sql`${table.state} = 'open' and ${table.provider} = 'tessera'`),
 		index('pull_requests_author_user_id_idx').on(table.authorUserId),
 		check('pull_requests_number_check', sql`${table.number} > 0`),
 		check(
@@ -238,6 +255,12 @@ export const pullRequestEvents = pgTable(
 			.references(() => user.id, { onDelete: 'restrict' }),
 		type: pullRequestEventTypeEnum('type').notNull(),
 		payload: jsonb('payload').$type<PullRequestEventPayload>(),
+		/**
+		 * Present only on events a delivery may repeat. Push notifications are
+		 * retried until the API acknowledges them, so the key of the delivery that
+		 * produced the row is what makes the second attempt a no-op.
+		 */
+		idempotencyKey: text('idempotency_key'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 	},
 	table => [
@@ -246,6 +269,9 @@ export const pullRequestEvents = pgTable(
 			table.createdAt
 		),
 		index('pull_request_events_actor_user_id_idx').on(table.actorUserId),
+		uniqueIndex('pull_request_events_idempotency_key_unique')
+			.on(table.pullRequestId, table.idempotencyKey)
+			.where(sql`${table.idempotencyKey} is not null`),
 		check(
 			'pull_request_events_actor_check',
 			// System-authored queue transitions (worker pauses, reconciler cleanup)
