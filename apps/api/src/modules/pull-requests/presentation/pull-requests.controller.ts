@@ -80,8 +80,23 @@ export class PullRequestsController {
 		)
 	}
 
+	// Authenticated, unlike the other reads on this controller: the answer is
+	// about whether *you* may merge, which is meaningless without an identity, and
+	// evaluating it drives merge-tree work in Git storage that anonymous callers
+	// have no reason to be able to ask for.
 	@RequireAuth()
-	@UseGuards(RepositoryWriteGuard)
+	@Implement(contract.pullRequests.getMergeRequirements)
+	getMergeRequirements(@Session() session: UserSession) {
+		return implement(contract.pullRequests.getMergeRequirements).handler(
+			({ input }) =>
+				this.pullRequestsService.getMergeRequirements(session.user.id, input)
+		)
+	}
+
+	// Deliberately not behind the write guard: refusing an unprivileged merge is
+	// part of the answer this endpoint returns, and the guard would turn it into
+	// an error the client cannot render alongside the other blockers.
+	@RequireAuth()
 	@Implement(contract.pullRequests.merge)
 	merge(@Session() session: UserSession) {
 		return implement(contract.pullRequests.merge).handler(({ input }) =>

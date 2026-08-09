@@ -5,10 +5,12 @@ import type { GitHubActorId } from '@repo/db'
 import {
 	asc,
 	gitHubPullRequestMappings,
+	mergeQueueEntries,
 	pullRequestEvents,
 	pullRequestMergeIntents,
 	pullRequests,
 	repositoryPullRequestCounters,
+	sql,
 } from '@repo/db'
 import type {
 	PullRequestEventId,
@@ -25,6 +27,7 @@ const anotherRepositoryId =
 const pullRequestId = '00000000-0000-4000-8000-000000000044' as PullRequestId
 const gitHubActorId = '00000000-0000-4000-8000-000000000055' as GitHubActorId
 const createdAt = new Date('2026-07-11T00:00:00Z')
+const NO_LONGER_MERGING_REGEX = /no longer merging/
 const pullRequest = {
 	id: pullRequestId,
 	repositoryId,
@@ -116,6 +119,9 @@ describe(PullRequestsRepository.name, () => {
 	const pullRequestUpdateReturningMock = vi.fn()
 	const mergeIntentUpdateSetMock = vi.fn()
 	const mergeIntentUpdateWhereMock = vi.fn()
+	const queueEntryUpdateSetMock = vi.fn()
+	const queueEntryUpdateWhereMock = vi.fn()
+	const queueEntryUpdateReturningMock = vi.fn()
 	const deleteMock = vi.fn()
 	const deleteWhereMock = vi.fn()
 	const executeMock = vi.fn()
@@ -182,11 +188,21 @@ describe(PullRequestsRepository.name, () => {
 		mergeIntentUpdateSetMock.mockReturnValue({
 			where: mergeIntentUpdateWhereMock,
 		})
+		// No queue entry unless a test says otherwise: most pull requests were never
+		// queued, and the lifecycle paths must behave the same either way.
+		queueEntryUpdateReturningMock.mockResolvedValue([])
+		queueEntryUpdateWhereMock.mockReturnValue({
+			returning: queueEntryUpdateReturningMock,
+		})
+		queueEntryUpdateSetMock.mockReturnValue({
+			where: queueEntryUpdateWhereMock,
+		})
 		updateMock.mockImplementation(table => {
 			if (table === repositoryPullRequestCounters)
 				return { set: counterUpdateSetMock }
 			if (table === pullRequestMergeIntents)
 				return { set: mergeIntentUpdateSetMock }
+			if (table === mergeQueueEntries) return { set: queueEntryUpdateSetMock }
 
 			return { set: pullRequestUpdateSetMock }
 		})
@@ -294,12 +310,22 @@ describe(PullRequestsRepository.name, () => {
 		expect(pullRequestValuesMock).not.toHaveBeenCalled()
 	})
 
-	test('returns lifecycle events in ascending creation order', async () => {
+	// `merged` and `merge_bypassed` are written in one transaction and share its
+	// timestamp, so creation time alone would leave their order to the planner.
+	// The waiver explains the merge and is placed first; the id settles the rest.
+	test('returns lifecycle events in an order that cannot reshuffle', async () => {
 		selectOrderByMock.mockResolvedValue([event])
 
 		expect(await repository.listEvents({ pullRequestId })).toEqual([event])
 		expect(selectOrderByMock).toHaveBeenCalledWith(
-			asc(pullRequestEvents.createdAt)
+			asc(pullRequestEvents.createdAt),
+			sql`case when ${pullRequestEvents.type} = 'merge_bypassed' then 0 else 1 end`,
+			asc(pullRequestEvents.id)
+		)
+
+		const [, tiebreak] = selectOrderByMock.mock.calls[0] ?? []
+		expect(new PgDialect().sqlToQuery(tiebreak).sql).toBe(
+			`case when "pull_request_events"."type" = 'merge_bypassed' then 0 else 1 end`
 		)
 	})
 
@@ -429,6 +455,42 @@ describe(PullRequestsRepository.name, () => {
 		})
 	})
 
+	// The entry cannot outlive the pull request it was waiting to merge, so both
+	// changes land in one transaction rather than leaving a window where the queue
+	// would pick up a closed pull request.
+	test('takes the queue entry with the pull request it closes', async () => {
+		const changedAt = new Date('2026-07-11T00:01:00Z')
+		selectLimitMock.mockResolvedValue([])
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{ ...pullRequest, state: 'closed' as const, closedAt: changedAt },
+		])
+		queueEntryUpdateReturningMock.mockResolvedValue([
+			{ id: '00000000-0000-4000-8000-000000000066', position: 4 },
+		])
+
+		await repository.close({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			changedAt,
+			staleBefore: new Date('2026-07-11T00:00:00Z'),
+		})
+
+		expect(queueEntryUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({ state: 'removed', removedByUserId: mockUserId })
+		)
+		expect(eventValuesMock).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			type: 'queue_removed',
+			payload: {
+				queueEntryId: '00000000-0000-4000-8000-000000000066',
+				position: 4,
+				reason: 'closed',
+			},
+		})
+	})
+
 	test('does not close while a merge intent lease is active', async () => {
 		const changedAt = new Date('2026-07-11T00:01:00Z')
 		selectLimitMock.mockResolvedValue([
@@ -520,6 +582,7 @@ describe(PullRequestsRepository.name, () => {
 		selectLimitMock.mockResolvedValue([
 			{
 				attemptId: '00000000-0000-4000-8000-000000000046',
+				bypass: null,
 				startedAt: new Date('2026-07-11T00:02:00Z'),
 			},
 		])
@@ -537,8 +600,72 @@ describe(PullRequestsRepository.name, () => {
 		expect(mergeIntentUpdateSetMock).toHaveBeenCalledWith({
 			attemptId: '00000000-0000-4000-8000-000000000047',
 			actorUserId: mockUserId,
+			bypass: null,
 			startedAt,
 		})
+	})
+
+	// Taking over an abandoned attempt must not erase what it was cleared to
+	// waive: the merge it was making is still a bypassed merge.
+	test('keeps the abandoned attempt bypass when the reclaim carries none', async () => {
+		const bypass = {
+			reason: 'Production incident',
+			bypassedReasonCodes: ['approvals_required' as const],
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+		}
+		selectLimitMock.mockResolvedValue([
+			{
+				attemptId: '00000000-0000-4000-8000-000000000046',
+				bypass,
+				startedAt: new Date('2026-07-11T00:02:00Z'),
+			},
+		])
+
+		await repository.claimMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId: '00000000-0000-4000-8000-000000000047',
+			startedAt: new Date('2026-07-11T00:04:00Z'),
+			staleBefore: new Date('2026-07-11T00:03:00Z'),
+		})
+
+		expect(mergeIntentUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({ bypass })
+		)
+	})
+
+	test('replaces the abandoned attempt bypass when the reclaim brings its own', async () => {
+		const bypass = {
+			reason: 'Production incident',
+			bypassedReasonCodes: ['approvals_required' as const],
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+		}
+		selectLimitMock.mockResolvedValue([
+			{
+				attemptId: '00000000-0000-4000-8000-000000000046',
+				bypass,
+				startedAt: new Date('2026-07-11T00:02:00Z'),
+			},
+		])
+
+		await repository.claimMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId: '00000000-0000-4000-8000-000000000047',
+			bypass: { ...bypass, reason: 'Release train' },
+			startedAt: new Date('2026-07-11T00:04:00Z'),
+			staleBefore: new Date('2026-07-11T00:03:00Z'),
+		})
+
+		expect(mergeIntentUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				bypass: { ...bypass, reason: 'Release train' },
+			})
+		)
 	})
 
 	test('completes a claimed merge and records the actor event', async () => {
@@ -578,6 +705,73 @@ describe(PullRequestsRepository.name, () => {
 			type: 'merged',
 		})
 		expect(deleteMock).toHaveBeenCalledWith(pullRequestMergeIntents)
+	})
+
+	// The merge and the entry that produced it commit together, so the queue can
+	// never report an entry still running a merge that already landed.
+	test('finishes the queue entry the merge was run for', async () => {
+		const changedAt = new Date('2026-07-11T00:03:00Z')
+		const attemptId = '00000000-0000-4000-8000-000000000046'
+		const queueEntryId = '00000000-0000-4000-8000-000000000066' as never
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{
+				...pullRequest,
+				state: 'merged' as const,
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: changedAt,
+				closedAt: changedAt,
+			},
+		])
+		selectLimitMock.mockResolvedValue([{ attemptId, startedAt: changedAt }])
+		queueEntryUpdateReturningMock.mockResolvedValueOnce([{ id: queueEntryId }])
+
+		await repository.completeMerge({
+			repositoryId,
+			pullRequestId,
+			actorUserId: mockUserId,
+			attemptId,
+			changedAt,
+			mergeCommitSha: 'merge-sha',
+			queueEntryId,
+		})
+
+		expect(queueEntryUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({ state: 'completed' })
+		)
+	})
+
+	// Something moved the entry while Git was merging. Committing around the hole
+	// would record the merge on the pull request while the entry that produced it
+	// says it never happened, so the whole transaction is failed instead.
+	test('fails the completion when the entry is no longer merging', async () => {
+		const changedAt = new Date('2026-07-11T00:03:00Z')
+		const attemptId = '00000000-0000-4000-8000-000000000046'
+
+		pullRequestUpdateReturningMock.mockResolvedValue([
+			{
+				...pullRequest,
+				state: 'merged' as const,
+				mergeCommitSha: 'merge-sha',
+				mergeActorUserId: mockUserId,
+				mergedAt: changedAt,
+				closedAt: changedAt,
+			},
+		])
+		selectLimitMock.mockResolvedValue([{ attemptId, startedAt: changedAt }])
+		queueEntryUpdateReturningMock.mockResolvedValue([])
+
+		await expect(
+			repository.completeMerge({
+				repositoryId,
+				pullRequestId,
+				actorUserId: mockUserId,
+				attemptId,
+				changedAt,
+				mergeCommitSha: 'merge-sha',
+				queueEntryId: '00000000-0000-4000-8000-000000000066' as never,
+			})
+		).rejects.toThrow(NO_LONGER_MERGING_REGEX)
 	})
 
 	test('does not claim a merge when a concurrent close wins the row lock', async () => {

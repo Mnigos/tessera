@@ -32,6 +32,18 @@ export const envSchema = z.object({
 	GITHUB_APP_PRIVATE_KEY: z.string().min(1).optional(),
 	GITHUB_WEBHOOK_SECRET: z.string().min(1).optional(),
 	GITHUB_SYNC_LEASE_MINUTES: z.coerce.number().int().positive().default(15),
+	/**
+	 * How often the merge queue re-derives its work from PostgreSQL. Redis only
+	 * wakes the worker, so this is what recovers a wakeup that was never
+	 * delivered, and it runs often because a queue nobody woke is a queue that
+	 * silently stopped merging.
+	 */
+	MERGE_QUEUE_RECONCILER_CRONTIME: z.string().default('*/1 * * * *'),
+	MERGE_QUEUE_RECONCILER_BATCH_SIZE: z.coerce
+		.number()
+		.int()
+		.positive()
+		.default(25),
 	SENTRY_DSN: z.string().optional(),
 	SENTRY_ENVIRONMENT: z.string().default('development'),
 	SENTRY_RELEASE: z.string().optional(),

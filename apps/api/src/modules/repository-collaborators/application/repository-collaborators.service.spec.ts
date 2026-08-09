@@ -138,6 +138,7 @@ describe(RepositoryCollaboratorsService.name, () => {
 			visibility: 'private',
 			ownerUserId: null,
 			ownerOrganizationId,
+			tesseraWritesAllowed: true,
 		})
 		vi.spyOn(
 			repositoryPermissionsService,

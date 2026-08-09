@@ -243,8 +243,8 @@ describe('Git smart HTTP e2e', () => {
 		])
 
 		expect(merged).toMatchObject({
-			state: 'merged',
-			mergeCommitSha: remoteMainSha,
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha: remoteMainSha },
 		})
 		expect(parents.split(' ')).toEqual([baseSha, headSha])
 		expect(author).toBe('Pull Request Owner <pull-request@example.com>')

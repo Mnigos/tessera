@@ -41,6 +41,8 @@ describe(ChecksEvaluationService.name, () => {
 		expect(await service.evaluate(repositoryId, 'head', [])).toEqual({
 			headSha: 'head',
 			perContext: [],
+			pending: [],
+			failing: [],
 			overall: 'success',
 		})
 		expect(repository.listEffectiveChecks).not.toHaveBeenCalled()

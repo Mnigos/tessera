@@ -139,11 +139,28 @@ export interface RepositoryAccessContext {
 	tesseraWritesAllowed: boolean
 }
 
+/**
+ * A repository resolved by identity for work nobody is watching. The role is
+ * optional because the user a queued merge belongs to may have lost access
+ * since, which the merge evaluation reports rather than throws.
+ */
+export interface RepositoryMergeContext {
+	repositoryId: RepositoryId
+	storagePath: string
+	tesseraWritesAllowed: boolean
+	viewerRole?: RepositoryRole
+}
+
 export interface RepositoryManagementContext {
 	repositoryId: RepositoryId
 	visibility: RepositoryVisibility
 	ownerUserId: UserId | null
 	ownerOrganizationId: OrganizationId | null
+	/**
+	 * Whether Tessera owns the write side. Settings surfaces stay editable on a
+	 * GitHub-authoritative repository, so they report this rather than reject.
+	 */
+	tesseraWritesAllowed: boolean
 }
 
 export interface AuthorizeGitRepositoryReadInput {
@@ -292,6 +309,42 @@ export class RepositoriesService {
 		}
 	}
 
+	/**
+	 * What a background merge needs to know about a repository it was handed the
+	 * identity of: where it lives, whether Tessera owns its write side, and what
+	 * the user whose merge is being run may still do there.
+	 *
+	 * Nothing is asserted. A user who lost write access, or a repository that
+	 * became a GitHub mirror while its pull request waited in the queue, is a
+	 * reason to refuse the merge rather than an error, and the merge requirements
+	 * are what say so.
+	 */
+	async findRepositoryMergeContext({
+		repositoryId,
+		userId,
+	}: {
+		repositoryId: RepositoryId
+		userId: UserId
+	}): Promise<RepositoryMergeContext | undefined> {
+		const repository = await this.repositoriesRepository.findById({
+			repositoryId,
+		})
+
+		if (!repository?.storagePath) return undefined
+
+		const role = await this.repositoryPermissionsService.resolveRole(
+			userId,
+			repository
+		)
+
+		return {
+			repositoryId: repository.id,
+			storagePath: repository.storagePath,
+			tesseraWritesAllowed: allowsTesseraWrites(repository),
+			viewerRole: role ?? undefined,
+		}
+	}
+
 	async getReadableTesseraRepositoryContext(
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
@@ -402,6 +455,7 @@ export class RepositoriesService {
 			visibility: repository.visibility,
 			ownerUserId: repository.ownerUserId,
 			ownerOrganizationId: repository.ownerOrganizationId,
+			tesseraWritesAllowed: allowsTesseraWrites(repository),
 		}
 	}
 

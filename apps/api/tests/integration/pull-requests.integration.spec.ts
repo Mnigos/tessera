@@ -83,6 +83,7 @@ describe('Pull requests integration', () => {
 	let gitStorageGetRepositoryFileDiff: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageMergeRepositoryRefs: ReturnType<typeof vi.fn>
+	let gitStorageCheckRepositoryMergeability: ReturnType<typeof vi.fn>
 	let pullRequestsRepository: PullRequestsRepository
 
 	beforeAll(async () => {
@@ -103,6 +104,7 @@ describe('Pull requests integration', () => {
 		gitStorageGetRepositoryFileDiff = vi.fn()
 		gitStorageGetRepositoryBlob = vi.fn()
 		gitStorageMergeRepositoryRefs = vi.fn()
+		gitStorageCheckRepositoryMergeability = vi.fn()
 
 		moduleRef = await Test.createTestingModule({
 			imports: [PullRequestsIntegrationTestModule],
@@ -115,6 +117,7 @@ describe('Pull requests integration', () => {
 				getRepositoryFileDiff: gitStorageGetRepositoryFileDiff,
 				getRepositoryBlob: gitStorageGetRepositoryBlob,
 				mergeRepositoryRefs: gitStorageMergeRepositoryRefs,
+				checkRepositoryMergeability: gitStorageCheckRepositoryMergeability,
 			})
 			.compile()
 
@@ -134,6 +137,7 @@ describe('Pull requests integration', () => {
 		gitStorageGetRepositoryFileDiff.mockReset()
 		gitStorageGetRepositoryBlob.mockReset()
 		gitStorageMergeRepositoryRefs.mockReset()
+		gitStorageCheckRepositoryMergeability.mockReset()
 		gitStorageListRepositoryRefs.mockResolvedValue({
 			branches: [
 				{
@@ -253,6 +257,15 @@ describe('Pull requests integration', () => {
 			})
 		)
 		gitStorageMergeRepositoryRefs.mockResolvedValue(mergeCommitSha)
+		gitStorageCheckRepositoryMergeability.mockResolvedValue({
+			baseSha,
+			headSha,
+			mergeBaseSha: baseSha,
+			mergeable: true,
+			conflictPaths: [],
+			conflictPathsTruncated: false,
+			conflictPathLimit: 100,
+		})
 		const headers = await createUserAndRepository({ visibility: 'public' })
 		await createPullRequest(
 			'marta',
@@ -301,8 +314,8 @@ describe('Pull requests integration', () => {
 		)
 		expect(mergeResponse.status).toBe(200)
 		expect(await mergeResponse.json()).toMatchObject({
-			state: 'merged',
-			mergeCommitSha,
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha },
 		})
 		expect(gitStorageMergeRepositoryRefs).toHaveBeenCalledWith(
 			expect.objectContaining({

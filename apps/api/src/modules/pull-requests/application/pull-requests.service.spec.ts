@@ -3,6 +3,7 @@ import { status } from '@grpc/grpc-js'
 import { ChecksReadService } from '@modules/checks'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { MergeRequirements } from '@repo/contracts'
 import type { PullRequest, PullRequestEvent } from '@repo/db'
 import type {
 	PullRequestEventId,
@@ -17,11 +18,14 @@ import {
 	PullRequestInvalidBranchesError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
-	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
+import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import { PullRequestsRepository } from '../infrastructure/pull-requests.repository'
+import { MergeQueueStatusService } from './merge-queue-status.service'
+import { MergeRequirementsService } from './merge-requirements.service'
 import { PullRequestHeadResolver } from './pull-request-head.resolver'
+import { PullRequestMergeRunner } from './pull-request-merge.runner'
 import {
 	type PullRequestReviewState,
 	PullRequestReviewsService,
@@ -84,6 +88,31 @@ const repositoryInput = {
 	username: 'marta',
 	slug: 'notes' as RepositorySlug,
 }
+const eligibleRequirements: MergeRequirements = {
+	eligible: true,
+	evaluatedBaseSha: 'a'.repeat(40),
+	evaluatedHeadSha: 'b'.repeat(40),
+	canBypass: false,
+	reasons: [],
+}
+const blockedRequirements: MergeRequirements = {
+	...eligibleRequirements,
+	eligible: false,
+	reasons: [
+		{ code: 'approvals_required', required: 2, approved: 0, staleApprovals: 0 },
+	],
+}
+const mergeActor = {
+	id: mockUserId,
+	name: 'Ada',
+	email: 'ada@example.com',
+}
+const mergeInput = {
+	...repositoryInput,
+	number: 1,
+	expectedBaseSha: 'a'.repeat(40),
+	expectedHeadSha: 'b'.repeat(40),
+}
 
 describe(PullRequestsService.name, () => {
 	let moduleRef: TestingModule
@@ -91,6 +120,8 @@ describe(PullRequestsService.name, () => {
 	let repository: PullRequestsRepository
 	let repositoriesService: RepositoriesService
 	let gitStorageClient: GitStorageClient
+	let mergeRequirementsService: MergeRequirementsService
+	let mergeQueueRepository: MergeQueueRepository
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -102,6 +133,7 @@ describe(PullRequestsService.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						find: vi.fn(),
+						findById: vi.fn(),
 						listEvents: vi.fn(),
 						edit: vi.fn(),
 						close: vi.fn(),
@@ -109,6 +141,7 @@ describe(PullRequestsService.name, () => {
 						claimMerge: vi.fn(),
 						completeMerge: vi.fn(),
 						releaseMerge: vi.fn(),
+						recordMergeBlocked: vi.fn(),
 					},
 				},
 				{
@@ -135,6 +168,30 @@ describe(PullRequestsService.name, () => {
 					},
 				},
 				{
+					provide: MergeRequirementsService,
+					useValue: { evaluate: vi.fn() },
+				},
+				{
+					provide: MergeQueueStatusService,
+					useValue: {
+						getStatus: vi.fn().mockResolvedValue({ runnableCount: 0 }),
+					},
+				},
+				// The merge core is exercised for real: the endpoint's job is deciding
+				// whether to merge, and a stubbed merge would prove nothing about the
+				// decisions it hands over.
+				PullRequestMergeRunner,
+				{
+					provide: MergeQueueRepository,
+					useValue: {
+						acquireRepositoryMergeLease: vi.fn(),
+						renewRepositoryMergeLease: vi.fn(),
+						releaseRepositoryMergeLease: vi.fn(),
+						findActiveEntry: vi.fn(),
+						countRunnableEntries: vi.fn(),
+					},
+				},
+				{
 					provide: GitStorageClient,
 					useValue: {
 						listRepositoryRefs: vi.fn(),
@@ -151,6 +208,28 @@ describe(PullRequestsService.name, () => {
 		repository = moduleRef.get(PullRequestsRepository)
 		repositoriesService = moduleRef.get(RepositoriesService)
 		gitStorageClient = moduleRef.get(GitStorageClient)
+		mergeRequirementsService = moduleRef.get(MergeRequirementsService)
+		mergeQueueRepository = moduleRef.get(MergeQueueRepository)
+
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			eligibleRequirements
+		)
+		vi.spyOn(
+			mergeQueueRepository,
+			'acquireRepositoryMergeLease'
+		).mockResolvedValue(true)
+		vi.spyOn(
+			mergeQueueRepository,
+			'renewRepositoryMergeLease'
+		).mockResolvedValue(true)
+		vi.spyOn(
+			mergeQueueRepository,
+			'releaseRepositoryMergeLease'
+		).mockResolvedValue()
+		vi.spyOn(mergeQueueRepository, 'findActiveEntry').mockResolvedValue(
+			undefined
+		)
+		vi.spyOn(mergeQueueRepository, 'countRunnableEntries').mockResolvedValue(0)
 
 		vi.spyOn(
 			repositoriesService,
@@ -294,6 +373,8 @@ describe(PullRequestsService.name, () => {
 			pullRequest: expect.objectContaining({ id: pullRequestId }),
 			events: [{ ...event, actorUsername: 'marta', payload: undefined }],
 			...emptyReviewState,
+			checksSummary: undefined,
+			mergeQueue: { runnableCount: 0 },
 			authority: 'tessera',
 			viewerRole: 'write',
 		})
@@ -618,7 +699,10 @@ describe(PullRequestsService.name, () => {
 					expectedHeadSha: 'b'.repeat(40),
 				}
 			)
-		).toMatchObject({ state: 'merged', mergeCommitSha: 'merge-sha' })
+		).toMatchObject({
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha: 'merge-sha' },
+		})
 		expect(mergeGitSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				operationId: pullRequestId,
@@ -656,9 +740,8 @@ describe(PullRequestsService.name, () => {
 			mergedAt: createdAt,
 			closedAt: createdAt,
 		}
-		vi.spyOn(repository, 'find')
-			.mockResolvedValueOnce(pullRequest)
-			.mockResolvedValueOnce(mergedPullRequest)
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'findById').mockResolvedValue(mergedPullRequest)
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
 			'merge-sha'
 		)
@@ -675,12 +758,16 @@ describe(PullRequestsService.name, () => {
 					expectedHeadSha: 'b'.repeat(40),
 				}
 			)
-		).toMatchObject({ state: 'merged', mergeCommitSha: 'merge-sha' })
+		).toMatchObject({
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha: 'merge-sha' },
+		})
 	})
 
 	test('releases the merge intent after a deterministic stale-ref failure', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
 		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
 		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
 			new ExternalServiceError('git storage', { grpcCode: status.ABORTED })
 		)
@@ -688,17 +775,16 @@ describe(PullRequestsService.name, () => {
 			.spyOn(repository, 'releaseMerge')
 			.mockResolvedValue()
 
-		await expect(
-			service.merge(
-				{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
-				{
-					...repositoryInput,
-					number: 1,
-					expectedBaseSha: 'a'.repeat(40),
-					expectedHeadSha: 'b'.repeat(40),
-				}
-			)
-		).rejects.toBeInstanceOf(PullRequestStaleComparisonError)
+		await service.merge(
+			{ id: mockUserId, name: 'Ada', email: 'ada@example.com' },
+			{
+				...repositoryInput,
+				number: 1,
+				expectedBaseSha: 'a'.repeat(40),
+				expectedHeadSha: 'b'.repeat(40),
+			}
+		)
+
 		expect(releaseMergeSpy).toHaveBeenCalledWith(
 			expect.objectContaining({
 				pullRequestId,
@@ -706,6 +792,422 @@ describe(PullRequestsService.name, () => {
 			})
 		)
 	})
+
+	// Git compared and swapped against the refs the evaluation resolved and
+	// refused. That is the authoritative verdict on the same world the
+	// requirements described, so it comes back as a refusal of the merge and is
+	// audited like every other one — an error here would leave the strongest
+	// answer of all out of the trail.
+	test('reports a refs-moved refusal as a blocked merge, freshly evaluated', async () => {
+		const staleRefsRequirements: MergeRequirements = {
+			...blockedRequirements,
+			evaluatedBaseSha: 'c'.repeat(40),
+			evaluatedHeadSha: 'd'.repeat(40),
+			reasons: [
+				{
+					code: 'stale_refs',
+					expectedBaseSha: 'a'.repeat(40),
+					actualBaseSha: 'c'.repeat(40),
+					expectedHeadSha: 'b'.repeat(40),
+					actualHeadSha: 'd'.repeat(40),
+				},
+			],
+		}
+
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', { grpcCode: status.ABORTED })
+		)
+		const evaluateSpy = vi
+			.spyOn(mergeRequirementsService, 'evaluate')
+			.mockResolvedValueOnce(eligibleRequirements)
+			.mockResolvedValue(staleRefsRequirements)
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toEqual({
+			status: 'blocked',
+			requirements: staleRefsRequirements,
+		})
+		// The refs Git rejected are what the second evaluation is asked about, so
+		// the answer names what moved rather than only that something did.
+		expect(evaluateSpy).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				expected: { baseSha: 'a'.repeat(40), headSha: 'b'.repeat(40) },
+				leaseOwner: expect.any(String),
+			})
+		)
+		expect(recordMergeBlockedSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				pullRequestId,
+				payload: expect.objectContaining({ reasonCodes: ['stale_refs'] }),
+			})
+		)
+	})
+
+	// The refs moved back, or another attempt is finishing the same merge, so a
+	// fresh look finds nothing to report. What Git objected to is still recorded,
+	// from what the refused attempt knew.
+	test('records what Git refused when the fresh look has nothing to say', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.FAILED_PRECONDITION,
+				grpcDetails: 'repository refs cannot be merged cleanly',
+			})
+		)
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+			status: 'blocked',
+			requirements: {
+				eligible: false,
+				reasons: [
+					{
+						code: 'merge_conflict',
+						baseSha: 'a'.repeat(40),
+						headSha: 'b'.repeat(40),
+					},
+				],
+			},
+		})
+		expect(recordMergeBlockedSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				payload: expect.objectContaining({ reasonCodes: ['merge_conflict'] }),
+			})
+		)
+	})
+
+	// Git failing to answer at all is not a verdict on the merge, so it stays an
+	// error the caller can retry rather than a refusal it would act on.
+	test('still raises a transport failure rather than reporting it as blocked', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.UNAVAILABLE,
+			})
+		)
+
+		await expect(service.merge(mergeActor, mergeInput)).rejects.toThrow()
+	})
+
+	test('merges the refs the evaluation resolved, not the ones the caller sent', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		})
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue({
+			...eligibleRequirements,
+			evaluatedBaseSha: 'c'.repeat(40),
+			evaluatedHeadSha: 'd'.repeat(40),
+		})
+		const mergeGitSpy = vi
+			.spyOn(gitStorageClient, 'mergeRepositoryRefs')
+			.mockResolvedValue('merge-sha')
+
+		await service.merge(mergeActor, mergeInput)
+
+		expect(mergeGitSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				expectedBaseSha: 'c'.repeat(40),
+				expectedHeadSha: 'd'.repeat(40),
+			})
+		)
+	})
+
+	test('refuses a blocked merge as a result and audits the attempt', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			blockedRequirements
+		)
+		const claimMergeSpy = vi.spyOn(repository, 'claimMerge')
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toEqual({
+			status: 'blocked',
+			requirements: blockedRequirements,
+		})
+		expect(claimMergeSpy).not.toHaveBeenCalled()
+		expect(recordMergeBlockedSpy).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			payload: {
+				ruleId: undefined,
+				ruleVersion: undefined,
+				reasonCodes: ['approvals_required'],
+				baseSha: 'a'.repeat(40),
+				headSha: 'b'.repeat(40),
+			},
+		})
+	})
+
+	test('merges past waivable blockers when the evaluation offered a bypass', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue({
+			...blockedRequirements,
+			canBypass: true,
+		})
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
+			'merge-sha'
+		)
+		vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		})
+		const claimMergeSpy = vi
+			.spyOn(repository, 'claimMerge')
+			.mockResolvedValue(pullRequest)
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(
+			await service.merge(mergeActor, {
+				...mergeInput,
+				bypass: { reason: 'Production incident' },
+			})
+		).toMatchObject({ status: 'merged' })
+		expect(recordMergeBlockedSpy).not.toHaveBeenCalled()
+		// The audit travels with the claim so a crash before completion cannot lose
+		// the fact that policy was waived.
+		expect(claimMergeSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				bypass: {
+					ruleId: undefined,
+					ruleVersion: undefined,
+					reason: 'Production incident',
+					bypassedReasonCodes: ['approvals_required'],
+					baseSha: 'a'.repeat(40),
+					headSha: 'b'.repeat(40),
+				},
+			})
+		)
+	})
+
+	test('refuses a bypass the evaluation did not offer', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			blockedRequirements
+		)
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+		const claimMergeSpy = vi.spyOn(repository, 'claimMerge')
+
+		expect(
+			await service.merge(mergeActor, {
+				...mergeInput,
+				bypass: { reason: 'Ship it' },
+			})
+		).toMatchObject({ status: 'blocked' })
+		expect(claimMergeSpy).not.toHaveBeenCalled()
+	})
+
+	test('refuses a merge the caller has no authority for without taking the repository', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			...repositoryAccessContext,
+			viewerRole: 'read',
+			tesseraWritesAllowed: false,
+		})
+		const acquireLeaseSpy = vi.spyOn(
+			mergeQueueRepository,
+			'acquireRepositoryMergeLease'
+		)
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toEqual({
+			status: 'blocked',
+			requirements: {
+				eligible: false,
+				canBypass: false,
+				reasons: [
+					{ code: 'read_only_mirror', authority: 'github' },
+					{
+						code: 'insufficient_permission',
+						requiredRole: 'write',
+						actualRole: 'read',
+					},
+				],
+			},
+		})
+		expect(acquireLeaseSpy).not.toHaveBeenCalled()
+		// Refused before anything was evaluated, so the audit names only the codes:
+		// no refs were resolved and no rule was consulted.
+		expect(recordMergeBlockedSpy).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			payload: {
+				reasonCodes: ['read_only_mirror', 'insufficient_permission'],
+			},
+		})
+	})
+
+	test('refuses to merge while another merge holds the repository', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(
+			mergeQueueRepository,
+			'acquireRepositoryMergeLease'
+		).mockResolvedValue(false)
+		const evaluateSpy = vi.spyOn(mergeRequirementsService, 'evaluate')
+		const recordMergeBlockedSpy = vi
+			.spyOn(repository, 'recordMergeBlocked')
+			.mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toEqual({
+			status: 'blocked',
+			requirements: {
+				eligible: false,
+				canBypass: false,
+				reasons: [{ code: 'repository_merge_in_progress' }],
+			},
+		})
+		expect(evaluateSpy).not.toHaveBeenCalled()
+		expect(recordMergeBlockedSpy).toHaveBeenCalledWith({
+			pullRequestId,
+			actorUserId: mockUserId,
+			payload: { reasonCodes: ['repository_merge_in_progress'] },
+		})
+	})
+
+	// A refusal reached before evaluation names no evaluated SHAs, and that
+	// absence is what tells it apart from one the evaluation itself returned.
+	test('reports a refusal reached before evaluation without evaluated refs', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(
+			mergeQueueRepository,
+			'acquireRepositoryMergeLease'
+		).mockResolvedValue(false)
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+
+		const result = await service.merge(mergeActor, mergeInput)
+
+		expect(result.status).toBe('blocked')
+		expect(
+			result.status === 'blocked' && result.requirements.evaluatedBaseSha
+		).toBeFalsy()
+		expect(
+			result.status === 'blocked' && result.requirements.evaluatedHeadSha
+		).toBeFalsy()
+	})
+
+	test('abandons the merge when the lease was lost between evaluation and Git', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(
+			mergeQueueRepository,
+			'renewRepositoryMergeLease'
+		).mockResolvedValue(false)
+		const mergeGitSpy = vi.spyOn(gitStorageClient, 'mergeRepositoryRefs')
+		const releaseMergeSpy = vi
+			.spyOn(repository, 'releaseMerge')
+			.mockResolvedValue()
+		vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toEqual({
+			status: 'blocked',
+			requirements: {
+				eligible: false,
+				canBypass: false,
+				reasons: [{ code: 'repository_merge_in_progress' }],
+			},
+		})
+		expect(mergeGitSpy).not.toHaveBeenCalled()
+		// The claim is given back rather than left to age out, so whoever holds the
+		// repository now is not shut out of this pull request for a minute.
+		expect(releaseMergeSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ pullRequestId, attemptId: expect.any(String) })
+		)
+	})
+
+	test('releases the repository lease even when the merge fails', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockRejectedValue(
+			new ExternalServiceError('git storage', {
+				grpcCode: status.UNAVAILABLE,
+			})
+		)
+		vi.spyOn(repository, 'releaseMerge').mockResolvedValue()
+		const releaseLeaseSpy = vi.spyOn(
+			mergeQueueRepository,
+			'releaseRepositoryMergeLease'
+		)
+
+		await expect(service.merge(mergeActor, mergeInput)).rejects.toThrow()
+		expect(releaseLeaseSpy).toHaveBeenCalledWith({
+			repositoryId,
+			owner: expect.any(String),
+		})
+	})
+
+	// The merge is already committed by the time the lease is given back, and the
+	// lease expires on its own, so a failed release must not turn a completed
+	// merge into an error the caller would retry.
+	test('keeps the merge result when the lease cannot be released', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(repository, 'claimMerge').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'mergeRepositoryRefs').mockResolvedValue(
+			'merge-sha'
+		)
+		vi.spyOn(repository, 'completeMerge').mockResolvedValue({
+			...pullRequest,
+			state: 'merged',
+			mergeCommitSha: 'merge-sha',
+			mergeActorUserId: mockUserId,
+			mergedAt: createdAt,
+			closedAt: createdAt,
+		})
+		vi.spyOn(
+			mergeQueueRepository,
+			'releaseRepositoryMergeLease'
+		).mockRejectedValue(new Error('connection terminated'))
+
+		expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha: 'merge-sha' },
+		})
+	})
+
+	test('evaluates requirements without auditing the question', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
+			blockedRequirements
+		)
+		const recordMergeBlockedSpy = vi.spyOn(repository, 'recordMergeBlocked')
+
+		expect(
+			await service.getMergeRequirements(mockUserId, {
+				...repositoryInput,
+				number: 1,
+			})
+		).toEqual(blockedRequirements)
+		expect(recordMergeBlockedSpy).not.toHaveBeenCalled()
+	})
+
 	test('reads checks for the commit the caller named, not the head it resolved', async () => {
 		const checksReadService = moduleRef.get(ChecksReadService)
 		const expectedHeadSha = 'c'.repeat(40)
