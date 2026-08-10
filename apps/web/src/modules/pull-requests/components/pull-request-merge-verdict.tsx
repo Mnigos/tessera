@@ -6,7 +6,7 @@ import type {
 import type { MergeStrategy } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
 import { CheckCircle2, GitMerge, ShieldAlert } from 'lucide-react'
-import type { ReactElement } from 'react'
+import { type ReactElement, useState } from 'react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { getMergeStrategyLabel } from '../helpers/merge-strategy'
 import { PullRequestMergeBypassDialog } from './pull-request-merge-bypass-dialog'
@@ -26,6 +26,8 @@ export interface PullRequestMergeCommand {
 
 interface PullRequestMergeVerdictProps {
 	error: unknown
+	/** True once the merge went through, which is the only reason to close. */
+	hasMerged: boolean
 	isError: boolean
 	isPending: boolean
 	onMerge: (command: PullRequestMergeCommand) => void
@@ -44,6 +46,7 @@ interface PullRequestMergeVerdictProps {
  */
 export function PullRequestMergeVerdict({
 	error,
+	hasMerged,
 	isError,
 	isPending,
 	onMerge,
@@ -52,6 +55,10 @@ export function PullRequestMergeVerdict({
 	requirements,
 	strategy,
 }: Readonly<PullRequestMergeVerdictProps>) {
+	const [isSquashRequested, setIsSquashRequested] = useState(false)
+	// Derived rather than closed by hand: a merge that succeeded is done with the
+	// dialog, and one that failed needs it back exactly as it was left.
+	const isSquashDialogOpen = isSquashRequested && !hasMerged
 	if (isError || !requirements)
 		return (
 			<div className="flex flex-col gap-2">
@@ -85,10 +92,12 @@ export function PullRequestMergeVerdict({
 			bypassReasons={bypassReasons}
 			defaultBody={pullRequest.body}
 			defaultTitle={`${pullRequest.title} (#${pullRequest.number})`}
+			isOpen={isSquashDialogOpen}
 			isPending={isPending}
 			onConfirm={({ bypassReason, ...squash }) =>
 				onMerge({ bypassReason, squash })
 			}
+			onOpenChange={setIsSquashRequested}
 			targetBranch={pullRequest.targetBranch}
 			trigger={trigger}
 		/>

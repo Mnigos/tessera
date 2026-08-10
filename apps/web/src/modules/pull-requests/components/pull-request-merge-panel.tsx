@@ -118,6 +118,7 @@ export function PullRequestMergePanel({
 			) : (
 				<PullRequestMergeVerdict
 					error={requirementsQuery.error}
+					hasMerged={mergeMutation.data?.status === 'merged'}
 					isError={requirementsQuery.isError}
 					isPending={mergeMutation.isPending}
 					onMerge={handleMerge}
@@ -137,7 +138,7 @@ export function PullRequestMergePanel({
 			)}
 			<PullRequestMergeQueuePanel
 				mergeQueue={mergeQueue}
-				number={pullRequest.number}
+				pullRequest={pullRequest}
 				slug={slug}
 				strategy={strategy}
 				username={username}

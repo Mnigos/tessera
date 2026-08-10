@@ -670,6 +670,76 @@ describe('choosing a merge method', () => {
 		)
 	})
 
+	// Closing on confirm would hide the merge while it was still running, so the
+	// "Merging" state the reader is waiting on would never appear.
+	test('keeps the squash dialog open while the merge runs', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements()
+		const { rerender } = renderPanelForRerender()
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Squash and merge' }))
+		await user.click(
+			within(screen.getByRole('dialog')).getByRole('button', {
+				name: 'Squash and merge',
+			})
+		)
+
+		// The merge is now in flight.
+		useMergeMutationMock.mockReturnValue({
+			mutate: vi.fn(),
+			data: undefined,
+			submittedAt: MERGE_SUBMITTED_AT,
+			isPending: true,
+			isError: false,
+			error: null,
+		} as unknown as ReturnType<typeof useMergePullRequestMutation>)
+		rerender()
+
+		expect(
+			within(screen.getByRole('dialog')).getByRole('button', {
+				name: 'Merging',
+			})
+		).toBeTruthy()
+	})
+
+	// A merge that failed needs the message back exactly as it was left, not
+	// reset to the pull request's own title.
+	test('keeps the edited squash message when the merge fails', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation({
+			answer: {
+				status: 'blocked',
+				requirements: { ...eligibleRequirements, eligible: false },
+			},
+		})
+		mockRequirements()
+		renderPanel()
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Squash and merge' }))
+
+		const dialog = screen.getByRole('dialog')
+		const title = within(dialog).getByLabelText('Title')
+
+		await user.clear(title)
+		await user.type(title, 'A better title')
+		await user.click(
+			within(dialog).getByRole('button', { name: 'Squash and merge' })
+		)
+
+		expect(mutate).toHaveBeenCalled()
+		// Still open, still holding what was typed.
+		expect(
+			(
+				within(screen.getByRole('dialog')).getByLabelText(
+					'Title'
+				) as HTMLInputElement
+			).value
+		).toBe('A better title')
+	})
+
 	// One decision, one dialog: waiving policy and writing the commit message the
 	// waiver produces are the same act, and splitting them would let a reader
 	// waive a requirement without ever seeing the commit it is for.
@@ -762,11 +832,42 @@ describe('choosing a merge method', () => {
 		const { join } = mockQueueMutations()
 		renderPanel({ runnableCount: 2 })
 
-		await chooseStrategy(user, 'Squash and merge')
+		await chooseStrategy(user, 'Rebase and merge')
 		await user.click(screen.getByRole('button', { name: 'Join merge queue' }))
 
 		expect(join).toHaveBeenCalledWith(
-			expect.objectContaining({ strategy: 'squash' })
+			expect.objectContaining({ strategy: 'rebase' })
+		)
+	})
+
+	// The queue settles the message when the entry is created and never derives
+	// it again, so a queued squash has to be as configurable as a direct one.
+	test('collects the squash message before joining the queue', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements()
+		const { join } = mockQueueMutations()
+		renderPanel({ runnableCount: 2 })
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Join merge queue' }))
+
+		const dialog = screen.getByRole('dialog')
+		const title = within(dialog).getByLabelText('Title')
+
+		expect((title as HTMLInputElement).value).toBe('Add feature (#1)')
+
+		await user.clear(title)
+		await user.type(title, 'Queued title')
+		await user.click(
+			within(dialog).getByRole('button', { name: 'Squash and merge' })
+		)
+
+		expect(join).toHaveBeenCalledWith(
+			expect.objectContaining({
+				strategy: 'squash',
+				squashTitle: 'Queued title',
+			})
 		)
 	})
 

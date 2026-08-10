@@ -1,7 +1,8 @@
-import type { MergeQueueStatus } from '@repo/contracts'
+import type { MergeQueueStatus, PullRequest } from '@repo/contracts'
 import type { MergeStrategy } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
 import { ListOrdered, LogOut, RotateCcw } from 'lucide-react'
+import { useState } from 'react'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	getMergeBlockingReasonMessage,
@@ -11,11 +12,12 @@ import { getMergeStrategyLabel } from '../helpers/merge-strategy'
 import { useJoinMergeQueueMutation } from '../hooks/use-join-merge-queue.mutation'
 import { useLeaveMergeQueueMutation } from '../hooks/use-leave-merge-queue.mutation'
 import { useRetryMergeQueueEntryMutation } from '../hooks/use-retry-merge-queue-entry.mutation'
+import { PullRequestSquashDialog } from './pull-request-squash-dialog'
 
 interface PullRequestMergeQueuePanelProps {
 	username: string
 	slug: string
-	number: number
+	pullRequest: PullRequest
 	mergeQueue: MergeQueueStatus
 	/** The method the entry will be created with, fixed at that moment. */
 	strategy: MergeStrategy
@@ -32,14 +34,18 @@ interface PullRequestMergeQueuePanelProps {
 export function PullRequestMergeQueuePanel({
 	username,
 	slug,
-	number,
+	pullRequest,
 	mergeQueue,
 	strategy,
 }: Readonly<PullRequestMergeQueuePanelProps>) {
 	const joinQueue = useJoinMergeQueueMutation()
 	const leaveQueue = useLeaveMergeQueueMutation()
 	const retryEntry = useRetryMergeQueueEntryMutation()
-	const input = { username, slug, number }
+	const [isSquashRequested, setIsSquashRequested] = useState(false)
+	// Closed once the entry exists, kept open when the join failed so whatever
+	// was typed is still there to try again with.
+	const isSquashDialogOpen = isSquashRequested && !joinQueue.isSuccess
+	const input = { username, slug, number: pullRequest.number }
 	const { entry } = mergeQueue
 	const failedMutation = [joinQueue, leaveQueue, retryEntry].find(
 		mutation => mutation.isError
@@ -118,16 +124,44 @@ export function PullRequestMergeQueuePanel({
 						the target branch as it moves. This one would join as{' '}
 						{getMergeStrategyLabel(strategy).toLowerCase()}.
 					</p>
-					<Button
-						className="w-fit"
-						disabled={joinQueue.isPending}
-						onClick={() => joinQueue.mutate({ ...input, strategy })}
-						size="sm"
-						variant="outline"
-					>
-						<ListOrdered className="size-4" />
-						{joinQueue.isPending ? 'Joining' : 'Join merge queue'}
-					</Button>
+					{strategy === 'squash' ? (
+						// The message is settled when the entry is created and never
+						// re-derived, so it is asked for here rather than left to a
+						// default the joiner never saw.
+						<PullRequestSquashDialog
+							defaultBody={pullRequest.body}
+							defaultTitle={`${pullRequest.title} (#${pullRequest.number})`}
+							isOpen={isSquashDialogOpen}
+							isPending={joinQueue.isPending}
+							onConfirm={({ squashBody, squashTitle }) =>
+								joinQueue.mutate({
+									...input,
+									strategy: 'squash',
+									squashTitle,
+									squashBody,
+								})
+							}
+							onOpenChange={setIsSquashRequested}
+							targetBranch={pullRequest.targetBranch}
+							trigger={
+								<Button className="w-fit" size="sm" variant="outline">
+									<ListOrdered className="size-4" />
+									Join merge queue
+								</Button>
+							}
+						/>
+					) : (
+						<Button
+							className="w-fit"
+							disabled={joinQueue.isPending}
+							onClick={() => joinQueue.mutate({ ...input, strategy })}
+							size="sm"
+							variant="outline"
+						>
+							<ListOrdered className="size-4" />
+							{joinQueue.isPending ? 'Joining' : 'Join merge queue'}
+						</Button>
+					)}
 				</div>
 			)}
 			{failedMutation?.isError && (
