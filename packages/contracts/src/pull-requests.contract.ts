@@ -83,22 +83,34 @@ export type MergeStrategyAvailability = z.infer<
 >
 
 /**
- * Text that ends up inside a Git commit message. A NUL cannot be represented in
- * a commit object at all, so Git storage refuses one — which would surface as an
- * unmergeable pull request rather than as the invalid input it is.
+ * A NUL cannot be represented in a Git commit object at all, so Git storage
+ * refuses one — which would surface as an unmergeable pull request rather than
+ * as the invalid input it is.
+ *
+ * Applied by chaining onto the schema that already trims, never by intersecting
+ * two schemas: an intersection runs both against the untouched input and then
+ * demands the two results match, so a trimmed value and an untrimmed one cannot
+ * be reconciled and the parse throws rather than returning an error.
  */
-const commitSafeTextSchema = z
-	.string()
-	.refine(value => !value.includes('\0'), 'The text must not contain NUL')
+function refuseNul<Schema extends z.ZodType<string>>(schema: Schema) {
+	return schema.refine(
+		value => !value.includes('\0'),
+		'The text must not contain NUL'
+	)
+}
+
+/** Free text that ends up inside a Git commit message. */
+const commitSafeBodySchema = refuseNul(z.string().max(65_536))
 
 /** A commit subject, which is one line by definition. */
-const mergeCommitTitleSchema = z
-	.string()
-	.trim()
-	.min(1)
-	.max(256)
-	.regex(/^[^\r\n]+$/, 'The title must be a single line')
-	.and(commitSafeTextSchema)
+const mergeCommitTitleSchema = refuseNul(
+	z
+		.string()
+		.trim()
+		.min(1)
+		.max(256)
+		.regex(/^[^\r\n]+$/, 'The title must be a single line')
+)
 
 export const pullRequestProviderSchema = z.enum(['tessera', 'github'])
 export type PullRequestProvider = z.infer<typeof pullRequestProviderSchema>
@@ -773,7 +785,7 @@ export const createPullRequestInputSchema = repositoryPullRequestsInputSchema
 		targetBranch: z.string().trim().min(1).max(255),
 		// The title becomes a squash commit's subject, which is one line.
 		title: mergeCommitTitleSchema,
-		body: z.string().max(65_536).and(commitSafeTextSchema).optional(),
+		body: commitSafeBodySchema.optional(),
 	})
 	.refine(input => input.sourceBranch !== input.targetBranch, {
 		message: 'The source and target branches must be different',
@@ -872,7 +884,7 @@ function withMergeStrategy<Shape extends z.ZodRawShape>(
 		base.extend({
 			strategy: z.literal('squash'),
 			squashTitle: mergeCommitTitleSchema.optional(),
-			squashBody: z.string().max(65_536).and(commitSafeTextSchema).optional(),
+			squashBody: commitSafeBodySchema.optional(),
 		}),
 	])
 }
@@ -952,7 +964,7 @@ export type ParsedRetryMergeQueueEntryInput = z.infer<
 export const editPullRequestInputSchema = getPullRequestInputSchema
 	.extend({
 		title: mergeCommitTitleSchema.optional(),
-		body: z.string().max(65_536).and(commitSafeTextSchema).optional(),
+		body: commitSafeBodySchema.optional(),
 	})
 	.refine(input => input.title !== undefined || input.body !== undefined, {
 		message: 'At least one editable field is required',
