@@ -1,14 +1,12 @@
 use std::path::Path;
-use std::process::Stdio;
 
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
 use crate::domain::{
     RepositoryError, RepositoryMerge, RepositoryMergeRequest, RepositoryMergeStrategy,
     RepositoryMergeStrategyUnavailableReason,
 };
+use crate::storage::infrastructure::repository_browser::GitCommandOptions;
 use crate::storage::infrastructure::repository_browser_helpers::validate_object_id;
 use crate::storage::infrastructure::repository_merge_helpers::{
     CommitTreeRequest, MERGE_COMMAND_TIMEOUT, ObjectStore, ResolvedMergeRefs, create_commit,
@@ -459,30 +457,20 @@ impl RepositoryStorage {
             operation_ref,
             receipt_sha,
         } = update;
-        let mut child = Command::new(&self.git_binary)
-            .arg("--git-dir")
-            .arg(repository_path)
-            .arg("update-ref")
-            .arg("--stdin")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .map_err(RepositoryError::GitProcessIo)?;
         let transaction = format!(
             "start\nverify {head_ref} {expected_head_sha}\nupdate {base_ref} {resulting_sha} {expected_base_sha}\ncreate {operation_ref} {receipt_sha}\nprepare\ncommit\n"
         );
-        let mut stdin = child
-            .stdin
-            .take()
-            .ok_or(RepositoryError::GitProcessFailed)?;
-        let write_result = stdin.write_all(transaction.as_bytes()).await;
-        drop(stdin);
-        let output = timeout(MERGE_COMMAND_TIMEOUT, child.wait_with_output())
-            .await
-            .map_err(|_| RepositoryError::GitProcessFailed)?
-            .map_err(RepositoryError::GitProcessIo)?;
+        let output = self
+            .git_command(
+                repository_path,
+                ["update-ref", "--stdin"],
+                GitCommandOptions {
+                    input: Some(transaction.as_bytes()),
+                    timeout: MERGE_COMMAND_TIMEOUT,
+                    ..GitCommandOptions::default()
+                },
+            )
+            .await?;
 
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -503,8 +491,6 @@ impl RepositoryStorage {
                 Err(RepositoryError::GitProcessFailed)
             };
         }
-
-        write_result.map_err(RepositoryError::GitProcessIo)?;
 
         Ok(())
     }

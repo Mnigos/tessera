@@ -97,15 +97,44 @@ impl RepositoryStorage {
         .await
     }
 
-    /// The receipt filed under this operation, if one is. A ref that is missing,
-    /// unreadable or malformed all mean the same thing to the caller: no proof
-    /// this operation ever moved the target.
+    /// The receipt filed under this operation, if one is.
+    ///
+    /// A ref that does not exist is an answer: this operation never moved the
+    /// target. Git failing to be asked is not — and the difference matters,
+    /// because a caller recovering an abandoned merge releases the intent when
+    /// told there is no receipt, which would throw away the record of a merge
+    /// that did happen. So existence is established first, and any failure to
+    /// read a ref that does exist is reported as the failure it is.
+    ///
+    /// A receipt that exists but cannot be parsed stays `None`: that is a
+    /// malformed receipt rather than a broken Git, and no caller can act on it.
     pub(super) async fn read_merge_receipt(
         &self,
         repository_path: &Path,
         operation_id: &str,
     ) -> Result<Option<MergeReceipt>, RepositoryError> {
         let operation_ref = operation_ref(operation_id);
+        let exists = self
+            .git(
+                repository_path,
+                [
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "--end-of-options",
+                    &format!("{operation_ref}^{{commit}}"),
+                ],
+            )
+            .await?;
+
+        // `--quiet` makes a missing ref exit 1 with nothing on stderr, which is
+        // the one non-zero exit that means "no receipt" rather than "no answer".
+        match exists.status.code() {
+            Some(0) => {}
+            Some(1) => return Ok(None),
+            _ => return Err(RepositoryError::GitProcessFailed),
+        }
+
         let output = self
             .git(
                 repository_path,
@@ -114,7 +143,7 @@ impl RepositoryStorage {
             .await?;
 
         if !output.status.success() {
-            return Ok(None);
+            return Err(RepositoryError::GitProcessFailed);
         }
 
         Ok(parse_receipt(&utf8_trimmed(&output.stdout)?))

@@ -1,11 +1,10 @@
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 
-use tokio::io::AsyncWriteExt;
-use tokio::process::Command;
-use tokio::time::{Duration, timeout};
+use tokio::time::Duration;
 
 use crate::domain::RepositoryError;
+use crate::storage::infrastructure::repository_browser::GitCommandOptions;
 use crate::storage::infrastructure::repository_ref_helpers::{
     qualified_branch_ref, resolve_commit_ref, utf8_trimmed,
 };
@@ -38,13 +37,18 @@ impl<'a> ObjectStore<'a> {
 
     /// Points Git's writes at the scratch store while leaving the repository's
     /// own objects readable through it.
-    fn apply(self, command: &mut Command, repository_path: &Path) {
-        if let Some(scratch_path) = self.scratch_path {
-            command.env("GIT_OBJECT_DIRECTORY", scratch_path).env(
+    fn environment(self, repository_path: &Path) -> Vec<(&'static str, OsString)> {
+        let Some(scratch_path) = self.scratch_path else {
+            return Vec::new();
+        };
+
+        vec![
+            ("GIT_OBJECT_DIRECTORY", scratch_path.into()),
+            (
                 "GIT_ALTERNATE_OBJECT_DIRECTORIES",
-                repository_path.join("objects"),
-            );
-        }
+                repository_path.join("objects").into(),
+            ),
+        ]
     }
 }
 
@@ -110,13 +114,17 @@ pub(super) async fn run_merge_tree<const N: usize>(
     objects: ObjectStore<'_>,
     args: [&str; N],
 ) -> Result<MergeTreeOutcome, RepositoryError> {
-    let mut command = Command::new(&storage.git_binary);
-    command.arg("--git-dir").arg(repository_path).args(args);
-    objects.apply(&mut command, repository_path);
-    let output = timeout(MERGE_COMMAND_TIMEOUT, command.kill_on_drop(true).output())
-        .await
-        .map_err(|_| RepositoryError::GitProcessFailed)?
-        .map_err(RepositoryError::GitProcessIo)?;
+    let output = storage
+        .git_command(
+            repository_path,
+            args,
+            GitCommandOptions {
+                environment: &objects.environment(repository_path),
+                timeout: MERGE_COMMAND_TIMEOUT,
+                ..GitCommandOptions::default()
+            },
+        )
+        .await?;
 
     if output.status.success() {
         return Ok(MergeTreeOutcome::Clean(output.stdout));
@@ -220,46 +228,41 @@ pub(super) async fn create_commit(
     objects: ObjectStore<'_>,
     request: CommitTreeRequest<'_>,
 ) -> Result<String, RepositoryError> {
-    let mut command = Command::new(&storage.git_binary);
-
-    objects.apply(&mut command, repository_path);
-    command
-        .arg("--git-dir")
-        .arg(repository_path)
-        .arg("commit-tree")
-        .arg(request.tree_sha);
+    let mut arguments = vec!["commit-tree".to_string(), request.tree_sha.to_string()];
 
     for parent in request.parents {
-        command.arg("-p").arg(parent);
+        arguments.push("-p".to_string());
+        arguments.push((*parent).to_string());
     }
 
-    command
-        .arg("-F")
-        .arg("-")
-        .env("GIT_AUTHOR_NAME", request.author_name)
-        .env("GIT_AUTHOR_EMAIL", request.author_email)
-        .env("GIT_COMMITTER_NAME", request.committer_name)
-        .env("GIT_COMMITTER_EMAIL", request.committer_email)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(true);
+    // Reading the message from stdin rather than an argument, which has a
+    // length limit a commit message does not.
+    arguments.push("-F".to_string());
+    arguments.push("-".to_string());
+
+    let mut environment = objects.environment(repository_path);
+    environment.extend([
+        ("GIT_AUTHOR_NAME", request.author_name.into()),
+        ("GIT_AUTHOR_EMAIL", request.author_email.into()),
+        ("GIT_COMMITTER_NAME", request.committer_name.into()),
+        ("GIT_COMMITTER_EMAIL", request.committer_email.into()),
+    ]);
 
     if let Some(author_date) = request.author_date {
-        command.env("GIT_AUTHOR_DATE", author_date);
+        environment.push(("GIT_AUTHOR_DATE", author_date.into()));
     }
 
-    let mut child = command.spawn().map_err(RepositoryError::GitProcessIo)?;
-    let mut stdin = child
-        .stdin
-        .take()
-        .ok_or(RepositoryError::GitProcessFailed)?;
-    let write_result = stdin.write_all(request.message).await;
-    drop(stdin);
-    let output = timeout(MERGE_COMMAND_TIMEOUT, child.wait_with_output())
-        .await
-        .map_err(|_| RepositoryError::GitProcessFailed)?
-        .map_err(RepositoryError::GitProcessIo)?;
+    let output = storage
+        .git_command(
+            repository_path,
+            &arguments,
+            GitCommandOptions {
+                environment: &environment,
+                input: Some(request.message),
+                timeout: MERGE_COMMAND_TIMEOUT,
+            },
+        )
+        .await?;
 
     if !output.status.success() {
         tracing::warn!(
@@ -269,8 +272,6 @@ pub(super) async fn create_commit(
 
         return Err(RepositoryError::GitProcessFailed);
     }
-
-    write_result.map_err(RepositoryError::GitProcessIo)?;
 
     let commit_sha = utf8_trimmed(&output.stdout)?;
     if commit_sha.is_empty() {

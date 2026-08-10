@@ -3700,6 +3700,80 @@ fn scratch_object_stores(bare_repository_path: &Path) -> usize {
         .count()
 }
 
+// Recovery releases the merge intent when told there is no receipt, so "Git
+// could not be asked" must never be answered as "this operation never merged" —
+// that would throw away the only record of a merge that did happen.
+#[cfg(unix)]
+#[tokio::test]
+async fn repository_merge_receipt_lookup_separates_a_missing_ref_from_a_broken_git() {
+    let temp_dir = TempDir::new().unwrap();
+    let repository_storage = storage(temp_dir.path(), "git");
+    let repository = repository_storage
+        .create_repository(&repository_id())
+        .await
+        .unwrap();
+    push_diverged_feature_branch(temp_dir.path(), &repository.path);
+    let base_sha = resolve(&repository.path, "main");
+    let head_sha = resolve(&repository.path, "feature");
+    repository_storage
+        .merge_repository_refs(merge_request(
+            &repository.storage_path,
+            &base_sha,
+            &head_sha,
+            RepositoryMergeStrategy::Squash,
+        ))
+        .await
+        .unwrap();
+
+    // The receipt exists, but reading its message fails.
+    let git_script = temp_dir.path().join("fail-log.sh");
+    fs::write(
+        &git_script,
+        "#!/bin/sh\nfor argument in \"$@\"; do\n\tif [ \"$argument\" = \"log\" ]; then\n\t\tprintf 'forced log failure\\n' >&2\n\t\texit 3\n\tfi\ndone\nexec git \"$@\"\n",
+    )
+    .unwrap();
+    make_executable(&git_script);
+    let failing_storage = storage(temp_dir.path(), git_script.to_str().unwrap());
+
+    let error = failing_storage
+        .find_repository_merge_receipt(
+            REPOSITORY_ID,
+            &repository.storage_path,
+            OPERATION_ID,
+            RepositoryMergeStrategy::Squash,
+            &base_sha,
+            &head_sha,
+        )
+        .await
+        .unwrap_err();
+
+    assert!(
+        matches!(error, RepositoryError::GitProcessFailed),
+        "a receipt that cannot be read is a failure, not an absence"
+    );
+
+    // A ref that genuinely does not exist is still an answer.
+    git(
+        &repository.path,
+        ["update-ref", "-d", &operation_receipt_ref()],
+    );
+
+    assert_eq!(
+        repository_storage
+            .find_repository_merge_receipt(
+                REPOSITORY_ID,
+                &repository.storage_path,
+                OPERATION_ID,
+                RepositoryMergeStrategy::Squash,
+                &base_sha,
+                &head_sha,
+            )
+            .await
+            .unwrap(),
+        None
+    );
+}
+
 // Deciding whether a rebase would go through means performing it, and every
 // pull request page asks. Those objects go to a scratch store, not the
 // repository the question is about.
