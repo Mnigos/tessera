@@ -2841,7 +2841,7 @@ async fn repository_merge_rebases_preserving_authors_and_dropping_empty_commits(
     assert_eq!(replayed.len(), 2);
     assert_eq!(replayed[0][1], "first feature commit");
     assert_eq!(replayed[0][2], "Grace <grace@example.com>");
-    assert_eq!(replayed[0][3], "2026-05-16T11:00:00+00:00");
+    assert_utc_git_date_eq(&replayed[0][3], "2026-05-16T11:00:00");
     assert_eq!(replayed[1][1], "second feature commit");
     assert_eq!(replayed[1][2], "Katherine <katherine@example.com>");
     // Whoever merged is the committer of every replayed commit, which is the
@@ -3480,7 +3480,13 @@ async fn repository_merge_recovers_a_pre_receipt_merge_only_when_the_target_move
     let head_sha = resolve(&repository.path, "feature");
 
     // A merge exactly as the pre-receipt implementation left one: two parents,
-    // the operation trailer, and no receipt anywhere.
+    // the operation trailer, and no receipt anywhere. commit-tree needs an
+    // identity, and CI has no global one.
+    git(&repository.path, ["config", "user.name", "Tessera Test"]);
+    git(
+        &repository.path,
+        ["config", "user.email", "test@tessera.dev"],
+    );
     let tree_sha = git_stdout(
         &repository.path,
         ["merge-tree", "--write-tree", &base_sha, &head_sha],
