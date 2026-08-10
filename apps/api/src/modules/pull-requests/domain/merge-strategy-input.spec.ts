@@ -78,6 +78,31 @@ describe('merge strategy inputs', () => {
 		).toBeTruthy()
 	})
 
+	// A schema that trims and a schema that checks for NUL cannot be intersected:
+	// zod runs both against the untouched input and then demands the results
+	// match, so a trimmed value and an untrimmed one throw out of `safeParse`
+	// entirely. Pasted titles carry whitespace far more often than they carry NUL.
+	test('accepts a padded title and trims it', () => {
+		const parsed = mergePullRequestInputSchema.safeParse({
+			...mergeInput,
+			strategy: 'squash',
+			squashTitle: '  Add search  ',
+		})
+
+		expect(parsed.success).toBeTruthy()
+		expect(parsed.success && parsed.data.squashTitle).toBe('Add search')
+	})
+
+	test('accepts a padded squash body', () => {
+		expect(
+			mergePullRequestInputSchema.safeParse({
+				...mergeInput,
+				strategy: 'squash',
+				squashBody: '  Why it changed  ',
+			}).success
+		).toBeTruthy()
+	})
+
 	// Git storage refuses both, and it would refuse them as invalid input —
 	// reaching the reader as a merge that mysteriously will not go through.
 	test('refuses text a commit message cannot carry', () => {
