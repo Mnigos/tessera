@@ -29,14 +29,32 @@ import {
 	RepositoryNotFoundError,
 	RepositoryStoragePathMissingError,
 } from '../domain/repository.errors'
+import type { RepositorySyncHealthFacts } from '../domain/repository-sync-health'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
+import { RepositorySyncHealthRepository } from '../infrastructure/repository-sync-health.repository'
 import { RepositoriesService } from './repositories.service'
 import { RepositoryPermissionsService } from './repository-permissions.service'
 
 vi.mock('../helpers/repository-blob-highlighting', () => ({
 	highlightRepositoryBlobPreview: vi.fn(),
 }))
+
+/** A converged mirror, which is what cutover asks the read model for. */
+function healthyFacts(
+	overrides: Partial<RepositorySyncHealthFacts> = {}
+): RepositorySyncHealthFacts {
+	return {
+		syncStatus: 'succeeded',
+		lastSyncSucceededAt: new Date(),
+		pendingDeliveryCount: 0,
+		retryCount24h: 0,
+		terminalCount24h: 0,
+		completedCount24h: 1,
+		latestAttemptStatus: 'succeeded',
+		...overrides,
+	}
+}
 
 const textEncoder = new TextEncoder()
 const trustedGpgKey = {
@@ -58,6 +76,44 @@ const repository: RepositoryWithOwner = {
 	storagePath: null,
 	createdAt: new Date('2026-05-12T00:00:00Z'),
 	updatedAt: new Date('2026-05-12T00:00:00Z'),
+}
+
+/** A repository GitHub owns, with a last run the source row calls successful. */
+function mirroredGitHubRepository(): RepositoryWithOwner {
+	return {
+		...repository,
+		storagePath: '/var/lib/tessera/repositories/repo.git',
+		externalSource: {
+			id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
+			repositoryId: repository.id,
+			provider: 'github',
+			externalRepositoryId: 123n,
+			ownerLogin: 'marta',
+			name: 'notes',
+			fullName: 'marta/notes',
+			sourceUrl: 'https://github.com/marta/notes',
+			sourceDefaultBranch: 'main',
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
+			lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+			lastSyncFailedAt: null,
+			nextSyncAt: new Date('2026-05-12T01:01:00Z'),
+			syncFailureCount: 0,
+			syncFailureReason: null,
+			cutoverActorUserId: null,
+			cutoverAt: null,
+			cutoverFromMirrorMode: null,
+			githubPushBackEnabled: false,
+			githubPushBackStatus: 'idle',
+			githubPushBackStartedAt: null,
+			githubPushBackSucceededAt: null,
+			githubPushBackFailedAt: null,
+			githubPushBackFailureReason: null,
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:00:00Z'),
+		},
+	}
 }
 
 const collaboratorUserId = '00000000-0000-4000-8000-000000000042' as UserId
@@ -215,11 +271,13 @@ describe(RepositoriesService.name, () => {
 				{
 					provide: EnvService,
 					useValue: {
-						get: vi.fn((key: string) =>
-							key === 'GITHUB_APP_INSTALL_URL'
-								? 'https://github.com/apps/tessera/installations/new'
-								: undefined
-						),
+						get: vi.fn((key: string) => {
+							if (key === 'GITHUB_APP_INSTALL_URL')
+								return 'https://github.com/apps/tessera/installations/new'
+							if (key === 'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES') return 60
+
+							return undefined
+						}),
 					},
 				},
 				{
@@ -229,6 +287,10 @@ describe(RepositoriesService.name, () => {
 				{
 					provide: ChecksReadService,
 					useValue: { listSummaries: vi.fn().mockResolvedValue(new Map()) },
+				},
+				{
+					provide: RepositorySyncHealthRepository,
+					useValue: { findFacts: vi.fn().mockResolvedValue(healthyFacts()) },
 				},
 			],
 		}).compile()
@@ -740,6 +802,136 @@ describe(RepositoriesService.name, () => {
 			actorUserId,
 			cutoverAt: expect.any(Date),
 		})
+	})
+
+	test('rejects cutover when the last run finalized incompletely', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		const cutoverGitHubMirrorSpy = vi.spyOn(
+			repositoriesRepository,
+			'cutoverGitHubMirror'
+		)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(healthyFacts({ latestAttemptStatus: 'partial' }))
+
+		// The source row says `succeeded`, which is exactly the case the old gate
+		// let through: switching authority here would keep whatever the partial run
+		// never reconciled out of Tessera permanently.
+		await expect(
+			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverUnavailableError)
+		expect(cutoverGitHubMirrorSpy).not.toHaveBeenCalled()
+	})
+
+	test('rejects cutover while deliveries are still unprocessed', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(healthyFacts({ pendingDeliveryCount: 2 }))
+
+		await expect(
+			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorCutoverUnavailableError)
+	})
+
+	test('reports derived sync health for a mirrored repository', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(
+			healthyFacts({
+				retryCount24h: 3,
+				terminalCount24h: 1,
+				completedCount24h: 4,
+			})
+		)
+
+		expect(
+			await repositoriesService.getGitHubSyncHealth(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			syncHealth: expect.objectContaining({
+				state: 'healthy',
+				retryCount24h: 3,
+				failureRate24h: 0.25,
+			}),
+		})
+	})
+
+	test('reports no sync health for a repository with no external source', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(repository)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(undefined)
+
+		expect(
+			await repositoriesService.getGitHubSyncHealth(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({ syncHealth: undefined })
+	})
+
+	test('offers the GitHub App install page when access has to be granted again', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(
+			healthyFacts({
+				syncStatus: 'blocked',
+				syncFailureCode: 'missing_installation',
+				latestAttemptStatus: 'blocked',
+			})
+		)
+
+		expect(
+			await repositoriesService.getGitHubReauthorization(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({
+			reauthorizationRequired: true,
+			installUrl: 'https://github.com/apps/tessera/installations/new',
+		})
+	})
+
+	test('never requests synchronization while answering a reauthorization question', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		const markPendingSpy = vi.spyOn(
+			repositoriesRepository,
+			'markGitHubMirrorSyncPending'
+		)
+
+		expect(
+			await repositoriesService.getGitHubReauthorization(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({ reauthorizationRequired: false })
+		expect(markPendingSpy).not.toHaveBeenCalled()
 	})
 
 	test('rejects cutover while GitHub mirror sync is running', async () => {

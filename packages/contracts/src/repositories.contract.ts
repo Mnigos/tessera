@@ -39,6 +39,66 @@ export type RepositoryExternalSourceSyncStatus = z.infer<
 	typeof repositoryExternalSourceSyncStatusSchema
 >
 
+/**
+ * How synchronization is doing, as opposed to what its last run did.
+ *
+ * `stale` and `partial` are derived on read rather than stored: a run that
+ * finalized without reconciling everything still records `succeeded`, and a
+ * mirror nobody has reconciled in hours is `succeeded` too. Neither is a state
+ * the source row can hold, and both are the ones worth showing.
+ */
+export const repositorySyncHealthStateSchema = z.enum([
+	'healthy',
+	'pending',
+	'stale',
+	'partial',
+	'failed',
+	'blocked',
+])
+export type RepositorySyncHealthState = z.infer<
+	typeof repositorySyncHealthStateSchema
+>
+
+/**
+ * Why synchronization is not healthy, from a closed set Tessera writes itself.
+ * Provider statuses, messages, and identifiers never reach it.
+ */
+export const repositorySyncHealthCodeSchema = z.enum([
+	'installation_suspended',
+	'missing_installation',
+	'missing_storage',
+	'rate_limited',
+	'authentication_failed',
+	'authorization_failed',
+	'repository_unavailable',
+	'resource_not_found',
+	'provider_schema_mismatch',
+	'provider_rejected_request',
+	'upstream_unavailable',
+	'reconciliation_failed',
+])
+export type RepositorySyncHealthCode = z.infer<
+	typeof repositorySyncHealthCodeSchema
+>
+
+export const repositorySyncHealthSchema = z.object({
+	state: repositorySyncHealthStateSchema,
+	/** How long ago the last successful reconciliation finished. */
+	freshnessLagSeconds: z.number().int().nonnegative().optional(),
+	/** How long the oldest unprocessed delivery has been waiting. */
+	deliveryLagSeconds: z.number().int().nonnegative().optional(),
+	pendingDeliveryCount: z.number().int().nonnegative(),
+	retryCount24h: z.number().int().nonnegative(),
+	failureRate24h: z.number().min(0).max(1),
+	lastReconciliationDurationMs: z.number().int().nonnegative().optional(),
+	rateLimitedUntil: z.coerce.date().optional(),
+	code: repositorySyncHealthCodeSchema.optional(),
+	message: z.string().optional(),
+	/** Whether access has to be granted again on GitHub before this resumes. */
+	reauthorizationRequired: z.boolean(),
+})
+export type RepositorySyncHealth = z.infer<typeof repositorySyncHealthSchema>
+
 export const repositoryGitHubPushBackStatusSchema = z.enum([
 	'idle',
 	'running',
@@ -146,6 +206,22 @@ export type CutoverGitHubMirrorInput = z.input<
 >
 export type ParsedCutoverGitHubMirrorInput = z.infer<
 	typeof cutoverGitHubMirrorInputSchema
+>
+
+export const getGitHubSyncHealthInputSchema = getRepositoryInputSchema
+export type GetGitHubSyncHealthInput = z.input<
+	typeof getGitHubSyncHealthInputSchema
+>
+export type ParsedGetGitHubSyncHealthInput = z.infer<
+	typeof getGitHubSyncHealthInputSchema
+>
+
+export const getGitHubReauthorizationInputSchema = getRepositoryInputSchema
+export type GetGitHubReauthorizationInput = z.input<
+	typeof getGitHubReauthorizationInputSchema
+>
+export type ParsedGetGitHubReauthorizationInput = z.infer<
+	typeof getGitHubReauthorizationInputSchema
 >
 
 export const getRepositoryBrowserSummaryInputSchema =
@@ -403,6 +479,25 @@ export const repositoriesContract = {
 		})
 		.input(cutoverGitHubMirrorInputSchema)
 		.output(repositoryWithOwnerSchema),
+	getGitHubSyncHealth: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/github-mirror/health',
+		})
+		.input(getGitHubSyncHealthInputSchema)
+		.output(z.object({ syncHealth: repositorySyncHealthSchema.optional() })),
+	getGitHubReauthorization: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/github-mirror/reauthorization',
+		})
+		.input(getGitHubReauthorizationInputSchema)
+		.output(
+			z.object({
+				reauthorizationRequired: z.boolean(),
+				installUrl: z.url().optional(),
+			})
+		),
 	getBrowserSummary: oc
 		.route({
 			method: 'GET',

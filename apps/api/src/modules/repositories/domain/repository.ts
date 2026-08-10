@@ -14,6 +14,8 @@ export type RepositoryExternalSourceReadModel = Omit<
 	| 'syncFailureCode'
 	| 'authorityGeneration'
 	| 'requestedSyncVersion'
+	| 'requestedSyncTrigger'
+	| 'requestedReplayDeliveryId'
 	| 'completedSyncVersion'
 	| 'pullRequestSyncCursorAt'
 	| 'syncLeaseOwner'
