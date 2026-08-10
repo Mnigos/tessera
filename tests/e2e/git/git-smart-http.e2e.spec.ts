@@ -707,15 +707,18 @@ describe('Git smart HTTP e2e', () => {
 		const advertised = await lsRemote(
 			smartHttpUrl(ports.gitHttp, fixture.username, fixture.slug)
 		)
+		// Pushed with the write token on purpose: the rejection has to come from
+		// the hidden namespace, not from authentication.
 		const forcedPush =
-			await $`git push origin HEAD:refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7`
+			await $`git push ${fixture.writableUrl} HEAD:refs/tessera/operations/018f6f4a-11d3-7c8b-9c5e-5cf1d2e3a4c7`
 				.cwd(fixture.localRepository)
 				.nothrow()
 				.quiet()
 
+		expect(forcedPush.exitCode).not.toBe(0)
+		expect(forcedPush.stderr.toString()).toContain('refs/tessera')
 		expect(advertised.stdout).toContain('refs/heads/main')
 		expect(advertised.stdout).not.toContain('refs/tessera')
-		expect(forcedPush.exitCode).not.toBe(0)
 	})
 
 	test('lets the owner push, clone, and fetch repositories over SSH', async () => {

@@ -1,6 +1,8 @@
+use std::ffi::OsString;
 use std::path::Path;
+use std::process::Stdio;
 
-use tokio::io::AsyncReadExt;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::Command;
 use tokio::time::{Duration, timeout};
 
@@ -581,17 +583,83 @@ impl RepositoryStorage {
         repository_path: &Path,
         args: [&str; N],
     ) -> Result<std::process::Output, RepositoryError> {
-        timeout(
-            Duration::from_secs(15),
-            Command::new(&self.git_binary)
-                .arg("--git-dir")
-                .arg(repository_path)
-                .args(args)
-                .output(),
-        )
-        .await
-        .map_err(|_| RepositoryError::GitProcessFailed)?
-        .map_err(RepositoryError::GitProcessIo)
+        self.git_command(repository_path, args, GitCommandOptions::default())
+            .await
+    }
+
+    /// The one place a Git subprocess is spawned: every command is bounded by a
+    /// timeout, killed if the future it belongs to is dropped, and scoped to the
+    /// repository by `--git-dir`. Commands needing an environment or an input
+    /// come through here too rather than assembling their own, so none of them
+    /// can quietly miss one of those.
+    pub(super) async fn git_command<Arguments>(
+        &self,
+        repository_path: &Path,
+        args: Arguments,
+        options: GitCommandOptions<'_>,
+    ) -> Result<std::process::Output, RepositoryError>
+    where
+        Arguments: IntoIterator,
+        Arguments::Item: AsRef<std::ffi::OsStr>,
+    {
+        let mut command = Command::new(&self.git_binary);
+
+        command
+            .arg("--git-dir")
+            .arg(repository_path)
+            .args(args)
+            .envs(options.environment.iter().cloned())
+            .kill_on_drop(true);
+
+        let Some(input) = options.input else {
+            return timeout(options.timeout, command.output())
+                .await
+                .map_err(|_| RepositoryError::GitProcessFailed)?
+                .map_err(RepositoryError::GitProcessIo);
+        };
+
+        command
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let mut child = command.spawn().map_err(RepositoryError::GitProcessIo)?;
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or(RepositoryError::GitProcessFailed)?;
+        let write_result = stdin.write_all(input).await;
+        drop(stdin);
+        let output = timeout(options.timeout, child.wait_with_output())
+            .await
+            .map_err(|_| RepositoryError::GitProcessFailed)?
+            .map_err(RepositoryError::GitProcessIo)?;
+
+        // Reported only once the child's own outcome is known: a command that
+        // rejected its input closes the pipe, and the broken pipe is less
+        // informative than whatever it said before closing it.
+        write_result.map_err(RepositoryError::GitProcessIo)?;
+
+        Ok(output)
+    }
+}
+
+/// Everything a Git command may need beyond its arguments.
+pub(super) struct GitCommandOptions<'a> {
+    pub environment: &'a [(&'a str, OsString)],
+    /// Present when the command reads its input from stdin, which is how any
+    /// text too long for an argument list — a commit message — is handed over.
+    pub input: Option<&'a [u8]>,
+    pub timeout: Duration,
+}
+
+impl Default for GitCommandOptions<'_> {
+    fn default() -> Self {
+        Self {
+            environment: &[],
+            input: None,
+            timeout: Duration::from_secs(15),
+        }
     }
 }
 
