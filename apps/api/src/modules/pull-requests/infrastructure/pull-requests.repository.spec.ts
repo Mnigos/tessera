@@ -567,10 +567,12 @@ describe(PullRequestsRepository.name, () => {
 			await repository.retarget(retargetParams)
 
 			const tables = selectFromMock.mock.calls.map(([table]) => table)
+			const queueStateIndex = tables.indexOf(repositoryMergeQueueStates)
+			const pullRequestIndex = tables.indexOf(pullRequests)
 
-			expect(tables.indexOf(repositoryMergeQueueStates)).toBeLessThan(
-				tables.indexOf(pullRequests)
-			)
+			expect(queueStateIndex).toBeGreaterThanOrEqual(0)
+			expect(pullRequestIndex).toBeGreaterThanOrEqual(0)
+			expect(queueStateIndex).toBeLessThan(pullRequestIndex)
 		})
 
 		test('moves the target and records where it came from', async () => {
