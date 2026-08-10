@@ -628,12 +628,18 @@ impl RepositoryStorage {
             .stdin
             .take()
             .ok_or(RepositoryError::GitProcessFailed)?;
-        let write_result = stdin.write_all(input).await;
-        drop(stdin);
-        let output = timeout(options.timeout, child.wait_with_output())
-            .await
-            .map_err(|_| RepositoryError::GitProcessFailed)?
-            .map_err(RepositoryError::GitProcessIo)?;
+        // The write shares the command deadline: a child that stops reading
+        // its input would otherwise block here forever, outside any timeout.
+        // Timing out drops the child, and kill_on_drop reaps it.
+        let (write_result, output) = timeout(options.timeout, async {
+            let write_result = stdin.write_all(input).await;
+            drop(stdin);
+
+            (write_result, child.wait_with_output().await)
+        })
+        .await
+        .map_err(|_| RepositoryError::GitProcessFailed)?;
+        let output = output.map_err(RepositoryError::GitProcessIo)?;
 
         // Reported only once the child's own outcome is known: a command that
         // rejected its input closes the pipe, and the broken pipe is less
