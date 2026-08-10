@@ -19,6 +19,7 @@ import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { RepositoriesService } from '@modules/repositories/application/repositories.service'
 import { RepositoryPermissionsService } from '@modules/repositories/application/repository-permissions.service'
 import { RepositoriesRepository } from '@modules/repositories/infrastructure/repositories.repository'
+import { RepositorySyncHealthRepository } from '@modules/repositories/infrastructure/repository-sync-health.repository'
 import { GitAuthorizationGrpcController } from '@modules/repositories/presentation/git-authorization.grpc.controller'
 import { GitRepositoryWriteGuard } from '@modules/repositories/presentation/git-repository-write.guard'
 import { InternalGitAuthorizationGuard } from '@modules/repositories/presentation/internal-git-authorization.guard'
@@ -116,6 +117,7 @@ describe('Git authorization gRPC integration', () => {
 			providers: [
 				RepositoriesService,
 				RepositoriesRepository,
+				RepositorySyncHealthRepository,
 				RepositoryPermissionsService,
 				SshPublicKeysService,
 				SshPublicKeysRepository,

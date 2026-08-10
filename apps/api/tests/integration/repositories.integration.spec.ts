@@ -191,6 +191,12 @@ interface CreateIntegrationExternalSourceOptions {
 	mirrorMode?: 'imported' | 'github_to_tessera' | 'tessera_source'
 	syncStatus?: 'pending' | 'running' | 'succeeded' | 'failed'
 	nextSyncAt?: Date | null
+	/**
+	 * How fresh the mirror is. Cutover reads derived sync health rather than the
+	 * stored status, so a test that expects it to succeed has to say the last
+	 * reconciliation happened recently — a fixed past date reads as stale.
+	 */
+	lastSyncSucceededAt?: Date
 }
 
 describe('Repositories integration', () => {
@@ -567,10 +573,14 @@ describe('Repositories integration', () => {
 		const repository = await getRepositoryRow('notes')
 		const actor = await getUserRow('marta')
 
+		// Nothing here records a sync attempt, which is what every mirror that
+		// existed before attempts were kept looks like. Health is derived from the
+		// source row alone in that case, so cutover still goes through.
 		await createIntegrationExternalSource({
 			repositoryId: repository.id,
 			mirrorMode: 'github_to_tessera',
 			syncStatus: 'succeeded',
+			lastSyncSucceededAt: new Date(),
 			nextSyncAt: new Date('2026-05-12T00:15:00Z'),
 		})
 
@@ -681,6 +691,65 @@ describe('Repositories integration', () => {
 
 		expect(response.status).toBe(409)
 		expect(body.code).toBe('CONFLICT')
+	})
+
+	test('reports a mirror with no recorded attempts as healthy', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncSucceededAt: new Date(),
+		})
+
+		// The attempts table enriches health, it does not gate it. Every mirror
+		// that predates it has no rows, and reading that as unhealthy would block
+		// cutover for all of them until their first reconciliation after deploy.
+		expect(
+			await (await getGitHubSyncHealth('marta', 'notes', headers)).json()
+		).toEqual({
+			syncHealth: expect.objectContaining({
+				state: 'healthy',
+				retryCount24h: 0,
+				failureRate24h: 0,
+				pendingDeliveryCount: 0,
+				reauthorizationRequired: false,
+			}),
+		})
+	})
+
+	test('rejects cutover of a mirror that has not reconciled in hours', async () => {
+		const headers = await createIntegrationSessionHeaders({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
+		const repository = await getRepositoryRow('notes')
+
+		await createIntegrationExternalSource({
+			repositoryId: repository.id,
+			mirrorMode: 'github_to_tessera',
+			syncStatus: 'succeeded',
+			lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
+		})
+
+		// The stored status still says the last run succeeded. Cutting over on that
+		// alone would freeze whatever GitHub changed since into Tessera for good,
+		// so a stale mirror waits for its next successful reconciliation.
+		expect((await cutoverGitHubMirror('marta', 'notes', headers)).status).toBe(
+			400
+		)
+		expect(
+			await (await getGitHubSyncHealth('marta', 'notes', headers)).json()
+		).toEqual({
+			syncHealth: expect.objectContaining({ state: 'stale' }),
+		})
 	})
 
 	test('rejects cutover when latest GitHub mirror sync failed', async () => {
@@ -1605,6 +1674,7 @@ describe('Repositories integration', () => {
 	}
 
 	async function createIntegrationExternalSource({
+		lastSyncSucceededAt = new Date('2026-05-12T00:01:00Z'),
 		mirrorMode = 'github_to_tessera',
 		nextSyncAt,
 		repositoryId,
@@ -1623,9 +1693,7 @@ describe('Repositories integration', () => {
 			syncStatus,
 			nextSyncAt,
 			lastSyncSucceededAt:
-				syncStatus === 'succeeded'
-					? new Date('2026-05-12T00:01:00Z')
-					: undefined,
+				syncStatus === 'succeeded' ? lastSyncSucceededAt : undefined,
 			lastSyncStartedAt:
 				syncStatus === 'running' ? new Date('2026-05-12T00:01:00Z') : undefined,
 		})
@@ -1663,6 +1731,17 @@ describe('Repositories integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}/cutover`,
 			{ method: 'POST', headers }
+		)
+	}
+
+	function getGitHubSyncHealth(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return adapter.hono.request(
+			`http://localhost/repositories/${username}/${slug}/github-mirror/health`,
+			{ headers }
 		)
 	}
 

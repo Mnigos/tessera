@@ -49,6 +49,24 @@ export class RepositoriesController {
 	}
 
 	@UseGuards(RepositoryOwnerGuard)
+	@Implement(contract.repositories.getGitHubSyncHealth)
+	getGitHubSyncHealth(@TargetUserId() targetUserId: UserId) {
+		return implement(contract.repositories.getGitHubSyncHealth).handler(
+			({ input }) =>
+				this.repositoriesService.getGitHubSyncHealth(targetUserId, input)
+		)
+	}
+
+	@UseGuards(RepositoryOwnerGuard)
+	@Implement(contract.repositories.getGitHubReauthorization)
+	getGitHubReauthorization(@TargetUserId() targetUserId: UserId) {
+		return implement(contract.repositories.getGitHubReauthorization).handler(
+			({ input }) =>
+				this.repositoriesService.getGitHubReauthorization(targetUserId, input)
+		)
+	}
+
+	@UseGuards(RepositoryOwnerGuard)
 	@Implement(contract.repositories.cutoverGitHubMirror)
 	cutoverGitHubMirror(
 		@Session() session: UserSession,

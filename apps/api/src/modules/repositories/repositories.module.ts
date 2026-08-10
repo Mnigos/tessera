@@ -7,6 +7,7 @@ import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
 import { RepositoryPermissionsService } from './application/repository-permissions.service'
 import { RepositoriesRepository } from './infrastructure/repositories.repository'
+import { RepositorySyncHealthRepository } from './infrastructure/repository-sync-health.repository'
 import { GitAuthorizationGrpcController } from './presentation/git-authorization.grpc.controller'
 import { GitRepositoryWriteGuard } from './presentation/git-repository-write.guard'
 import { InternalGitAuthorizationGuard } from './presentation/internal-git-authorization.guard'
@@ -31,6 +32,7 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		RepositoriesService,
 		RepositoryPermissionsService,
 		RepositoriesRepository,
+		RepositorySyncHealthRepository,
 		GitRepositoryWriteGuard,
 		InternalGitAuthorizationGuard,
 		RepositoryOwnerGuard,

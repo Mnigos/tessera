@@ -23,6 +23,8 @@ import type {
 	CreateRepositoryInput,
 	ParsedCutoverGitHubMirrorInput,
 	ParsedEnableGitHubMirrorInput,
+	ParsedGetGitHubReauthorizationInput,
+	ParsedGetGitHubSyncHealthInput,
 	ParsedGetRepositoryBlobInput,
 	ParsedGetRepositoryBrowserSummaryInput,
 	ParsedGetRepositoryCommitHistoryInput,
@@ -34,6 +36,7 @@ import type {
 	RepositoryBrowserSummary,
 	RepositoryCommitHistory,
 	RepositoryRefs,
+	RepositorySyncHealth,
 	RepositoryTree,
 	RepositoryWithOwner,
 } from '@repo/contracts'
@@ -76,12 +79,14 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
+import { toRepositorySyncHealth } from '../domain/repository-sync-health'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import {
 	type RepositoryBrowserStorageErrorContext,
 	toRepositoryBrowserReadError,
 } from '../helpers/repository-browser-storage-error'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
+import { RepositorySyncHealthRepository } from '../infrastructure/repository-sync-health.repository'
 import { RepositoryPermissionsService } from './repository-permissions.service'
 
 const REPOSITORY_SLUG_UNIQUE_CONSTRAINTS = new Set([
@@ -222,7 +227,8 @@ export class RepositoriesService {
 		private readonly envService: EnvService,
 		private readonly repositoryPermissionsService: RepositoryPermissionsService,
 		private readonly gitAccessTokensService: GitAccessTokensService,
-		private readonly checksReadService: ChecksReadService
+		private readonly checksReadService: ChecksReadService,
+		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository
 	) {}
 
 	async create(
@@ -698,6 +704,20 @@ export class RepositoriesService {
 				syncStatus: repository.externalSource.syncStatus,
 			})
 
+		// A run that finalized is not the same as a mirror that converged: a
+		// contained stage failure or a delivery no run has consumed still records
+		// `succeeded`. Switching authority on that would hand Tessera a repository
+		// missing whatever GitHub never got to answer for, permanently.
+		const syncHealth = await this.findGitHubSyncHealth(repository.id)
+
+		if (syncHealth?.state !== 'healthy')
+			throw new RepositoryGitHubMirrorCutoverUnavailableError({
+				repositoryId: repository.id,
+				provider: repository.externalSource.provider,
+				mirrorMode: repository.externalSource.mirrorMode,
+				syncHealthState: syncHealth?.state,
+			})
+
 		const cutoverRepository =
 			await this.repositoriesRepository.cutoverGitHubMirror({
 				repositoryId: repository.id,
@@ -715,6 +735,69 @@ export class RepositoriesService {
 			})
 
 		return toRepositoryOutput(cutoverRepository)
+	}
+
+	async getGitHubSyncHealth(
+		targetUserId: UserId,
+		{ slug, username }: ParsedGetGitHubSyncHealthInput
+	): Promise<{ syncHealth?: RepositorySyncHealth }> {
+		const repository = await this.repositoriesRepository.find({
+			userId: targetUserId,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		return { syncHealth: await this.findGitHubSyncHealth(repository.id) }
+	}
+
+	/**
+	 * What a person can do about a blocked mirror, and nothing else.
+	 *
+	 * Resuming is GitHub's to announce: the installation webhook that follows a
+	 * reauthorization is what rebinds the installation and requests a new sync.
+	 * This procedure only points at the page where that grant is made, so asking
+	 * for it never starts a synchronization.
+	 */
+	async getGitHubReauthorization(
+		targetUserId: UserId,
+		{ slug, username }: ParsedGetGitHubReauthorizationInput
+	): Promise<{ reauthorizationRequired: boolean; installUrl?: string }> {
+		const repository = await this.repositoriesRepository.find({
+			userId: targetUserId,
+			slug,
+		})
+
+		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+
+		const syncHealth = await this.findGitHubSyncHealth(repository.id)
+
+		if (!syncHealth?.reauthorizationRequired)
+			return { reauthorizationRequired: false }
+
+		return {
+			reauthorizationRequired: true,
+			installUrl: this.envService.get('GITHUB_APP_INSTALL_URL'),
+		}
+	}
+
+	private async findGitHubSyncHealth(
+		repositoryId: RepositoryId
+	): Promise<RepositorySyncHealth | undefined> {
+		const now = new Date()
+		const facts = await this.repositorySyncHealthRepository.findFacts({
+			now,
+			repositoryId,
+		})
+
+		if (!facts) return undefined
+
+		return toRepositorySyncHealth(facts, {
+			now,
+			syncIntervalMinutes: this.envService.get(
+				'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES'
+			),
+		})
 	}
 
 	async getBrowserSummary(

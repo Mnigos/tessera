@@ -53,6 +53,8 @@ describe(RepositoriesController.name, () => {
 						get: vi.fn(),
 						enableGitHubMirror: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
+						getGitHubSyncHealth: vi.fn(),
+						getGitHubReauthorization: vi.fn(),
 						getBrowserSummary: vi.fn(),
 						getRefs: vi.fn(),
 						getTree: vi.fn(),
@@ -218,6 +220,69 @@ describe(RepositoriesController.name, () => {
 				slug: repository.repository.slug,
 			}
 		)
+	})
+
+	test('delegates GitHub sync health requests to the repositories service', async () => {
+		const getGitHubSyncHealthSpy = vi
+			.spyOn(repositoriesService, 'getGitHubSyncHealth')
+			.mockResolvedValue({
+				syncHealth: {
+					state: 'partial',
+					pendingDeliveryCount: 2,
+					retryCount24h: 0,
+					failureRate24h: 0,
+					reauthorizationRequired: false,
+				},
+			})
+
+		expect(
+			await repositoriesController
+				.getGitHubSyncHealth(mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'getGitHubSyncHealth'],
+					procedure: repositoriesController.getGitHubSyncHealth(mockUserId),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual({
+			syncHealth: expect.objectContaining({ state: 'partial' }),
+		})
+		expect(getGitHubSyncHealthSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
+	})
+
+	test('delegates GitHub reauthorization requests to the repositories service', async () => {
+		const getGitHubReauthorizationSpy = vi
+			.spyOn(repositoriesService, 'getGitHubReauthorization')
+			.mockResolvedValue({
+				reauthorizationRequired: true,
+				installUrl: 'https://github.com/apps/tessera/installations/new',
+			})
+
+		expect(
+			await repositoriesController
+				.getGitHubReauthorization(mockUserId)
+				['~orpc'].handler({
+					input: { username: 'marta', slug: repository.repository.slug },
+					context: {},
+					path: ['repositories', 'getGitHubReauthorization'],
+					procedure:
+						repositoriesController.getGitHubReauthorization(mockUserId),
+					lastEventId: undefined,
+					errors: {},
+				})
+		).toEqual({
+			reauthorizationRequired: true,
+			installUrl: 'https://github.com/apps/tessera/installations/new',
+		})
+		expect(getGitHubReauthorizationSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
 	})
 
 	test('delegates browser summary requests with an optional viewer', async () => {
