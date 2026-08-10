@@ -2,15 +2,17 @@ import { EnvService } from '@config/env'
 import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { PullRequestsService } from '@modules/pull-requests'
+import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type {
 	GitHubInstallationId,
 	GitHubPullRequestMappingId,
+	GitHubSyncAttemptId,
 	GitHubWebhookDeliveryId,
 	RepositoryExternalSourceId,
 } from '@repo/db'
 import type { PullRequestId, RepositoryId } from '@repo/domain'
-import type { Job } from 'bullmq'
+import { type Job, UnrecoverableError } from 'bullmq'
 import { ExternalServiceError, ServiceUnavailableError } from '~/shared/errors'
 import { GitHubAppAuthService } from '../infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from '../infrastructure/github-sync.client'
@@ -30,6 +32,9 @@ import { GitHubSyncConversationsRepository } from '../infrastructure/github-sync
 import { GitHubSyncProcessor } from './github-sync.processor'
 
 const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+const attemptId = '00000000-0000-4000-8000-000000000009' as GitHubSyncAttemptId
+/** The whole message, so prose around the code would fail the match. */
+const BARE_FAILURE_CODE_MESSAGE = /^authentication_failed$/
 const request = {
 	repositoryId,
 	authorityGeneration: 2,
@@ -40,6 +45,7 @@ const claim: GitHubSyncClaim = {
 	externalSourceId:
 		'00000000-0000-4000-8000-000000000003' as RepositoryExternalSourceId,
 	leaseOwner: 'lease-owner',
+	trigger: 'scheduled' as const,
 	storagePath: '/var/lib/tessera/repositories/notes.git',
 	externalRepositoryId: 456n,
 	installationId:
@@ -89,7 +95,10 @@ describe(GitHubSyncProcessor.name, () => {
 				},
 				{
 					provide: GitHubAppAuthService,
-					useValue: { getInstallationToken: vi.fn() },
+					useValue: {
+						getInstallationToken: vi.fn(),
+						evictInstallationToken: vi.fn(),
+					},
 				},
 				{
 					provide: GitHubSyncClient,
@@ -120,6 +129,11 @@ describe(GitHubSyncProcessor.name, () => {
 						listCheckTargets: vi.fn(async () => []),
 						finalizeSync: vi.fn(),
 						failSync: vi.fn(),
+						terminalizeSync: vi.fn(),
+						blockSync: vi.fn(),
+						startSyncAttempt: vi.fn(),
+						completeSyncAttempt: vi.fn(),
+						recordInstallationRateLimit: vi.fn(),
 						requestDueReconciliations: vi.fn(),
 					},
 				},
@@ -154,6 +168,7 @@ describe(GitHubSyncProcessor.name, () => {
 		vi.spyOn(repository, 'upsertActors').mockResolvedValue(new Map())
 		vi.spyOn(repository, 'listPendingPullRequestEvents').mockResolvedValue([])
 		vi.spyOn(repository, 'finalizeSync').mockResolvedValue(undefined)
+		vi.spyOn(repository, 'startSyncAttempt').mockResolvedValue(attemptId)
 		vi.spyOn(authService, 'getInstallationToken').mockResolvedValue({
 			token: 'installation-token',
 			expiresAt: new Date('2026-07-29T02:00:00Z'),
@@ -236,20 +251,291 @@ describe(GitHubSyncProcessor.name, () => {
 		expect(queue.enqueue).toHaveBeenNthCalledWith(2, secondRequest)
 	})
 
-	test('records a safe retryable failure without persisting external errors', async () => {
+	test('records a safe retryable failure without letting an external error escape', async () => {
 		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
 			new Error('request failed with installation-token')
 		)
 
-		await expect(
-			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
-		).rejects.toThrow('request failed with installation-token')
+		const promise = processor.process(
+			createJob(GITHUB_SYNC_REPOSITORY_JOB, request)
+		)
+
+		// The message BullMQ keeps on a failed job, and everything the database
+		// stores, has to be Tessera's own wording: an unclassified provider error
+		// can carry a token or a header in its text.
+		await expect(promise).rejects.toThrow('GitHub synchronization failed')
+		await expect(promise).rejects.not.toThrow('installation-token')
 		expect(repository.failSync).toHaveBeenCalledWith(
 			expect.objectContaining({
 				failureCode: 'reconciliation_failed',
 				failureReason:
 					'GitHub synchronization failed. Check the GitHub App installation and wait for Tessera to retry.',
 			})
+		)
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attemptId,
+				status: 'retry_scheduled',
+				failureClass: 'unknown',
+				failureCode: 'reconciliation_failed',
+			})
+		)
+	})
+
+	test('opens an attempt for the run it claimed and closes it on success', async () => {
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		// Provenance comes from the claimed version, not from the job that woke the
+		// worker: the claim takes whatever version is newest by then.
+		expect(repository.startSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId,
+				authorityGeneration: 2,
+				requestedSyncVersion: 5,
+				installationId: claim.installationId,
+				trigger: 'scheduled',
+			})
+		)
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				attemptId,
+				status: 'succeeded',
+				durationMs: expect.any(Number),
+			})
+		)
+	})
+
+	test('releases the lease when the attempt record itself cannot be opened', async () => {
+		vi.spyOn(repository, 'startSyncAttempt').mockRejectedValue(
+			new Error('attempts unavailable')
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('GitHub synchronization failed')
+		// The lease is taken before the attempt row exists, so a failure here has to
+		// go down the same path that clears it — otherwise the repository stays
+		// leased until the lease expires and nothing reconciles it meanwhile.
+		expect(repository.failSync).toHaveBeenCalledWith(
+			expect.objectContaining({ leaseOwner: 'lease-owner' })
+		)
+		expect(repository.completeSyncAttempt).not.toHaveBeenCalled()
+	})
+
+	// Operators need to be able to query one shape for every outcome, and a run
+	// that succeeded is as much an operational fact as one that failed.
+	test('logs the same safe health fields for every settled run', async () => {
+		const loggerLogSpy = vi
+			.spyOn(Logger.prototype, 'log')
+			.mockImplementation(() => undefined)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(loggerLogSpy).toHaveBeenCalledWith({
+			event: 'github_sync_attempt',
+			repositoryId,
+			requestedSyncVersion: 5,
+			trigger: 'scheduled',
+			status: 'succeeded',
+			failureClass: undefined,
+			code: undefined,
+			lastReconciliationDurationMs: expect.any(Number),
+			retryAt: undefined,
+		})
+	})
+
+	test('names only the stable code on the error that stops the job', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'authentication',
+				failureCode: 'authentication_failed',
+				scope: 'repository',
+				statusCode: 401,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow(BARE_FAILURE_CODE_MESSAGE)
+	})
+
+	test('records no attempt for a stale request that never claimed the lease', async () => {
+		vi.spyOn(repository, 'claimSync').mockResolvedValue(undefined)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(repository.startSyncAttempt).not.toHaveBeenCalled()
+	})
+
+	test('records a run left incomplete by a contained outage as partial', async () => {
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue(['pruned-suite'])
+		vi.spyOn(client, 'getChecksForRef').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'permanent_not_found',
+				failureCode: 'resource_not_found',
+				scope: 'suite',
+				statusCode: 404,
+			})
+		)
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		// The source row still says `succeeded`, so the attempt is the only place
+		// this run's incompleteness survives for the health read model.
+		expect(repository.failSync).not.toHaveBeenCalled()
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'partial' })
+		)
+	})
+
+	test('defers a rate-limited installation instead of retrying the job', async () => {
+		const resetAt = new Date('2026-08-11T13:00:00Z')
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'rate_limit',
+				failureCode: 'rate_limited',
+				scope: 'repository',
+				statusCode: 429,
+				retryAt: resetAt,
+				rateLimitRemaining: 0,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toBeInstanceOf(UnrecoverableError)
+		// The defer is persisted against the installation so every repository under
+		// it is held back, and no worker sleeps waiting for the reset.
+		expect(repository.recordInstallationRateLimit).toHaveBeenCalledWith(
+			expect.objectContaining({
+				installationId: claim.installationId,
+				rateLimitedUntil: resetAt,
+				remaining: 0,
+			})
+		)
+		expect(repository.failSync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				failureCode: 'rate_limited',
+				nextSyncAt: resetAt,
+			})
+		)
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'retry_scheduled', retryAt: resetAt })
+		)
+		expect(repository.blockSync).not.toHaveBeenCalled()
+	})
+
+	test('records the budget a successful run observed', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockResolvedValue({
+			...reconciliation,
+			rateLimit: { remaining: 3200, resetAt: new Date('2026-08-11T13:00:00Z') },
+		})
+
+		await processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+
+		expect(repository.recordInstallationRateLimit).toHaveBeenCalledWith({
+			installationId: claim.installationId,
+			observedAt: expect.any(Date),
+			remaining: 3200,
+		})
+	})
+
+	test('blocks the repository and evicts the cached token when access is lost', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'authentication',
+				failureCode: 'repository_unavailable',
+				scope: 'repository',
+				statusCode: 404,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toBeInstanceOf(UnrecoverableError)
+		// A cached token stays valid for an hour, so the retry after a revocation
+		// would present the same rejected credential.
+		expect(authService.evictInstallationToken).toHaveBeenCalledWith(
+			claim.externalInstallationId
+		)
+		expect(repository.blockSync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId,
+				authorityGeneration: 2,
+				leaseOwner: 'lease-owner',
+				failureCode: 'repository_unavailable',
+			})
+		)
+		expect(repository.failSync).not.toHaveBeenCalled()
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'blocked' })
+		)
+	})
+
+	test('terminalizes a payload GitHub would send again identically', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'validation',
+				failureCode: 'provider_schema_mismatch',
+				scope: 'repository',
+				issuePaths: ['head.sha'],
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toBeInstanceOf(UnrecoverableError)
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: 'terminal_failed',
+				failureClass: 'validation',
+			})
+		)
+		// The version is settled rather than left outstanding, so the dispatcher
+		// raises a new one next time instead of handing this one back as a second
+		// attempt — which would contradict the outcome that said none follows.
+		expect(repository.terminalizeSync).toHaveBeenCalledWith(
+			expect.objectContaining({
+				requestedSyncVersion: 5,
+				failureCode: 'provider_schema_mismatch',
+				nextSyncAt: expect.any(Date),
+			})
+		)
+		expect(repository.failSync).not.toHaveBeenCalled()
+	})
+
+	test('leaves a retryable version outstanding rather than settling it', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'transport',
+				failureCode: 'upstream_unavailable',
+				scope: 'repository',
+				statusCode: 503,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow()
+		expect(repository.failSync).toHaveBeenCalledOnce()
+		expect(repository.terminalizeSync).not.toHaveBeenCalled()
+	})
+
+	test('keeps a transport failure retryable by the queue', async () => {
+		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'transport',
+				failureCode: 'upstream_unavailable',
+				scope: 'repository',
+				statusCode: 503,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.not.toBeInstanceOf(UnrecoverableError)
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'retry_scheduled' })
 		)
 	})
 
@@ -524,6 +810,78 @@ describe(GitHubSyncProcessor.name, () => {
 			expect.objectContaining({ projectedShas: ['healthy-head'] })
 		)
 		expect(repository.failSync).not.toHaveBeenCalled()
+	})
+
+	// Losing access is never one commit's problem: every remaining commit would
+	// fail the same way, and containing it would finalize the run as successful
+	// while the credential stays cached and the repository unblocked.
+	test('escalates lost access found during the check stage', async () => {
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
+			'first-head',
+			'second-head',
+		])
+		vi.spyOn(client, 'getChecksForRef').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'authentication',
+				failureCode: 'authorization_failed',
+				scope: 'ref',
+				statusCode: 403,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toBeInstanceOf(UnrecoverableError)
+		expect(client.getChecksForRef).toHaveBeenCalledOnce()
+		expect(repository.blockSync).toHaveBeenCalledOnce()
+		expect(authService.evictInstallationToken).toHaveBeenCalledOnce()
+		expect(repository.finalizeSync).not.toHaveBeenCalled()
+	})
+
+	test('escalates a rate limit found during the check stage', async () => {
+		const resetAt = new Date('2026-08-11T13:00:00Z')
+		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
+			'first-head',
+			'second-head',
+		])
+		vi.spyOn(client, 'getChecksForRef').mockRejectedValue(
+			new ExternalServiceError('GitHub', {
+				failureClass: 'rate_limit',
+				failureCode: 'rate_limited',
+				scope: 'ref',
+				statusCode: 429,
+				retryAt: resetAt,
+			})
+		)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toBeInstanceOf(UnrecoverableError)
+		// The limit belongs to the installation, so spending the rest of the run's
+		// commits against it would only collect more refusals.
+		expect(client.getChecksForRef).toHaveBeenCalledOnce()
+		expect(repository.recordInstallationRateLimit).toHaveBeenCalledWith(
+			expect.objectContaining({ rateLimitedUntil: resetAt })
+		)
+		expect(repository.finalizeSync).not.toHaveBeenCalled()
+	})
+
+	test('records a run whose authority moved on as interrupted, not failed', async () => {
+		vi.spyOn(repository, 'heartbeatSync').mockResolvedValue(false)
+
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toThrow('GitHub synchronization authority changed')
+		// Another run owns the repository now. Recording a failure would overwrite
+		// that run's state and blame this repository for a handover.
+		expect(repository.completeSyncAttempt).toHaveBeenCalledWith(
+			expect.objectContaining({
+				status: 'interrupted',
+				failureCode: 'authority_changed',
+			})
+		)
+		expect(repository.failSync).not.toHaveBeenCalled()
+		expect(repository.terminalizeSync).not.toHaveBeenCalled()
 	})
 
 	test('aborts the run when a check projection finds authority gone', async () => {

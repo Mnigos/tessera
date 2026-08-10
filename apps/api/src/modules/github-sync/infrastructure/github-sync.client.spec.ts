@@ -1,5 +1,8 @@
 import { Octokit } from '@octokit/rest'
+import { isSecretFree } from '~/shared/test-utils'
 import { GitHubSyncClient } from './github-sync.client'
+
+type ResponseObserver = (response: { headers: Record<string, string> }) => void
 
 vi.mock('@octokit/rest', () => ({ Octokit: vi.fn() }))
 
@@ -69,8 +72,15 @@ describe(GitHubSyncClient.name, () => {
 	const listCommitStatusesForRef = vi.fn()
 	const getCombinedStatusForRef = vi.fn()
 	const graphql = vi.fn()
+	let responseObservers: ResponseObserver[] = []
+
+	/** Replays a GitHub response through whatever the client hooked onto it. */
+	function observeResponse(headers: Record<string, string>) {
+		for (const observe of responseObservers) observe({ headers })
+	}
 
 	beforeEach(() => {
+		responseObservers = []
 		vi.useFakeTimers()
 		vi.setSystemTime(new Date('2026-07-29T12:00:00.500Z'))
 		request.mockResolvedValue({
@@ -82,6 +92,14 @@ describe(GitHubSyncClient.name, () => {
 				request = request
 				paginate = paginate
 				graphql = graphql
+				// The client reads the installation's budget from every response
+				// through this hook, so the fake records the observers and the tests
+				// that care about rate limiting feed them a response.
+				hook = {
+					after: (_event: string, observer: ResponseObserver) => {
+						responseObservers.push(observer)
+					},
+				}
 				rest = {
 					issues: { listComments },
 					pulls: {
@@ -465,6 +483,133 @@ describe(GitHubSyncClient.name, () => {
 				ref: 'head-sha',
 			})
 		).rejects.toMatchObject({ context: { scope: 'ref', statusCode: 404 } })
+	})
+
+	test('carries a classification a caller can act on off a failed reconciliation', async () => {
+		request.mockRejectedValue(
+			Object.assign(new Error('rate limit exceeded'), {
+				status: 403,
+				response: {
+					headers: {
+						'x-ratelimit-remaining': '0',
+						'x-ratelimit-reset': '1780000000',
+						'x-github-request-id': 'ABCD:1234',
+					},
+				},
+			})
+		)
+
+		await expect(
+			new GitHubSyncClient().getRepositoryReconciliation({
+				accessToken: 'installation-token',
+				externalRepositoryId: 456n,
+			})
+		).rejects.toMatchObject({
+			context: {
+				failureClass: 'rate_limit',
+				failureCode: 'rate_limited',
+				scope: 'repository',
+				statusCode: 403,
+				requestId: 'ABCD:1234',
+				rateLimitRemaining: 0,
+				retryAt: new Date(1_780_000_000_000),
+			},
+		})
+	})
+
+	test('keeps provider headers and bodies out of the error it raises', async () => {
+		request.mockRejectedValue(
+			Object.assign(new Error('Bad credentials'), {
+				status: 401,
+				response: {
+					headers: {
+						authorization: 'Bearer ghs_secret-token',
+						'set-cookie': 'session=secret',
+					},
+					data: { message: 'Bad credentials', documentation_url: 'https://x' },
+				},
+			})
+		)
+
+		const promise = new GitHubSyncClient().getRepositoryReconciliation({
+			accessToken: 'installation-token',
+			externalRepositoryId: 456n,
+		})
+
+		// The allowlisted context is worth nothing if the error it travels on still
+		// carries the whole provider response one property away, so this sweeps the
+		// entire thrown object rather than just its context.
+		await expect(promise).rejects.toSatisfy((error: Error) =>
+			isSecretFree(error, [
+				'ghs_secret-token',
+				'session=secret',
+				'Bad credentials',
+			])
+		)
+		await expect(promise).rejects.toSatisfy(
+			(error: Error) => error.cause === undefined
+		)
+	})
+
+	test('reports the budget a successful reconciliation observed', async () => {
+		paginate.mockImplementation(() => {
+			observeResponse({
+				'x-ratelimit-remaining': '4321',
+				'x-ratelimit-reset': '1780000000',
+			})
+
+			return Promise.resolve([])
+		})
+
+		expect(
+			(
+				await new GitHubSyncClient().getRepositoryReconciliation({
+					accessToken: 'installation-token',
+					externalRepositoryId: 456n,
+				})
+			).rateLimit
+		).toEqual({ remaining: 4321, resetAt: new Date(1_780_000_000_000) })
+	})
+
+	// A listing deep inside a paginated read is as good a warning as the first
+	// response, and the tightest budget seen is the one the next repository
+	// under this installation will run into.
+	test('keeps the tightest budget any response reported', async () => {
+		paginate.mockImplementation(() => {
+			observeResponse({ 'x-ratelimit-remaining': '900' })
+			observeResponse({ 'x-ratelimit-remaining': '12' })
+			observeResponse({ 'x-ratelimit-remaining': '400' })
+
+			return Promise.resolve([])
+		})
+
+		expect(
+			(
+				await new GitHubSyncClient().getRepositoryReconciliation({
+					accessToken: 'installation-token',
+					externalRepositoryId: 456n,
+				})
+			).rateLimit
+		).toMatchObject({ remaining: 12 })
+	})
+
+	test('reports the budget a checks read observed', async () => {
+		paginate.mockImplementation(() => {
+			observeResponse({ 'x-ratelimit-remaining': '0' })
+
+			return Promise.resolve([])
+		})
+
+		expect(
+			(
+				await new GitHubSyncClient().getChecksForRef({
+					accessToken: 'installation-token',
+					owner: 'org',
+					repo: 'repo',
+					ref: 'head-sha',
+				})
+			).rateLimit
+		).toMatchObject({ remaining: 0 })
 	})
 })
 

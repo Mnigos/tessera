@@ -44,10 +44,21 @@ export interface GitHubSyncPullRequest {
 	mergedAt?: Date
 }
 
+/**
+ * What GitHub reported about the budget this installation has left, when the
+ * response carried it. Reconciliation records it so a limit is visible before
+ * a request is refused rather than only after.
+ */
+export interface GitHubSyncRateLimit {
+	remaining?: number
+	resetAt?: Date
+}
+
 export interface GitHubRepositoryReconciliation {
 	repository: GitHubSyncRepository
 	pullRequests: GitHubSyncPullRequest[]
 	pullRequestCursorAt: Date
+	rateLimit?: GitHubSyncRateLimit
 }
 
 export type GitHubSyncDiffSide = 'left' | 'right'
@@ -212,6 +223,7 @@ export interface GitHubChecksSnapshot {
 	suites: GitHubSyncCheckSuite[]
 	runs: GitHubSyncCheckRun[]
 	statuses: GitHubSyncCommitStatus[]
+	rateLimit?: GitHubSyncRateLimit
 }
 
 export interface GitHubPullRequestConversation {
@@ -220,4 +232,5 @@ export interface GitHubPullRequestConversation {
 	reviews: GitHubSyncReview[]
 	requestedReviewers: GitHubSyncReviewerRequestTarget[]
 	reviewThreads: GitHubSyncReviewThread[]
+	rateLimit?: GitHubSyncRateLimit
 }

@@ -5,6 +5,10 @@ import type {
 	GitHubActorId,
 	GitHubInstallationId,
 	GitHubPullRequestMappingId,
+	GitHubSyncAttemptId,
+	GitHubSyncAttemptStatus,
+	GitHubSyncAttemptTrigger,
+	GitHubSyncFailureClass,
 	GitHubWebhookDeliveryId,
 	RepositoryExternalSourceId,
 } from '@repo/db'
@@ -16,13 +20,16 @@ import {
 	gitHubActors,
 	gitHubInstallations,
 	gitHubPullRequestMappings,
+	gitHubSyncAttempts,
 	gitHubWebhookDeliveries,
+	gt,
 	gte,
 	inArray,
 	isNotNull,
 	isNull,
 	lt,
 	lte,
+	ne,
 	notExists,
 	or,
 	repositories,
@@ -90,6 +97,12 @@ interface RecordWebhookDeliveryParams {
 	removedInstallationRepositories?: GitHubInstallationRepositoryInput[]
 }
 
+/**
+ * A wakeup, and nothing more. It names the repository and the version that was
+ * outstanding when it was raised; it deliberately carries no provenance,
+ * because the claim takes whatever version is newest by then and the answer to
+ * "what asked for this" belongs to that version rather than to this wakeup.
+ */
 export interface GitHubSyncRequest {
 	repositoryId: RepositoryId
 	authorityGeneration: number
@@ -102,8 +115,20 @@ export interface RecordWebhookDeliveryResult {
 	syncRequests: GitHubSyncRequest[]
 }
 
+/**
+ * Why an attempt reached no outcome. Neither is a failure of the repository:
+ * one is another run taking over, the other is a worker that died.
+ */
+export const GITHUB_SYNC_INTERRUPTED_CODES = {
+	authorityChanged: 'authority_changed',
+	leaseReclaimed: 'lease_reclaimed',
+} as const
+
 export interface GitHubSyncClaim extends GitHubSyncRequest {
 	externalSourceId: RepositoryExternalSourceId
+	/** What asked for the version this run actually claimed. */
+	trigger: GitHubSyncAttemptTrigger
+	replayDeliveryId?: GitHubWebhookDeliveryId
 	leaseOwner: string
 	storagePath: string
 	externalRepositoryId: bigint
@@ -201,6 +226,86 @@ interface FailSyncParams
 	failureCode: string
 	failureReason: string
 	nextSyncAt: Date
+}
+
+interface TerminalizeSyncParams extends FailSyncParams {
+	requestedSyncVersion: number
+}
+
+interface BlockSyncParams
+	extends Pick<
+		GitHubSyncClaim,
+		'repositoryId' | 'authorityGeneration' | 'leaseOwner'
+	> {
+	failedAt: Date
+	failureCode: string
+	failureReason: string
+}
+
+interface StartSyncAttemptParams
+	extends Pick<
+		GitHubSyncClaim,
+		| 'repositoryId'
+		| 'authorityGeneration'
+		| 'requestedSyncVersion'
+		| 'installationId'
+	> {
+	trigger: GitHubSyncAttemptTrigger
+	jobId?: string
+	replayDeliveryId?: GitHubWebhookDeliveryId
+	startedAt: Date
+}
+
+interface CompleteSyncAttemptParams {
+	attemptId: GitHubSyncAttemptId
+	status: Exclude<GitHubSyncAttemptStatus, 'running'>
+	failureClass?: GitHubSyncFailureClass
+	failureCode?: string
+	finishedAt: Date
+	durationMs: number
+	retryAt?: Date
+}
+
+interface RecordInstallationRateLimitParams {
+	installationId: GitHubInstallationId
+	observedAt: Date
+	remaining?: number
+	rateLimitedUntil?: Date
+}
+
+interface RecordFailedWebhookDeliveryParams {
+	deliveryId: GitHubWebhookDeliveryId
+	eventName: string
+	failedAt: Date
+	failureCode: string
+	failureReason: string
+}
+
+/**
+ * Excludes the sources whose installation GitHub is still refusing. Rate limits
+ * are counted per installation, so deferring one leaves every other
+ * installation reconciling at full speed — which a queue-wide pause or a worker
+ * that slept until the reset would not.
+ *
+ * The installation is reached through a subquery rather than a join so that
+ * `for update skip locked` keeps locking sources alone: locking the
+ * installation row would serialize every repository that shares it.
+ */
+function isNotRateLimitedInstallation(
+	db: DrizzleTransaction,
+	now: Date
+): SQL | undefined {
+	return notExists(
+		db
+			.select({ id: gitHubInstallations.id })
+			.from(gitHubInstallations)
+			.where(
+				and(
+					eq(gitHubInstallations.id, repositoryExternalSources.installationId),
+					gt(gitHubInstallations.rateLimitedUntil, now)
+				)
+			)
+	)
 }
 
 const CONVERSATION_TARGET_COLUMNS = {
@@ -845,6 +950,8 @@ export class GitHubSyncRepository {
 			.update(repositoryExternalSources)
 			.set({
 				requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+				requestedSyncTrigger: 'webhook',
+				requestedReplayDeliveryId: null,
 				syncStatus: 'pending',
 				syncFailureCode: null,
 				syncFailureReason: null,
@@ -917,7 +1024,13 @@ export class GitHubSyncRepository {
 						or(
 							isNull(repositoryExternalSources.syncLeaseOwner),
 							lte(repositoryExternalSources.syncLeaseExpiresAt, leaseAcquiredAt)
-						)
+						),
+						// A job already in the queue is held back the same way the
+						// dispatcher holds one back, so a limit noticed after enqueue still
+						// stops the request from being spent. The version stays requested
+						// and `nextSyncAt` stays due, so the dispatcher picks the work up
+						// again on the first pass after the limit resets.
+						isNotRateLimitedInstallation(transaction, leaseAcquiredAt)
 					)
 				)
 				.returning({
@@ -929,6 +1042,8 @@ export class GitHubSyncRepository {
 					sourceDefaultBranch: repositoryExternalSources.sourceDefaultBranch,
 					authorityGeneration: repositoryExternalSources.authorityGeneration,
 					requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
+					trigger: repositoryExternalSources.requestedSyncTrigger,
+					replayDeliveryId: repositoryExternalSources.requestedReplayDeliveryId,
 					pullRequestSyncCursorAt:
 						repositoryExternalSources.pullRequestSyncCursorAt,
 				})
@@ -975,6 +1090,24 @@ export class GitHubSyncRepository {
 				return undefined
 			}
 
+			// A worker that died mid-run left its attempt open, and nothing else ever
+			// closes it: the lease it held has simply expired. Taking the lease is
+			// the moment that becomes knowable, so the orphan is settled here rather
+			// than by a reaper that would need the same evidence.
+			await transaction
+				.update(gitHubSyncAttempts)
+				.set({
+					status: 'interrupted',
+					failureCode: GITHUB_SYNC_INTERRUPTED_CODES.leaseReclaimed,
+					finishedAt: leaseAcquiredAt,
+				})
+				.where(
+					and(
+						eq(gitHubSyncAttempts.repositoryId, source.repositoryId),
+						eq(gitHubSyncAttempts.status, 'running')
+					)
+				)
+
 			return {
 				repositoryId: source.repositoryId,
 				externalSourceId: source.id,
@@ -987,6 +1120,11 @@ export class GitHubSyncRepository {
 				pullRequestSyncCursorAt: source.pullRequestSyncCursorAt ?? undefined,
 				authorityGeneration: source.authorityGeneration,
 				requestedSyncVersion: source.requestedSyncVersion,
+				// The claim always takes the newest requested version, which may not
+				// be the one the job was enqueued for, so provenance is read from the
+				// source rather than from the wakeup that happened to win the race.
+				trigger: source.trigger,
+				replayDeliveryId: source.replayDeliveryId ?? undefined,
 				leaseOwner,
 			}
 		})
@@ -1146,6 +1284,8 @@ export class GitHubSyncRepository {
 
 			if (!hasFollowUp) return undefined
 
+			// The dispatcher cannot raise the requested version while this run holds
+			// the lease, so a version that arrived mid-run came from a delivery.
 			return {
 				repositoryId,
 				authorityGeneration,
@@ -1188,6 +1328,346 @@ export class GitHubSyncRepository {
 			)
 	}
 
+	/**
+	 * Ends a version that will never succeed as asked.
+	 *
+	 * A malformed provider payload or a resource GitHub no longer has is not
+	 * something another try at the same version fixes, so the version is settled
+	 * rather than left outstanding: `failSync` alone would leave
+	 * `requested > completed`, and the dispatcher would hand the identical
+	 * version back as a second attempt — contradicting the very outcome that said
+	 * no attempt follows.
+	 *
+	 * The deliveries this run would have consumed are settled with it. They
+	 * describe work no run can complete, and leaving them pending would block
+	 * every later delivery behind them and hold health at `partial` forever.
+	 * Marking them `failed` is also what makes them replayable once whatever
+	 * broke is fixed.
+	 */
+	async terminalizeSync({
+		authorityGeneration,
+		failedAt,
+		failureCode,
+		failureReason,
+		leaseOwner,
+		nextSyncAt,
+		repositoryId,
+		requestedSyncVersion,
+	}: TerminalizeSyncParams): Promise<void> {
+		await this.db.transaction(async transaction => {
+			const [settled] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					syncStatus: 'failed',
+					lastSyncFailedAt: failedAt,
+					nextSyncAt,
+					completedSyncVersion: requestedSyncVersion,
+					syncFailureCount: sql`${repositoryExternalSources.syncFailureCount} + 1`,
+					syncFailureCode: failureCode,
+					syncFailureReason: failureReason,
+					syncLeaseOwner: null,
+					syncLeaseAcquiredAt: null,
+					syncLeaseExpiresAt: null,
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(
+							repositoryExternalSources.authorityGeneration,
+							authorityGeneration
+						),
+						eq(repositoryExternalSources.syncLeaseOwner, leaseOwner)
+					)
+				)
+				.returning({ id: repositoryExternalSources.id })
+
+			if (!settled) return
+
+			await transaction
+				.update(gitHubWebhookDeliveries)
+				.set({ status: 'failed', failedAt, failureCode })
+				.where(
+					and(
+						eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
+						eq(gitHubWebhookDeliveries.status, 'received'),
+						lte(gitHubWebhookDeliveries.syncVersion, requestedSyncVersion)
+					)
+				)
+		})
+	}
+
+	/**
+	 * Stops synchronizing until GitHub says access is back. Authentication loss
+	 * is not a failure to retry: every retry spends a request that will be
+	 * refused, so the source moves to the blocked status it already has, the
+	 * schedule is cleared, and the authority generation is bumped so anything
+	 * still in flight under the old one cannot write.
+	 *
+	 * The last synchronized data stays exactly where it is and stays readable.
+	 */
+	async blockSync({
+		authorityGeneration,
+		failedAt,
+		failureCode,
+		failureReason,
+		leaseOwner,
+		repositoryId,
+	}: BlockSyncParams): Promise<void> {
+		await this.db
+			.update(repositoryExternalSources)
+			.set({
+				syncStatus: 'blocked',
+				lastSyncFailedAt: failedAt,
+				nextSyncAt: null,
+				syncFailureCount: sql`${repositoryExternalSources.syncFailureCount} + 1`,
+				syncFailureCode: failureCode,
+				syncFailureReason: failureReason,
+				authorityGeneration: sql`${repositoryExternalSources.authorityGeneration} + 1`,
+				syncLeaseOwner: null,
+				syncLeaseAcquiredAt: null,
+				syncLeaseExpiresAt: null,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(
+						repositoryExternalSources.authorityGeneration,
+						authorityGeneration
+					),
+					eq(repositoryExternalSources.syncLeaseOwner, leaseOwner)
+				)
+			)
+	}
+
+	/**
+	 * Opens the durable record of one reconciliation. The try counter is read and
+	 * written in the same statement, which the repository lease already makes
+	 * unambiguous: only the run holding it can be starting an attempt at this
+	 * version.
+	 */
+	async startSyncAttempt({
+		authorityGeneration,
+		installationId,
+		jobId,
+		replayDeliveryId,
+		repositoryId,
+		requestedSyncVersion,
+		startedAt,
+		trigger,
+	}: StartSyncAttemptParams): Promise<GitHubSyncAttemptId | undefined> {
+		const [attempt] = await this.db
+			.insert(gitHubSyncAttempts)
+			.values({
+				repositoryId,
+				installationId,
+				authorityGeneration,
+				requestedSyncVersion,
+				trigger,
+				attemptNumber: sql`(
+					select coalesce(max(${gitHubSyncAttempts.attemptNumber}), 0) + 1
+					from ${gitHubSyncAttempts}
+					where ${gitHubSyncAttempts.repositoryId} = ${repositoryId}
+						and ${gitHubSyncAttempts.authorityGeneration} = ${authorityGeneration}
+						and ${gitHubSyncAttempts.requestedSyncVersion} = ${requestedSyncVersion}
+				)`,
+				jobId,
+				status: 'running',
+				startedAt,
+				replayDeliveryId,
+			})
+			.returning({ id: gitHubSyncAttempts.id })
+
+		return attempt?.id
+	}
+
+	async completeSyncAttempt({
+		attemptId,
+		durationMs,
+		failureClass,
+		failureCode,
+		finishedAt,
+		retryAt,
+		status,
+	}: CompleteSyncAttemptParams): Promise<void> {
+		await this.db
+			.update(gitHubSyncAttempts)
+			.set({
+				status,
+				failureClass,
+				failureCode,
+				finishedAt,
+				durationMs,
+				retryAt,
+			})
+			.where(eq(gitHubSyncAttempts.id, attemptId))
+	}
+
+	/**
+	 * Records what GitHub said about this installation's budget. A defer is only
+	 * ever extended, never shortened: several repositories share one installation
+	 * and the longest wait any of them was told about is the one that holds.
+	 *
+	 * Nothing clears the defer, because a timestamp in the past already stops
+	 * deferring — and clearing one on a response from a different rate-limit
+	 * bucket would resume work GitHub is still refusing.
+	 *
+	 * The new deferral is written as an ISO string with an explicit cast rather
+	 * than as a date: a raw parameter inside a fragment carries none of the
+	 * column's type information, and the driver binds it as `timestamptz` against
+	 * a `timestamp` column. `greatest` skips nulls on its own, so an installation
+	 * that has never been deferred needs no coalesce.
+	 */
+	async recordInstallationRateLimit({
+		installationId,
+		observedAt,
+		rateLimitedUntil,
+		remaining,
+	}: RecordInstallationRateLimitParams): Promise<void> {
+		const observedAtSql = sql`${observedAt.toISOString()}::timestamp`
+
+		await this.db
+			.update(gitHubInstallations)
+			.set({
+				// Several repositories under one installation observe in parallel, so
+				// the budget is only overwritten by an observation at least as recent
+				// as the one already stored.
+				...(remaining === undefined
+					? {}
+					: {
+							rateLimitRemaining: sql`case when ${gitHubInstallations.rateLimitUpdatedAt} is null or ${gitHubInstallations.rateLimitUpdatedAt} <= ${observedAtSql} then ${remaining} else ${gitHubInstallations.rateLimitRemaining} end`,
+						}),
+				rateLimitUpdatedAt: sql`greatest(${gitHubInstallations.rateLimitUpdatedAt}, ${observedAtSql})`,
+				...(rateLimitedUntil
+					? {
+							rateLimitedUntil: sql`greatest(${gitHubInstallations.rateLimitedUntil}, ${rateLimitedUntil.toISOString()}::timestamp)`,
+						}
+					: {}),
+			})
+			.where(eq(gitHubInstallations.id, installationId))
+	}
+
+	/**
+	 * Keeps a receipt for a delivery whose signature was valid but whose payload
+	 * Tessera could not read. Without it the only evidence GitHub ever tried is
+	 * an HTTP status GitHub alone can see, and the pattern of malformed
+	 * deliveries is exactly what an operator needs to notice.
+	 *
+	 * The row carries the schema paths that disagreed and nothing GitHub sent.
+	 */
+	async recordFailedWebhookDelivery({
+		deliveryId,
+		eventName,
+		failedAt,
+		failureCode,
+		failureReason,
+	}: RecordFailedWebhookDeliveryParams): Promise<void> {
+		await this.db
+			.insert(gitHubWebhookDeliveries)
+			.values({
+				id: deliveryId,
+				eventName,
+				status: 'failed',
+				failedAt,
+				failureCode,
+				failureReason,
+			})
+			.onConflictDoNothing()
+	}
+
+	/**
+	 * Re-arms a stored delivery for reconciliation under the current authority.
+	 *
+	 * Replay does not re-enter the webhook path, invent a delivery id, or need
+	 * the raw payload: it hands the normal snapshot reconciliation a new version
+	 * and puts the delivery back in the set that run will consume. A delivery
+	 * that was already processed is deliberately re-armed, because bumping the
+	 * version alone would reconcile the repository without ever revisiting the
+	 * pull request or commit this delivery named.
+	 *
+	 * A blocked repository is refused: replay is a reconciliation trigger, not a
+	 * way around lost access.
+	 */
+	async replayWebhookDelivery(
+		deliveryId: GitHubWebhookDeliveryId
+	): Promise<GitHubSyncRequest | undefined> {
+		return await this.db.transaction(async transaction => {
+			const [delivery] = await transaction
+				.select({
+					status: gitHubWebhookDeliveries.status,
+					repositoryId: gitHubWebhookDeliveries.repositoryId,
+					installationId: gitHubWebhookDeliveries.installationId,
+				})
+				.from(gitHubWebhookDeliveries)
+				.where(eq(gitHubWebhookDeliveries.id, deliveryId))
+				.limit(1)
+
+			// An ignored delivery was never scoped to a synchronizing repository, so
+			// there is no target to re-arm and nothing a run would do with it.
+			if (!delivery?.repositoryId || delivery.status === 'ignored')
+				return undefined
+
+			// Locked the same way the webhook and rebind paths lock it, so the
+			// installation compared against is the one that will still be current
+			// when the version is raised.
+			const [lockedSource] = await transaction
+				.select({ installationId: repositoryExternalSources.installationId })
+				.from(repositoryExternalSources)
+				.where(
+					eq(repositoryExternalSources.repositoryId, delivery.repositoryId)
+				)
+				.limit(1)
+				.for('update')
+
+			// A delivery received under one installation says nothing about a
+			// repository that has since been rebound to another: replaying it would
+			// reconcile under an authority that never saw the event it names.
+			if (
+				!lockedSource?.installationId ||
+				lockedSource.installationId !== delivery.installationId
+			)
+				return undefined
+
+			const [source] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+					requestedSyncTrigger: 'replay',
+					requestedReplayDeliveryId: deliveryId,
+					syncStatus: 'pending',
+					nextSyncAt: new Date(),
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, delivery.repositoryId),
+						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
+						isNotNull(repositoryExternalSources.installationId),
+						ne(repositoryExternalSources.syncStatus, 'blocked')
+					)
+				)
+				.returning({
+					repositoryId: repositoryExternalSources.repositoryId,
+					authorityGeneration: repositoryExternalSources.authorityGeneration,
+					requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
+				})
+
+			if (!source) return undefined
+
+			await transaction
+				.update(gitHubWebhookDeliveries)
+				.set({
+					status: 'received',
+					syncVersion: source.requestedSyncVersion,
+					processedAt: null,
+					failedAt: null,
+					failureCode: null,
+					failureReason: null,
+				})
+				.where(eq(gitHubWebhookDeliveries.id, deliveryId))
+
+			return source
+		})
+	}
+
 	async requestDueReconciliations({
 		limit,
 		now,
@@ -1213,7 +1693,8 @@ export class GitHubSyncRepository {
 						or(
 							isNull(repositoryExternalSources.syncLeaseOwner),
 							lt(repositoryExternalSources.syncLeaseExpiresAt, now)
-						)
+						),
+						isNotRateLimitedInstallation(transaction, now)
 					)
 				)
 				.orderBy(asc(repositoryExternalSources.nextSyncAt))
@@ -1235,6 +1716,8 @@ export class GitHubSyncRepository {
 					.update(repositoryExternalSources)
 					.set({
 						requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+						requestedSyncTrigger: 'scheduled',
+						requestedReplayDeliveryId: null,
 						syncStatus: 'pending',
 					})
 					.where(
@@ -1403,6 +1886,8 @@ export class GitHubSyncRepository {
 				...(source.mirrorMode === 'github_to_tessera'
 					? {
 							requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+							requestedSyncTrigger: 'webhook' as const,
+							requestedReplayDeliveryId: null,
 							syncStatus: 'pending' as const,
 							syncFailureCode: null,
 							syncFailureReason: null,
@@ -1417,7 +1902,10 @@ export class GitHubSyncRepository {
 				requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
 			})
 
-		return source.mirrorMode === 'github_to_tessera' ? updatedSource : undefined
+		if (!(source.mirrorMode === 'github_to_tessera' && updatedSource))
+			return undefined
+
+		return updatedSource
 	}
 
 	private async removeInstallationRepository(
@@ -1460,10 +1948,12 @@ export class GitHubSyncRepository {
 		transaction: DrizzleTransaction,
 		installationId: GitHubInstallationId
 	): Promise<GitHubSyncRequest[]> {
-		return await transaction
+		const resumedSources = await transaction
 			.update(repositoryExternalSources)
 			.set({
 				requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+				requestedSyncTrigger: 'webhook',
+				requestedReplayDeliveryId: null,
 				syncStatus: 'pending',
 				syncFailureCode: null,
 				syncFailureReason: null,
@@ -1480,6 +1970,8 @@ export class GitHubSyncRepository {
 				authorityGeneration: repositoryExternalSources.authorityGeneration,
 				requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
 			})
+
+		return resumedSources
 	}
 
 	private async upsertInstallation(

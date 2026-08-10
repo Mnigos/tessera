@@ -28,6 +28,24 @@ export const gitHubInstallationTargetTypeEnum = pgEnum(
 	['user', 'organization']
 )
 
+/**
+ * What asked for a reconciliation. Declared here rather than beside the attempt
+ * table because the requested version records its own provenance on the source
+ * row, and the sync schema already depends on this file.
+ */
+export const gitHubSyncAttemptTriggers = [
+	'webhook',
+	'scheduled',
+	'replay',
+] as const
+export type GitHubSyncAttemptTrigger =
+	(typeof gitHubSyncAttemptTriggers)[number]
+
+export const gitHubSyncAttemptTriggerEnum = pgEnum(
+	'github_sync_attempt_trigger',
+	gitHubSyncAttemptTriggers
+)
+
 export const gitHubInstallations = pgTable(
 	'github_installations',
 	{
@@ -42,6 +60,15 @@ export const gitHubInstallations = pgTable(
 		targetType: gitHubInstallationTargetTypeEnum('target_type').notNull(),
 		suspendedAt: timestamp('suspended_at'),
 		deletedAt: timestamp('deleted_at'),
+		/**
+		 * When GitHub will talk to this installation again. Rate limits are counted
+		 * per installation, so the defer belongs here rather than on the queue: a
+		 * worker never sleeps on a limit, it skips the installations that are still
+		 * inside one and keeps reconciling every other.
+		 */
+		rateLimitedUntil: timestamp('rate_limited_until'),
+		rateLimitRemaining: integer('rate_limit_remaining'),
+		rateLimitUpdatedAt: timestamp('rate_limit_updated_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -50,6 +77,10 @@ export const gitHubInstallations = pgTable(
 	},
 	table => [
 		index('github_installations_account_node_id_idx').on(table.accountNodeId),
+		check(
+			'github_installations_rate_limit_remaining_check',
+			sql`${table.rateLimitRemaining} is null or ${table.rateLimitRemaining} >= 0`
+		),
 	]
 )
 
@@ -116,6 +147,24 @@ export const repositoryExternalSources = pgTable(
 		requestedSyncVersion: bigint('requested_sync_version', { mode: 'number' })
 			.default(0)
 			.notNull(),
+		/**
+		 * What asked for the version currently requested, recorded here rather than
+		 * carried on the queue job. A job wakes the worker for the version it knew
+		 * about, but the claim always takes the newest one, so the job's own
+		 * provenance can describe a different version than the one that runs.
+		 */
+		requestedSyncTrigger: gitHubSyncAttemptTriggerEnum('requested_sync_trigger')
+			.default('scheduled')
+			.notNull(),
+		/**
+		 * The delivery a replay re-armed for the requested version. It carries no
+		 * foreign key: the delivery table is declared in the sync schema, which
+		 * depends on this file, and a dangling pointer here only costs an attempt
+		 * row its provenance.
+		 */
+		requestedReplayDeliveryId: uuid('requested_replay_delivery_id').$type<
+			Brand<string, 'github_webhook_delivery_id'>
+		>(),
 		completedSyncVersion: bigint('completed_sync_version', { mode: 'number' })
 			.default(0)
 			.notNull(),

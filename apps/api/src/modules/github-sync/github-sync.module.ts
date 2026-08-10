@@ -4,6 +4,7 @@ import { BullModule, getQueueToken } from '@nestjs/bullmq'
 import { Module } from '@nestjs/common'
 import { GitHubSyncProcessor } from './application/github-sync.processor'
 import { GitHubSyncScheduler } from './application/github-sync.scheduler'
+import { GitHubSyncReplayService } from './application/github-sync-replay.service'
 import { GitHubWebhookService } from './application/github-webhook.service'
 import { GitHubAppAuthService } from './infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from './infrastructure/github-sync.client'
@@ -27,6 +28,7 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 	providers: [
 		GitHubWebhookService,
 		GitHubSyncProcessor,
+		GitHubSyncReplayService,
 		GitHubSyncScheduler,
 		GitHubAppAuthService,
 		GitHubSyncChecksRepository,
@@ -39,6 +41,6 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 		},
 		GitHubSyncQueue,
 	],
-	exports: [GitHubSyncQueue, GitHubSyncRepository],
+	exports: [GitHubSyncQueue, GitHubSyncReplayService, GitHubSyncRepository],
 })
 export class GitHubSyncModule {}
