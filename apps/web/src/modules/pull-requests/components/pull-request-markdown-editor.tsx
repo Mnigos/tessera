@@ -18,18 +18,8 @@ interface PullRequestMarkdownEditorProps {
 	placeholder?: string
 }
 
-/**
- * A description field that can be read the way it will be published.
- *
- * The preview goes through the same `MarkdownContent` every published body is
- * rendered by, so what is shown here is exactly what the pull request will show
- * — there is no second parser, and nothing gains a way to render raw HTML by
- * being previewed.
- *
- * The textarea stays mounted behind the preview panel. It is the field the
- * surrounding form submits, and a description that was typed and then previewed
- * would otherwise be sent empty.
- */
+// The textarea stays mounted behind the preview panel: it is the field the
+// surrounding form submits, and unmounting it would submit an empty body.
 export function PullRequestMarkdownEditor({
 	defaultValue = '',
 	id,
