@@ -38,8 +38,10 @@ interface PullRequestSquashDialogProps {
 	bypassReasons?: MergeBlockingReason[]
 	defaultBody: string
 	defaultTitle: string
+	isOpen: boolean
 	isPending: boolean
 	onConfirm: (confirmation: PullRequestSquashConfirmation) => void
+	onOpenChange: (open: boolean) => void
 	targetBranch: string
 	trigger: ReactElement
 }
@@ -56,17 +58,23 @@ interface PullRequestSquashDialogProps {
  * rather than in a dialog of its own: they are one decision, and splitting them
  * would leave the reader waiving policy without ever seeing the commit message
  * their waiver is for.
+ *
+ * Whether it is open is the caller's to decide, because only the caller knows
+ * whether the merge went through. Closing on confirm would hide the merge while
+ * it was still running and throw away an edited message the moment it failed —
+ * exactly when the reader most needs it back.
  */
 export function PullRequestSquashDialog({
 	bypassReasons,
 	defaultBody,
 	defaultTitle,
+	isOpen,
 	isPending,
 	onConfirm,
+	onOpenChange,
 	targetBranch,
 	trigger,
 }: Readonly<PullRequestSquashDialogProps>) {
-	const [isOpen, setIsOpen] = useState(false)
 	const [message, setMessage] = useState<PullRequestSquashMessage>({
 		squashTitle: defaultTitle,
 		squashBody: defaultBody,
@@ -80,9 +88,10 @@ export function PullRequestSquashDialog({
 
 	// Reopening starts from the pull request again rather than from whatever was
 	// abandoned last time, which is what a reader expects of a dialog they closed
-	// without merging.
+	// without merging. A merge that failed is not that: it keeps what was typed,
+	// because the caller leaves the dialog open.
 	function handleOpenChange(open: boolean) {
-		setIsOpen(open)
+		onOpenChange(open)
 
 		if (open) {
 			setMessage({ squashTitle: defaultTitle, squashBody: defaultBody })
@@ -98,7 +107,6 @@ export function PullRequestSquashDialog({
 			squashBody: message.squashBody,
 			bypassReason: isWaiving ? trimmedBypassReason : undefined,
 		})
-		setIsOpen(false)
 	}
 
 	return (
