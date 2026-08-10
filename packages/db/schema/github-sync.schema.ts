@@ -5,10 +5,11 @@ import type {
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
-import { isNotNull, isNull, relations } from 'drizzle-orm'
+import { isNotNull, isNull, relations, sql } from 'drizzle-orm'
 import {
 	bigint,
 	boolean,
+	check,
 	index,
 	integer,
 	pgEnum,
@@ -25,6 +26,7 @@ import { repositories } from './repositories.schema'
 import {
 	type GitHubInstallationId,
 	gitHubInstallations,
+	gitHubSyncAttemptTriggerEnum,
 } from './repository-external-sources.schema'
 
 export type GitHubActorId = Brand<string, 'github_actor_id'>
@@ -40,6 +42,40 @@ export type GitHubWebhookDeliveryId = Brand<
 	string,
 	'github_webhook_delivery_id'
 >
+export type GitHubSyncAttemptId = Brand<string, 'github_sync_attempt_id'>
+
+/**
+ * How one attempt ended. `partial` is a run that finalized without reconciling
+ * everything it set out to, which the source's own status cannot express: it is
+ * recorded as `succeeded` there and only the attempt row remembers otherwise.
+ *
+ * `interrupted` is a run that reached no outcome at all — its authority moved on
+ * mid-run, or the worker died and a later claim found the row still open. It is
+ * deliberately not a failure: counting it as one would blame a repository for a
+ * deploy, and counting it as a completed operation would dilute the failure rate
+ * with runs that never finished deciding anything.
+ */
+export const gitHubSyncAttemptStatuses = [
+	'running',
+	'succeeded',
+	'partial',
+	'retry_scheduled',
+	'terminal_failed',
+	'blocked',
+	'interrupted',
+] as const
+export type GitHubSyncAttemptStatus = (typeof gitHubSyncAttemptStatuses)[number]
+
+/** The failure taxonomy retries, defers, blocks, and terminalizes are chosen from. */
+export const gitHubSyncFailureClasses = [
+	'transport',
+	'rate_limit',
+	'authentication',
+	'validation',
+	'permanent_not_found',
+	'unknown',
+] as const
+export type GitHubSyncFailureClass = (typeof gitHubSyncFailureClasses)[number]
 
 export const gitHubActorTypeEnum = pgEnum('github_actor_type', [
 	'user',
@@ -47,6 +83,16 @@ export const gitHubActorTypeEnum = pgEnum('github_actor_type', [
 	'organization',
 	'mannequin',
 ])
+
+export const gitHubSyncAttemptStatusEnum = pgEnum(
+	'github_sync_attempt_status',
+	gitHubSyncAttemptStatuses
+)
+
+export const gitHubSyncFailureClassEnum = pgEnum(
+	'github_sync_failure_class',
+	gitHubSyncFailureClasses
+)
 
 export const gitHubWebhookDeliveryStatusEnum = pgEnum(
 	'github_webhook_delivery_status',
@@ -145,6 +191,8 @@ export const gitHubWebhookDeliveries = pgTable(
 		receivedAt: timestamp('received_at').defaultNow().notNull(),
 		processedAt: timestamp('processed_at'),
 		failedAt: timestamp('failed_at'),
+		/** A code from Tessera's own taxonomy, never a provider string. */
+		failureCode: text('failure_code'),
 		failureReason: text('failure_reason'),
 	},
 	table => [
@@ -155,8 +203,102 @@ export const gitHubWebhookDeliveries = pgTable(
 		index('github_webhook_deliveries_installation_id_idx').on(
 			table.installationId
 		),
+		// Both the pending-delivery health counters and the per-run pending sweeps
+		// read only the deliveries still waiting, which is the small tail of a
+		// table that otherwise grows forever.
+		index('github_webhook_deliveries_pending_idx')
+			.on(table.repositoryId, table.receivedAt)
+			.where(sql`${table.status} = 'received'`),
 		index('github_webhook_deliveries_target_actor_id_idx').on(
 			table.targetActorId
+		),
+	]
+)
+
+/**
+ * One row per reconciliation the worker actually started, which is what the
+ * source row cannot keep: it holds the current state, while operators and the
+ * sync-health read model need the history behind it — how often work was
+ * retried, how long a run took, and whether a run that finalized had in fact
+ * reconciled everything.
+ *
+ * Redis is not that history. Failed jobs are pruned and a job that exhausts its
+ * attempts disappears, so these rows are the durable record and BullMQ's
+ * retention is only a debugging convenience.
+ */
+export const gitHubSyncAttempts = pgTable(
+	'github_sync_attempts',
+	{
+		id: uuid('id').primaryKey().defaultRandom().$type<GitHubSyncAttemptId>(),
+		repositoryId: uuid('repository_id')
+			.notNull()
+			.$type<RepositoryId>()
+			.references(() => repositories.id, { onDelete: 'cascade' }),
+		installationId: uuid('installation_id')
+			.$type<GitHubInstallationId>()
+			.references(() => gitHubInstallations.id, { onDelete: 'set null' }),
+		authorityGeneration: integer('authority_generation').notNull(),
+		requestedSyncVersion: bigint('requested_sync_version', {
+			mode: 'number',
+		}).notNull(),
+		trigger: gitHubSyncAttemptTriggerEnum('trigger').notNull(),
+		/**
+		 * Which try at this exact version this row is. The source's failure counter
+		 * counts the same thing today, but it resets on success and cannot separate
+		 * one operation that was retried from several that each failed once.
+		 */
+		attemptNumber: integer('attempt_number').notNull(),
+		jobId: text('job_id'),
+		status: gitHubSyncAttemptStatusEnum('status').notNull(),
+		failureClass: gitHubSyncFailureClassEnum('failure_class'),
+		failureCode: text('failure_code'),
+		startedAt: timestamp('started_at').defaultNow().notNull(),
+		finishedAt: timestamp('finished_at'),
+		durationMs: integer('duration_ms'),
+		/** When the work is due again, for the outcomes that leave it due. */
+		retryAt: timestamp('retry_at'),
+		replayDeliveryId: uuid('replay_delivery_id')
+			.$type<GitHubWebhookDeliveryId>()
+			.references(() => gitHubWebhookDeliveries.id, { onDelete: 'set null' }),
+		createdAt: timestamp('created_at').defaultNow().notNull(),
+	},
+	table => [
+		// One repository lease means one attempt at a time, so the try counter is
+		// unique by construction and the constraint keeps a double write out.
+		unique('github_sync_attempts_operation_attempt_unique').on(
+			table.repositoryId,
+			table.authorityGeneration,
+			table.requestedSyncVersion,
+			table.attemptNumber
+		),
+		// Health reads every window from the newest attempts backwards.
+		index('github_sync_attempts_repository_started_at_idx').on(
+			table.repositoryId,
+			table.startedAt.desc()
+		),
+		// The latest-outcome read orders by finish time over the attempts that
+		// reached one, so it gets the order it asks for and skips the open rows
+		// instead of sorting them and discarding them.
+		index('github_sync_attempts_repository_finished_at_idx')
+			.on(table.repositoryId, table.finishedAt.desc())
+			.where(isNotNull(table.finishedAt)),
+		index('github_sync_attempts_installation_id_idx').on(table.installationId),
+		index('github_sync_attempts_replay_delivery_id_idx').on(
+			table.replayDeliveryId
+		),
+		check(
+			'github_sync_attempts_attempt_number_check',
+			sql`${table.attemptNumber} > 0`
+		),
+		check(
+			'github_sync_attempts_duration_check',
+			sql`${table.durationMs} is null or ${table.durationMs} >= 0`
+		),
+		// A run either is still going or has ended; nothing reads a finish time
+		// from a row that never finished, and no ended row may omit one.
+		check(
+			'github_sync_attempts_finished_check',
+			sql`(${table.status}::text = 'running' and ${table.finishedAt} is null) or (${table.status}::text <> 'running' and ${table.finishedAt} is not null)`
 		),
 	]
 )
@@ -282,6 +424,8 @@ export type GitHubPullRequestMapping =
 	typeof gitHubPullRequestMappings.$inferSelect
 export type NewGitHubPullRequestMapping =
 	typeof gitHubPullRequestMappings.$inferInsert
+export type GitHubSyncAttempt = typeof gitHubSyncAttempts.$inferSelect
+export type NewGitHubSyncAttempt = typeof gitHubSyncAttempts.$inferInsert
 
 export const gitHubActorRelations = relations(
 	gitHubActors,
@@ -319,6 +463,24 @@ export const gitHubPullRequestMappingRelations = relations(
 			fields: [gitHubPullRequestMappings.mergedByActorId],
 			references: [gitHubActors.id],
 			relationName: 'github_pull_request_merger',
+		}),
+	})
+)
+
+export const gitHubSyncAttemptRelations = relations(
+	gitHubSyncAttempts,
+	({ one }) => ({
+		repository: one(repositories, {
+			fields: [gitHubSyncAttempts.repositoryId],
+			references: [repositories.id],
+		}),
+		installation: one(gitHubInstallations, {
+			fields: [gitHubSyncAttempts.installationId],
+			references: [gitHubInstallations.id],
+		}),
+		replayDelivery: one(gitHubWebhookDeliveries, {
+			fields: [gitHubSyncAttempts.replayDeliveryId],
+			references: [gitHubWebhookDeliveries.id],
 		}),
 	})
 )

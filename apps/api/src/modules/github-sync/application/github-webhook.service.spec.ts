@@ -66,7 +66,10 @@ describe(GitHubWebhookService.name, () => {
 				},
 				{
 					provide: GitHubSyncRepository,
-					useValue: { recordWebhookDelivery: vi.fn() },
+					useValue: {
+						recordWebhookDelivery: vi.fn(),
+						recordFailedWebhookDelivery: vi.fn(),
+					},
 				},
 				{
 					provide: GitHubSyncQueue,
@@ -358,6 +361,72 @@ describe(GitHubWebhookService.name, () => {
 				sender: expect.objectContaining({ type: 'user' }),
 			})
 		)
+	})
+
+	test('keeps a redacted receipt for a signed payload it cannot read', async () => {
+		const rawBody = Buffer.from(
+			JSON.stringify({
+				...payload,
+				repository: { ...payload.repository, id: 'not-a-repository-id' },
+			})
+		)
+
+		// Before the receipt existed this threw before any row was written, so a
+		// repeatedly malformed delivery left no evidence GitHub had ever tried.
+		await expect(
+			service.receive({
+				deliveryId,
+				eventName: 'pull_request',
+				rawBody,
+				signature: sign(rawBody),
+			})
+		).rejects.toThrow('GitHub webhook payload could not be read')
+		expect(repository.recordFailedWebhookDelivery).toHaveBeenCalledWith({
+			deliveryId,
+			eventName: 'pull_request',
+			failedAt: expect.any(Date),
+			failureCode: 'payload_invalid',
+			failureReason:
+				'GitHub sent a payload Tessera could not read: repository.id',
+		})
+		expect(repository.recordWebhookDelivery).not.toHaveBeenCalled()
+	})
+
+	test('keeps the rejected value out of the receipt it stores', async () => {
+		const rawBody = Buffer.from(
+			JSON.stringify({
+				...payload,
+				sender: { ...payload.sender, id: 'ghs_leak' },
+			})
+		)
+
+		await expect(
+			service.receive({
+				deliveryId,
+				eventName: 'pull_request',
+				rawBody,
+				signature: sign(rawBody),
+			})
+		).rejects.toThrow('GitHub webhook payload could not be read')
+		expect(
+			JSON.stringify(
+				vi.mocked(repository.recordFailedWebhookDelivery).mock.calls[0]
+			)
+		).not.toContain('ghs_leak')
+	})
+
+	test('records nothing for a delivery whose signature does not verify', async () => {
+		const rawBody = Buffer.from('{"action":')
+
+		await expect(
+			service.receive({
+				deliveryId,
+				eventName: 'pull_request',
+				rawBody,
+				signature: 'sha256=deadbeef',
+			})
+		).rejects.toThrow('github webhook signature authentication required')
+		expect(repository.recordFailedWebhookDelivery).not.toHaveBeenCalled()
 	})
 })
 

@@ -162,6 +162,13 @@
       "when": 1786308907240,
       "tag": "0022_powerful_unicorn",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1786402856648,
+      "tag": "0023_spotty_scarlet_witch",
+      "breakpoints": true
     }
   ]
 }

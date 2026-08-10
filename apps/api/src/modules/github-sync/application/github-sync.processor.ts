@@ -5,9 +5,20 @@ import { status } from '@grpc/grpc-js'
 import { PullRequestsService } from '@modules/pull-requests'
 import { Processor, WorkerHost } from '@nestjs/bullmq'
 import { Injectable, Logger } from '@nestjs/common'
+import type {
+	GitHubSyncAttemptId,
+	GitHubSyncAttemptStatus,
+	GitHubSyncFailureClass,
+} from '@repo/db'
 import type { RepositoryId } from '@repo/domain'
-import type { Job } from 'bullmq'
+import { type Job, UnrecoverableError } from 'bullmq'
 import { DomainError } from '~/shared/errors'
+import { GitHubSyncExternalServiceError } from '../domain/github-sync.errors'
+import {
+	type GitHubSyncFailure,
+	readGitHubSyncFailure,
+	toGitHubSyncFailureReason,
+} from '../domain/github-sync-failure'
 import { toGitHubPullRequestAnchorCoordinates } from '../helpers/github-pull-request-anchor'
 import {
 	type GitHubGroupedReviewThread,
@@ -20,6 +31,7 @@ import type {
 	GitHubChecksSnapshot,
 	GitHubPullRequestConversation,
 	GitHubSyncActor,
+	GitHubSyncRateLimit,
 	GitHubSyncRepository as GitHubSyncRepositoryDetails,
 } from '../infrastructure/github-sync.client.types'
 import {
@@ -29,6 +41,7 @@ import {
 	GitHubSyncQueue,
 } from '../infrastructure/github-sync.queue'
 import {
+	GITHUB_SYNC_INTERRUPTED_CODES,
 	type GitHubConversationTarget,
 	type GitHubSyncClaim,
 	GitHubSyncRepository,
@@ -42,7 +55,6 @@ import {
 } from '../infrastructure/github-sync-conversations.repository'
 
 const GITHUB_SYNC_FAILURE_RETRY_MINUTES = 15
-const HTTP_NOT_FOUND = 404
 /**
  * Conversations cost five listings and a GraphQL page each, so a run projects
  * at most this many pull requests. Named targets come first and the rotation
@@ -98,7 +110,27 @@ export class GitHubSyncProcessor extends WorkerHost {
 		const claim = await this.claim(job.data)
 		if (!claim) return
 
+		const startedAt = new Date()
+		// Opening the attempt happens inside the try, because the lease is already
+		// held: anything that throws between claiming and the failure path would
+		// leave the repository leased until the lease expired on its own.
+		let attemptId: GitHubSyncAttemptId | undefined
+
 		try {
+			attemptId = await this.gitHubSyncRepository.startSyncAttempt({
+				repositoryId: claim.repositoryId,
+				authorityGeneration: claim.authorityGeneration,
+				requestedSyncVersion: claim.requestedSyncVersion,
+				installationId: claim.installationId,
+				// Provenance comes from the claimed version, not from this job: the
+				// claim takes whatever version is newest, which may be one a later
+				// delivery or a replay asked for after this job was enqueued.
+				trigger: claim.trigger,
+				replayDeliveryId: claim.replayDeliveryId,
+				jobId: job.id,
+				startedAt,
+			})
+
 			const installationToken =
 				await this.gitHubAppAuthService.getInstallationToken(
 					claim.externalInstallationId
@@ -141,7 +173,8 @@ export class GitHubSyncProcessor extends WorkerHost {
 				repository: reconciliation.repository,
 				storagePath: importResult.storagePath,
 			})
-			const projectedShas = await this.projectChecks({
+			await this.observeRateLimit(claim, reconciliation.rateLimit)
+			const { isComplete, projectedShas } = await this.projectChecks({
 				accessToken: mirrorToken.token,
 				claim,
 				headShas: reconciliation.pullRequests.map(
@@ -175,24 +208,229 @@ export class GitHubSyncProcessor extends WorkerHost {
 			})
 
 			if (followUp) await this.gitHubSyncQueue.enqueue(followUp)
+
+			// A run that finalized without reconciling everything it selected is not
+			// a failure — its deliveries stay pending and the next run asks again —
+			// but the source row records only `succeeded`, so the attempt is the one
+			// place that difference survives.
+			await this.settleAttempt(claim, attemptId, {
+				status: isComplete ? 'succeeded' : 'partial',
+				startedAt,
+				finishedAt: completedAt,
+			})
 		} catch (error) {
-			const failedAt = new Date()
-			await this.gitHubSyncRepository.failSync({
+			await this.failRun({ attemptId, claim, error, startedAt })
+		}
+	}
+
+	/**
+	 * Ends a failed run the way its failure deserves.
+	 *
+	 * The taxonomy decides three things at once: what the source row says, when
+	 * the work is due again, and whether BullMQ should try this same job again.
+	 * Retrying a rejected credential or a payload GitHub will send again
+	 * identically only spends requests, so those outcomes stop the job and leave
+	 * recovery to the schedule or to GitHub telling us access is back.
+	 */
+	private async failRun({
+		attemptId,
+		claim,
+		error,
+		startedAt,
+	}: {
+		attemptId?: GitHubSyncAttemptId
+		claim: GitHubSyncClaim
+		error: unknown
+		startedAt: Date
+	}): Promise<never> {
+		const finishedAt = new Date()
+
+		// Losing authority is not this run's failure: another run owns the
+		// repository now, and every write this one could make is fenced out
+		// anyway. Recording a source failure would overwrite that run's state, and
+		// counting it as a failed operation would blame the repository for what is
+		// really a handover.
+		if (error instanceof GitHubSyncAuthorityError) {
+			await this.settleAttempt(claim, attemptId, {
+				status: 'interrupted',
+				failureCode: GITHUB_SYNC_INTERRUPTED_CODES.authorityChanged,
+				startedAt,
+				finishedAt,
+			})
+
+			throw error
+		}
+
+		const failure = readGitHubSyncFailure(error)
+		const failureReason = toGitHubSyncFailureReason(failure.failureClass)
+
+		if (failure.failureClass === 'authentication') {
+			this.gitHubAppAuthService.evictInstallationToken(
+				claim.externalInstallationId
+			)
+			await this.gitHubSyncRepository.blockSync({
 				repositoryId: claim.repositoryId,
 				authorityGeneration: claim.authorityGeneration,
 				leaseOwner: claim.leaseOwner,
-				failedAt,
-				failureCode: 'reconciliation_failed',
-				failureReason:
-					'GitHub synchronization failed. Check the GitHub App installation and wait for Tessera to retry.',
-				nextSyncAt: addMinutes(failedAt, GITHUB_SYNC_FAILURE_RETRY_MINUTES),
+				failedAt: finishedAt,
+				failureCode: failure.failureCode,
+				failureReason,
 			})
-			this.logger.error(
-				'GitHub reconciliation failed',
-				error instanceof Error ? error.stack : undefined
-			)
-			throw error
+			await this.settleAttempt(claim, attemptId, {
+				status: 'blocked',
+				failureClass: failure.failureClass,
+				failureCode: failure.failureCode,
+				startedAt,
+				finishedAt,
+			})
+
+			throw new UnrecoverableError(failure.failureCode)
 		}
+
+		const nextSyncAt = this.resolveNextSyncAt(failure, finishedAt)
+
+		if (failure.failureClass === 'rate_limit')
+			await this.gitHubSyncRepository.recordInstallationRateLimit({
+				installationId: claim.installationId,
+				observedAt: finishedAt,
+				remaining: failure.rateLimitRemaining,
+				rateLimitedUntil: nextSyncAt,
+			})
+
+		const settlement = {
+			repositoryId: claim.repositoryId,
+			authorityGeneration: claim.authorityGeneration,
+			leaseOwner: claim.leaseOwner,
+			failedAt: finishedAt,
+			failureCode: failure.failureCode,
+			failureReason,
+			nextSyncAt,
+		}
+
+		// A version no repeat of the same request can satisfy is settled rather
+		// than left outstanding, so the dispatcher raises a new version next time
+		// instead of handing this one back as another attempt.
+		if (schedulesAnotherAttempt(failure))
+			await this.gitHubSyncRepository.failSync(settlement)
+		else
+			await this.gitHubSyncRepository.terminalizeSync({
+				...settlement,
+				requestedSyncVersion: claim.requestedSyncVersion,
+			})
+
+		await this.settleAttempt(claim, attemptId, {
+			status: schedulesAnotherAttempt(failure)
+				? 'retry_scheduled'
+				: 'terminal_failed',
+			failureClass: failure.failureClass,
+			failureCode: failure.failureCode,
+			retryAt: nextSyncAt,
+			startedAt,
+			finishedAt,
+		})
+
+		if (!allowsJobRetry(failure))
+			throw new UnrecoverableError(failure.failureCode)
+
+		// A domain error carries a message Tessera wrote; anything else carries
+		// whatever the provider put in it, and BullMQ keeps failed jobs now.
+		if (error instanceof DomainError) throw error
+
+		throw new GitHubSyncExternalServiceError({
+			failureClass: failure.failureClass,
+			failureCode: failure.failureCode,
+		})
+	}
+
+	/**
+	 * Records what a GitHub response said about this installation's budget.
+	 *
+	 * A response that spends the last permitted request is the cheapest warning
+	 * there is: without a defer recorded here, the next repository under the same
+	 * installation spends one more and gets the refusal instead.
+	 */
+	private async observeRateLimit(
+		claim: GitHubSyncClaim,
+		rateLimit?: GitHubSyncRateLimit
+	): Promise<void> {
+		if (!rateLimit) return
+
+		await this.gitHubSyncRepository.recordInstallationRateLimit({
+			installationId: claim.installationId,
+			observedAt: new Date(),
+			remaining: rateLimit.remaining,
+			rateLimitedUntil:
+				rateLimit.remaining === 0 ? rateLimit.resetAt : undefined,
+		})
+	}
+
+	/**
+	 * When the work is due again. A rate limit answers this itself; everything
+	 * else waits the fixed retry interval, including the outcomes no further job
+	 * attempt will follow — a repository is never abandoned, only slowed down.
+	 */
+	private resolveNextSyncAt(
+		{ failureClass, retryAt }: GitHubSyncFailure,
+		failedAt: Date
+	): Date {
+		const scheduledAt = addMinutes(failedAt, GITHUB_SYNC_FAILURE_RETRY_MINUTES)
+
+		if (failureClass !== 'rate_limit' || !retryAt) return scheduledAt
+
+		return retryAt > failedAt ? retryAt : scheduledAt
+	}
+
+	/**
+	 * Records how a run ended, once, in both places that need it: the durable
+	 * attempt row and one structured log line carrying the same safe fields the
+	 * health read model exposes. Every outcome goes through here, successes
+	 * included — an operator reading logs should not have to infer a healthy run
+	 * from the absence of a failure.
+	 */
+	private async settleAttempt(
+		claim: GitHubSyncClaim,
+		attemptId: GitHubSyncAttemptId | undefined,
+		{
+			failureClass,
+			failureCode,
+			finishedAt,
+			retryAt,
+			startedAt,
+			status,
+		}: {
+			status: Exclude<GitHubSyncAttemptStatus, 'running'>
+			failureClass?: GitHubSyncFailureClass
+			failureCode?: string
+			finishedAt: Date
+			retryAt?: Date
+			startedAt: Date
+		}
+	): Promise<void> {
+		const durationMs = finishedAt.getTime() - startedAt.getTime()
+
+		this.logger.log({
+			event: 'github_sync_attempt',
+			repositoryId: claim.repositoryId,
+			requestedSyncVersion: claim.requestedSyncVersion,
+			trigger: claim.trigger,
+			status,
+			failureClass,
+			code: failureCode,
+			lastReconciliationDurationMs: durationMs,
+			retryAt: retryAt?.toISOString(),
+		})
+
+		if (!attemptId) return
+
+		await this.gitHubSyncRepository.completeSyncAttempt({
+			attemptId,
+			status,
+			failureClass,
+			failureCode,
+			finishedAt,
+			durationMs,
+			retryAt,
+		})
 	}
 
 	private async claim(request: GitHubSyncRequest) {
@@ -264,6 +502,8 @@ export class GitHubSyncProcessor extends WorkerHost {
 					pullRequestNumber: target.externalNumber,
 					repo: repository.name,
 				})
+			await this.observeRateLimit(claim, conversation.rateLimit)
+
 			const actorIds = await this.gitHubSyncRepository.upsertActors(
 				collectConversationActors(conversation)
 			)
@@ -307,7 +547,8 @@ export class GitHubSyncProcessor extends WorkerHost {
 	 *
 	 * The commits it returns are the ones whose pending check deliveries this run
 	 * may consume — including a commit GitHub no longer has, which is settled
-	 * evidence rather than a result.
+	 * evidence rather than a result. A commit it could conclude nothing about
+	 * makes the run incomplete, which the attempt records as `partial`.
 	 */
 	private async projectChecks({
 		accessToken,
@@ -319,7 +560,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 		claim: GitHubSyncClaim
 		headShas: string[]
 		repository: GitHubSyncRepositoryDetails
-	}): Promise<string[]> {
+	}): Promise<{ isComplete: boolean; projectedShas: string[] }> {
 		const deliveries =
 			await this.gitHubSyncRepository.listPendingCheckDeliveries(claim)
 		const targets = await this.gitHubSyncRepository.listCheckTargets({
@@ -331,6 +572,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 			updatedShas: [...new Set(headShas)],
 		})
 		const projectedShas: string[] = []
+		let isComplete = true
 
 		for (const sha of targets) {
 			await this.requireHeartbeat(claim)
@@ -342,10 +584,15 @@ export class GitHubSyncProcessor extends WorkerHost {
 					sha,
 				})
 
+				await this.observeRateLimit(claim, snapshot?.rateLimit)
+
 				// An incomplete snapshot proves nothing either way, so the commit is
 				// neither projected nor written off: its deliveries stay pending and the
 				// next run asks again.
-				if (outcome === 'incomplete') continue
+				if (outcome === 'incomplete') {
+					isComplete = false
+					continue
+				}
 
 				if (!snapshot) {
 					projectedShas.push(sha)
@@ -384,14 +631,28 @@ export class GitHubSyncProcessor extends WorkerHost {
 				// is not one commit's problem and still aborts everything.
 				if (error instanceof GitHubSyncAuthorityError) throw error
 
+				const failure = readGitHubSyncFailure(error)
+
+				// Losing access or hitting a limit is never one commit's problem: it
+				// is true of the whole installation, and every remaining commit would
+				// fail the same way. Containing it here would finalize the run as
+				// successful while the credential stays uncached-out and the
+				// installation undeferred.
+				if (
+					failure.failureClass === 'authentication' ||
+					failure.failureClass === 'rate_limit'
+				)
+					throw error
+
+				isComplete = false
+
 				this.logger.warn(
-					`GitHub checks reconciliation for ${sha} failed`,
-					error instanceof Error ? error.stack : undefined
+					`GitHub checks reconciliation for ${sha} failed as ${failure.failureClass}/${failure.failureCode}`
 				)
 			}
 		}
 
-		return projectedShas
+		return { isComplete, projectedShas }
 	}
 
 	/**
@@ -425,9 +686,13 @@ export class GitHubSyncProcessor extends WorkerHost {
 				}),
 			}
 		} catch (error) {
-			if (!isMissingGitHubRefError(error)) throw error
+			const failure = readGitHubSyncFailure(error)
 
-			if (isMissingGitHubChecksChildError(error)) {
+			// Only an absence is settled evidence. Everything else — a refusal, a
+			// limit, an outage — is contained by the caller for this commit alone.
+			if (failure.failureClass !== 'permanent_not_found') throw error
+
+			if (failure.scope !== GITHUB_CHECKS_REF_SCOPE) {
 				this.logger.debug(
 					`GitHub stopped reporting a check suite of ${sha} mid-read`
 				)
@@ -587,18 +852,28 @@ function isMissingGitObjectError(error: unknown): boolean {
 	return Number(error.context?.grpcCode) === status.NOT_FOUND
 }
 
-/** A commit GitHub does not have, as opposed to GitHub being unable to answer. */
-function isMissingGitHubRefError(error: unknown): boolean {
-	if (!(error instanceof DomainError)) return false
-
-	return Number(error.context?.statusCode) === HTTP_NOT_FOUND
+/**
+ * Whether this exact requested version will be attempted again. A limit and an
+ * outage both leave the version requested, so the dispatcher or the queue comes
+ * back to it; a payload mismatch and an absence abandon it, and whatever the
+ * schedule does next is a new operation rather than another try at this one.
+ */
+function schedulesAnotherAttempt({ failureClass }: GitHubSyncFailure): boolean {
+	return (
+		failureClass === 'transport' ||
+		failureClass === 'unknown' ||
+		failureClass === 'rate_limit'
+	)
 }
 
-/** A resource under the commit rather than the commit, so it says nothing about it. */
-function isMissingGitHubChecksChildError(error: unknown): boolean {
-	if (!(error instanceof DomainError)) return false
-
-	return error.context?.scope !== GITHUB_CHECKS_REF_SCOPE
+/**
+ * Whether repeating the request right now could succeed. A limit is excluded
+ * deliberately: retrying inside it would spend this repository's five job
+ * attempts against a GitHub that is still refusing, and the deferral already
+ * brings the work back once the limit resets.
+ */
+function allowsJobRetry({ failureClass }: GitHubSyncFailure): boolean {
+	return failureClass === 'transport' || failureClass === 'unknown'
 }
 
 /**

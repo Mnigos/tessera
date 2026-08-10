@@ -2,6 +2,7 @@ import { EnvService } from '@config/env'
 import { Injectable } from '@nestjs/common'
 import type { GitHubWebhookDeliveryId } from '@repo/db'
 import { BadRequestError, UnauthorizedError } from '~/shared/errors'
+import { classifyGitHubSyncFailure } from '../domain/github-sync-failure'
 import {
 	type GitHubWebhookActor,
 	type GitHubWebhookInstallation,
@@ -19,6 +20,9 @@ import {
 	type GitHubInstallationInput,
 	GitHubSyncRepository,
 } from '../infrastructure/github-sync.repository'
+
+/** The one reason a signed delivery is refused, in Tessera's own vocabulary. */
+const GITHUB_WEBHOOK_PAYLOAD_FAILURE_CODE = 'payload_invalid'
 
 @Injectable()
 export class GitHubWebhookService {
@@ -51,7 +55,7 @@ export class GitHubWebhookService {
 		if (!verifyGitHubWebhookSignature({ rawBody, secret, signature }))
 			throw new UnauthorizedError('github webhook signature')
 
-		const payload = parseGitHubWebhookPayload(rawBody)
+		const payload = await this.parsePayload({ deliveryId, eventName, rawBody })
 		const targetActor = payload.assignee ?? payload.requested_reviewer
 		const target = toGitHubWebhookTarget(eventName, payload)
 		const result = await this.githubSyncRepository.recordWebhookDelivery({
@@ -89,6 +93,47 @@ export class GitHubWebhookService {
 		)
 
 		return { accepted: true, duplicate: result.duplicate }
+	}
+
+	/**
+	 * Reads a payload whose signature already proved it came from GitHub.
+	 *
+	 * A delivery that fails here used to vanish: it threw before any row existed,
+	 * so the only trace was an HTTP status GitHub alone could see. It now leaves a
+	 * receipt naming the fields that disagreed with the schema — never their
+	 * values, and never the body — and still refuses the request, because GitHub
+	 * redelivering a payload Tessera can read is the outcome worth having.
+	 */
+	private async parsePayload({
+		deliveryId,
+		eventName,
+		rawBody,
+	}: {
+		deliveryId: GitHubWebhookDeliveryId
+		eventName: string
+		rawBody: Buffer
+	}): Promise<GitHubWebhookPayload> {
+		try {
+			return parseGitHubWebhookPayload(rawBody)
+		} catch (error) {
+			const { issuePaths } = classifyGitHubSyncFailure(error)
+
+			await this.githubSyncRepository.recordFailedWebhookDelivery({
+				deliveryId,
+				eventName,
+				failedAt: new Date(),
+				failureCode: GITHUB_WEBHOOK_PAYLOAD_FAILURE_CODE,
+				failureReason: issuePaths?.length
+					? `GitHub sent a payload Tessera could not read: ${issuePaths.join(', ')}`
+					: 'GitHub sent a payload Tessera could not read',
+			})
+
+			throw new BadRequestError(
+				'github webhook',
+				{ reason: GITHUB_WEBHOOK_PAYLOAD_FAILURE_CODE },
+				'GitHub webhook payload could not be read'
+			)
+		}
 	}
 }
 

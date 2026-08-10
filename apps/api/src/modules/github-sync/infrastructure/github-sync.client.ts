@@ -2,6 +2,10 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Octokit } from '@octokit/rest'
 import { z } from 'zod'
 import { GitHubSyncExternalServiceError } from '../domain/github-sync.errors'
+import {
+	classifyGitHubSyncFailure,
+	type GitHubSyncRequestScope,
+} from '../domain/github-sync-failure'
 import type {
 	GitHubChecksRequestScope,
 	GitHubChecksSnapshot,
@@ -16,6 +20,7 @@ import type {
 	GitHubSyncDiffSide,
 	GitHubSyncIssueComment,
 	GitHubSyncPullRequest,
+	GitHubSyncRateLimit,
 	GitHubSyncReview,
 	GitHubSyncReviewComment,
 	GitHubSyncReviewerRequestTarget,
@@ -325,6 +330,38 @@ const REVIEW_THREADS_QUERY = `
 export class GitHubSyncClient {
 	private readonly logger = new Logger(GitHubSyncClient.name)
 
+	/**
+	 * An Octokit that reports what the installation's budget looked like across
+	 * every response it made, not just the one the caller happened to read
+	 * headers from. Rate limits are counted per installation, so a paginated
+	 * listing deep inside a conversation read is as good a warning as any — and
+	 * the tightest budget seen is the one worth keeping, because it is the one
+	 * the next repository under this installation will run into.
+	 */
+	private createOctokit(accessToken: string): {
+		octokit: Octokit
+		readRateLimit: () => GitHubSyncRateLimit | undefined
+	} {
+		const octokit = new Octokit({ auth: accessToken })
+		let rateLimit: GitHubSyncRateLimit | undefined
+
+		octokit.hook.after('request', response => {
+			const observed = toGitHubSyncRateLimit(response.headers)
+
+			if (!observed) return
+			if (
+				rateLimit?.remaining !== undefined &&
+				observed.remaining !== undefined &&
+				observed.remaining > rateLimit.remaining
+			)
+				return
+
+			rateLimit = observed
+		})
+
+		return { octokit, readRateLimit: () => rateLimit }
+	}
+
 	async getRepositoryReconciliation({
 		accessToken,
 		externalRepositoryId,
@@ -334,7 +371,7 @@ export class GitHubSyncClient {
 		externalRepositoryId: bigint
 		updatedAfter?: Date
 	}): Promise<GitHubRepositoryReconciliation> {
-		const octokit = new Octokit({ auth: accessToken })
+		const { octokit, readRateLimit } = this.createOctokit(accessToken)
 
 		try {
 			const repositoryResponse = await octokit.request(
@@ -394,13 +431,12 @@ export class GitHubSyncClient {
 				},
 				pullRequests: detailedPullRequests.map(toGitHubSyncPullRequest),
 				pullRequestCursorAt,
+				rateLimit: readRateLimit(),
 			}
 		} catch (error) {
-			this.logger.warn('GitHub reconciliation request failed')
-			throw new GitHubSyncExternalServiceError(
-				{ externalRepositoryId: externalRepositoryId.toString() },
-				{ cause: error }
-			)
+			throw this.toSyncFailure(error, 'repository', {
+				externalRepositoryId: externalRepositoryId.toString(),
+			})
 		}
 	}
 
@@ -415,7 +451,7 @@ export class GitHubSyncClient {
 		pullRequestNumber: number
 		repo: string
 	}): Promise<GitHubPullRequestConversation> {
-		const octokit = new Octokit({ auth: accessToken })
+		const { octokit, readRateLimit } = this.createOctokit(accessToken)
 		const target = { octokit, owner, pullRequestNumber, repo }
 
 		try {
@@ -439,13 +475,14 @@ export class GitHubSyncClient {
 				reviews,
 				requestedReviewers,
 				reviewThreads,
+				rateLimit: readRateLimit(),
 			}
 		} catch (error) {
-			this.logger.warn('GitHub pull request conversation request failed')
-			throw new GitHubSyncExternalServiceError(
-				{ owner, repo, pullRequestNumber },
-				{ cause: error }
-			)
+			throw this.toSyncFailure(error, 'conversation', {
+				owner,
+				repo,
+				pullRequestNumber,
+			})
 		}
 	}
 
@@ -467,7 +504,7 @@ export class GitHubSyncClient {
 		ref: string
 		repo: string
 	}): Promise<GitHubChecksSnapshot> {
-		const octokit = new Octokit({ auth: accessToken })
+		const { octokit, readRateLimit } = this.createOctokit(accessToken)
 		const target = { owner, ref, repo }
 		const suites = await this.requestChecks(target, 'ref', () =>
 			this.listCheckSuites({ octokit, owner, ref, repo })
@@ -488,25 +525,22 @@ export class GitHubSyncClient {
 				))
 			)
 
-		return {
-			sha: ref,
-			suites,
-			runs,
-			statuses: await this.requestChecks(target, 'ref', () =>
-				this.listCommitStatuses({ octokit, owner, ref, repo })
-			),
-		}
+		const statuses = await this.requestChecks(target, 'ref', () =>
+			this.listCommitStatuses({ octokit, owner, ref, repo })
+		)
+
+		return { sha: ref, suites, runs, statuses, rateLimit: readRateLimit() }
 	}
 
 	/**
 	 * Fails one checks request with enough context to tell two different kinds of
 	 * 404 apart.
 	 *
-	 * The status travels in the context because a commit GitHub does not have is a
-	 * permanent gap the projection has to be able to record, while every other
-	 * failure has to fail the run and retry. The scope travels with it because
-	 * only the ref-level listings speak for the commit: a missing child resource
-	 * means this snapshot is incomplete, not that the commit is gone.
+	 * The classification travels in the context because a commit GitHub does not
+	 * have is a permanent gap the projection has to be able to record, while every
+	 * other failure has to fail the run and retry. The scope travels with it
+	 * because only the ref-level listings speak for the commit: a missing child
+	 * resource means this snapshot is incomplete, not that the commit is gone.
 	 */
 	private async requestChecks<TResult>(
 		{ owner, ref, repo }: { owner: string; ref: string; repo: string },
@@ -516,13 +550,33 @@ export class GitHubSyncClient {
 		try {
 			return await request()
 		} catch (error) {
-			this.logger.warn(`GitHub ${scope} checks request failed`)
-
-			throw new GitHubSyncExternalServiceError(
-				{ owner, repo, ref, scope, statusCode: toHttpStatusCode(error) },
-				{ cause: error }
-			)
+			throw this.toSyncFailure(error, scope, { owner, repo, ref })
 		}
+	}
+
+	/**
+	 * The one place a GitHub failure becomes something Tessera will keep. The
+	 * classification is an allowlist — class, code, status, request id, rate-limit
+	 * timing, schema issue paths — so no provider header, body, or message
+	 * survives into the context that gets persisted and logged downstream.
+	 *
+	 * The original error is deliberately not attached as `cause`. An allowlisted
+	 * context is worth nothing if the error it travels on still carries the whole
+	 * provider response one property away: generic error logging already prints
+	 * causes, and a response body or an authorization header would ride along.
+	 */
+	private toSyncFailure(
+		error: unknown,
+		scope: GitHubSyncRequestScope,
+		resource: Record<string, unknown>
+	): GitHubSyncExternalServiceError {
+		const failure = classifyGitHubSyncFailure(error, scope)
+
+		this.logger.warn(
+			`GitHub ${scope} request failed as ${failure.failureClass}/${failure.failureCode}`
+		)
+
+		return new GitHubSyncExternalServiceError({ ...resource, ...failure })
 	}
 
 	private async listCheckSuites({
@@ -885,12 +939,26 @@ interface GitHubRefTarget {
 	repo: string
 }
 
-/** Octokit reports the HTTP status on the error it throws; anything else has none. */
-function toHttpStatusCode(error: unknown): number | undefined {
-	if (!(error && typeof error === 'object' && 'status' in error))
-		return undefined
+/**
+ * The budget GitHub reported on a response it did answer. A successful read is
+ * the cheapest place to notice a limit approaching, and clearing a stale defer
+ * needs the same evidence.
+ */
+function toGitHubSyncRateLimit(
+	headers: Record<string, unknown>
+): GitHubSyncRateLimit | undefined {
+	const remaining = Number(headers['x-ratelimit-remaining'])
+	const resetSeconds = Number(headers['x-ratelimit-reset'])
 
-	return typeof error.status === 'number' ? error.status : undefined
+	if (!(Number.isInteger(remaining) && remaining >= 0)) return undefined
+
+	return {
+		remaining,
+		resetAt:
+			Number.isFinite(resetSeconds) && resetSeconds > 0
+				? new Date(resetSeconds * 1000)
+				: undefined,
+	}
 }
 
 function toGitHubSyncCheckApp(
