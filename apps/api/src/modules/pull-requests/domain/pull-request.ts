@@ -8,6 +8,7 @@ import type {
 	PullRequestReadModel,
 } from '../infrastructure/pull-requests.repository'
 import { PullRequestStateConflictError } from './pull-request.errors'
+import { toPullRequestActorOutput } from './pull-request-actor'
 
 const SYSTEM_ACTOR_EVENT_TYPES: ReadonlySet<PullRequestEvent['type']> = new Set(
 	['queue_paused', 'queue_removed', 'queue_resumed']
@@ -55,6 +56,10 @@ export function toPullRequestEventOutput(
 		...event,
 		actorUserId: event.actorUserId ?? undefined,
 		actorUsername: resolvedActorUsername ?? undefined,
+		actor:
+			'actor' in event && event.actor
+				? toPullRequestActorOutput(event.actor)
+				: undefined,
 		payload: event.payload ?? undefined,
 	}
 }

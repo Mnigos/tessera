@@ -36,6 +36,7 @@ import type {
 	UserId,
 } from '@repo/domain'
 import { alias } from 'drizzle-orm/pg-core'
+import type { PullRequestActorReadModel } from '../domain/pull-request-actor'
 import type { PullRequestPushRefUpdate } from '../domain/pull-request-push.schema'
 import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import {
@@ -212,6 +213,7 @@ export interface PullRequestReadModel extends PullRequest {
 export interface PullRequestEventReadModel
 	extends Omit<PullRequestEvent, 'idempotencyKey'> {
 	actorUsername?: string
+	actor?: PullRequestActorReadModel
 }
 
 interface PullRequestReadRow extends PullRequest {
@@ -420,6 +422,16 @@ export class PullRequestsRepository {
 				payload: pullRequestEvents.payload,
 				createdAt: pullRequestEvents.createdAt,
 				actorUsername: sql<string>`coalesce(${eventActorUser.username}, ${eventGitHubActor.login})`,
+				// The joins the login already came from, read whole: the avatar and
+				// the profile were always beside it, they were just never selected.
+				actor: {
+					userId: pullRequestEvents.actorUserId,
+					username: eventActorUser.username,
+					externalNodeId: eventGitHubActor.externalNodeId,
+					externalLogin: eventGitHubActor.login,
+					externalAvatarUrl: eventGitHubActor.avatarUrl,
+					externalHtmlUrl: eventGitHubActor.htmlUrl,
+				},
 			})
 			.from(pullRequestEvents)
 			.leftJoin(

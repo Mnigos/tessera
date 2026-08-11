@@ -11,6 +11,11 @@ import {
 	toRepositoryWithOwner,
 } from './repository'
 
+const CLONE_BASE_URLS = {
+	http: 'http://git.localhost',
+	ssh: 'ssh://git@git.localhost:2222',
+}
+
 describe('repository domain mapper', () => {
 	test('maps persistence nulls to optional API fields', () => {
 		const repository: RepositoryWithOwner = {
@@ -28,7 +33,7 @@ describe('repository domain mapper', () => {
 			updatedAt: new Date('2026-05-12T00:00:00Z'),
 		}
 
-		expect(toRepositoryOutput(repository)).toEqual({
+		expect(toRepositoryOutput(repository, CLONE_BASE_URLS)).toEqual({
 			repository: {
 				id: repository.id,
 				slug: repository.slug,
@@ -37,6 +42,11 @@ describe('repository domain mapper', () => {
 				description: undefined,
 				defaultBranch: 'main',
 				externalSource: { mode: 'none' },
+				cloneUrls: {
+					authority: 'tessera',
+					https: 'http://git.localhost/marta/notes.git',
+					ssh: 'ssh://git@git.localhost:2222/marta/notes.git',
+				},
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},
@@ -86,7 +96,9 @@ describe('repository domain mapper', () => {
 			},
 		}
 
-		expect(toRepositoryOutput(repository).repository.externalSource).toEqual({
+		expect(
+			toRepositoryOutput(repository, CLONE_BASE_URLS).repository.externalSource
+		).toEqual({
 			mode: 'github_to_tessera',
 			provider: 'github',
 			externalRepositoryId: '123',

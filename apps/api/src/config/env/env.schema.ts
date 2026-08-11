@@ -9,6 +9,18 @@ export const envSchema = z.object({
 	DB_SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().positive().default(250),
 	REDIS_URL: z.string().default('redis://localhost:6379'),
 	GIT_SERVICE_URL: z.string().default('localhost:50051'),
+	/**
+	 * Where clones of a Tessera-authoritative repository point. The API derives
+	 * the pair because it is the only side that knows whether GitHub still owns
+	 * the repository, and these must match the web app's
+	 * `VITE_PUBLIC_GIT_*_BASE_URL` values — nothing here can check that, so the
+	 * two are documented together in `docs/railway-deployments.md`.
+	 *
+	 * Validated as URLs for the same reason the web side is: a scheme-less value
+	 * would boot fine and then fail contract validation on every repository read.
+	 */
+	GIT_HTTP_BASE_URL: z.url().default('http://localhost:4001'),
+	GIT_SSH_BASE_URL: z.url().default('ssh://git@localhost:2222'),
 	INTERNAL_API_TOKEN: z.string().min(1),
 	CACHE_REDIS_DB: z.coerce.number().int().min(0).default(1),
 	BULL_BOARD_PATH: z.string().default('/admin/queues'),
