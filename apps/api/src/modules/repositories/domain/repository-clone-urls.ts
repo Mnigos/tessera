@@ -1,4 +1,4 @@
-import type { RepositoryCloneUrls } from '@repo/contracts'
+import { isHttpCloneUrl, type RepositoryCloneUrls } from '@repo/contracts'
 import type { RepositoryExternalSourceReadModel } from './repository'
 
 export interface RepositoryCloneBaseUrls {
@@ -71,11 +71,19 @@ function toGitHubCloneUrls({
 	}
 }
 
+/**
+ * Only a web source can produce a web clone URL. A stored source with any other
+ * scheme would otherwise be copied straight into `cloneUrls.https`, which the
+ * contract refuses — so it falls back to Tessera's own remotes instead of
+ * failing every read of the repository.
+ */
 function toSourceUrl(sourceUrl: string): URL | undefined {
 	try {
 		const parsed = new URL(sourceUrl)
 
-		return parsed.hostname ? parsed : undefined
+		if (!(parsed.hostname && isHttpCloneUrl(sourceUrl))) return undefined
+
+		return parsed
 	} catch {
 		return undefined
 	}

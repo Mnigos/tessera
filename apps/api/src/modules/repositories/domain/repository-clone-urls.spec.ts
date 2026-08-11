@@ -1,3 +1,4 @@
+import { repositoryCloneUrlsSchema } from '@repo/contracts'
 import type { RepositoryExternalSourceReadModel } from './repository'
 import { toRepositoryCloneUrls } from './repository-clone-urls'
 
@@ -117,5 +118,58 @@ describe('repository clone URLs', () => {
 				externalSource: externalSource({ sourceUrl: 'not-a-url' }),
 			}).authority
 		).toBe('tessera')
+	})
+})
+
+describe('repository clone URL contract', () => {
+	test.each([
+		['a GitHub scp-form remote', 'git@github.com:marta/notes.git'],
+		['a Tessera ssh URL', 'ssh://git@git.localhost:2222/marta/notes.git'],
+	])('accepts %s', (_name, ssh) => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse({
+				authority: 'tessera',
+				https: 'https://git.localhost/marta/notes.git',
+				ssh,
+			}).success
+		).toBe(true)
+	})
+
+	// `z.url()` on its own accepts any scheme, and these are rendered as links
+	// and offered for people to copy.
+	test('rejects a non-web scheme in the HTTP clone URL', () => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse({
+				authority: 'tessera',
+				https: 'javascript:alert(1)',
+				ssh: 'git@github.com:marta/notes.git',
+			}).success
+		).toBe(false)
+	})
+
+	test('rejects an SSH remote that is neither form', () => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse({
+				authority: 'tessera',
+				https: 'https://git.localhost/marta/notes.git',
+				ssh: 'https://git.localhost/marta/notes.git',
+			}).success
+		).toBe(false)
+	})
+
+	test.each([
+		['a native repository', undefined],
+		['a running mirror', externalSource()],
+		['an imported snapshot', externalSource({ mirrorMode: 'imported' })],
+		[
+			'a repository whose source is not a web address',
+			externalSource({ sourceUrl: 'ssh://github.com/marta/notes' }),
+		],
+	])('derives clone URLs the contract accepts for %s', (_name, source) => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse(
+				toRepositoryCloneUrls({ ...TARGET, externalSource: source })
+			).success
+		).toBe(true)
 	})
 })

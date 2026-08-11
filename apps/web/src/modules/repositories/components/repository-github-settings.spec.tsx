@@ -219,6 +219,44 @@ describe('RepositoryGitHubSettings', () => {
 		})
 	})
 
+	// The enable mutation settles before the reads that replace this section do.
+	// Re-offering the button in that window invites a second, redundant request.
+	test('keeps the enable affordance disabled while the refreshed state lands', () => {
+		mockRepository({ ...EXTERNAL_SOURCE, mode: 'imported' })
+		useEnableGitHubMirrorMutationMock.mockReturnValue({
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			mutate: enableMutateMock,
+		} as unknown as ReturnType<typeof useEnableGitHubMirrorMutation>)
+
+		renderSettings()
+
+		const enableButton = screen.getByRole('button', { name: 'Enabling…' })
+
+		expect(enableButton.hasAttribute('disabled')).toBe(true)
+		expect(screen.queryByRole('button', { name: 'Enable mirror' })).toBeNull()
+	})
+
+	test('hides the authority control once authority has changed', () => {
+		useCutoverGitHubMirrorMutationMock.mockReturnValue({
+			isError: false,
+			isPending: false,
+			isSuccess: true,
+			mutate: cutoverMutateMock,
+		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
+
+		renderSettings()
+
+		expect(screen.getByText('Tessera is now authoritative.')).toBeTruthy()
+		expect(
+			screen.queryByRole('button', { name: AUTHORITY_BUTTON_NAME })
+		).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Confirm authority change' })
+		).toBeNull()
+	})
+
 	test('confirms the authority change before performing it', async () => {
 		const user = userEvent.setup()
 

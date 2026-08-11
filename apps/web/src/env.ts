@@ -1,3 +1,4 @@
+import { isHttpCloneUrl, isSshCloneRemote } from '@repo/contracts'
 import { createEnv } from '@t3-oss/env-core'
 import { z } from 'zod'
 
@@ -9,8 +10,10 @@ export const env = createEnv({
 	client: {
 		VITE_API_URL: z.url().default('http://localhost:4000'),
 		VITE_APP_URL: z.url().default('http://localhost:3000'),
-		VITE_PUBLIC_GIT_HTTP_BASE_URL: z.url(),
-		VITE_PUBLIC_GIT_SSH_BASE_URL: z.url(),
+		// Schemes are checked rather than assumed: these end up rendered as links
+		// and offered for people to copy, and `z.url()` alone accepts anything.
+		VITE_PUBLIC_GIT_HTTP_BASE_URL: z.url().refine(isHttpCloneUrl),
+		VITE_PUBLIC_GIT_SSH_BASE_URL: z.url().refine(isSshCloneRemote),
 	},
 	runtimeEnv: {
 		API_URL: process.env.API_URL,

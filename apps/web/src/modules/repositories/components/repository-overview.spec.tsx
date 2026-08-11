@@ -223,6 +223,13 @@ function getMirroredSummary(
 		repository: {
 			...summary.repository,
 			externalSource,
+			// A mirrored repository is GitHub-authoritative, so its clone URLs are
+			// GitHub's. Leaving Tessera URLs here would be a state the contract
+			// never produces, and would hide a clone-panel regression.
+			cloneUrls:
+				externalSource.mode === 'github_to_tessera'
+					? GITHUB_CLONE_URLS
+					: summary.repository.cloneUrls,
 		},
 	}
 }
@@ -523,6 +530,12 @@ describe('RepositoryOverview', () => {
 
 		expect(screen.getByText('HTTP')).toBeTruthy()
 		expect(screen.queryByText('HTTPS')).toBeNull()
+		// The description names the protocol too, so it cannot claim HTTPS either.
+		expect(
+			screen.queryByText(
+				'Use SSH for authenticated Git access, or HTTPS when SSH is not available.'
+			)
+		).toBeNull()
 
 		await user.click(
 			screen.getByRole('button', { name: 'Copy HTTP clone URL' })

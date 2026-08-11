@@ -18,9 +18,13 @@ export function RepositoryGitHubEnableSection({
 	repository,
 }: Readonly<RepositoryGitHubEnableSectionProps>) {
 	const enableMutation = useEnableGitHubMirrorMutation()
+	// Success does not mean the page has caught up: the reads that replace this
+	// section with the mirror's own surfaces are still in flight. Re-offering
+	// "Enable mirror" in that window invites a second, redundant request.
+	const isEnabling = enableMutation.isPending || enableMutation.isSuccess
 
 	function handleEnableMirror() {
-		if (enableMutation.isPending) return
+		if (isEnabling) return
 
 		enableMutation.mutate({
 			slug: repository.slug,
@@ -42,12 +46,12 @@ export function RepositoryGitHubEnableSection({
 			</div>
 			<div className="flex flex-wrap items-center gap-2">
 				<Button
-					disabled={enableMutation.isPending}
+					disabled={isEnabling}
 					onClick={handleEnableMirror}
 					size="sm"
 					variant="secondary"
 				>
-					{enableMutation.isPending ? 'Enabling…' : 'Enable mirror'}
+					{isEnabling ? 'Enabling…' : 'Enable mirror'}
 				</Button>
 			</div>
 			{enableMutation.isError && (

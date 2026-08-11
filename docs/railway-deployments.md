@@ -29,12 +29,20 @@ Required for production:
 - `GIT_HTTP_BASE_URL`
 - `GIT_SSH_BASE_URL`
 
-`GIT_HTTP_BASE_URL` and `GIT_SSH_BASE_URL` **must be set to the same values as
-the web service's `VITE_PUBLIC_GIT_HTTP_BASE_URL` and
-`VITE_PUBLIC_GIT_SSH_BASE_URL`.** The API derives every repository's clone URLs,
-because only it knows whether GitHub or Tessera currently owns the repository.
-Nothing validates the two services against each other: leaving these unset in
-production is not an error, it just serves `localhost` clone URLs.
+`GIT_HTTP_BASE_URL` and `GIT_SSH_BASE_URL` are **required in production** and
+**must be set to the same values as the web service's
+`VITE_PUBLIC_GIT_HTTP_BASE_URL` and `VITE_PUBLIC_GIT_SSH_BASE_URL`.** The API
+derives every repository's clone URLs, because only it knows whether GitHub or
+Tessera currently owns the repository.
+
+With `NODE_ENV=production` the API refuses to boot when either is missing,
+rather than falling back to `localhost` and serving clone URLs nobody outside
+the container can reach. Local development keeps the fallbacks below. Nothing
+validates the two services against each other, so the matching values are on
+you.
+
+`GIT_HTTP_BASE_URL` must be an `http`/`https` URL and `GIT_SSH_BASE_URL` an
+`ssh://` URL; anything else is rejected at boot.
 
 Safe local examples:
 
