@@ -160,7 +160,13 @@ const HTTP_CLONE_PROTOCOLS = new Set(['http:', 'https:'])
  */
 export function isHttpCloneUrl(value: string) {
 	try {
-		return HTTP_CLONE_PROTOCOLS.has(new URL(value).protocol)
+		const url = new URL(value)
+
+		return (
+			HTTP_CLONE_PROTOCOLS.has(url.protocol) &&
+			url.hostname.length > 0 &&
+			!(url.username || url.password)
+		)
 	} catch {
 		return false
 	}
@@ -176,7 +182,11 @@ export function isSshCloneRemote(value: string) {
 	if (SCP_LIKE_SSH_REMOTE_REGEX.test(value)) return true
 
 	try {
-		return new URL(value).protocol === 'ssh:'
+		const url = new URL(value)
+
+		// A username such as git@ is how SSH names its account; a password in a
+		// clone URL is never legitimate.
+		return url.protocol === 'ssh:' && url.hostname.length > 0 && !url.password
 	} catch {
 		return false
 	}
