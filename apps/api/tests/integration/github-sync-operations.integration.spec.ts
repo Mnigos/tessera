@@ -71,7 +71,6 @@ const SECONDARY_EXTERNAL_REPOSITORY_ID = 4343
 const PRIMARY_INSTALLATION_ID = 8888
 const SECONDARY_INSTALLATION_ID = 9999
 const SYNC_INTERVAL_MINUTES = 60
-/** Stands in when a lookup that must succeed did not, so the assertion fails. */
 const MISSING_FACTS: RepositorySyncHealthFacts = {
 	syncStatus: 'pending',
 	pendingDeliveryCount: 0,
@@ -528,9 +527,6 @@ describe('GitHub sync operations integration', () => {
 		)
 
 		expect(await replayService.replayDelivery(deliveryId(42))).toBeTruthy()
-		// The failure that settled this delivery is superseded by the replay, so
-		// health must not keep reporting a reason for a repository that is
-		// reconciling again.
 		expect(await findSource(primary.repositoryId)).toMatchObject({
 			syncStatus: 'pending',
 			syncFailureCode: null,
