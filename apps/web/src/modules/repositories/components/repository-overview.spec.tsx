@@ -1,22 +1,18 @@
 import type {
 	RepositoryBrowserSummary,
 	RepositoryExternalSource,
+	RepositorySyncHealth,
 } from '@repo/contracts'
 import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import {
-	getRepositoryHttpCloneUrl,
-	getRepositorySshCloneUrl,
-} from '../helpers/get-repository-clone-url'
-import {
 	getFallbackRefOptions,
 	getSelectedRepositoryQualifiedRef,
 	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
-import { useCutoverGitHubMirrorMutation } from '../hooks/use-cutover-github-mirror.mutation'
-import { useEnableGitHubMirrorMutation } from '../hooks/use-enable-github-mirror.mutation'
+import { useGitHubSyncHealthQuery } from '../hooks/use-github-sync-health.query'
 import { RepositoryOverview } from './repository-overview'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -58,27 +54,11 @@ vi.mock('@repo/ui/components/sonner', async importOriginal => {
 	}
 })
 
-vi.mock('../helpers/get-repository-clone-url', () => ({
-	getRepositoryHttpCloneUrl: vi.fn(),
-	getRepositorySshCloneUrl: vi.fn(),
+vi.mock('../hooks/use-github-sync-health.query', () => ({
+	useGitHubSyncHealthQuery: vi.fn(),
 }))
 
-vi.mock('../hooks/use-cutover-github-mirror.mutation', () => ({
-	useCutoverGitHubMirrorMutation: vi.fn(),
-}))
-
-vi.mock('../hooks/use-enable-github-mirror.mutation', () => ({
-	useEnableGitHubMirrorMutation: vi.fn(),
-}))
-
-const getRepositoryHttpCloneUrlMock = vi.mocked(getRepositoryHttpCloneUrl)
-const getRepositorySshCloneUrlMock = vi.mocked(getRepositorySshCloneUrl)
-const useCutoverGitHubMirrorMutationMock = vi.mocked(
-	useCutoverGitHubMirrorMutation
-)
-const useEnableGitHubMirrorMutationMock = vi.mocked(
-	useEnableGitHubMirrorMutation
-)
+const useGitHubSyncHealthQueryMock = vi.mocked(useGitHubSyncHealthQuery)
 
 const baseSummary = {
 	repository: {
@@ -89,6 +69,11 @@ const baseSummary = {
 		description: 'Repository overview fixtures',
 		defaultBranch: 'main',
 		externalSource: { mode: 'none' },
+		cloneUrls: {
+			authority: 'tessera',
+			https: 'http://git.localhost/mnigos/tessera-notes.git',
+			ssh: 'ssh://git@localhost:2222/mnigos/tessera-notes.git',
+		},
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
 		updatedAt: new Date('2026-01-02T00:00:00.000Z'),
 	},
@@ -159,11 +144,29 @@ const README_HEADING_REGEX = /readme/i
 const README_TRUNCATED_REGEX = /README preview is truncated/i
 const GITHUB_REPOSITORY_REGEX = /mnigos\/upstream-notes/
 const MIRROR_BUTTON_REGEX = /mirror/i
-const SYNC_BUTTON_REGEX = /Sync/
-const SYNC_FAILED_REGEX = /Sync failed ·/
-const SYNCED_REGEX = /Synced ·/
-const cutoverGitHubMirrorMutateMock = vi.fn()
-const enableGitHubMirrorMutateMock = vi.fn()
+const SYNC_BUTTON_REGEX = /sync/i
+const AUTHORITY_BUTTON_REGEX = /authoritative/i
+
+const GITHUB_CLONE_URLS = {
+	authority: 'github',
+	https: 'https://github.com/mnigos/upstream-notes.git',
+	ssh: 'git@github.com:mnigos/upstream-notes.git',
+} satisfies RepositoryBrowserSummary['repository']['cloneUrls']
+
+const BASE_SYNC_HEALTH = {
+	pendingDeliveryCount: 0,
+	retryCount24h: 0,
+	failureRate24h: 0,
+	reauthorizationRequired: false,
+} satisfies Omit<RepositorySyncHealth, 'state'>
+
+function mockSyncHealth(syncHealth?: RepositorySyncHealth) {
+	useGitHubSyncHealthQueryMock.mockReturnValue({
+		data: syncHealth ? { syncHealth } : undefined,
+		isError: false,
+		isLoading: false,
+	} as unknown as ReturnType<typeof useGitHubSyncHealthQuery>)
+}
 
 type RepositoryExternalSourceWithSchedule = Exclude<
 	RepositoryExternalSource,
@@ -240,27 +243,10 @@ function getTesseraSourceSummary(
 describe('RepositoryOverview', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
-		cutoverGitHubMirrorMutateMock.mockClear()
-		enableGitHubMirrorMutateMock.mockClear()
 	})
 
 	beforeEach(() => {
-		getRepositoryHttpCloneUrlMock.mockReturnValue(expectedCloneUrl)
-		getRepositorySshCloneUrlMock.mockReturnValue(expectedSshCloneUrl)
-		useCutoverGitHubMirrorMutationMock.mockReturnValue({
-			error: null,
-			isError: false,
-			isPending: false,
-			isSuccess: false,
-			mutate: cutoverGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
-		useEnableGitHubMirrorMutationMock.mockReturnValue({
-			error: null,
-			isError: false,
-			isPending: false,
-			isSuccess: false,
-			mutate: enableGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useEnableGitHubMirrorMutation>)
+		mockSyncHealth()
 	})
 
 	test('renders README markdown before the root tree when README is present', () => {
@@ -359,179 +345,265 @@ describe('RepositoryOverview', () => {
 		).toBeTruthy()
 	})
 
-	test('shows imported GitHub provenance and lets the owner enable automatic mirroring', async () => {
-		const user = userEvent.setup()
-		const summary = getMirroredSummary({ mode: 'imported' })
+	test('states GitHub authority with a source link and no controls at all', () => {
+		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
 
-		render(<RepositoryOverview summary={asOwner(summary)} />)
-
-		expect(
-			screen.getByRole('heading', { name: 'Not mirrored to GitHub' })
-		).toBeTruthy()
-		expect(
-			screen.getByText(
-				'Connect the GitHub App to keep a mirror in sync automatically.'
-			)
-		).toBeTruthy()
-		expect(
-			screen.getByRole('link', { name: GITHUB_REPOSITORY_REGEX })
-		).toBeTruthy()
-
-		await user.click(screen.getByRole('button', { name: 'Enable mirror' }))
-
-		expect(enableGitHubMirrorMutateMock).toHaveBeenCalledWith({
-			username: 'mnigos',
-			slug: 'tessera-notes',
-		})
-	})
-
-	test('hides automatic mirror enablement from non-owners', () => {
-		render(
-			<RepositoryOverview summary={getMirroredSummary({ mode: 'imported' })} />
-		)
-
-		expect(screen.getByText('Not mirrored to GitHub')).toBeTruthy()
-		expect(screen.queryByRole('button', { name: 'Enable mirror' })).toBeNull()
-	})
-
-	test('shows compact GitHub-to-Tessera status with accessible freshness', () => {
 		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
+		expect(screen.getByText('GitHub is the source of truth')).toBeTruthy()
 		expect(
 			screen.getByRole('link', { name: GITHUB_REPOSITORY_REGEX })
 		).toBeTruthy()
-		expect(screen.getByText('GitHub → Tessera')).toBeTruthy()
-		expect(screen.getByText(SYNCED_REGEX)).toBeTruthy()
-		expect(screen.getByRole('time').getAttribute('datetime')).toBe(
-			'2026-06-15T10:01:00.000Z'
-		)
-		expect(screen.getByRole('time').getAttribute('title')).toBeTruthy()
+		expect(screen.getByText('In sync')).toBeTruthy()
 		expect(screen.queryByRole('button', { name: SYNC_BUTTON_REGEX })).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: AUTHORITY_BUTTON_REGEX })
+		).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: MIRROR_BUTTON_REGEX })
+		).toBeNull()
+	})
+
+	test('keeps a healthy mirror quiet, with no explanation and no settings link', () => {
+		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
+
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+
+		expect(screen.getByText('In sync')).toBeTruthy()
+		expect(
+			screen.queryByText('Everything GitHub has sent has been synchronized.')
+		).toBeNull()
+		expect(screen.queryByRole('link', { name: 'Sync details' })).toBeNull()
 	})
 
 	test.each([
-		['pending', 'Sync queued'],
-		['running', 'Syncing…'],
-		['blocked', 'Sync blocked'],
-	] as const)('shows automatic mirror status %s', (syncStatus, label) => {
-		render(
-			<RepositoryOverview
-				summary={asOwner(getMirroredSummary({ syncStatus }))}
-			/>
-		)
-
-		expect(screen.getByText(new RegExp(label))).toBeTruthy()
-		expect(
-			screen.queryByRole('button', { name: 'Make Tessera authoritative' })
-		).toBeNull()
-	})
-
-	test('shows an actionable automatic mirror failure', () => {
-		render(
-			<RepositoryOverview
-				summary={asOwner(
-					getMirroredSummary({
-						syncStatus: 'failed',
-						syncFailureReason:
-							'GitHub synchronization failed. Check the GitHub App installation and wait for Tessera to retry.',
-					})
-				)}
-			/>
-		)
-
-		expect(screen.getByText(SYNC_FAILED_REGEX)).toBeTruthy()
-		expect(
-			screen.getByText(
-				'GitHub synchronization failed. Check the GitHub App installation and wait for Tessera to retry.'
-			)
-		).toBeTruthy()
-	})
-
-	test('confirms the owner-only authority change before cutover', async () => {
-		const user = userEvent.setup()
+		[
+			'pending',
+			'Sync queued',
+			'A synchronization is queued and will run shortly.',
+		],
+		[
+			'stale',
+			'Sync overdue',
+			'Nothing has synchronized recently, so what is shown here may be behind GitHub.',
+		],
+		[
+			'partial',
+			'Partly synced',
+			'The last run finished without reconciling everything, so some GitHub data may be missing here.',
+		],
+		[
+			'failed',
+			'Sync failed',
+			'The last synchronization did not finish. Tessera retries on its own.',
+		],
+		[
+			'blocked',
+			'Sync blocked',
+			'Tessera cannot reach this repository on GitHub, so nothing new is arriving.',
+		],
+	] as const)('names the %s sync state in words and points the owner at the detail', (state, label, description) => {
+		mockSyncHealth({ ...BASE_SYNC_HEALTH, state })
 
 		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
 
-		await user.click(
-			screen.getByRole('button', { name: 'Make Tessera authoritative' })
-		)
-
+		expect(screen.getByText(label)).toBeTruthy()
+		expect(screen.getByText(description)).toBeTruthy()
 		expect(
-			screen.getByText(
-				'This stops GitHub-to-Tessera synchronization. Future writes must target Tessera.'
-			)
-		).toBeTruthy()
-
-		await user.click(
-			screen.getByRole('button', { name: 'Confirm authority change' })
-		)
-
-		expect(cutoverGitHubMirrorMutateMock).toHaveBeenCalledWith({
-			username: 'mnigos',
-			slug: 'tessera-notes',
-		})
+			screen.getByRole('link', { name: 'Sync details' }).getAttribute('href')
+		).toBe('/mnigos/tessera-notes/settings/github')
+		expect(screen.queryByRole('button', { name: SYNC_BUTTON_REGEX })).toBeNull()
 	})
 
-	test('hides authority changes from non-owners', () => {
+	test('reads a rate-limited mirror as waiting rather than broken', () => {
+		mockSyncHealth({
+			...BASE_SYNC_HEALTH,
+			state: 'stale',
+			code: 'rate_limited',
+			rateLimitedUntil: new Date('2026-06-15T11:00:00.000Z'),
+		})
+
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+
+		expect(screen.getByText('Waiting on GitHub')).toBeTruthy()
+		expect(
+			screen.getByText(
+				"GitHub's rate limit is in effect. Synchronization resumes on its own once it resets."
+			)
+		).toBeTruthy()
+		expect(screen.queryByText('Sync failed')).toBeNull()
+		expect(screen.queryByText('Sync overdue')).toBeNull()
+	})
+
+	test('never asks for owner-only sync health on behalf of a non-owner', () => {
 		render(<RepositoryOverview summary={getMirroredSummary()} />)
 
+		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
+			expect.anything(),
+			false
+		)
+
+		useGitHubSyncHealthQueryMock.mockClear()
+
+		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+
+		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
+			expect.anything(),
+			true
+		)
+	})
+
+	test('does not ask for sync health on a repository with no running mirror', () => {
+		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
+
+		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
+			expect.anything(),
+			false
+		)
+	})
+
+	test('states provenance without a sync state for viewers who cannot read health', () => {
+		render(<RepositoryOverview summary={getMirroredSummary()} />)
+
+		expect(screen.getByText('GitHub is the source of truth')).toBeTruthy()
 		expect(
-			screen.queryByRole('button', { name: 'Make Tessera authoritative' })
+			screen.getByRole('link', { name: GITHUB_REPOSITORY_REGEX })
+		).toBeTruthy()
+		expect(screen.queryByText('In sync')).toBeNull()
+		expect(screen.queryByRole('link', { name: 'Sync details' })).toBeNull()
+	})
+
+	test('offers GitHub clone URLs while GitHub is authoritative', () => {
+		render(
+			<RepositoryOverview
+				summary={asOwner({
+					...getMirroredSummary(),
+					repository: {
+						...getMirroredSummary().repository,
+						cloneUrls: GITHUB_CLONE_URLS,
+					},
+				})}
+			/>
+		)
+
+		expect(screen.getByText(GITHUB_CLONE_URLS.ssh)).toBeTruthy()
+		expect(screen.getByText(GITHUB_CLONE_URLS.https)).toBeTruthy()
+		expect(
+			screen.getByText(
+				'GitHub is the source of truth for this repository, so clones and pushes go to GitHub.'
+			)
+		).toBeTruthy()
+		expect(screen.queryByText(expectedSshCloneUrl)).toBeNull()
+	})
+
+	test('offers Tessera clone URLs for an imported repository', () => {
+		render(
+			<RepositoryOverview
+				summary={asOwner(getMirroredSummary({ mode: 'imported' }))}
+			/>
+		)
+
+		expect(screen.getByText('Imported from GitHub')).toBeTruthy()
+		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
+		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
+	})
+
+	test('switches clone URLs back to Tessera after cutover', () => {
+		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
+
+		expect(screen.getByText('Tessera is the source of truth')).toBeTruthy()
+		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
+		expect(screen.queryByText(GITHUB_CLONE_URLS.ssh)).toBeNull()
+	})
+
+	test('tells an empty GitHub-authoritative repository to push to GitHub', () => {
+		const mirrored = getMirroredSummary()
+
+		render(
+			<RepositoryOverview
+				summary={
+					{
+						...mirrored,
+						isEmpty: true,
+						rootEntries: [],
+						readme: undefined,
+						repository: {
+							...mirrored.repository,
+							cloneUrls: GITHUB_CLONE_URLS,
+						},
+					} as RepositoryBrowserSummary
+				}
+			/>
+		)
+
+		// Emptiness here means nothing has synchronized, which is not the same as
+		// GitHub having nothing — an unfinished first run looks identical.
+		expect(
+			screen.getByRole('heading', { name: 'Nothing synchronized yet' })
+		).toBeTruthy()
+		expect(
+			screen.getByText(
+				'GitHub is the source of truth for this repository. Anything already on GitHub appears here once it synchronizes, and until the first push to GitHub there is nothing to show.'
+			)
+		).toBeTruthy()
+		expect(
+			screen.queryByRole('heading', { name: 'Empty repository' })
+		).toBeNull()
+		expect(
+			screen.getByRole('heading', {
+				name: 'Push an existing project to GitHub',
+			})
+		).toBeTruthy()
+		expect(screen.getByText(`git clone ${GITHUB_CLONE_URLS.ssh}`)).toBeTruthy()
+		expect(
+			screen.queryByText(
+				'Clone it locally or push an existing project to publish the first commit.'
+			)
 		).toBeNull()
 	})
 
-	test('shows cutover mutation feedback', () => {
-		useCutoverGitHubMirrorMutationMock.mockReturnValue({
-			error: null,
-			isError: false,
-			isPending: false,
-			isSuccess: true,
-			mutate: cutoverGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
-
-		const { rerender } = render(
-			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
-		)
-
-		expect(screen.getByText('Tessera is now authoritative.')).toBeTruthy()
-
-		useCutoverGitHubMirrorMutationMock.mockReturnValue({
-			error: new Error('cutover unavailable'),
-			isError: true,
-			isPending: false,
-			isSuccess: false,
-			mutate: cutoverGitHubMirrorMutateMock,
-		} as unknown as ReturnType<typeof useCutoverGitHubMirrorMutation>)
-
-		rerender(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
-
-		expect(
-			screen.getByText('Authority could not be changed. Try again.')
-		).toBeTruthy()
-	})
-
-	test('shows Tessera authority with historical GitHub provenance and no controls', () => {
+	test('keeps historical GitHub provenance after cutover, with no controls', () => {
 		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
 
-		expect(
-			screen.getByRole('heading', { name: 'Tessera is authoritative' })
-		).toBeTruthy()
-		expect(screen.getByText('Tessera source')).toBeTruthy()
-		expect(screen.getByText('Formerly mirrored from')).toBeTruthy()
+		expect(screen.getByText('Tessera is the source of truth')).toBeTruthy()
 		expect(
 			screen.getByRole('link', { name: GITHUB_REPOSITORY_REGEX })
 		).toBeTruthy()
 		expect(
 			screen.queryByRole('button', { name: MIRROR_BUTTON_REGEX })
 		).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: AUTHORITY_BUTTON_REGEX })
+		).toBeNull()
+	})
+
+	test('links the owner to GitHub settings, and never an admin', () => {
+		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
+
+		const { rerender } = render(
+			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
+		)
+
+		expect(
+			screen.getByRole('link', { name: 'GitHub' }).getAttribute('href')
+		).toBe('/mnigos/tessera-notes/settings/github')
+
+		rerender(
+			<RepositoryOverview
+				summary={{ ...getMirroredSummary(), viewerRole: 'admin' }}
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'GitHub' })).toBeNull()
 	})
 
 	test('does not show a source strip for native Tessera repositories', () => {
 		render(<RepositoryOverview summary={asOwner(getSummary())} />)
 
-		expect(screen.queryByText('GitHub → Tessera')).toBeNull()
-		expect(screen.queryByText('Not mirrored to GitHub')).toBeNull()
-		expect(screen.queryByText('Tessera is authoritative')).toBeNull()
+		expect(screen.queryByText('GitHub is the source of truth')).toBeNull()
+		expect(screen.queryByText('Imported from GitHub')).toBeNull()
+		expect(screen.queryByText('Tessera is the source of truth')).toBeNull()
+		expect(screen.queryByRole('link', { name: 'GitHub' })).toBeNull()
 	})
 
 	test.each([
@@ -552,17 +624,6 @@ describe('RepositoryOverview', () => {
 		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
 
 		expect(screen.queryByRole('link', { name: 'Collaborators' })).toBeNull()
-	})
-
-	test('hides owner-only GitHub mirror controls for admin viewers', () => {
-		render(
-			<RepositoryOverview
-				summary={{ ...getMirroredSummary(), viewerRole: 'admin' }}
-			/>
-		)
-
-		expect(screen.getByText('mnigos/upstream-notes')).toBeTruthy()
-		expect(screen.queryByRole('button', { name: 'Sync now' })).toBeNull()
 	})
 
 	test('distinguishes directory and file rows', () => {

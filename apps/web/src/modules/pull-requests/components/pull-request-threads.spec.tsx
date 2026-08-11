@@ -18,6 +18,14 @@ import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimeline } from './pull-request-timeline'
 
+vi.mock('@/modules/repositories/hooks/use-github-sync-health.query', () => ({
+	useGitHubSyncHealthQuery: () => ({
+		data: undefined,
+		isError: false,
+		isLoading: false,
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request-comparison.query', () => ({
 	usePullRequestComparisonQuery: vi.fn(),
 }))
@@ -613,9 +621,12 @@ describe('pull request threads', () => {
 		]
 		const user = userEvent.setup()
 
-		render(
+		const { container } = render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={events}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				username="marta"
@@ -626,8 +637,8 @@ describe('pull request threads', () => {
 		expect(screen.getByText('Markdown body').tagName).toBe('STRONG')
 		expect(screen.getByText('Reply body')).toBeTruthy()
 		expect(screen.queryByText(COMMENTED_EVENT_REGEX)).toBeNull()
-		expect(screen.getByText(RESOLVED_EVENT_REGEX)).toBeTruthy()
-		expect(screen.getByText(UNRESOLVED_EVENT_REGEX)).toBeTruthy()
+		expect(container.textContent).toMatch(RESOLVED_EVENT_REGEX)
+		expect(container.textContent).toMatch(UNRESOLVED_EVENT_REGEX)
 		expect(screen.getByRole('button', { name: 'Edit comment' })).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Delete comment' })).toBeTruthy()
 		expect(
@@ -685,7 +696,10 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				username="marta"
@@ -715,7 +729,10 @@ describe('pull request threads', () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: false }}
 				slug="notes"
@@ -756,7 +773,10 @@ describe('pull request threads', () => {
 		const user = userEvent.setup()
 		const { rerender } = render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: false }}
 				slug="notes"
@@ -776,7 +796,10 @@ describe('pull request threads', () => {
 		} as never)
 		rerender(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: false }}
 				slug="notes"
@@ -866,7 +889,10 @@ describe('pull request threads', () => {
 		const user = userEvent.setup()
 		const timeline = () => (
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: true }}
 				slug="notes"
@@ -919,7 +945,10 @@ describe('pull request threads', () => {
 		const user = userEvent.setup()
 		const timeline = () => (
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: true }}
 				slug="notes"
@@ -966,7 +995,10 @@ describe('pull request threads', () => {
 		} as never)
 		render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: false, hasPendingReview: false }}
 				slug="notes"
@@ -995,7 +1027,10 @@ describe('pull request threads', () => {
 		} as never)
 		render(
 			<PullRequestTimeline
+				canReadSyncHealth={false}
 				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				username="marta"

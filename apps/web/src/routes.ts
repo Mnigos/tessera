@@ -57,4 +57,8 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/$username/$slug/settings/status-providers',
 		'modules/check-statuses/routes/repository.$username.$slug.settings.status-providers.route.tsx'
 	),
+	route(
+		'/$username/$slug/settings/github',
+		'modules/repositories/routes/repository.$username.$slug.settings.github.route.tsx'
+	),
 ])

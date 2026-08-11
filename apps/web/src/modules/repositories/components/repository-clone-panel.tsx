@@ -1,42 +1,41 @@
-import type { Repository, RepositoryOwner } from '@repo/contracts'
+import type { Repository } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { CopyButton } from '@/shared/components/copy-button'
-import {
-	getRepositoryHttpCloneUrl,
-	getRepositorySshCloneUrl,
-} from '../helpers/get-repository-clone-url'
 
 interface RepositoryClonePanelProps {
-	owner: RepositoryOwner
 	repository: Repository
 }
 
+/**
+ * The remotes the API derived, which follow authority rather than the host the
+ * page is served from: while GitHub owns the repository these point at GitHub,
+ * and they switch to Tessera the moment it cuts over.
+ */
 export function RepositoryClonePanel({
-	owner,
-	repository,
+	repository: { cloneUrls },
 }: Readonly<RepositoryClonePanelProps>) {
-	const sshCloneUrl = getRepositorySshCloneUrl(repository, owner)
-	const httpCloneUrl = getRepositoryHttpCloneUrl(repository, owner)
+	const isGitHubAuthoritative = cloneUrls.authority === 'github'
 
 	return (
 		<Card className="gap-3 p-4">
 			<div className="flex flex-col gap-1">
 				<h2 className="font-semibold text-base tracking-normal">Clone</h2>
 				<p className="text-muted-foreground text-sm">
-					Use SSH for authenticated Git access, or HTTPS when SSH is not
-					available.
+					{isGitHubAuthoritative
+						? 'GitHub is the source of truth for this repository, so clones and pushes go to GitHub.'
+						: 'Use SSH for authenticated Git access, or HTTPS when SSH is not available.'}
 				</p>
 			</div>
 			<div className="grid gap-3">
 				<CloneUrlRow
 					copiedLabel="SSH clone URL copied"
 					label="SSH"
-					text={sshCloneUrl}
+					text={cloneUrls.ssh}
 				/>
 				<CloneUrlRow
 					copiedLabel="HTTPS clone URL copied"
 					label="HTTPS"
-					text={httpCloneUrl}
+					text={cloneUrls.https}
 				/>
 			</div>
 		</Card>

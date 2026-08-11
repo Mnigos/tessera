@@ -1,4 +1,4 @@
-import type { PullRequestEvent } from '@repo/contracts'
+import type { PullRequestActor, PullRequestEvent } from '@repo/contracts'
 import type { ReactNode } from 'react'
 import {
 	formatPullRequestDate,
@@ -17,10 +17,13 @@ export function PullRequestEventRow({
 	event,
 }: Readonly<PullRequestEventRowProps>) {
 	return (
-		<div className="flex flex-wrap items-baseline justify-between gap-2 px-1 text-muted-foreground text-sm">
-			<span>
+		<div className="flex flex-wrap items-baseline justify-between gap-x-2 gap-y-1 px-1 text-muted-foreground text-sm">
+			<span className="min-w-0">
 				<PullRequestEventDescription event={event} /> by{' '}
-				{event.actorUsername ?? 'Tessera'}
+				<PullRequestEventActor
+					actor={event.actor}
+					actorUsername={event.actorUsername}
+				/>
 			</span>
 			<time
 				className="text-xs"
@@ -29,6 +32,64 @@ export function PullRequestEventRow({
 				{formatPullRequestDate(event.createdAt)}
 			</time>
 		</div>
+	)
+}
+
+interface PullRequestEventActorProps {
+	actor?: PullRequestActor
+	actorUsername?: string
+}
+
+/**
+ * Who did it, with the identity the projection kept.
+ *
+ * A synchronized event has a GitHub account behind it that exists nowhere in
+ * Tessera, so it is shown as GitHub shows it — avatar and a link to the profile
+ * — rather than as a bare login the reader has no way to place. Queue
+ * transitions nobody performed keep saying Tessera.
+ */
+function PullRequestEventActor({
+	actor,
+	actorUsername,
+}: Readonly<PullRequestEventActorProps>) {
+	const username = actor?.username ?? actorUsername ?? 'Tessera'
+
+	if (actor?.provider !== 'github')
+		return <span className="font-medium text-foreground">{username}</span>
+
+	const identity = (
+		<>
+			{actor.avatarUrl && (
+				// Decorative: the login it belongs to is rendered right beside it, so
+				// naming the actor twice would only make the row longer to hear.
+				<img
+					alt=""
+					className="size-4 shrink-0 rounded-full bg-muted"
+					height={16}
+					src={actor.avatarUrl}
+					width={16}
+				/>
+			)}
+			<span className="truncate font-medium text-foreground">{username}</span>
+		</>
+	)
+
+	if (!actor.htmlUrl)
+		return (
+			<span className="inline-flex min-w-0 items-center gap-1.5">
+				{identity}
+			</span>
+		)
+
+	return (
+		<a
+			className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
+			href={actor.htmlUrl}
+			rel="noreferrer"
+			target="_blank"
+		>
+			{identity}
+		</a>
 	)
 }
 

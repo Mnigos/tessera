@@ -27,7 +27,7 @@ const MIGRATION_POSITIONS: MigrationPosition[] = [
 		number: '03',
 		name: 'Cut over',
 		label: 'detent becomes the source of truth',
-		body: 'Switch remotes when you are ready. Keep an optional push-back mirror so GitHub stays a warm standby for as long as you want one.',
+		body: 'Switch remotes when you are ready. Everything imported stays exactly as it arrived, and GitHub keeps the history it already has.',
 		reached: false,
 	},
 ]

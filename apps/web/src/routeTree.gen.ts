@@ -17,9 +17,10 @@ import { Route as modulesGithubImportRoutesImportDotgithubDotrouteRouteImport } 
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.route'
 import { Route as modulesAuthRoutesApiDotauthDotDotrouteRouteImport } from './modules/auth/routes/api.auth.$.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.route'
+import { Route as modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport } from './modules/check-statuses/routes/repository.$username.$slug.settings.status-providers.route'
+import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.settings.github.route'
 import { Route as modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRouteImport } from './modules/repository-collaborators/routes/repository.$username.$slug.settings.collaborators.route'
 import { Route as modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRouteImport } from './modules/branch-protection/routes/repository.$username.$slug.settings.branch-protection.route'
-import { Route as modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport } from './modules/check-statuses/routes/repository.$username.$slug.settings.status-providers.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.new.route'
 import { Route as modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRouteImport } from './modules/pull-requests/routes/repository.$username.$slug.pulls.$number.route'
 import { Route as modulesRepositoriesRoutesRepositoryDotusernameDotslugDotcommitsDotrefDotrouteRouteImport } from './modules/repositories/routes/repository.$username.$slug.commits.$ref.route'
@@ -80,6 +81,22 @@ const modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRoute
       getParentRoute: () => rootRouteImport,
     } as any,
   )
+const modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute =
+  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/settings/status-providers',
+      path: '/$username/$slug/settings/status-providers',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
+const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute =
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRouteImport.update(
+    {
+      id: '/$username/$slug/settings/github',
+      path: '/$username/$slug/settings/github',
+      getParentRoute: () => rootRouteImport,
+    } as any,
+  )
 const modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute =
   modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRouteImport.update(
     {
@@ -93,14 +110,6 @@ const modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbra
     {
       id: '/$username/$slug/settings/branch-protection',
       path: '/$username/$slug/settings/branch-protection',
-      getParentRoute: () => rootRouteImport,
-    } as any,
-  )
-const modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute =
-  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport.update(
-    {
-      id: '/$username/$slug/settings/status-providers',
-      path: '/$username/$slug/settings/status-providers',
       getParentRoute: () => rootRouteImport,
     } as any,
   )
@@ -174,8 +183,9 @@ export interface FileRoutesByFullPath {
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/settings/branch-protection': typeof modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute
-  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
+  '/$username/$slug/settings/github': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute
+  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/pulls/$number/commits': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute
   '/$username/$slug/pulls/$number/files': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotfilesDotrouteRoute
@@ -194,8 +204,9 @@ export interface FileRoutesByTo {
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/settings/branch-protection': typeof modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute
-  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
+  '/$username/$slug/settings/github': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute
+  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/pulls/$number/commits': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute
   '/$username/$slug/pulls/$number/files': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotfilesDotrouteRoute
@@ -215,8 +226,9 @@ export interface FileRoutesById {
   '/$username/$slug/pulls/$number': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   '/$username/$slug/pulls/new': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   '/$username/$slug/settings/branch-protection': typeof modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute
-  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/settings/collaborators': typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
+  '/$username/$slug/settings/github': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute
+  '/$username/$slug/settings/status-providers': typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   '/$username/$slug/blob/$ref/$': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   '/$username/$slug/pulls/$number/commits': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute
   '/$username/$slug/pulls/$number/files': typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotfilesDotrouteRoute
@@ -237,8 +249,9 @@ export interface FileRouteTypes {
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
     | '/$username/$slug/settings/branch-protection'
-    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/settings/collaborators'
+    | '/$username/$slug/settings/github'
+    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/pulls/$number/commits'
     | '/$username/$slug/pulls/$number/files'
@@ -257,8 +270,9 @@ export interface FileRouteTypes {
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
     | '/$username/$slug/settings/branch-protection'
-    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/settings/collaborators'
+    | '/$username/$slug/settings/github'
+    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/pulls/$number/commits'
     | '/$username/$slug/pulls/$number/files'
@@ -277,8 +291,9 @@ export interface FileRouteTypes {
     | '/$username/$slug/pulls/$number'
     | '/$username/$slug/pulls/new'
     | '/$username/$slug/settings/branch-protection'
-    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/settings/collaborators'
+    | '/$username/$slug/settings/github'
+    | '/$username/$slug/settings/status-providers'
     | '/$username/$slug/blob/$ref/$'
     | '/$username/$slug/pulls/$number/commits'
     | '/$username/$slug/pulls/$number/files'
@@ -296,8 +311,9 @@ export interface RootRouteChildren {
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotrouteRoute
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute
   modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute: typeof modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute
-  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute: typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute: typeof modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute
+  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute: typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotfilesDotrouteRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotfilesDotrouteRoute
@@ -362,6 +378,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/$username/$slug/settings/status-providers': {
+      id: '/$username/$slug/settings/status-providers'
+      path: '/$username/$slug/settings/status-providers'
+      fullPath: '/$username/$slug/settings/status-providers'
+      preLoaderRoute: typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$username/$slug/settings/github': {
+      id: '/$username/$slug/settings/github'
+      path: '/$username/$slug/settings/github'
+      fullPath: '/$username/$slug/settings/github'
+      preLoaderRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/$username/$slug/settings/collaborators': {
       id: '/$username/$slug/settings/collaborators'
       path: '/$username/$slug/settings/collaborators'
@@ -374,13 +404,6 @@ declare module '@tanstack/react-router' {
       path: '/$username/$slug/settings/branch-protection'
       fullPath: '/$username/$slug/settings/branch-protection'
       preLoaderRoute: typeof modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/$username/$slug/settings/status-providers': {
-      id: '/$username/$slug/settings/status-providers'
-      path: '/$username/$slug/settings/status-providers'
-      fullPath: '/$username/$slug/settings/status-providers'
-      preLoaderRoute: typeof modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/$username/$slug/pulls/new': {
@@ -485,10 +508,12 @@ const rootRouteChildren: RootRouteChildren = {
     modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnewDotrouteRoute,
   modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute:
     modulesBranchProtectionRoutesRepositoryDotusernameDotslugDotsettingsDotbranchProtectionDotrouteRoute,
-  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute:
-    modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute,
   modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute:
     modulesRepositoryCollaboratorsRoutesRepositoryDotusernameDotslugDotsettingsDotcollaboratorsDotrouteRoute,
+  modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute:
+    modulesRepositoriesRoutesRepositoryDotusernameDotslugDotsettingsDotgithubDotrouteRoute,
+  modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute:
+    modulesCheckStatusesRoutesRepositoryDotusernameDotslugDotsettingsDotstatusProvidersDotrouteRoute,
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute:
     modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotrouteRoute,
   modulesPullRequestsRoutesRepositoryDotusernameDotslugDotpullsDotnumberDotcommitsDotrouteRoute:
@@ -501,3 +526,13 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}

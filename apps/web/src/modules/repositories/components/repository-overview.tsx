@@ -2,6 +2,7 @@ import type { RepositoryBrowserSummary } from '@repo/contracts'
 import { Link, useNavigate } from '@tanstack/react-router'
 import {
 	CircleDot,
+	Github,
 	GitPullRequest,
 	History,
 	Settings,
@@ -18,10 +19,10 @@ import {
 } from '../helpers/repository-viewer-role'
 import { RepositoryClonePanel } from './repository-clone-panel'
 import { RepositoryEmptyState } from './repository-empty-state'
-import { RepositoryGitHubMirrorPanel } from './repository-github-mirror-panel'
 import { RepositoryReadmePreview } from './repository-readme-preview'
 import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryRootTree } from './repository-root-tree'
+import { RepositorySourceBadge } from './repository-source-badge'
 
 interface RepositoryOverviewProps {
 	summary: RepositoryBrowserSummary
@@ -122,6 +123,19 @@ export function RepositoryOverview({
 							</Link>
 						</>
 					)}
+					{/* Every GitHub source procedure is the owner's alone, so the entry
+					    point is too rather than leading admins to a refusal. */}
+					{isRepositoryOwner(summary.viewerRole) &&
+						repository.externalSource.mode !== 'none' && (
+							<Link
+								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
+								params={{ username: owner.username, slug: repository.slug }}
+								to="/$username/$slug/settings/github"
+							>
+								<Github className="size-4" />
+								GitHub
+							</Link>
+						)}
 				</div>
 				{repository.description && (
 					<p className="max-w-3xl text-muted-foreground text-sm">
@@ -129,16 +143,16 @@ export function RepositoryOverview({
 					</p>
 				)}
 			</header>
+			<RepositorySourceBadge
+				isOwner={isRepositoryOwner(summary.viewerRole)}
+				owner={owner}
+				repository={repository}
+			/>
 			{isEmpty ? (
-				<RepositoryEmptyState owner={owner} repository={repository} />
+				<RepositoryEmptyState repository={repository} />
 			) : (
 				<>
-					<RepositoryGitHubMirrorPanel
-						isCurrentOwner={isRepositoryOwner(summary.viewerRole)}
-						owner={owner}
-						repository={repository}
-					/>
-					<RepositoryClonePanel owner={owner} repository={repository} />
+					<RepositoryClonePanel repository={repository} />
 					{readme && <RepositoryReadmePreview readme={readme} />}
 					<RepositoryRootTree
 						entries={rootEntries}
