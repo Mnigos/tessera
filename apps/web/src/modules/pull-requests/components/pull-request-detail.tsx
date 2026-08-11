@@ -245,7 +245,9 @@ function PullRequestDetailContent({
 						)}
 					</>
 				)}
-				{isReadOnly && <PullRequestReadOnlyBanner />}
+				{isReadOnly && (
+					<PullRequestReadOnlyBanner isFromGitHub={isFromGitHub} />
+				)}
 			</header>
 			<PullRequestNavigation
 				number={String(pullRequest.number)}

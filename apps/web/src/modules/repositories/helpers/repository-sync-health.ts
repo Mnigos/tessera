@@ -38,9 +38,11 @@ const SYNC_HEALTH_PRESENTATIONS: Record<
 		iconClassName: 'text-emerald-400',
 		isQuiet: true,
 	},
+	// The read model folds queued and running work into one state, so the copy
+	// covers both rather than promising a run has not started yet.
 	pending: {
-		label: 'Sync queued',
-		description: 'A synchronization is queued and will run shortly.',
+		label: 'Sync in progress',
+		description: 'Synchronization is queued or in progress.',
 		icon: CircleDashed,
 		iconClassName: 'text-muted-foreground',
 		isQuiet: false,
@@ -56,10 +58,13 @@ const SYNC_HEALTH_PRESENTATIONS: Record<
 		iconClassName: 'text-amber-400',
 		isQuiet: false,
 	},
+	// Partial covers a run that finalized incompletely and a clean run that a
+	// newer delivery has since outlived. Blaming the last run would be wrong in
+	// the second case, so the copy describes the outstanding work instead.
 	partial: {
 		label: 'Partly synced',
 		description:
-			'The last run finished without reconciling everything, so some GitHub data may be missing here.',
+			'Some GitHub updates are awaiting reconciliation, so data may be missing here.',
 		icon: TriangleAlert,
 		iconClassName: 'text-amber-400',
 		isQuiet: false,
@@ -72,15 +77,33 @@ const SYNC_HEALTH_PRESENTATIONS: Record<
 		iconClassName: 'text-rose-400',
 		isQuiet: false,
 	},
+	// The neutral blocked copy. A block Tessera caused itself — storage being
+	// unavailable is one — is not GitHub's doing, so the default names no cause
+	// at all and the variants below name the ones that are known.
 	blocked: {
 		label: 'Sync blocked',
-		description:
-			'Tessera cannot reach this repository on GitHub, so nothing new is arriving.',
+		description: 'Synchronization is stopped, so nothing new is arriving.',
 		icon: CircleSlash,
 		iconClassName: 'text-rose-400',
 		isQuiet: false,
 	},
 }
+
+/**
+ * Blocked states whose cause is known well enough to name.
+ *
+ * Only a lost grant is GitHub's to restore; `missing_storage` is Tessera's own
+ * problem and sending its owner to GitHub's settings would waste their time.
+ */
+const BLOCKED_PRESENTATION_OVERRIDES: Partial<
+	Record<NonNullable<RepositorySyncHealth['code']>, string>
+> = {
+	missing_storage:
+		"This repository's storage is unavailable to Tessera, so nothing can be synchronized.",
+}
+
+const REAUTHORIZABLE_BLOCKED_DESCRIPTION =
+	'Tessera can no longer reach this repository on GitHub, so nothing new is arriving.'
 
 /**
  * Being rate limited is GitHub asking Tessera to wait, with a time attached. It
@@ -101,9 +124,29 @@ const RATE_LIMITED_PRESENTATION: RepositorySyncHealthPresentation = {
 export function getRepositorySyncHealthPresentation(
 	syncHealth: RepositorySyncHealth
 ): RepositorySyncHealthPresentation {
-	if (syncHealth.code === 'rate_limited') return RATE_LIMITED_PRESENTATION
+	// The code outlives the deferral: once the reset passes the API drops
+	// `rateLimitedUntil` but keeps `rate_limited`, and a limit that has already
+	// expired is no longer what a reader is waiting on.
+	if (syncHealth.code === 'rate_limited' && syncHealth.rateLimitedUntil)
+		return RATE_LIMITED_PRESENTATION
 
-	return SYNC_HEALTH_PRESENTATIONS[syncHealth.state]
+	const presentation = SYNC_HEALTH_PRESENTATIONS[syncHealth.state]
+
+	if (syncHealth.state !== 'blocked') return presentation
+
+	return { ...presentation, description: toBlockedDescription(syncHealth) }
+}
+
+function toBlockedDescription({
+	code,
+	reauthorizationRequired,
+}: RepositorySyncHealth): string {
+	const override = code && BLOCKED_PRESENTATION_OVERRIDES[code]
+
+	if (override) return override
+	if (reauthorizationRequired) return REAUTHORIZABLE_BLOCKED_DESCRIPTION
+
+	return SYNC_HEALTH_PRESENTATIONS.blocked.description
 }
 
 /**
@@ -117,15 +160,18 @@ const CUTOVER_BLOCK_REASONS: Record<
 	string
 > = {
 	pending:
-		'A synchronization is queued. Authority can change once it finishes.',
+		'Synchronization is queued or in progress. Authority can change once it finishes.',
 	stale: 'Waiting for a fresh sync. Authority can change once one completes.',
 	partial:
-		'The last run left GitHub data unreconciled. Authority can change once a run completes cleanly.',
+		'Some GitHub updates are still awaiting reconciliation. Authority can change once a run completes cleanly.',
 	failed:
 		'Synchronization is not completing. Authority can change once a run succeeds.',
 	blocked:
-		'Tessera has lost access to this repository on GitHub. Restore access before changing authority.',
+		'Synchronization is stopped. Authority can change once it resumes and completes.',
 }
+
+const REAUTHORIZABLE_CUTOVER_BLOCK_REASON =
+	'Tessera has lost access to this repository on GitHub. Restore access before changing authority.'
 
 const RATE_LIMITED_CUTOVER_BLOCK_REASON =
 	"Waiting for GitHub's rate limit to reset. Authority can change once a run completes."
@@ -135,8 +181,10 @@ export function getRepositoryCutoverBlockReason(
 ) {
 	if (!syncHealth) return 'Synchronization health is unavailable right now.'
 	if (syncHealth.state === 'healthy') return undefined
-	if (syncHealth.code === 'rate_limited')
+	if (syncHealth.code === 'rate_limited' && syncHealth.rateLimitedUntil)
 		return RATE_LIMITED_CUTOVER_BLOCK_REASON
+	if (syncHealth.state === 'blocked' && syncHealth.reauthorizationRequired)
+		return REAUTHORIZABLE_CUTOVER_BLOCK_REASON
 
 	return CUTOVER_BLOCK_REASONS[syncHealth.state]
 }

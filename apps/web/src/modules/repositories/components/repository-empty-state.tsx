@@ -3,6 +3,7 @@
 import type { Repository } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { CopyButton } from '@/shared/components/copy-button'
+import { getCloneProtocolLabel } from '../helpers/get-clone-protocol-label'
 
 interface RepositoryEmptyStateProps {
 	repository: Repository
@@ -75,7 +76,7 @@ export function RepositoryEmptyState({
 					}
 				/>
 				<p className="text-muted-foreground text-sm">
-					{getHttpCloneProtocolLabel(cloneUrls.https)} is also available:{' '}
+					{getCloneProtocolLabel(cloneUrls.https)} is also available:{' '}
 					<code>{cloneUrls.https}</code>
 				</p>
 			</div>
@@ -114,17 +115,4 @@ function CommandBlock({
 			</pre>
 		</div>
 	)
-}
-
-function getHttpCloneProtocolLabel(httpCloneUrl: string) {
-	try {
-		const { protocol } = new URL(httpCloneUrl)
-
-		if (protocol === 'https:') return 'HTTPS'
-		if (protocol === 'http:') return 'HTTP'
-	} catch {
-		return 'HTTP/HTTPS'
-	}
-
-	return 'HTTP/HTTPS'
 }

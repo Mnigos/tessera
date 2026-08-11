@@ -54,6 +54,31 @@ describe('toRepositorySyncHealth', () => {
 		})
 	})
 
+	// The two facts the web copy has to stay honest about: `pending` covers a run
+	// that is already going, and `partial` covers a clean run a newer delivery has
+	// outlived. Neither may be described as merely queued or as a failed run.
+	test('reports a running sync as pending, not as merely queued work', () => {
+		expect(
+			toRepositorySyncHealth(
+				facts({ syncStatus: 'running', latestAttemptStatus: 'running' }),
+				options
+			)
+		).toMatchObject({ state: 'pending' })
+	})
+
+	test('reports a clean run with a newer delivery as partial', () => {
+		expect(
+			toRepositorySyncHealth(
+				facts({
+					syncStatus: 'succeeded',
+					latestAttemptStatus: 'succeeded',
+					pendingDeliveryCount: 1,
+				}),
+				options
+			)
+		).toMatchObject({ state: 'partial' })
+	})
+
 	test('reports a run that finalized incompletely as partial', () => {
 		expect(
 			toRepositorySyncHealth(facts({ latestAttemptStatus: 'partial' }), options)

@@ -405,6 +405,42 @@ describe('pull request review findings', () => {
 		expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
 	})
 
+	// Enabling mirroring freezes every pull request in the repository, including
+	// the native ones that were opened before it. Those have no GitHub copy, so
+	// nothing may point at one.
+	test('freezes a native pull request in a mirrored repository without inventing a GitHub copy', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({ authority: 'github', viewerRole: 'write' }),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(
+			screen.getByText(
+				'GitHub is the source of truth for this repository, so Tessera accepts no changes to this pull request.'
+			)
+		).toBeTruthy()
+		expect(screen.queryByText('From GitHub')).toBeNull()
+		expect(screen.queryByRole('link', { name: 'View on GitHub' })).toBeNull()
+		expect(
+			screen.queryByText(
+				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+			)
+		).toBeNull()
+		// Frozen is still frozen: no write control may survive.
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
+	})
+
 	test('keeps GitHub provenance after cutover, while writes become allowed again', () => {
 		primeWriteControls()
 		usePullRequestQueryMock.mockReturnValue({

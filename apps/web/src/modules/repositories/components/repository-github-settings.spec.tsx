@@ -51,6 +51,8 @@ const AUTHORITY_BUTTON_NAME = 'Make Tessera authoritative'
 const SOURCE_REPOSITORY_LINK_REGEX = /mnigos\/upstream-notes/
 const SYNC_BUTTON_REGEX = /sync/i
 const RETRY_BUTTON_REGEX = /retry/i
+const RESTORE_ACCESS_REGEX = /Restore access/
+const LAST_RUN_REGEX = /last run/
 
 const EXTERNAL_SOURCE = {
 	mode: 'github_to_tessera',
@@ -249,19 +251,20 @@ describe('RepositoryGitHubSettings', () => {
 		],
 		[
 			'partial',
-			'The last run left GitHub data unreconciled. Authority can change once a run completes cleanly.',
+			'Some GitHub updates are still awaiting reconciliation. Authority can change once a run completes cleanly.',
 		],
 		[
 			'pending',
-			'A synchronization is queued. Authority can change once it finishes.',
+			'Synchronization is queued or in progress. Authority can change once it finishes.',
 		],
 		[
 			'failed',
 			'Synchronization is not completing. Authority can change once a run succeeds.',
 		],
+		// Neutral by default: a block Tessera caused itself is not GitHub's to fix.
 		[
 			'blocked',
-			'Tessera has lost access to this repository on GitHub. Restore access before changing authority.',
+			'Synchronization is stopped. Authority can change once it resumes and completes.',
 		],
 	] as const)('refuses cutover while sync health is %s, and says why', (state, reason) => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state })
@@ -361,6 +364,91 @@ describe('RepositoryGitHubSettings', () => {
 		expect(
 			screen.queryByRole('button', { name: RETRY_BUTTON_REGEX })
 		).toBeNull()
+	})
+
+	test('reports a reauthorization link that failed to load, and offers a reload', async () => {
+		const user = userEvent.setup()
+		const refetch = vi.fn()
+		mockSyncHealth({
+			...BASE_SYNC_HEALTH,
+			state: 'blocked',
+			code: 'authentication_failed',
+			reauthorizationRequired: true,
+		})
+		// TES-69 rejects rather than reporting a required reauthorization it
+		// cannot direct anybody to, so this is a reachable response.
+		useGitHubReauthorizationQueryMock.mockReturnValue({
+			data: undefined,
+			isError: true,
+			isLoading: false,
+			refetch,
+		} as unknown as ReturnType<typeof useGitHubReauthorizationQuery>)
+
+		renderSettings()
+
+		expect(
+			screen.getByRole('heading', { name: 'Access has to be granted again' })
+		).toBeTruthy()
+		expect(
+			screen.getByText('The reauthorization link could not be loaded.')
+		).toBeTruthy()
+
+		await user.click(screen.getByRole('button', { name: 'Retry' }))
+
+		expect(refetch).toHaveBeenCalled()
+		// Reloading a link is not a synchronization retry.
+		expect(screen.queryByRole('button', { name: SYNC_BUTTON_REGEX })).toBeNull()
+	})
+
+	test('blames storage rather than GitHub access when storage is the block', () => {
+		mockSyncHealth({
+			...BASE_SYNC_HEALTH,
+			state: 'blocked',
+			code: 'missing_storage',
+			reauthorizationRequired: false,
+		})
+
+		renderSettings()
+
+		expect(
+			screen.getByText(
+				"This repository's storage is unavailable to Tessera, so nothing can be synchronized."
+			)
+		).toBeTruthy()
+		expect(
+			screen.queryByRole('heading', { name: 'Access has to be granted again' })
+		).toBeNull()
+		expect(screen.queryByText(RESTORE_ACCESS_REGEX)).toBeNull()
+	})
+
+	// Derived from the backend facts asserted in
+	// apps/api/.../repository-sync-health.spec.ts: `running` maps to `pending`,
+	// and a clean run with an outstanding delivery maps to `partial`.
+	test('describes a run already in progress without calling it merely queued', () => {
+		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'pending' })
+
+		renderSettings()
+
+		expect(
+			screen.getByText('Synchronization is queued or in progress.')
+		).toBeTruthy()
+	})
+
+	test('does not blame a clean run for a delivery that arrived after it', () => {
+		mockSyncHealth({
+			...BASE_SYNC_HEALTH,
+			state: 'partial',
+			pendingDeliveryCount: 1,
+		})
+
+		renderSettings()
+
+		expect(
+			screen.getByText(
+				'Some GitHub updates are awaiting reconciliation, so data may be missing here.'
+			)
+		).toBeTruthy()
+		expect(screen.queryByText(LAST_RUN_REGEX)).toBeNull()
 	})
 
 	test('keeps historical source detail after cutover, with nothing left to configure', () => {
