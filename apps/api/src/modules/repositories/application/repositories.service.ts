@@ -775,10 +775,20 @@ export class RepositoriesService {
 		if (!syncHealth?.reauthorizationRequired)
 			return { reauthorizationRequired: false }
 
-		return {
-			reauthorizationRequired: true,
-			installUrl: this.envService.get('GITHUB_APP_INSTALL_URL'),
-		}
+		const installUrl = this.envService.get('GITHUB_APP_INSTALL_URL')
+
+		// Telling someone their mirror needs reauthorizing without saying where to
+		// do it leaves them stuck. A deployment that mirrors from GitHub but has no
+		// install URL configured is misconfigured, which is the same conclusion the
+		// enablement path reaches, so it fails the same way rather than answering
+		// with guidance nobody can act on.
+		if (!installUrl)
+			throw new RepositoryGitHubMirrorSyncUnavailableError({
+				repositoryId: repository.id,
+				reason: 'missing_github_app_install_url',
+			})
+
+		return { reauthorizationRequired: true, installUrl }
 	}
 
 	private async findGitHubSyncHealth(

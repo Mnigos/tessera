@@ -25,7 +25,10 @@ import { GitHubSyncChecksRepository } from '@modules/github-sync/infrastructure/
 import { GitHubSyncConversationsRepository } from '@modules/github-sync/infrastructure/github-sync-conversations.repository'
 import { PullRequestsModule } from '@modules/pull-requests'
 import { RepositoriesModule } from '@modules/repositories'
-import { toRepositorySyncHealth } from '@modules/repositories/domain/repository-sync-health'
+import {
+	type RepositorySyncHealthFacts,
+	toRepositorySyncHealth,
+} from '@modules/repositories/domain/repository-sync-health'
 import { RepositorySyncHealthRepository } from '@modules/repositories/infrastructure/repository-sync-health.repository'
 import { Logger } from '@nestjs/common'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -68,6 +71,14 @@ const SECONDARY_EXTERNAL_REPOSITORY_ID = 4343
 const PRIMARY_INSTALLATION_ID = 8888
 const SECONDARY_INSTALLATION_ID = 9999
 const SYNC_INTERVAL_MINUTES = 60
+/** Stands in when a lookup that must succeed did not, so the assertion fails. */
+const MISSING_FACTS: RepositorySyncHealthFacts = {
+	syncStatus: 'pending',
+	pendingDeliveryCount: 0,
+	retryCount24h: 0,
+	terminalCount24h: 0,
+	completedCount24h: 0,
+}
 
 interface MirrorFixture {
 	repositoryId: RepositoryId
@@ -517,6 +528,19 @@ describe('GitHub sync operations integration', () => {
 		)
 
 		expect(await replayService.replayDelivery(deliveryId(42))).toBeTruthy()
+		// The failure that settled this delivery is superseded by the replay, so
+		// health must not keep reporting a reason for a repository that is
+		// reconciling again.
+		expect(await findSource(primary.repositoryId)).toMatchObject({
+			syncStatus: 'pending',
+			syncFailureCode: null,
+			syncFailureReason: null,
+		})
+		expect(await findSyncHealth(primary.repositoryId)).toMatchObject({
+			state: 'pending',
+			code: undefined,
+			message: undefined,
+		})
 		expect(await findDelivery(deliveryId(42))).toMatchObject({
 			status: 'received',
 			failedAt: null,
@@ -763,14 +787,22 @@ describe('GitHub sync operations integration', () => {
 	test('counts only deliveries still waiting as pending', async () => {
 		await recordPullRequestDelivery(deliveryId(56))
 
+		const pending = await healthRepository.findFacts({
+			now: new Date(),
+			repositoryId: primary.repositoryId,
+		})
+
+		expect(pending?.pendingDeliveryCount).toBe(1)
+		// A timestamp read back as a bare string would be parsed as local time and
+		// report a lag off by the server's offset, so the derived lag is checked
+		// against the clock rather than only for existence.
+		expect(pending?.oldestPendingDeliveryAt).toBeInstanceOf(Date)
 		expect(
-			(
-				await healthRepository.findFacts({
-					now: new Date(),
-					repositoryId: primary.repositoryId,
-				})
-			)?.pendingDeliveryCount
-		).toBe(1)
+			toRepositorySyncHealth(pending ?? MISSING_FACTS, {
+				now: new Date(),
+				syncIntervalMinutes: SYNC_INTERVAL_MINUTES,
+			}).deliveryLagSeconds
+		).toBeLessThan(60)
 
 		await runDueReconciliations()
 
