@@ -940,6 +940,11 @@ describe('Repositories integration', () => {
 				description: 'Project notes',
 				defaultBranch: 'main',
 				externalSource: { mode: 'none' },
+				cloneUrls: {
+					authority: 'tessera',
+					https: 'http://localhost:4001/marta/notes.git',
+					ssh: 'ssh://git@localhost:2222/marta/notes.git',
+				},
 				createdAt: expect.any(String),
 				updatedAt: expect.any(String),
 			},
