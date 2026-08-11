@@ -158,6 +158,32 @@ describe('repository clone URL contract', () => {
 	})
 
 	test.each([
+		['a hostless ssh URL', 'ssh:///marta/notes.git'],
+		[
+			'an ssh URL carrying a password',
+			'ssh://git:hunter2@git.localhost/marta/notes.git',
+		],
+	])('rejects %s', (_name, ssh) => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse({
+				authority: 'tessera',
+				https: 'https://git.localhost/marta/notes.git',
+				ssh,
+			}).success
+		).toBeFalsy()
+	})
+
+	test('rejects an HTTP clone URL carrying credentials', () => {
+		expect(
+			repositoryCloneUrlsSchema.safeParse({
+				authority: 'tessera',
+				https: 'https://marta:hunter2@git.localhost/marta/notes.git',
+				ssh: 'git@github.com:marta/notes.git',
+			}).success
+		).toBeFalsy()
+	})
+
+	test.each([
 		['a native repository', undefined],
 		['a running mirror', externalSource()],
 		['an imported snapshot', externalSource({ mirrorMode: 'imported' })],
