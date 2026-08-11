@@ -1,5 +1,9 @@
 import type { RepositoryWithOwner as RepositoryWithOwnerOutput } from '@repo/contracts'
 import type { Repository, RepositoryExternalSource } from '@repo/db'
+import {
+	type RepositoryCloneBaseUrls,
+	toRepositoryCloneUrls,
+} from './repository-clone-urls'
 
 export type RepositoryExternalSourceReadModel = Omit<
 	RepositoryExternalSource,
@@ -60,7 +64,8 @@ export function toRepositoryWithOwner(
 }
 
 export function toRepositoryOutput(
-	repository: RepositoryWithOwner
+	repository: RepositoryWithOwner,
+	cloneBaseUrls: RepositoryCloneBaseUrls
 ): RepositoryWithOwnerOutput {
 	return {
 		repository: {
@@ -73,6 +78,12 @@ export function toRepositoryOutput(
 			externalSource: toRepositoryExternalSourceOutput(
 				repository.externalSource
 			),
+			cloneUrls: toRepositoryCloneUrls({
+				baseUrls: cloneBaseUrls,
+				externalSource: repository.externalSource,
+				ownerUsername: repository.ownerUser.username,
+				slug: repository.slug,
+			}),
 			createdAt: repository.createdAt,
 			updatedAt: repository.updatedAt,
 		},

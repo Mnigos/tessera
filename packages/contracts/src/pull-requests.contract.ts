@@ -367,6 +367,13 @@ export const pullRequestEventSchema = z.object({
 	// Absent for system-authored queue transitions; every other event names its
 	// actor.
 	actorUsername: z.string().min(1).optional(),
+	/**
+	 * The same identity comments and reviews already carry, joined at read time
+	 * from rows the projection already keeps. A synchronized event named its
+	 * actor by login alone, which is the one identity GitHub lets people rename;
+	 * this carries the avatar and the profile the login belongs to.
+	 */
+	actor: pullRequestActorSchema.optional(),
 	type: pullRequestEventTypeSchema,
 	payload: pullRequestEventPayloadSchema.optional(),
 	createdAt: z.coerce.date(),

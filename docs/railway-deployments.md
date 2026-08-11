@@ -26,6 +26,20 @@ Required for production:
 - `GITHUB_CLIENT_ID`
 - `GITHUB_CLIENT_SECRET`
 - `INTERNAL_API_TOKEN`
+- `GIT_HTTP_BASE_URL`
+- `GIT_SSH_BASE_URL`
+
+`GIT_HTTP_BASE_URL` and `GIT_SSH_BASE_URL` **must be set to the same values as
+the web service's `VITE_PUBLIC_GIT_HTTP_BASE_URL` and
+`VITE_PUBLIC_GIT_SSH_BASE_URL`.** The API derives every repository's clone URLs,
+because only it knows whether GitHub or Tessera currently owns the repository.
+Nothing validates the two services against each other: leaving these unset in
+production is not an error, it just serves `localhost` clone URLs.
+
+Safe local examples:
+
+- `GIT_HTTP_BASE_URL=http://localhost:4001`
+- `GIT_SSH_BASE_URL=ssh://git@localhost:2222`
 
 Optional:
 

@@ -145,6 +145,26 @@ export type RepositoryExternalSource = z.infer<
 	typeof repositoryExternalSourceSchema
 >
 
+export const repositoryCloneAuthoritySchema = z.enum(['github', 'tessera'])
+export type RepositoryCloneAuthority = z.infer<
+	typeof repositoryCloneAuthoritySchema
+>
+
+/**
+ * Where a clone has to point, which is not always Tessera. While GitHub owns
+ * the repository, a Tessera remote is a copy nobody can push to; the pair
+ * switches the moment authority does, so it is derived here rather than
+ * assembled from environment variables in the browser.
+ */
+export const repositoryCloneUrlsSchema = z.object({
+	authority: repositoryCloneAuthoritySchema,
+	https: z.url(),
+	// GitHub's SSH remote is scp-like — `git@host:owner/name.git` — and parses
+	// as no URL at all, so only Tessera's side of this is ever a URL.
+	ssh: z.string().min(1),
+})
+export type RepositoryCloneUrls = z.infer<typeof repositoryCloneUrlsSchema>
+
 export const repositorySchema = z.object({
 	id: z.uuid().brand<'repository_id'>(),
 	slug: repositorySlugSchema,
@@ -153,6 +173,7 @@ export const repositorySchema = z.object({
 	description: z.string().optional(),
 	defaultBranch: z.string(),
 	externalSource: repositoryExternalSourceSchema,
+	cloneUrls: repositoryCloneUrlsSchema,
 	createdAt: z.coerce.date(),
 	updatedAt: z.coerce.date(),
 })

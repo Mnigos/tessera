@@ -1,11 +1,16 @@
 import type { PullRequest } from '@repo/db'
-import type { PullRequestId, RepositoryId } from '@repo/domain'
+import type {
+	PullRequestEventId,
+	PullRequestId,
+	RepositoryId,
+} from '@repo/domain'
 import { mockUserId } from '~/shared/test-utils'
 import {
 	assertPullRequestClosable,
 	assertPullRequestEditable,
 	assertPullRequestReopenable,
 	assertPullRequestRetargetable,
+	toPullRequestEventOutput,
 	toPullRequestOutput,
 } from './pull-request'
 import { PullRequestStateConflictError } from './pull-request.errors'
@@ -56,6 +61,78 @@ describe('pull request domain', () => {
 				'marta'
 			).authorUsername
 		).toBe('octocat')
+	})
+
+	test('carries the joined GitHub identity onto a synchronized event', () => {
+		expect(
+			toPullRequestEventOutput({
+				id: '00000000-0000-4000-8000-000000000055' as PullRequestEventId,
+				pullRequestId: pullRequest.id,
+				provider: 'github',
+				actorUserId: null,
+				type: 'closed',
+				payload: null,
+				createdAt,
+				actorUsername: 'octocat',
+				actor: {
+					userId: null,
+					username: null,
+					externalNodeId: 'MDQ6VXNlcjE=',
+					externalLogin: 'octocat',
+					externalAvatarUrl: 'https://avatars.githubusercontent.com/u/1',
+					externalHtmlUrl: 'https://github.com/octocat',
+				},
+			}).actor
+		).toEqual({
+			key: 'MDQ6VXNlcjE=',
+			provider: 'github',
+			username: 'octocat',
+			externalNodeId: 'MDQ6VXNlcjE=',
+			avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+			htmlUrl: 'https://github.com/octocat',
+		})
+	})
+
+	test('prefers the native account when one backs the event', () => {
+		expect(
+			toPullRequestEventOutput({
+				id: '00000000-0000-4000-8000-000000000056' as PullRequestEventId,
+				pullRequestId: pullRequest.id,
+				provider: 'tessera',
+				actorUserId: mockUserId,
+				type: 'opened',
+				payload: null,
+				createdAt,
+				actorUsername: 'marta',
+				actor: {
+					userId: mockUserId,
+					username: 'marta',
+					externalNodeId: null,
+					externalLogin: null,
+					externalAvatarUrl: null,
+					externalHtmlUrl: null,
+				},
+			}).actor
+		).toEqual({
+			key: mockUserId,
+			provider: 'tessera',
+			userId: mockUserId,
+			username: 'marta',
+		})
+	})
+
+	test('leaves the actor absent when nothing identifies anybody', () => {
+		expect(
+			toPullRequestEventOutput({
+				id: '00000000-0000-4000-8000-000000000057' as PullRequestEventId,
+				pullRequestId: pullRequest.id,
+				provider: 'tessera',
+				actorUserId: null,
+				type: 'queue_paused',
+				payload: null,
+				createdAt,
+			}).actor
+		).toBeUndefined()
 	})
 
 	test('allows editing open and closed pull requests', () => {

@@ -276,6 +276,9 @@ describe(RepositoriesService.name, () => {
 							if (key === 'GITHUB_APP_INSTALL_URL')
 								return 'https://github.com/apps/tessera/installations/new'
 							if (key === 'GITHUB_MIRROR_SYNC_INTERVAL_MINUTES') return 60
+							if (key === 'GIT_HTTP_BASE_URL') return 'http://git.localhost'
+							if (key === 'GIT_SSH_BASE_URL')
+								return 'ssh://git@git.localhost:2222'
 
 							return undefined
 						}),
@@ -335,6 +338,11 @@ describe(RepositoriesService.name, () => {
 				description: 'Notes',
 				defaultBranch: 'main',
 				externalSource: { mode: 'none' },
+				cloneUrls: {
+					authority: 'tessera',
+					https: 'http://git.localhost/marta/tessera-notes.git',
+					ssh: 'ssh://git@git.localhost:2222/marta/tessera-notes.git',
+				},
 				createdAt: repository.createdAt,
 				updatedAt: repository.updatedAt,
 			},

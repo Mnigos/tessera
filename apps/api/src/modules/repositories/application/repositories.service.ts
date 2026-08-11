@@ -79,6 +79,7 @@ import {
 	normalizeRepositoryName,
 	normalizeRepositorySlug,
 } from '../domain/repository.helpers'
+import type { RepositoryCloneBaseUrls } from '../domain/repository-clone-urls'
 import { toRepositorySyncHealth } from '../domain/repository-sync-health'
 import { highlightRepositoryBlobPreview } from '../helpers/repository-blob-highlighting'
 import {
@@ -231,6 +232,13 @@ export class RepositoriesService {
 		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository
 	) {}
 
+	private get cloneBaseUrls(): RepositoryCloneBaseUrls {
+		return {
+			http: this.envService.get('GIT_HTTP_BASE_URL'),
+			ssh: this.envService.get('GIT_SSH_BASE_URL'),
+		}
+	}
+
 	async create(
 		userId: UserId,
 		currentUsername: string | undefined,
@@ -265,7 +273,7 @@ export class RepositoriesService {
 
 			if (!repositoryWithStorage) throw new RepositoryCreateFailedError()
 
-			return toRepositoryOutput(repositoryWithStorage)
+			return toRepositoryOutput(repositoryWithStorage, this.cloneBaseUrls)
 		} catch (error) {
 			await this.cleanupCreatedRepository(repository.id)
 
@@ -275,8 +283,12 @@ export class RepositoriesService {
 
 	async list(userId: UserId): Promise<RepositoryWithOwner[]> {
 		const repositories = await this.repositoriesRepository.list({ userId })
+		// Read once for the page rather than once per row.
+		const cloneBaseUrls = this.cloneBaseUrls
 
-		return repositories.map(toRepositoryOutput)
+		return repositories.map(repository =>
+			toRepositoryOutput(repository, cloneBaseUrls)
+		)
 	}
 
 	async getReadableRepositoryContext(
@@ -616,7 +628,7 @@ export class RepositoriesService {
 
 		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 
-		return toRepositoryOutput(repository)
+		return toRepositoryOutput(repository, this.cloneBaseUrls)
 	}
 
 	async enableGitHubMirror(
@@ -734,7 +746,7 @@ export class RepositoriesService {
 				syncStatus: repository.externalSource.syncStatus,
 			})
 
-		return toRepositoryOutput(cutoverRepository)
+		return toRepositoryOutput(cutoverRepository, this.cloneBaseUrls)
 	}
 
 	async getGitHubSyncHealth(
@@ -849,7 +861,7 @@ export class RepositoriesService {
 				defaultBranch: repository.defaultBranch,
 				ref: selectedRef?.qualifiedName ?? ref,
 			})
-		const repositoryOutput = toRepositoryOutput(repository)
+		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 
 		return {
 			...repositoryOutput,
@@ -885,7 +897,7 @@ export class RepositoriesService {
 				path: '',
 			}
 		)
-		const repositoryOutput = toRepositoryOutput(repository)
+		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 
 		return {
 			...repositoryOutput,
@@ -916,7 +928,7 @@ export class RepositoriesService {
 				path: path ?? '',
 			}
 		)
-		const repositoryOutput = toRepositoryOutput(repository)
+		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 
 		return {
 			...repositoryOutput,
@@ -966,7 +978,7 @@ export class RepositoriesService {
 				path,
 			}
 		)
-		const repositoryOutput = toRepositoryOutput(repository)
+		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 		const preview = await this.enrichBlobPreview(path, blob.preview)
 
 		return {
@@ -1051,7 +1063,7 @@ export class RepositoriesService {
 				path: '',
 			}
 		)
-		const repositoryOutput = toRepositoryOutput(repository)
+		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 		// One query for the page rather than one per row: a status dot beside every
 		// commit must not cost a request each. Nothing here is current — history is
 		// read against a ref, not against any pull request's head — so no row

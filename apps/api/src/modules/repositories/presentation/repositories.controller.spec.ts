@@ -25,6 +25,11 @@ const repository: RepositoryWithOwner = {
 		description: undefined,
 		defaultBranch: 'main',
 		externalSource: { mode: 'none' },
+		cloneUrls: {
+			authority: 'tessera',
+			https: 'http://git.localhost/marta/notes.git',
+			ssh: 'ssh://git@git.localhost:2222/marta/notes.git',
+		},
 		createdAt: new Date('2026-05-12T00:00:00Z'),
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
 	},
