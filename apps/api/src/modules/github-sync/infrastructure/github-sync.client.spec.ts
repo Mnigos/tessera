@@ -539,15 +539,14 @@ describe(GitHubSyncClient.name, () => {
 		// The allowlisted context is worth nothing if the error it travels on still
 		// carries the whole provider response one property away, so this sweeps the
 		// entire thrown object rather than just its context.
-		await expect(promise).rejects.toSatisfy((error: Error) =>
-			isSecretFree(error, [
-				'ghs_secret-token',
-				'session=secret',
-				'Bad credentials',
-			])
-		)
 		await expect(promise).rejects.toSatisfy(
-			(error: Error) => error.cause === undefined
+			(error: Error) =>
+				error.cause === undefined &&
+				isSecretFree(error, [
+					'ghs_secret-token',
+					'session=secret',
+					'Bad credentials',
+				])
 		)
 	})
 
@@ -591,6 +590,32 @@ describe(GitHubSyncClient.name, () => {
 				})
 			).rateLimit
 		).toMatchObject({ remaining: 12 })
+	})
+
+	// `Number('')` and `Number(null)` are both zero, and zero means an exhausted
+	// budget — so a header carrying nothing would defer the installation.
+	test.each([
+		['an empty header', ''],
+		['a blank header', '   '],
+		['a header GitHub omitted', undefined],
+		['a header that is not a number', 'unknown'],
+	])('reports no budget from %s', async (_name, remaining) => {
+		paginate.mockImplementation(() => {
+			observeResponse(
+				remaining === undefined ? {} : { 'x-ratelimit-remaining': remaining }
+			)
+
+			return Promise.resolve([])
+		})
+
+		expect(
+			(
+				await new GitHubSyncClient().getRepositoryReconciliation({
+					accessToken: 'installation-token',
+					externalRepositoryId: 456n,
+				})
+			).rateLimit
+		).toBeUndefined()
 	})
 
 	test('reports the budget a checks read observed', async () => {

@@ -1634,6 +1634,12 @@ export class GitHubSyncRepository {
 					requestedSyncTrigger: 'replay',
 					requestedReplayDeliveryId: deliveryId,
 					syncStatus: 'pending',
+					// A replay commonly follows the terminal failure that settled this
+					// delivery. Leaving that failure behind would have health report a
+					// reason for a repository that is reconciling again, so the raise
+					// clears it exactly as the webhook and resume paths do.
+					syncFailureCode: null,
+					syncFailureReason: null,
 					nextSyncAt: new Date(),
 				})
 				.where(

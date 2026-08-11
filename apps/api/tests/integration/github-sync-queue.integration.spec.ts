@@ -12,12 +12,15 @@ import { Queue, Worker } from 'bullmq'
 
 const REDIS_URL = process.env.REDIS_URL ?? 'redis://localhost:6379'
 const QUEUE_NAME = `${GITHUB_SYNC_QUEUE_NAME}-integration`
-const request: GitHubSyncRequest = {
+const REQUEST: GitHubSyncRequest = {
 	repositoryId: '00000000-0000-4000-8000-000000000002' as RepositoryId,
 	authorityGeneration: 3,
 	requestedSyncVersion: 9,
 }
-const jobId = `${request.repositoryId}-3-9`
+// Derived rather than written out, so a changed fixture cannot leave the
+// retention test looking up a job id nothing ever enqueued — which would pass
+// against a missing job instead of a recovered one.
+const JOB_ID = `${REQUEST.repositoryId}-${REQUEST.authorityGeneration}-${REQUEST.requestedSyncVersion}`
 
 /**
  * The custom job id is what makes duplicate wakeups collapse, and it is also
@@ -53,15 +56,15 @@ describe('GitHub sync queue integration', () => {
 	})
 
 	test('collapses a second wakeup for the same version onto one job', async () => {
-		await service.enqueue(request)
-		await service.enqueue(request)
+		await service.enqueue(REQUEST)
+		await service.enqueue(REQUEST)
 
 		expect(await queue.getJobCountByTypes('wait')).toBe(1)
 	})
 
 	test('gives a later version its own job', async () => {
-		await service.enqueue(request)
-		await service.enqueue({ ...request, requestedSyncVersion: 10 })
+		await service.enqueue(REQUEST)
+		await service.enqueue({ ...REQUEST, requestedSyncVersion: 10 })
 
 		expect(await queue.getJobCountByTypes('wait')).toBe(2)
 	})
@@ -70,23 +73,26 @@ describe('GitHub sync queue integration', () => {
 		// Placed with a single attempt so one failure is terminal: the production
 		// job allows five, and reaching its failed state through a worker would
 		// mean waiting out four exponential backoffs.
-		await queue.add(GITHUB_SYNC_REPOSITORY_JOB, request, {
-			jobId,
+		await queue.add(GITHUB_SYNC_REPOSITORY_JOB, REQUEST, {
+			jobId: JOB_ID,
 			attempts: 1,
 			removeOnFail: { count: 200 },
 		})
 		await failPendingJob()
 
-		const failed = await queue.getJob(jobId)
+		const failed = await queue.getJob(JOB_ID)
 
 		// What a rate-limited or attempt-exhausted run leaves behind: a failed job
 		// that retention keeps, still holding the id the next wakeup needs.
 		expect(await failed?.isFailed()).toBeTruthy()
 
-		await service.enqueue(request)
+		await service.enqueue(REQUEST)
 
-		const requeued = await queue.getJob(jobId)
+		const requeued = await queue.getJob(JOB_ID)
 
+		// Asserted present before its state: `undefined?.isFailed()` is falsy too,
+		// so a job that was never re-added would otherwise look like a recovered one.
+		expect(requeued).toBeDefined()
 		expect(await requeued?.isFailed()).toBeFalsy()
 		expect(await queue.getJobCountByTypes('wait')).toBe(1)
 	})

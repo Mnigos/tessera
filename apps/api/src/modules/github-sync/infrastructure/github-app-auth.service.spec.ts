@@ -70,17 +70,12 @@ describe('GitHubAppAuthService', () => {
 			.spyOn(Logger.prototype, 'error')
 			.mockImplementation(() => undefined)
 
-		const promise = service.getInstallationToken(123n)
-
-		await expect(promise).rejects.toMatchObject({
-			context: expect.objectContaining({
-				externalInstallationId: '123',
-				failureClass: 'transport',
-				failureCode: 'upstream_unavailable',
-			}),
-		})
-		await expect(promise).rejects.toSatisfy((error: Error) =>
-			isSecretFree(error, ['ghs_secret'])
+		await expect(service.getInstallationToken(123n)).rejects.toSatisfy(
+			(error: Error & { context?: Record<string, unknown> }) =>
+				error.context?.externalInstallationId === '123' &&
+				error.context.failureClass === 'transport' &&
+				error.context.failureCode === 'upstream_unavailable' &&
+				isSecretFree(error, ['ghs_secret'])
 		)
 		// The stack of a rejected authentication carries whatever the provider
 		// library put in it, so only the classification is logged.

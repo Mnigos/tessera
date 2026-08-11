@@ -2,6 +2,7 @@ import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
 import {
 	and,
+	asc,
 	desc,
 	eq,
 	gitHubInstallations,
@@ -39,14 +40,8 @@ export class RepositorySyncHealthRepository {
 		const windowStartedAt = new Date(
 			now.getTime() - HEALTH_WINDOW_HOURS * 60 * 60 * 1000
 		)
-		const deliveries = this.db
-			.select({
-				pendingCount: sql<number>`count(*)::int`.as('pending_count'),
-				oldestPendingAt:
-					sql<Date | null>`min(${gitHubWebhookDeliveries.receivedAt})`.as(
-						'oldest_pending_at'
-					),
-			})
+		const pendingDeliveries = this.db
+			.select({ pendingCount: sql<number>`count(*)::int`.as('pending_count') })
 			.from(gitHubWebhookDeliveries)
 			.where(
 				and(
@@ -54,7 +49,24 @@ export class RepositorySyncHealthRepository {
 					eq(gitHubWebhookDeliveries.status, 'received')
 				)
 			)
-			.as('deliveries')
+			.as('pending_deliveries')
+		// Read as a column rather than as `min(...)`, so the timestamp comes back
+		// through the mapper that knows these are stored as UTC wall-clock. A raw
+		// aggregate yields a bare string, and reading that as a local time would
+		// shift the reported lag by the server's offset. The partial index on
+		// pending deliveries serves this order directly.
+		const oldestPendingDelivery = this.db
+			.select({ receivedAt: gitHubWebhookDeliveries.receivedAt })
+			.from(gitHubWebhookDeliveries)
+			.where(
+				and(
+					eq(gitHubWebhookDeliveries.repositoryId, repositoryId),
+					eq(gitHubWebhookDeliveries.status, 'received')
+				)
+			)
+			.orderBy(asc(gitHubWebhookDeliveries.receivedAt))
+			.limit(1)
+			.as('oldest_pending_delivery')
 		const attemptWindow = this.db
 			.select({
 				retryCount:
@@ -109,8 +121,8 @@ export class RepositorySyncHealthRepository {
 				syncFailureCode: repositoryExternalSources.syncFailureCode,
 				syncFailureReason: repositoryExternalSources.syncFailureReason,
 				rateLimitedUntil: gitHubInstallations.rateLimitedUntil,
-				pendingDeliveryCount: deliveries.pendingCount,
-				oldestPendingDeliveryAt: deliveries.oldestPendingAt,
+				pendingDeliveryCount: pendingDeliveries.pendingCount,
+				oldestPendingDeliveryAt: oldestPendingDelivery.receivedAt,
 				retryCount24h: attemptWindow.retryCount,
 				terminalCount24h: attemptWindow.terminalCount,
 				completedCount24h: attemptWindow.completedCount,
@@ -124,7 +136,8 @@ export class RepositorySyncHealthRepository {
 			)
 			// Each aggregate is scoped to this repository already, so it contributes
 			// exactly one row and needs no join condition of its own.
-			.leftJoin(deliveries, sql`true`)
+			.leftJoin(pendingDeliveries, sql`true`)
+			.leftJoin(oldestPendingDelivery, sql`true`)
 			.leftJoin(attemptWindow, sql`true`)
 			.leftJoin(latestAttempt, sql`true`)
 			// Only a repository GitHub currently drives has synchronization health.

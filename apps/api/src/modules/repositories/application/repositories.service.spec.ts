@@ -24,6 +24,7 @@ import {
 	RepositoryCreatorUsernameRequiredError,
 	RepositoryGitHubMirrorCutoverSyncInProgressError,
 	RepositoryGitHubMirrorCutoverUnavailableError,
+	RepositoryGitHubMirrorSyncUnavailableError,
 	RepositoryGitHubSourceOfTruthWriteForbiddenError,
 	RepositoryGitWriteForbiddenError,
 	RepositoryNotFoundError,
@@ -914,6 +915,32 @@ describe(RepositoriesService.name, () => {
 			reauthorizationRequired: true,
 			installUrl: 'https://github.com/apps/tessera/installations/new',
 		})
+	})
+
+	test('refuses reauthorization guidance it cannot make actionable', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			mirroredGitHubRepository()
+		)
+		vi.spyOn(
+			moduleRef.get(RepositorySyncHealthRepository),
+			'findFacts'
+		).mockResolvedValue(
+			healthyFacts({
+				syncStatus: 'blocked',
+				syncFailureCode: 'missing_installation',
+				latestAttemptStatus: 'blocked',
+			})
+		)
+		vi.spyOn(moduleRef.get(EnvService), 'get').mockReturnValue(undefined)
+
+		// Telling someone their mirror needs reauthorizing without saying where to
+		// do it leaves them stuck; the deployment is misconfigured.
+		await expect(
+			repositoriesService.getGitHubReauthorization(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryGitHubMirrorSyncUnavailableError)
 	})
 
 	test('never requests synchronization while answering a reauthorization question', async () => {

@@ -947,18 +947,34 @@ interface GitHubRefTarget {
 function toGitHubSyncRateLimit(
 	headers: Record<string, unknown>
 ): GitHubSyncRateLimit | undefined {
-	const remaining = Number(headers['x-ratelimit-remaining'])
-	const resetSeconds = Number(headers['x-ratelimit-reset'])
+	const remaining = toHeaderNumber(headers['x-ratelimit-remaining'])
+	const resetSeconds = toHeaderNumber(headers['x-ratelimit-reset'])
 
-	if (!(Number.isInteger(remaining) && remaining >= 0)) return undefined
+	if (remaining === undefined || !Number.isInteger(remaining) || remaining < 0)
+		return undefined
 
 	return {
 		remaining,
 		resetAt:
-			Number.isFinite(resetSeconds) && resetSeconds > 0
+			resetSeconds !== undefined && resetSeconds > 0
 				? new Date(resetSeconds * 1000)
 				: undefined,
 	}
+}
+
+/**
+ * A header value only when it is actually a number. `Number('')` and
+ * `Number(null)` are both zero, and zero here means an exhausted budget — so an
+ * absent or blank header would defer the whole installation on no evidence.
+ */
+function toHeaderNumber(value: unknown): number | undefined {
+	if (typeof value === 'number')
+		return Number.isFinite(value) ? value : undefined
+	if (typeof value !== 'string' || value.trim().length === 0) return undefined
+
+	const parsed = Number(value)
+
+	return Number.isFinite(parsed) ? parsed : undefined
 }
 
 function toGitHubSyncCheckApp(

@@ -14,6 +14,7 @@ import type {
 import type { PullRequestId, RepositoryId } from '@repo/domain'
 import { type Job, UnrecoverableError } from 'bullmq'
 import { ExternalServiceError, ServiceUnavailableError } from '~/shared/errors'
+import { isSecretFree } from '~/shared/test-utils'
 import { GitHubAppAuthService } from '../infrastructure/github-app-auth.service'
 import { GitHubSyncClient } from '../infrastructure/github-sync.client'
 import {
@@ -256,15 +257,16 @@ describe(GitHubSyncProcessor.name, () => {
 			new Error('request failed with installation-token')
 		)
 
-		const promise = processor.process(
-			createJob(GITHUB_SYNC_REPOSITORY_JOB, request)
-		)
-
 		// The message BullMQ keeps on a failed job, and everything the database
 		// stores, has to be Tessera's own wording: an unclassified provider error
 		// can carry a token or a header in its text.
-		await expect(promise).rejects.toThrow('GitHub synchronization failed')
-		await expect(promise).rejects.not.toThrow('installation-token')
+		await expect(
+			processor.process(createJob(GITHUB_SYNC_REPOSITORY_JOB, request))
+		).rejects.toSatisfy(
+			(error: Error) =>
+				error.message.includes('GitHub synchronization failed') &&
+				isSecretFree(error, ['installation-token'])
+		)
 		expect(repository.failSync).toHaveBeenCalledWith(
 			expect.objectContaining({
 				failureCode: 'reconciliation_failed',

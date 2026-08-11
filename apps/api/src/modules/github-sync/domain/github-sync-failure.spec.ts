@@ -56,22 +56,27 @@ describe('classifyGitHubSyncFailure', () => {
 
 	test('reads a secondary limit from retry-after while the budget is intact', () => {
 		vi.useFakeTimers()
-		vi.setSystemTime(new Date('2026-08-11T10:00:00Z'))
 
-		expect(
-			classifyGitHubSyncFailure(
-				requestError(403, {
-					'retry-after': '60',
-					'x-ratelimit-remaining': '4200',
-				})
-			)
-		).toMatchObject({
-			failureClass: 'rate_limit',
-			rateLimitRemaining: 4200,
-			retryAt: new Date('2026-08-11T10:01:00Z'),
-		})
+		// Restored in `finally` so a failing assertion cannot leave fake timers on
+		// for the rest of the worker, where it would break unrelated tests.
+		try {
+			vi.setSystemTime(new Date('2026-08-11T10:00:00Z'))
 
-		vi.useRealTimers()
+			expect(
+				classifyGitHubSyncFailure(
+					requestError(403, {
+						'retry-after': '60',
+						'x-ratelimit-remaining': '4200',
+					})
+				)
+			).toMatchObject({
+				failureClass: 'rate_limit',
+				rateLimitRemaining: 4200,
+				retryAt: new Date('2026-08-11T10:01:00Z'),
+			})
+		} finally {
+			vi.useRealTimers()
+		}
 	})
 
 	test('reads 429 as a rate limit without any headers', () => {
