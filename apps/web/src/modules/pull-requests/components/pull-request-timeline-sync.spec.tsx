@@ -131,6 +131,18 @@ describe('pull request timeline synchronization context', () => {
 		)
 	})
 
+	// A native pull request frozen by its repository being mirrored has no GitHub
+	// history, so it has nothing to be behind on and must not be warned about it.
+	test('does not ask for sync health for a native pull request in a mirrored repository', () => {
+		renderTimeline({ isFromGitHub: false, isGitHubAuthoritative: true })
+
+		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
+			expect.anything(),
+			false
+		)
+		expect(screen.getByText('No activity yet.')).toBeTruthy()
+	})
+
 	test('asks for sync health only on behalf of an owner of a running mirror', () => {
 		renderTimeline({ canReadSyncHealth: false })
 
@@ -174,16 +186,32 @@ describe('pull request timeline synchronization context', () => {
 		expect(screen.queryByText(UNSYNCHRONIZED_NOTICE_REGEX)).toBeNull()
 	})
 
-	test('reads a rate-limited hold as waiting rather than as a failure', () => {
+	test('reads an active rate-limited hold as waiting rather than as a failure', () => {
 		mockSyncHealth({
 			...BASE_SYNC_HEALTH,
 			state: 'stale',
 			code: 'rate_limited',
+			rateLimitedUntil: new Date('2026-06-15T11:00:00.000Z'),
 		})
 
 		renderTimeline()
 
 		expect(screen.getByText('Waiting on GitHub.')).toBeTruthy()
 		expect(screen.queryByText('Sync failed.')).toBeNull()
+	})
+
+	// Once the reset passes the API keeps the code but drops the timestamp; the
+	// notice must then describe the state the mirror actually landed in.
+	test('stops saying it is waiting once the rate limit has reset', () => {
+		mockSyncHealth({
+			...BASE_SYNC_HEALTH,
+			state: 'failed',
+			code: 'rate_limited',
+		})
+
+		renderTimeline()
+
+		expect(screen.getByText('Sync failed.')).toBeTruthy()
+		expect(screen.queryByText('Waiting on GitHub.')).toBeNull()
 	})
 })

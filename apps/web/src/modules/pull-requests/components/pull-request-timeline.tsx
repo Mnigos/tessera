@@ -65,9 +65,12 @@ export function PullRequestTimeline({
 	canReadSyncHealth,
 }: Readonly<PullRequestTimelineProps>) {
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
+	// Provenance and authority both have to hold: a native pull request frozen by
+	// its repository being mirrored has no GitHub history to be behind on, and a
+	// synchronized one that has cut over has no synchronization left to report.
 	const syncHealthQuery = useGitHubSyncHealthQuery(
 		{ slug, username },
-		isGitHubAuthoritative && canReadSyncHealth
+		isFromGitHub && isGitHubAuthoritative && canReadSyncHealth
 	)
 
 	const permissions = getPullRequestThreadPermissions({

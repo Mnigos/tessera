@@ -1,6 +1,7 @@
 import type { Repository } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { CopyButton } from '@/shared/components/copy-button'
+import { getCloneProtocolLabel } from '../helpers/get-clone-protocol-label'
 
 interface RepositoryClonePanelProps {
 	repository: Repository
@@ -15,6 +16,9 @@ export function RepositoryClonePanel({
 	repository: { cloneUrls },
 }: Readonly<RepositoryClonePanelProps>) {
 	const isGitHubAuthoritative = cloneUrls.authority === 'github'
+	// Never hardcoded: an Enterprise source reached over plain HTTP must not be
+	// announced as HTTPS in the label, the copy confirmation, or the button name.
+	const httpProtocolLabel = getCloneProtocolLabel(cloneUrls.https)
 
 	return (
 		<Card className="gap-3 p-4">
@@ -33,8 +37,8 @@ export function RepositoryClonePanel({
 					text={cloneUrls.ssh}
 				/>
 				<CloneUrlRow
-					copiedLabel="HTTPS clone URL copied"
-					label="HTTPS"
+					copiedLabel={`${httpProtocolLabel} clone URL copied`}
+					label={httpProtocolLabel}
 					text={cloneUrls.https}
 				/>
 			</div>

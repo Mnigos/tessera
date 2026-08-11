@@ -58,14 +58,91 @@ describe('repository sync health presentation', () => {
 
 	test.each(
 		ALL_STATES
-	)('reads a rate-limited %s state as waiting, never as broken', state => {
+	)('reads an active rate-limited %s state as waiting, never as broken', state => {
 		const presentation = getRepositorySyncHealthPresentation(
-			syncHealth({ state, code: 'rate_limited' })
+			syncHealth({
+				state,
+				code: 'rate_limited',
+				rateLimitedUntil: new Date('2026-06-15T11:00:00.000Z'),
+			})
 		)
 
 		expect(presentation.label).toBe('Waiting on GitHub')
 		expect(presentation.description).toContain('resumes on its own')
 		expect(presentation.iconClassName).not.toContain('rose')
+	})
+
+	// The API drops `rateLimitedUntil` once the reset passes but keeps the code,
+	// so the code alone must not keep the reader waiting on a limit that lifted.
+	test('stops reporting a rate limit once its reset has passed', () => {
+		const presentation = getRepositorySyncHealthPresentation(
+			syncHealth({ state: 'failed', code: 'rate_limited' })
+		)
+
+		expect(presentation.label).toBe('Sync failed')
+		expect(presentation.description).not.toContain('rate limit')
+	})
+
+	test('does not blame GitHub access for a block Tessera caused itself', () => {
+		const presentation = getRepositorySyncHealthPresentation(
+			syncHealth({
+				state: 'blocked',
+				code: 'missing_storage',
+				reauthorizationRequired: false,
+			})
+		)
+
+		expect(presentation.description).toBe(
+			"This repository's storage is unavailable to Tessera, so nothing can be synchronized."
+		)
+		expect(presentation.description).not.toContain('GitHub')
+	})
+
+	test('names GitHub only when access is what has to be restored', () => {
+		expect(
+			getRepositorySyncHealthPresentation(
+				syncHealth({
+					state: 'blocked',
+					code: 'installation_suspended',
+					reauthorizationRequired: true,
+				})
+			).description
+		).toBe(
+			'Tessera can no longer reach this repository on GitHub, so nothing new is arriving.'
+		)
+	})
+
+	test('stays neutral about a block it cannot attribute', () => {
+		const presentation = getRepositorySyncHealthPresentation(
+			syncHealth({ state: 'blocked' })
+		)
+
+		expect(presentation.description).toBe(
+			'Synchronization is stopped, so nothing new is arriving.'
+		)
+		expect(presentation.description).not.toContain('GitHub')
+	})
+
+	// The read model folds queued and running into one state, so the copy may not
+	// promise that a run has yet to start.
+	test('does not claim queued work has not started', () => {
+		expect(
+			getRepositorySyncHealthPresentation(syncHealth({ state: 'pending' }))
+				.description
+		).toBe('Synchronization is queued or in progress.')
+	})
+
+	// Partial also covers a clean run that a newer delivery has outlived, so the
+	// copy may not blame the last run.
+	test('does not blame the last run for outstanding partial work', () => {
+		const { description } = getRepositorySyncHealthPresentation(
+			syncHealth({ state: 'partial' })
+		)
+
+		expect(description).toBe(
+			'Some GitHub updates are awaiting reconciliation, so data may be missing here.'
+		)
+		expect(description).not.toContain('last run')
 	})
 })
 
@@ -90,6 +167,33 @@ describe('repository cutover block reason', () => {
 		expect(
 			getRepositoryCutoverBlockReason(syncHealth({ state: 'stale' }))
 		).toBe('Waiting for a fresh sync. Authority can change once one completes.')
+	})
+
+	test('tells the owner to restore access only when access is the problem', () => {
+		expect(
+			getRepositoryCutoverBlockReason(
+				syncHealth({
+					state: 'blocked',
+					code: 'installation_suspended',
+					reauthorizationRequired: true,
+				})
+			)
+		).toContain('Restore access')
+		expect(
+			getRepositoryCutoverBlockReason(
+				syncHealth({ state: 'blocked', code: 'missing_storage' })
+			)
+		).not.toContain('Restore access')
+	})
+
+	test('stops citing a rate limit that has already reset', () => {
+		expect(
+			getRepositoryCutoverBlockReason(
+				syncHealth({ state: 'failed', code: 'rate_limited' })
+			)
+		).toBe(
+			'Synchronization is not completing. Authority can change once a run succeeds.'
+		)
 	})
 
 	test('refuses rather than assuming health it does not have', () => {

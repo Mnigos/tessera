@@ -2,6 +2,8 @@ import { render, screen } from '@testing-library/react'
 import { PullRequestGitHubBadge } from './pull-request-github-badge'
 import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
 
+const GITHUB_COUNTERPART_REGEX = /happen there/
+
 describe('pull request GitHub provenance', () => {
 	test('names GitHub as the origin and links the source pull request', () => {
 		render(
@@ -27,7 +29,7 @@ describe('pull request GitHub provenance', () => {
 	})
 
 	test('leaves the banner with only the write boundary to explain', () => {
-		render(<PullRequestReadOnlyBanner />)
+		render(<PullRequestReadOnlyBanner isFromGitHub />)
 
 		expect(
 			screen.getByText(
@@ -39,5 +41,19 @@ describe('pull request GitHub provenance', () => {
 		expect(screen.queryByRole('link')).toBeNull()
 		expect(screen.queryByRole('button')).toBeNull()
 		expect(screen.queryByRole('heading')).toBeNull()
+	})
+
+	// A repository can be mirrored after native pull requests already exist in
+	// it. Those are frozen too, but there is no GitHub copy to send anybody to.
+	test('sends a frozen native pull request to no GitHub counterpart', () => {
+		render(<PullRequestReadOnlyBanner isFromGitHub={false} />)
+
+		expect(
+			screen.getByText(
+				'GitHub is the source of truth for this repository, so Tessera accepts no changes to this pull request.'
+			)
+		).toBeTruthy()
+		expect(screen.queryByText(GITHUB_COUNTERPART_REGEX)).toBeNull()
+		expect(screen.queryByRole('link')).toBeNull()
 	})
 })

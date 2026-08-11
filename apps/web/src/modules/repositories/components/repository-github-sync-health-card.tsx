@@ -1,4 +1,5 @@
 import type { RepositorySyncHealth } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { cn } from '@repo/ui/utils'
@@ -170,13 +171,18 @@ interface GitHubReauthorizationGuidanceProps {
  * The only remedy that exists, and it is not a retry: Tessera resumes when
  * GitHub announces the restored grant, so this points at the grant and makes no
  * promise about when synchronization starts again.
+ *
+ * The guidance stands on its own whatever the link does. Failing to load a URL
+ * says nothing about the mirror — the block is already established by the
+ * health read above — so a failure here is reported as what it is, a link that
+ * could not be fetched, with an ordinary reload rather than anything resembling
+ * a synchronization retry.
  */
 function GitHubReauthorizationGuidance({
 	slug,
 	username,
 }: Readonly<GitHubReauthorizationGuidanceProps>) {
 	const reauthorizationQuery = useGitHubReauthorizationQuery({ slug, username })
-	const installUrl = reauthorizationQuery.data?.installUrl
 
 	return (
 		<div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm">
@@ -186,16 +192,55 @@ function GitHubReauthorizationGuidance({
 				Reinstall or re-grant access on GitHub; synchronization resumes on its
 				own once GitHub confirms it.
 			</p>
-			{installUrl && (
-				<a
-					className="w-fit underline hover:text-foreground"
-					href={installUrl}
-					rel="noreferrer"
-					target="_blank"
-				>
-					Review the GitHub App installation
-				</a>
-			)}
+			<GitHubReauthorizationLink
+				installUrl={reauthorizationQuery.data?.installUrl}
+				isError={reauthorizationQuery.isError}
+				isLoading={reauthorizationQuery.isLoading}
+				onReload={() => reauthorizationQuery.refetch()}
+			/>
 		</div>
+	)
+}
+
+interface GitHubReauthorizationLinkProps {
+	installUrl?: string
+	isError: boolean
+	isLoading: boolean
+	onReload: () => void
+}
+
+function GitHubReauthorizationLink({
+	installUrl,
+	isError,
+	isLoading,
+	onReload,
+}: Readonly<GitHubReauthorizationLinkProps>) {
+	if (isLoading) return <Skeleton className="h-4 max-w-56" />
+
+	if (isError)
+		return (
+			<div className="flex flex-wrap items-center gap-2">
+				<p className="text-muted-foreground">
+					The reauthorization link could not be loaded.
+				</p>
+				<Button onClick={onReload} size="sm" variant="outline">
+					Retry
+				</Button>
+			</div>
+		)
+
+	// The API refuses to report a required reauthorization it cannot direct
+	// anybody to, so a settled read either carries the URL or is the error above.
+	if (!installUrl) return null
+
+	return (
+		<a
+			className="w-fit underline hover:text-foreground"
+			href={installUrl}
+			rel="noreferrer"
+			target="_blank"
+		>
+			Review the GitHub App installation
+		</a>
 	)
 }

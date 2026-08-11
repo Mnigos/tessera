@@ -71,7 +71,7 @@ const baseSummary = {
 		externalSource: { mode: 'none' },
 		cloneUrls: {
 			authority: 'tessera',
-			https: 'http://git.localhost/mnigos/tessera-notes.git',
+			https: 'https://git.localhost/mnigos/tessera-notes.git',
 			ssh: 'ssh://git@localhost:2222/mnigos/tessera-notes.git',
 		},
 		createdAt: new Date('2026-01-01T00:00:00.000Z'),
@@ -137,7 +137,7 @@ const baseSummary = {
 	],
 } satisfies RepositoryBrowserSummary
 
-const expectedCloneUrl = 'http://git.localhost/mnigos/tessera-notes.git'
+const expectedCloneUrl = 'https://git.localhost/mnigos/tessera-notes.git'
 const expectedSshCloneUrl = 'ssh://git@localhost:2222/mnigos/tessera-notes.git'
 
 const README_HEADING_REGEX = /readme/i
@@ -379,8 +379,8 @@ describe('RepositoryOverview', () => {
 	test.each([
 		[
 			'pending',
-			'Sync queued',
-			'A synchronization is queued and will run shortly.',
+			'Sync in progress',
+			'Synchronization is queued or in progress.',
 		],
 		[
 			'stale',
@@ -390,7 +390,7 @@ describe('RepositoryOverview', () => {
 		[
 			'partial',
 			'Partly synced',
-			'The last run finished without reconciling everything, so some GitHub data may be missing here.',
+			'Some GitHub updates are awaiting reconciliation, so data may be missing here.',
 		],
 		[
 			'failed',
@@ -400,7 +400,7 @@ describe('RepositoryOverview', () => {
 		[
 			'blocked',
 			'Sync blocked',
-			'Tessera cannot reach this repository on GitHub, so nothing new is arriving.',
+			'Synchronization is stopped, so nothing new is arriving.',
 		],
 	] as const)('names the %s sync state in words and points the owner at the detail', (state, label, description) => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state })
@@ -494,6 +494,44 @@ describe('RepositoryOverview', () => {
 			)
 		).toBeTruthy()
 		expect(screen.queryByText(expectedSshCloneUrl)).toBeNull()
+	})
+
+	// Labelling a plain-HTTP Enterprise remote "HTTPS" would be a security claim,
+	// not a cosmetic one — in the label, the button name, and the confirmation.
+	test('labels a plain-HTTP clone URL as HTTP everywhere it is named', async () => {
+		const writeTextSpy = vi
+			.spyOn(navigator.clipboard, 'writeText')
+			.mockResolvedValue(undefined)
+		const user = userEvent.setup()
+		const mirrored = getMirroredSummary()
+		const httpCloneUrls = {
+			authority: 'github',
+			https: 'http://github.acme.internal/mnigos/upstream-notes.git',
+			ssh: 'git@github.acme.internal:mnigos/upstream-notes.git',
+		} satisfies RepositoryBrowserSummary['repository']['cloneUrls']
+
+		render(
+			<RepositoryOverview
+				summary={
+					{
+						...mirrored,
+						repository: { ...mirrored.repository, cloneUrls: httpCloneUrls },
+					} as RepositoryBrowserSummary
+				}
+			/>
+		)
+
+		expect(screen.getByText('HTTP')).toBeTruthy()
+		expect(screen.queryByText('HTTPS')).toBeNull()
+
+		await user.click(
+			screen.getByRole('button', { name: 'Copy HTTP clone URL' })
+		)
+
+		expect(writeTextSpy).toHaveBeenCalledWith(httpCloneUrls.https)
+		expect(
+			screen.getByRole('button', { name: 'HTTP clone URL copied' })
+		).toBeTruthy()
 	})
 
 	test('offers Tessera clone URLs for an imported repository', () => {
