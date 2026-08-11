@@ -27,7 +27,7 @@ export function RepositoryClonePanel({
 				<p className="text-muted-foreground text-sm">
 					{isGitHubAuthoritative
 						? 'GitHub is the source of truth for this repository, so clones and pushes go to GitHub.'
-						: 'Use SSH for authenticated Git access, or HTTPS when SSH is not available.'}
+						: `Use SSH for authenticated Git access, or ${httpProtocolLabel} when SSH is not available.`}
 				</p>
 			</div>
 			<div className="grid gap-3">

@@ -62,7 +62,10 @@ export function GitHubMirrorCutoverSection({
 			{!isSyncHealthLoading && blockReason && (
 				<p className="text-amber-400 text-sm">{blockReason}</p>
 			)}
-			{!(isSyncHealthLoading || blockReason) && (
+			{/* Once authority has changed there is nothing left to offer: the button
+			    would invite a second, now-meaningless request while the success
+			    message sits beside it. */}
+			{!(cutoverMutation.isSuccess || isSyncHealthLoading || blockReason) && (
 				<CutoverControls
 					isConfirming={isConfirmingCutover}
 					isPending={cutoverMutation.isPending}

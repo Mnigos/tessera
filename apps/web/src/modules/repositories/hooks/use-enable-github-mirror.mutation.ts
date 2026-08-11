@@ -25,8 +25,9 @@ export function useEnableGitHubMirrorMutation() {
 					return
 				}
 
-				// Not awaited: the button's own pending state must not outlast the
-				// enablement while four reads settle behind it.
+				// Not awaited: four refetches must not decide when the mutation is
+				// reported as done. Callers keep the affordance disabled through
+				// `isSuccess` instead, which outlives the settle either way.
 				for (const queryKey of getEnableMirrorInvalidatedQueryKeys())
 					void queryClient.invalidateQueries({ queryKey })
 			},

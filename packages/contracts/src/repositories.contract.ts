@@ -150,6 +150,38 @@ export type RepositoryCloneAuthority = z.infer<
 	typeof repositoryCloneAuthoritySchema
 >
 
+const HTTP_CLONE_PROTOCOLS = new Set(['http:', 'https:'])
+
+/**
+ * `z.url()` accepts any scheme, including `javascript:`. A clone URL is put in
+ * front of people to copy and is rendered as a link, so the scheme is checked
+ * rather than assumed: a misconfigured base or an odd stored source must not
+ * become something a reader can be talked into running.
+ */
+export function isHttpCloneUrl(value: string) {
+	try {
+		return HTTP_CLONE_PROTOCOLS.has(new URL(value).protocol)
+	} catch {
+		return false
+	}
+}
+
+/**
+ * The two forms Git accepts for an SSH remote: the scp-like shorthand every
+ * GitHub repository is offered as, and a real `ssh://` URL.
+ */
+const SCP_LIKE_SSH_REMOTE_REGEX = /^[\w.-]+@[\w.-]+:[^\s:]+$/
+
+export function isSshCloneRemote(value: string) {
+	if (SCP_LIKE_SSH_REMOTE_REGEX.test(value)) return true
+
+	try {
+		return new URL(value).protocol === 'ssh:'
+	} catch {
+		return false
+	}
+}
+
 /**
  * Where a clone has to point, which is not always Tessera. While GitHub owns
  * the repository, a Tessera remote is a copy nobody can push to; the pair
@@ -158,10 +190,14 @@ export type RepositoryCloneAuthority = z.infer<
  */
 export const repositoryCloneUrlsSchema = z.object({
 	authority: repositoryCloneAuthoritySchema,
-	https: z.url(),
+	https: z.url().refine(isHttpCloneUrl, {
+		message: 'clone URL must use http or https',
+	}),
 	// GitHub's SSH remote is scp-like — `git@host:owner/name.git` — and parses
 	// as no URL at all, so only Tessera's side of this is ever a URL.
-	ssh: z.string().min(1),
+	ssh: z.string().min(1).refine(isSshCloneRemote, {
+		message: 'clone remote must be an ssh:// URL or git@host:path form',
+	}),
 })
 export type RepositoryCloneUrls = z.infer<typeof repositoryCloneUrlsSchema>
 

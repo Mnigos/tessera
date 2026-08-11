@@ -1,6 +1,38 @@
+import { isHttpCloneUrl, isSshCloneRemote } from '@repo/contracts'
 import { z } from 'zod'
 
-export const envSchema = z.object({
+/**
+ * Where clones of a Tessera-authoritative repository point. The API derives
+ * every repository's clone URLs because it is the only side that knows whether
+ * GitHub still owns the repository, and these must match the web app's
+ * `VITE_PUBLIC_GIT_*_BASE_URL` values — nothing here can check that, so the two
+ * are documented together in `docs/railway-deployments.md`.
+ *
+ * Left without defaults on purpose. A deployment that silently fell back to
+ * localhost would serve clone URLs nobody outside the container can reach, and
+ * would do it without failing, so the fallback is applied only after the
+ * environment has been established as local.
+ */
+const gitHttpBaseUrlSchema = z
+	.url()
+	.refine(isHttpCloneUrl, { message: 'must use http or https' })
+
+const gitSshBaseUrlSchema = z
+	.url()
+	.refine(isSshCloneRemote, { message: 'must be an ssh:// URL' })
+
+const LOCAL_GIT_HTTP_BASE_URL = 'http://localhost:4001'
+const LOCAL_GIT_SSH_BASE_URL = 'ssh://git@localhost:2222'
+
+const REQUIRED_IN_PRODUCTION = [
+	'GIT_HTTP_BASE_URL',
+	'GIT_SSH_BASE_URL',
+] as const
+
+const baseEnvSchema = z.object({
+	NODE_ENV: z
+		.enum(['development', 'test', 'production'])
+		.default('development'),
 	PORT: z.coerce.number().default(4000),
 	DATABASE_URL: z
 		.string()
@@ -9,18 +41,8 @@ export const envSchema = z.object({
 	DB_SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().positive().default(250),
 	REDIS_URL: z.string().default('redis://localhost:6379'),
 	GIT_SERVICE_URL: z.string().default('localhost:50051'),
-	/**
-	 * Where clones of a Tessera-authoritative repository point. The API derives
-	 * the pair because it is the only side that knows whether GitHub still owns
-	 * the repository, and these must match the web app's
-	 * `VITE_PUBLIC_GIT_*_BASE_URL` values — nothing here can check that, so the
-	 * two are documented together in `docs/railway-deployments.md`.
-	 *
-	 * Validated as URLs for the same reason the web side is: a scheme-less value
-	 * would boot fine and then fail contract validation on every repository read.
-	 */
-	GIT_HTTP_BASE_URL: z.url().default('http://localhost:4001'),
-	GIT_SSH_BASE_URL: z.url().default('ssh://git@localhost:2222'),
+	GIT_HTTP_BASE_URL: gitHttpBaseUrlSchema.optional(),
+	GIT_SSH_BASE_URL: gitSshBaseUrlSchema.optional(),
 	INTERNAL_API_TOKEN: z.string().min(1),
 	CACHE_REDIS_DB: z.coerce.number().int().min(0).default(1),
 	BULL_BOARD_PATH: z.string().default('/admin/queues'),
@@ -62,6 +84,26 @@ export const envSchema = z.object({
 	RAILWAY_GIT_COMMIT_SHA: z.string().optional(),
 	SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0.1),
 })
+
+export const envSchema = baseEnvSchema
+	.superRefine((environment, context) => {
+		if (environment.NODE_ENV !== 'production') return
+
+		for (const key of REQUIRED_IN_PRODUCTION)
+			if (!environment[key])
+				context.addIssue({
+					code: 'custom',
+					path: [key],
+					message: `${key} is required in production; it must match the web app's VITE_PUBLIC_${key} value`,
+				})
+	})
+	// Applied only once production has been ruled out, so a local checkout keeps
+	// working with no configuration and a deployment cannot inherit localhost.
+	.transform(environment => ({
+		...environment,
+		GIT_HTTP_BASE_URL: environment.GIT_HTTP_BASE_URL ?? LOCAL_GIT_HTTP_BASE_URL,
+		GIT_SSH_BASE_URL: environment.GIT_SSH_BASE_URL ?? LOCAL_GIT_SSH_BASE_URL,
+	}))
 
 export type Env = z.infer<typeof envSchema>
 

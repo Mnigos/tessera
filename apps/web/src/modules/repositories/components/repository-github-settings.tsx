@@ -64,12 +64,16 @@ function RepositoryGitHubSettingsBody({
 	slug,
 	username,
 }: Readonly<RepositoryGitHubSettingsBodyProps>) {
+	// The repository read is owner-gated by the same guard as sync health, so a
+	// repository in hand is the authorization signal: a viewer the server would
+	// refuse never gets far enough to ask for health and render its failure.
+	const canReadSyncHealth = Boolean(repository)
 	// Health is only meaningful while a mirror is running; asking for it on an
 	// imported snapshot or after cutover would be a read with nothing to answer.
 	const isMirrored = repository?.externalSource.mode === 'github_to_tessera'
 	const syncHealthQuery = useGitHubSyncHealthQuery(
 		{ slug, username },
-		isMirrored
+		canReadSyncHealth && isMirrored
 	)
 
 	if (isLoading)
