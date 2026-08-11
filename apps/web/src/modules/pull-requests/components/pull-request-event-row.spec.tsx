@@ -26,9 +26,11 @@ describe('pull request event row', () => {
 	})
 
 	test('falls back to the generic label when the movement is unknown', () => {
-		render(<PullRequestEventRow event={pushEvent('head_updated')} />)
+		const { container } = render(
+			<PullRequestEventRow event={pushEvent('head_updated')} />
+		)
 
-		expect(screen.getByText('Source branch updated by marta')).toBeTruthy()
+		expect(container.textContent).toContain('Source branch updated by marta')
 	})
 
 	test('names both branches of a retarget', () => {
@@ -48,9 +50,73 @@ describe('pull request event row', () => {
 
 	// Synchronized history carries no payload of its own.
 	test('falls back to the generic label for a retarget without a payload', () => {
-		render(<PullRequestEventRow event={pushEvent('retargeted')} />)
+		const { container } = render(
+			<PullRequestEventRow event={pushEvent('retargeted')} />
+		)
 
-		expect(screen.getByText('Pull request retargeted by marta')).toBeTruthy()
+		expect(container.textContent).toContain('Pull request retargeted by marta')
+	})
+
+	test('links a synchronized actor to their GitHub profile with an avatar', () => {
+		render(
+			<PullRequestEventRow
+				event={{
+					...pushEvent('closed'),
+					provider: 'github',
+					actorUsername: 'octocat',
+					actor: {
+						key: 'MDQ6VXNlcjE=',
+						provider: 'github',
+						username: 'octocat',
+						externalNodeId: 'MDQ6VXNlcjE=',
+						avatarUrl: 'https://avatars.githubusercontent.com/u/1',
+						htmlUrl: 'https://github.com/octocat',
+					},
+				}}
+			/>
+		)
+
+		const link = screen.getByRole('link', { name: 'octocat' })
+
+		expect(link.getAttribute('href')).toBe('https://github.com/octocat')
+		expect(link.getAttribute('target')).toBe('_blank')
+		expect(link.querySelector('img')?.getAttribute('src')).toBe(
+			'https://avatars.githubusercontent.com/u/1'
+		)
+		// The login is beside it, so the image must not repeat the name.
+		expect(link.querySelector('img')?.getAttribute('alt')).toBe('')
+	})
+
+	test('names a synchronized actor without a profile as plain text', () => {
+		render(
+			<PullRequestEventRow
+				event={{
+					...pushEvent('closed'),
+					provider: 'github',
+					actorUsername: 'octocat',
+					actor: {
+						key: 'MDQ6VXNlcjE=',
+						provider: 'github',
+						username: 'octocat',
+						externalNodeId: 'MDQ6VXNlcjE=',
+					},
+				}}
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'octocat' })).toBeNull()
+		expect(screen.getByText('octocat')).toBeTruthy()
+	})
+
+	test('keeps system-authored rows attributed to Tessera', () => {
+		const { container } = render(
+			<PullRequestEventRow
+				event={{ ...pushEvent('queue_paused'), actorUsername: undefined }}
+			/>
+		)
+
+		expect(container.textContent).toContain('by Tessera')
+		expect(container.querySelector('img')).toBeNull()
 	})
 })
 

@@ -37,6 +37,9 @@ interface PullRequestOverviewProps {
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
 	viewerUserId?: SessionUser['id']
+	isFromGitHub: boolean
+	isGitHubAuthoritative: boolean
+	canReadSyncHealth: boolean
 }
 
 export function PullRequestOverview({
@@ -54,6 +57,9 @@ export function PullRequestOverview({
 	reviewViewer,
 	canWrite,
 	viewerUserId,
+	isFromGitHub,
+	isGitHubAuthoritative,
+	canReadSyncHealth,
 }: Readonly<PullRequestOverviewProps>) {
 	const number = String(pullRequest.number)
 	const isOpen = pullRequest.state === 'open'
@@ -119,7 +125,10 @@ export function PullRequestOverview({
 					/>
 				)}
 				<PullRequestTimeline
+					canReadSyncHealth={canReadSyncHealth}
 					events={events}
+					isFromGitHub={isFromGitHub}
+					isGitHubAuthoritative={isGitHubAuthoritative}
 					number={number}
 					review={review}
 					reviews={reviews}

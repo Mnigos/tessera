@@ -34,6 +34,14 @@ vi.mock('@tanstack/react-router', () => ({
 	),
 }))
 
+vi.mock('@/modules/repositories/hooks/use-github-sync-health.query', () => ({
+	useGitHubSyncHealthQuery: () => ({
+		data: undefined,
+		isError: false,
+		isLoading: false,
+	}),
+}))
+
 vi.mock('../hooks/use-close-pull-request.mutation', () => ({
 	useClosePullRequestMutation: vi.fn(),
 }))
@@ -350,6 +358,112 @@ describe('pull request review findings', () => {
 		)
 
 		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
+	})
+
+	test('shows GitHub provenance in the header and demotes the read-only banner', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({
+				authority: 'github',
+				viewerRole: 'read',
+				pullRequest: {
+					...PULL_REQUEST,
+					provider: 'github',
+					github: {
+						nodeId: 'PR_kwDO',
+						htmlUrl: 'https://github.com/mnigos/notes/pull/7',
+						draft: false,
+						headSha: 'b'.repeat(40),
+						baseSha: 'a'.repeat(40),
+					},
+				},
+			}),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('From GitHub')).toBeTruthy()
+		expect(
+			screen.getByRole('link', { name: 'View on GitHub' }).getAttribute('href')
+		).toBe('https://github.com/mnigos/notes/pull/7')
+		expect(
+			screen.getByText(
+				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+			)
+		).toBeTruthy()
+		// Read-only means read-only: no write control may survive the boundary.
+		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
+		expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
+	})
+
+	test('keeps GitHub provenance after cutover, while writes become allowed again', () => {
+		primeWriteControls()
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({
+				authority: 'tessera',
+				viewerRole: 'write',
+				pullRequest: {
+					...PULL_REQUEST,
+					provider: 'github',
+					github: {
+						nodeId: 'PR_kwDO',
+						htmlUrl: 'https://github.com/mnigos/notes/pull/7',
+						draft: false,
+						headSha: 'b'.repeat(40),
+						baseSha: 'a'.repeat(40),
+					},
+				},
+			}),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('From GitHub')).toBeTruthy()
+		expect(screen.getByRole('link', { name: 'View on GitHub' })).toBeTruthy()
+		expect(
+			screen.queryByText(
+				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+			)
+		).toBeNull()
+		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
+	})
+
+	test('shows no GitHub provenance on a native pull request', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({ viewerRole: 'read' }),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByText('From GitHub')).toBeNull()
+		expect(screen.queryByRole('link', { name: 'View on GitHub' })).toBeNull()
 	})
 
 	test('offers the retarget affordance on an open pull request a viewer may write', () => {

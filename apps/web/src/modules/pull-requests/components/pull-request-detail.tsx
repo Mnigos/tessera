@@ -18,15 +18,20 @@ import { Link } from '@tanstack/react-router'
 import { ArrowRight, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
-import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
+import {
+	canWriteRepository,
+	isRepositoryOwner,
+} from '@/modules/repositories/helpers/repository-viewer-role'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
 import type { PullRequestReviewSelection } from '../helpers/pull-request-review'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
+import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestEditForm } from './pull-request-edit-form'
+import { PullRequestGitHubBadge } from './pull-request-github-badge'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
 import {
 	type PullRequestDetailTab,
@@ -35,7 +40,6 @@ import {
 import { PullRequestOverview } from './pull-request-overview'
 import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
 import { PullRequestRetargetDialog } from './pull-request-retarget-dialog'
-import { PullRequestSourceLink } from './pull-request-source-link'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 import { PullRequestsMessage } from './pull-requests-message'
 
@@ -100,6 +104,7 @@ export function PullRequestDetail({
 
 	return (
 		<PullRequestDetailContent
+			canReadSyncHealth={isRepositoryOwner(data.viewerRole)}
 			canWrite={canWriteRepository(data.viewerRole) && !isReadOnly}
 			checksSummary={data.checksSummary}
 			effectiveReviewStates={data.effectiveReviewStates}
@@ -136,6 +141,7 @@ interface PullRequestDetailContentProps {
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
 	isReadOnly: boolean
+	canReadSyncHealth: boolean
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
 	reviewSelection?: PullRequestReviewSelection
@@ -156,12 +162,16 @@ function PullRequestDetailContent({
 	reviewViewer,
 	canWrite,
 	isReadOnly,
+	canReadSyncHealth,
 	viewerUserId,
 	tab,
 	reviewSelection,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
 	const sourceUrl = pullRequest.github?.htmlUrl
+	// Provenance, not authority: a pull request that came from GitHub keeps
+	// saying so after the repository cuts over and Tessera can be written to.
+	const isFromGitHub = pullRequest.provider === 'github'
 
 	return (
 		<section className="flex flex-col gap-6">
@@ -194,19 +204,9 @@ function PullRequestDetailContent({
 						<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
 							<PullRequestStateBadge state={pullRequest.state} />
 							<span className="inline-flex min-w-0 max-w-full items-center gap-1">
-								<span
-									className="max-w-48 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs sm:max-w-64"
-									title={pullRequest.sourceBranch}
-								>
-									{pullRequest.sourceBranch}
-								</span>
+								<PullRequestBranchLabel name={pullRequest.sourceBranch} />
 								<ArrowRight aria-hidden className="size-3" />
-								<span
-									className="max-w-48 truncate rounded bg-muted px-1.5 py-0.5 font-mono text-xs sm:max-w-64"
-									title={pullRequest.targetBranch}
-								>
-									{pullRequest.targetBranch}
-								</span>
+								<PullRequestBranchLabel name={pullRequest.targetBranch} />
 							</span>
 							{canWrite && pullRequest.state === 'open' && (
 								<PullRequestRetargetDialog
@@ -224,7 +224,7 @@ function PullRequestDetailContent({
 								</time>{' '}
 								by {pullRequest.authorUsername}
 							</span>
-							{sourceUrl && <PullRequestSourceLink href={sourceUrl} />}
+							{isFromGitHub && <PullRequestGitHubBadge sourceUrl={sourceUrl} />}
 						</div>
 						{canWrite && (
 							<div className="flex flex-wrap items-start gap-2">
@@ -245,7 +245,7 @@ function PullRequestDetailContent({
 						)}
 					</>
 				)}
-				{isReadOnly && <PullRequestReadOnlyBanner sourceUrl={sourceUrl} />}
+				{isReadOnly && <PullRequestReadOnlyBanner />}
 			</header>
 			<PullRequestNavigation
 				number={String(pullRequest.number)}
@@ -255,10 +255,13 @@ function PullRequestDetailContent({
 			/>
 			{tab === 'overview' ? (
 				<PullRequestOverview
+					canReadSyncHealth={canReadSyncHealth}
 					canWrite={canWrite}
 					checksSummary={checksSummary}
 					effectiveReviewStates={effectiveReviewStates}
 					events={events}
+					isFromGitHub={isFromGitHub}
+					isGitHubAuthoritative={isReadOnly}
 					mergeQueue={mergeQueue}
 					pullRequest={pullRequest}
 					reviewerCandidates={reviewerCandidates}

@@ -6,6 +6,7 @@ import type {
 import { Button } from '@repo/ui/components/button'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { useState } from 'react'
+import { useGitHubSyncHealthQuery } from '@/modules/repositories/hooks/use-github-sync-health.query'
 import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	getPullRequestReviewComposerLabel,
@@ -21,6 +22,7 @@ import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestEventRow } from './pull-request-event-row'
 import { PullRequestReviewEventCard } from './pull-request-review-event-card'
 import { PullRequestThreadCard } from './pull-request-thread-card'
+import { PullRequestTimelineSyncNotice } from './pull-request-timeline-sync-notice'
 
 interface PullRequestTimelineProps {
 	username: string
@@ -30,6 +32,24 @@ interface PullRequestTimelineProps {
 	reviews?: PullRequestReview[]
 	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
+	/**
+	 * Whether this pull request came from GitHub, which is what makes it a
+	 * projection. Provenance rather than authority: after cutover Tessera can be
+	 * written to again, but the history it holds is still only what GitHub sent,
+	 * and it is now final at whatever completeness it reached.
+	 */
+	isFromGitHub: boolean
+	/**
+	 * Whether GitHub still owns the repository. Only a running mirror has a
+	 * synchronization to report on, so a cut-over pull request stops asking for
+	 * health that would always come back undefined.
+	 */
+	isGitHubAuthoritative: boolean
+	/**
+	 * Sync health is derived from operational rows only the owner may read, so
+	 * the notice it drives is only ever asked for on their behalf.
+	 */
+	canReadSyncHealth: boolean
 }
 
 export function PullRequestTimeline({
@@ -40,8 +60,15 @@ export function PullRequestTimeline({
 	reviews,
 	review,
 	viewerUserId,
+	isFromGitHub,
+	isGitHubAuthoritative,
+	canReadSyncHealth,
 }: Readonly<PullRequestTimelineProps>) {
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
+	const syncHealthQuery = useGitHubSyncHealthQuery(
+		{ slug, username },
+		isGitHubAuthoritative && canReadSyncHealth
+	)
 
 	const permissions = getPullRequestThreadPermissions({
 		viewer: threadsQuery.data?.viewer,
@@ -59,10 +86,20 @@ export function PullRequestTimeline({
 	return (
 		<section className="flex flex-col gap-3">
 			<h2 className="font-semibold text-base tracking-normal">Activity</h2>
+			<PullRequestTimelineSyncNotice
+				syncHealth={syncHealthQuery.data?.syncHealth}
+			/>
 			{entries.length === 0 &&
 			!threadsQuery.isLoading &&
 			!threadsQuery.isError ? (
-				<p className="text-muted-foreground text-sm italic">No activity yet.</p>
+				<p className="text-muted-foreground text-sm italic">
+					{/* Emptiness on a projection is never evidence of absence: GitHub may
+					    hold activity that has not arrived, and "No activity yet" would
+					    assert that it does not. */}
+					{isFromGitHub
+						? 'No activity has synchronized from GitHub yet.'
+						: 'No activity yet.'}
+				</p>
 			) : (
 				<ol className="flex flex-col gap-3">
 					{entries.map(entry => (

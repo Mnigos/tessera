@@ -129,7 +129,7 @@ describe('pull request review timeline', () => {
 	})
 
 	test('names reviewer targets in request lifecycle rows', () => {
-		const { rerender } = render(
+		const { container, rerender } = render(
 			<PullRequestEventRow
 				event={event('review_requested', {
 					reviewerUserId: crypto.randomUUID() as NonNullable<
@@ -139,7 +139,7 @@ describe('pull request review timeline', () => {
 				})}
 			/>
 		)
-		expect(screen.getByText(REVIEW_REQUESTED_REGEX)).toBeTruthy()
+		expect(container.textContent).toMatch(REVIEW_REQUESTED_REGEX)
 
 		rerender(
 			<PullRequestEventRow
@@ -151,18 +151,18 @@ describe('pull request review timeline', () => {
 				})}
 			/>
 		)
-		expect(screen.getByText(REVIEW_REQUEST_REMOVED_REGEX)).toBeTruthy()
+		expect(container.textContent).toMatch(REVIEW_REQUEST_REMOVED_REGEX)
 	})
 
 	test('renders payload-less GitHub review requests without crashing', () => {
-		render(
+		const { container } = render(
 			<PullRequestEventRow
 				event={{ ...event('review_requested'), provider: 'github' }}
 			/>
 		)
 
-		expect(
-			screen.getByText('Pull request review requested by marta')
-		).toBeTruthy()
+		expect(container.textContent).toContain(
+			'Pull request review requested by marta'
+		)
 	})
 })
