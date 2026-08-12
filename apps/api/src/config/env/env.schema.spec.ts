@@ -62,7 +62,10 @@ describe('parseEnv', () => {
 		})
 
 		test('accepts a boundary-length 32-char strong secret in production', () => {
-			const boundarySecret = randomBytes(16).toString('hex') // exactly 32 chars
+			// Fixed, deterministic 32-char secret with 26 distinct characters so the
+			// test exercises the length boundary without ever tripping the entropy
+			// guard (`new Set(value).size < 10`) that a random hex string could hit.
+			const boundarySecret = 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6' // exactly 32 chars
 
 			expect(
 				parseEnv(
