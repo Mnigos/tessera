@@ -90,6 +90,7 @@ export const repositoryExternalSources = pgTable(
 		installationId: uuid('installation_id')
 			.$type<GitHubInstallationId>()
 			.references(() => gitHubInstallations.id, { onDelete: 'set null' }),
+		installationAccountNodeId: text('installation_account_node_id'),
 		externalRepositoryNodeId: text('external_repository_node_id'),
 		externalRepositoryId: bigint('external_repository_id', {
 			mode: 'bigint',
@@ -155,6 +156,22 @@ export const repositoryExternalSources = pgTable(
 		index('repository_external_sources_provider_external_id_idx').on(
 			table.provider,
 			table.externalRepositoryId
+		),
+		// A given provider repository can be actively mirrored (github_to_tessera
+		// with a bound installation) by at most one Tessera source. This is the
+		// DB-enforced provider identity that prevents an authentic webhook from
+		// binding a second tenant's row for the same repository. Imported-only
+		// rows (no installation) are intentionally left unconstrained here.
+		uniqueIndex('repository_external_sources_active_github_binding_unique')
+			.on(table.provider, table.externalRepositoryId)
+			.where(
+				and(
+					eq(table.mirrorMode, 'github_to_tessera'),
+					isNotNull(table.installationId)
+				) as SQL
+			),
+		index('repository_external_sources_installation_account_node_id_idx').on(
+			table.installationAccountNodeId
 		),
 		uniqueIndex('repository_external_sources_provider_node_id_unique')
 			.on(table.provider, table.externalRepositoryNodeId)
