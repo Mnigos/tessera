@@ -48,6 +48,7 @@ export type GitHubInstallationInput =
 interface ResolvedGitHubInstallation {
 	id: GitHubInstallationId
 	suspendedAt?: Date
+	accountNodeId?: string
 }
 
 interface GitHubInstallationRepositoryInput {
@@ -240,6 +241,7 @@ export class GitHubSyncRepository {
 					action: params.action,
 					addedRepositories: params.addedInstallationRepositories,
 					installationId,
+					installationAccountNodeId: installation?.accountNodeId,
 					removedRepositories: params.removedInstallationRepositories,
 				})
 			: []
@@ -266,9 +268,25 @@ export class GitHubSyncRepository {
 
 		const externalSource = await this.findExternalSourceForDelivery(
 			transaction,
-			params
+			{ ...params, installationAccountNodeId: installation?.accountNodeId }
 		)
 		if (!externalSource) {
+			await this.ignoreWebhookDelivery(transaction, params.deliveryId)
+			return {
+				accepted: true,
+				duplicate: false,
+				syncRequests: installationSyncRequests,
+			}
+		}
+
+		// Tenant isolation: a source already bound to a GitHub installation
+		// account must not be rebound (and re-synced) by an authentic webhook
+		// delivered for a different installation account. Reject rather than
+		// stamping a foreign installation onto the row.
+		if (
+			externalSource.installationAccountNodeId &&
+			externalSource.installationAccountNodeId !== installation?.accountNodeId
+		) {
 			await this.ignoreWebhookDelivery(transaction, params.deliveryId)
 			return {
 				accepted: true,
@@ -281,6 +299,10 @@ export class GitHubSyncRepository {
 			.update(repositoryExternalSources)
 			.set({
 				installationId,
+				installationAccountNodeId:
+					installation?.accountNodeId ??
+					externalSource.installationAccountNodeId ??
+					null,
 				externalRepositoryNodeId: params.externalRepositoryNodeId,
 			})
 			.where(
@@ -376,7 +398,8 @@ export class GitHubSyncRepository {
 		{
 			externalRepositoryNodeId,
 			externalRepositoryNumericId,
-		}: RecordWebhookDeliveryParams
+			installationAccountNodeId,
+		}: RecordWebhookDeliveryParams & { installationAccountNodeId?: string }
 	) {
 		const conditions: SQL[] = []
 		if (externalRepositoryNumericId)
@@ -399,10 +422,25 @@ export class GitHubSyncRepository {
 				repositoryId: repositoryExternalSources.repositoryId,
 				mirrorMode: repositoryExternalSources.mirrorMode,
 				authorityGeneration: repositoryExternalSources.authorityGeneration,
+				installationAccountNodeId:
+					repositoryExternalSources.installationAccountNodeId,
 			})
 			.from(repositoryExternalSources)
 			.where(
 				and(eq(repositoryExternalSources.provider, 'github'), or(...conditions))
+			)
+			// Deterministic selection: prefer the source already bound to this
+			// delivery's installation account, then still-unbound sources, then a
+			// stable creation-order tiebreak. Replaces the previous arbitrary
+			// limit(1) over an ambiguous set.
+			.orderBy(
+				sql`case
+					when ${repositoryExternalSources.installationAccountNodeId} = ${installationAccountNodeId ?? null} then 0
+					when ${repositoryExternalSources.installationAccountNodeId} is null then 1
+					else 2
+				end`,
+				asc(repositoryExternalSources.createdAt),
+				asc(repositoryExternalSources.id)
 			)
 			.limit(1)
 			.for('update')
@@ -583,6 +621,8 @@ export class GitHubSyncRepository {
 					id: repositoryExternalSources.id,
 					repositoryId: repositoryExternalSources.repositoryId,
 					installationId: repositoryExternalSources.installationId,
+					installationAccountNodeId:
+						repositoryExternalSources.installationAccountNodeId,
 					externalRepositoryId: repositoryExternalSources.externalRepositoryId,
 					sourceUrl: repositoryExternalSources.sourceUrl,
 					sourceDefaultBranch: repositoryExternalSources.sourceDefaultBranch,
@@ -599,6 +639,7 @@ export class GitHubSyncRepository {
 					storagePath: repositories.storagePath,
 					externalInstallationId: gitHubInstallations.externalInstallationId,
 					suspendedAt: gitHubInstallations.suspendedAt,
+					accountNodeId: gitHubInstallations.accountNodeId,
 				})
 				.from(repositories)
 				.innerJoin(
@@ -608,17 +649,22 @@ export class GitHubSyncRepository {
 				.where(eq(repositories.id, source.repositoryId))
 				.limit(1)
 
-			if (!(context?.storagePath && !context.suspendedAt)) {
+			// Revalidate storage, suspension, and — critically — that the bound
+			// installation still belongs to the account this source was authorized
+			// for before minting a sync token with its authority. This blocks a
+			// hijacked/rebound installation from driving a sync into another
+			// tenant's mirror.
+			const block = resolveClaimBlock(source, context)
+
+			if (block || !context?.storagePath) {
 				await transaction
 					.update(repositoryExternalSources)
 					.set({
 						syncStatus: 'blocked',
-						syncFailureCode: context?.suspendedAt
-							? 'installation_suspended'
-							: 'missing_storage',
-						syncFailureReason: context?.suspendedAt
-							? 'The Tessera GitHub App installation is suspended.'
-							: 'Repository mirror storage is unavailable.',
+						syncFailureCode: block?.failureCode ?? 'missing_storage',
+						syncFailureReason:
+							block?.failureReason ??
+							'Repository mirror storage is unavailable.',
 						nextSyncAt: null,
 						syncLeaseOwner: null,
 						syncLeaseAcquiredAt: null,
@@ -881,11 +927,13 @@ export class GitHubSyncRepository {
 			action,
 			addedRepositories = [],
 			installationId,
+			installationAccountNodeId,
 			removedRepositories = [],
 		}: {
 			action?: string
 			addedRepositories?: GitHubInstallationRepositoryInput[]
 			installationId: GitHubInstallationId
+			installationAccountNodeId?: string
 			removedRepositories?: GitHubInstallationRepositoryInput[]
 		}
 	): Promise<GitHubSyncRequest[]> {
@@ -957,6 +1005,7 @@ export class GitHubSyncRepository {
 		for (const repository of addedRepositories) {
 			const request = await this.addInstallationRepository(transaction, {
 				installationId,
+				installationAccountNodeId,
 				repository,
 			})
 
@@ -978,9 +1027,11 @@ export class GitHubSyncRepository {
 		transaction: DrizzleTransaction,
 		{
 			installationId,
+			installationAccountNodeId,
 			repository,
 		}: {
 			installationId: GitHubInstallationId
+			installationAccountNodeId?: string
 			repository: GitHubInstallationRepositoryInput
 		}
 	): Promise<GitHubSyncRequest | undefined> {
@@ -988,6 +1039,8 @@ export class GitHubSyncRepository {
 			.select({
 				repositoryId: repositoryExternalSources.repositoryId,
 				mirrorMode: repositoryExternalSources.mirrorMode,
+				installationAccountNodeId:
+					repositoryExternalSources.installationAccountNodeId,
 			})
 			.from(repositoryExternalSources)
 			.where(
@@ -1005,15 +1058,37 @@ export class GitHubSyncRepository {
 					)
 				)
 			)
+			// Deterministic selection: prefer the source already bound to this
+			// installation account, then still-unbound sources, then a stable
+			// creation-order tiebreak. Replaces the previous arbitrary limit(1).
+			.orderBy(
+				sql`case
+					when ${repositoryExternalSources.installationAccountNodeId} = ${installationAccountNodeId ?? null} then 0
+					when ${repositoryExternalSources.installationAccountNodeId} is null then 1
+					else 2
+				end`,
+				asc(repositoryExternalSources.createdAt),
+				asc(repositoryExternalSources.id)
+			)
 			.limit(1)
 			.for('update')
 
 		if (!source) return undefined
 
+		// Tenant isolation: never rebind a source that is already bound to a
+		// different GitHub installation account onto this installation.
+		if (
+			source.installationAccountNodeId &&
+			source.installationAccountNodeId !== installationAccountNodeId
+		)
+			return undefined
+
 		const [updatedSource] = await transaction
 			.update(repositoryExternalSources)
 			.set({
 				installationId,
+				installationAccountNodeId:
+					installationAccountNodeId ?? source.installationAccountNodeId ?? null,
 				externalRepositoryNodeId: repository.node_id,
 				...(source.mirrorMode === 'github_to_tessera'
 					? {
@@ -1123,6 +1198,7 @@ export class GitHubSyncRepository {
 			.returning({
 				id: gitHubInstallations.id,
 				suspendedAt: gitHubInstallations.suspendedAt,
+				accountNodeId: gitHubInstallations.accountNodeId,
 			})
 
 		if (!installation) throw new Error('failed to persist GitHub installation')
@@ -1130,6 +1206,7 @@ export class GitHubSyncRepository {
 		return {
 			id: installation.id,
 			suspendedAt: installation.suspendedAt ?? undefined,
+			accountNodeId: installation.accountNodeId,
 		}
 	}
 
@@ -1146,6 +1223,7 @@ export class GitHubSyncRepository {
 				id: gitHubInstallations.id,
 				suspendedAt: gitHubInstallations.suspendedAt,
 				deletedAt: gitHubInstallations.deletedAt,
+				accountNodeId: gitHubInstallations.accountNodeId,
 			})
 			.from(gitHubInstallations)
 			.where(
@@ -1170,12 +1248,14 @@ export class GitHubSyncRepository {
 			return {
 				id: existingInstallation.id,
 				suspendedAt: installation.suspendedAt ?? undefined,
+				accountNodeId: existingInstallation.accountNodeId,
 			}
 		}
 
 		return {
 			id: existingInstallation.id,
 			suspendedAt: existingInstallation.suspendedAt ?? undefined,
+			accountNodeId: existingInstallation.accountNodeId,
 		}
 	}
 
@@ -1234,4 +1314,35 @@ export class GitHubSyncRepository {
 
 		return storedActor.id
 	}
+}
+
+/**
+ * Determines whether a claimed source must be blocked instead of synced.
+ * Returns the failure code/reason when the bound installation is suspended or
+ * no longer matches the account the source was authorized for, otherwise
+ * `undefined`. Missing storage is handled by the caller so a valid `context`
+ * can be narrowed for the returned claim.
+ */
+function resolveClaimBlock(
+	source: { installationAccountNodeId: string | null },
+	context: { suspendedAt: Date | null; accountNodeId: string } | undefined
+): { failureCode: string; failureReason: string } | undefined {
+	if (
+		source.installationAccountNodeId &&
+		context &&
+		source.installationAccountNodeId !== context.accountNodeId
+	)
+		return {
+			failureCode: 'installation_account_mismatch',
+			failureReason:
+				'The bound GitHub App installation no longer matches this repository owner account.',
+		}
+
+	if (context?.suspendedAt)
+		return {
+			failureCode: 'installation_suspended',
+			failureReason: 'The Tessera GitHub App installation is suspended.',
+		}
+
+	return undefined
 }

@@ -48,7 +48,20 @@ function getCookieDomain(origin: string) {
 
 export interface AuthConfigOptions {
 	apiUrl: string
-	secret: string | undefined
+	/**
+	 * HS256 signing secret. Must be a strong, non-public value: better-auth
+	 * registers GET /api/auth/verify-email unconditionally and its
+	 * `change-email-verification` branch creates a real DB-backed session +
+	 * updates the user email for ANY token validly signed with this secret,
+	 * without gating on `user.changeEmail.enabled` (verified in better-auth
+	 * 1.6.27, dist/api/routes/email-verification.mjs). There is no supported
+	 * option to disable or unmount that route in this version, so the strong
+	 * secret is the effective control — see the required-in-production guard in
+	 * apps/api/src/config/env/env.schema.ts. Follow-up: track the better-auth
+	 * upgrade (TSR-07) and optionally block /api/auth/verify-email at the
+	 * Nest/proxy layer as an extra defense-in-depth layer (out of scope here).
+	 */
+	secret: string
 	githubClientId?: string
 	githubClientSecret?: string
 	trustedOrigins: string[]

@@ -4,6 +4,7 @@ import { HonoAdapter } from '@mnigos/platform-hono'
 import { Logger } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { type MicroserviceOptions, Transport } from '@nestjs/microservices'
+import { createCorsOptions } from './config/cors'
 import { EnvService } from './config/env'
 import {
 	GIT_GRPC_LOADER_OPTIONS,
@@ -23,10 +24,7 @@ async function bootstrap() {
 	const appUrl = envService.get('APP_URL')
 	const grpcUrl = envService.get('API_GRPC_URL')
 
-	app.enableCors({
-		origin: appUrl,
-		credentials: true,
-	})
+	app.enableCors(createCorsOptions(appUrl))
 	app.enableShutdownHooks()
 
 	app.connectMicroservice<MicroserviceOptions>({

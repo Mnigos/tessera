@@ -2,6 +2,7 @@ use std::env;
 use std::fmt;
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::time::Duration;
 
 const DEFAULT_HOST: &str = "127.0.0.1";
 const DEFAULT_PORT: u16 = 50051;
@@ -10,6 +11,9 @@ const DEFAULT_HTTP_PORT: u16 = 50052;
 const DEFAULT_SSH_HOST: &str = "::";
 const DEFAULT_SSH_PORT: u16 = 2222;
 const DEFAULT_GIT_BINARY: &str = "git";
+const DEFAULT_SSH_MAX_CONNECTIONS: usize = 256;
+const DEFAULT_SSH_HANDSHAKE_TIMEOUT_SECS: u64 = 15;
+const DEFAULT_SSH_INACTIVITY_TIMEOUT_SECS: u64 = 30;
 
 #[derive(Clone, Debug)]
 pub struct Config {
@@ -20,6 +24,9 @@ pub struct Config {
     pub ssh_host: String,
     pub ssh_port: u16,
     pub ssh_host_key_path: PathBuf,
+    pub ssh_max_connections: usize,
+    pub ssh_handshake_timeout: Duration,
+    pub ssh_inactivity_timeout: Duration,
     pub storage_root: PathBuf,
     pub git_binary: PathBuf,
     pub api_grpc_url: String,
@@ -55,6 +62,27 @@ impl Config {
         let ssh_host_key_path = env::var("GIT_SSH_HOST_KEY_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| storage_root.join("ssh_host_ed25519_key"));
+        let ssh_max_connections = env::var("GIT_SSH_MAX_CONNECTIONS")
+            .ok()
+            .map(|value| value.parse::<usize>())
+            .transpose()
+            .map_err(|_| ConfigError::InvalidSshMaxConnections)?
+            .filter(|value| *value > 0)
+            .unwrap_or(DEFAULT_SSH_MAX_CONNECTIONS);
+        let ssh_handshake_timeout = env::var("GIT_SSH_HANDSHAKE_TIMEOUT_SECS")
+            .ok()
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|_| ConfigError::InvalidSshHandshakeTimeout)?
+            .map(Duration::from_secs)
+            .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_HANDSHAKE_TIMEOUT_SECS));
+        let ssh_inactivity_timeout = env::var("GIT_SSH_INACTIVITY_TIMEOUT_SECS")
+            .ok()
+            .map(|value| value.parse::<u64>())
+            .transpose()
+            .map_err(|_| ConfigError::InvalidSshInactivityTimeout)?
+            .map(Duration::from_secs)
+            .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_INACTIVITY_TIMEOUT_SECS));
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
@@ -76,6 +104,9 @@ impl Config {
             ssh_host,
             ssh_port: ssh_port.unwrap_or(DEFAULT_SSH_PORT),
             ssh_host_key_path,
+            ssh_max_connections,
+            ssh_handshake_timeout,
+            ssh_inactivity_timeout,
             storage_root,
             git_binary,
             api_grpc_url,
@@ -140,6 +171,9 @@ pub enum ConfigError {
     InvalidPort,
     InvalidHttpPort,
     InvalidSshPort,
+    InvalidSshMaxConnections,
+    InvalidSshHandshakeTimeout,
+    InvalidSshInactivityTimeout,
     InvalidSocketAddress,
     MissingApiGrpcUrl,
     MissingApiGrpcAuthorizationToken,
@@ -152,6 +186,24 @@ impl fmt::Display for ConfigError {
             Self::InvalidPort => write!(formatter, "GIT_SERVICE_PORT must be a valid TCP port"),
             Self::InvalidHttpPort => write!(formatter, "GIT_HTTP_PORT must be a valid TCP port"),
             Self::InvalidSshPort => write!(formatter, "GIT_SSH_PORT must be a valid TCP port"),
+            Self::InvalidSshMaxConnections => {
+                write!(
+                    formatter,
+                    "GIT_SSH_MAX_CONNECTIONS must be a positive integer"
+                )
+            }
+            Self::InvalidSshHandshakeTimeout => {
+                write!(
+                    formatter,
+                    "GIT_SSH_HANDSHAKE_TIMEOUT_SECS must be a non-negative integer number of seconds"
+                )
+            }
+            Self::InvalidSshInactivityTimeout => {
+                write!(
+                    formatter,
+                    "GIT_SSH_INACTIVITY_TIMEOUT_SECS must be a non-negative integer number of seconds"
+                )
+            }
             Self::InvalidSocketAddress => {
                 write!(
                     formatter,

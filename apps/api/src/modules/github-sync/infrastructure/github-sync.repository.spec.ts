@@ -4,6 +4,7 @@ import type {
 	GitHubActorId,
 	GitHubInstallationId,
 	GitHubWebhookDeliveryId,
+	RepositoryExternalSourceId,
 } from '@repo/db'
 import {
 	gitHubActors,
@@ -23,6 +24,8 @@ const INSTALLATION_ID =
 const DELIVERY_ID =
 	'00000000-0000-4000-8000-000000000123' as GitHubWebhookDeliveryId
 const REPOSITORY_ID = '00000000-0000-4000-8000-000000000124' as RepositoryId
+const EXTERNAL_SOURCE_ID =
+	'00000000-0000-4000-8000-000000000125' as RepositoryExternalSourceId
 const DELETED_INSTALLATION: GitHubInstallationInput = {
 	externalInstallationId: 123n,
 	accountNodeId: 'organization-node',
@@ -231,24 +234,30 @@ describe(GitHubSyncRepository.name, () => {
 	test('requests synchronization for a deleted pull request review comment', async () => {
 		selectMock.mockReturnValue({
 			from: vi.fn(table => ({
-				where: vi.fn(() => ({
-					limit:
-						table === gitHubInstallations
-							? vi
+				where: vi.fn(() =>
+					table === gitHubInstallations
+						? {
+								limit: vi
 									.fn()
 									.mockResolvedValue([
 										{ id: INSTALLATION_ID, suspendedAt: null },
-									])
-							: vi.fn(() => ({
-									for: vi.fn().mockResolvedValue([
-										{
-											repositoryId: REPOSITORY_ID,
-											mirrorMode: 'github_to_tessera',
-											authorityGeneration: 2,
-										},
 									]),
+							}
+						: {
+								orderBy: vi.fn(() => ({
+									limit: vi.fn(() => ({
+										for: vi.fn().mockResolvedValue([
+											{
+												repositoryId: REPOSITORY_ID,
+												mirrorMode: 'github_to_tessera',
+												authorityGeneration: 2,
+												installationAccountNodeId: null,
+											},
+										]),
+									})),
 								})),
-				})),
+							}
+				),
 			})),
 		})
 		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
@@ -288,6 +297,177 @@ describe(GitHubSyncRepository.name, () => {
 		)
 	})
 
+	test('does not rebind a source bound to a different installation account on an added repository', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn(table => ({
+				where: vi.fn(() =>
+					table === gitHubInstallations
+						? { limit: vi.fn().mockResolvedValue([]) }
+						: {
+								orderBy: vi.fn(() => ({
+									limit: vi.fn(() => ({
+										for: vi.fn().mockResolvedValue([
+											{
+												repositoryId: REPOSITORY_ID,
+												mirrorMode: 'github_to_tessera',
+												installationAccountNodeId: 'account-a',
+											},
+										]),
+									})),
+								})),
+							}
+				),
+			})),
+		})
+		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
+		installationReturningMock.mockResolvedValue([
+			{ id: INSTALLATION_ID, suspendedAt: null, accountNodeId: 'account-b' },
+		])
+
+		expect(
+			await repository.recordWebhookDelivery({
+				deliveryId: DELIVERY_ID,
+				eventName: 'installation_repositories',
+				action: 'added',
+				installation: {
+					externalInstallationId: 999n,
+					accountNodeId: 'account-b',
+					accountLogin: 'other-org',
+					targetType: 'organization',
+				},
+				addedInstallationRepositories: [
+					{ id: 456, node_id: 'repository-node' },
+				],
+			})
+		).toEqual({ accepted: true, duplicate: false, syncRequests: [] })
+		expect(setMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ requestedSyncVersion: expect.anything() })
+		)
+		expect(setMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ externalRepositoryNodeId: 'repository-node' })
+		)
+	})
+
+	test('ignores a repo-scoped delivery whose installation account does not match the bound source', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn(table => ({
+				where: vi.fn(() =>
+					table === gitHubInstallations
+						? {
+								limit: vi.fn().mockResolvedValue([
+									{
+										id: INSTALLATION_ID,
+										suspendedAt: null,
+										accountNodeId: 'account-b',
+									},
+								]),
+							}
+						: {
+								orderBy: vi.fn(() => ({
+									limit: vi.fn(() => ({
+										for: vi.fn().mockResolvedValue([
+											{
+												repositoryId: REPOSITORY_ID,
+												mirrorMode: 'github_to_tessera',
+												authorityGeneration: 2,
+												installationAccountNodeId: 'account-a',
+											},
+										]),
+									})),
+								})),
+							}
+				),
+			})),
+		})
+		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
+
+		expect(
+			await repository.recordWebhookDelivery({
+				deliveryId: DELIVERY_ID,
+				eventName: 'pull_request',
+				action: 'opened',
+				installation: { externalInstallationId: 123n },
+				externalRepositoryNodeId: 'repository-node',
+				externalRepositoryNumericId: 456n,
+			})
+		).toEqual({ accepted: true, duplicate: false, syncRequests: [] })
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({ status: 'ignored' })
+		)
+		expect(setMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ requestedSyncVersion: expect.anything() })
+		)
+	})
+
+	test('binds a still-unbound source and records its installation account', async () => {
+		selectMock.mockReturnValue({
+			from: vi.fn(table => ({
+				where: vi.fn(() =>
+					table === gitHubInstallations
+						? { limit: vi.fn().mockResolvedValue([]) }
+						: {
+								orderBy: vi.fn(() => ({
+									limit: vi.fn(() => ({
+										for: vi.fn().mockResolvedValue([
+											{
+												repositoryId: REPOSITORY_ID,
+												mirrorMode: 'github_to_tessera',
+												installationAccountNodeId: null,
+											},
+										]),
+									})),
+								})),
+							}
+				),
+			})),
+		})
+		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
+		installationReturningMock.mockResolvedValue([
+			{ id: INSTALLATION_ID, suspendedAt: null, accountNodeId: 'account-a' },
+		])
+		returningMock.mockResolvedValue([
+			{
+				repositoryId: REPOSITORY_ID,
+				authorityGeneration: 1,
+				requestedSyncVersion: 1,
+			},
+		])
+
+		expect(
+			await repository.recordWebhookDelivery({
+				deliveryId: DELIVERY_ID,
+				eventName: 'installation_repositories',
+				action: 'added',
+				installation: {
+					externalInstallationId: 999n,
+					accountNodeId: 'account-a',
+					accountLogin: 'owner-org',
+					targetType: 'organization',
+				},
+				addedInstallationRepositories: [
+					{ id: 456, node_id: 'repository-node' },
+				],
+			})
+		).toEqual({
+			accepted: true,
+			duplicate: false,
+			syncRequests: [
+				{
+					repositoryId: REPOSITORY_ID,
+					authorityGeneration: 1,
+					requestedSyncVersion: 1,
+				},
+			],
+		})
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				installationId: INSTALLATION_ID,
+				installationAccountNodeId: 'account-a',
+				requestedSyncVersion: expect.anything(),
+			})
+		)
+	})
+
 	test('blocks synchronized sources for the GitHub suspend action', async () => {
 		mockExistingInstallationDelivery()
 		const suspendedAt = new Date('2026-08-05T10:00:00Z')
@@ -313,22 +493,28 @@ describe(GitHubSyncRepository.name, () => {
 		const suspendedAt = new Date('2026-08-05T10:00:00Z')
 		selectMock.mockReturnValue({
 			from: vi.fn(table => ({
-				where: vi.fn(() => ({
-					limit:
-						table === gitHubInstallations
-							? vi
+				where: vi.fn(() =>
+					table === gitHubInstallations
+						? {
+								limit: vi
 									.fn()
-									.mockResolvedValue([{ id: INSTALLATION_ID, suspendedAt }])
-							: vi.fn(() => ({
-									for: vi.fn().mockResolvedValue([
-										{
-											repositoryId: REPOSITORY_ID,
-											mirrorMode: 'github_to_tessera',
-											authorityGeneration: 2,
-										},
-									]),
+									.mockResolvedValue([{ id: INSTALLATION_ID, suspendedAt }]),
+							}
+						: {
+								orderBy: vi.fn(() => ({
+									limit: vi.fn(() => ({
+										for: vi.fn().mockResolvedValue([
+											{
+												repositoryId: REPOSITORY_ID,
+												mirrorMode: 'github_to_tessera',
+												authorityGeneration: 2,
+												installationAccountNodeId: null,
+											},
+										]),
+									})),
 								})),
-				})),
+							}
+				),
 			})),
 		})
 		insertReturningMock.mockResolvedValue([{ id: DELIVERY_ID }])
@@ -352,6 +538,96 @@ describe(GitHubSyncRepository.name, () => {
 		expect(setMock).not.toHaveBeenCalledWith(
 			expect.objectContaining({
 				requestedSyncVersion: expect.anything(),
+			})
+		)
+	})
+
+	function mockClaimContext(context: {
+		storagePath: string | null
+		externalInstallationId: bigint
+		suspendedAt: Date | null
+		accountNodeId: string
+	}) {
+		selectMock.mockReturnValue({
+			from: vi.fn(() => ({
+				innerJoin: vi.fn(() => ({
+					where: vi.fn(() => ({
+						limit: vi.fn().mockResolvedValue([context]),
+					})),
+				})),
+			})),
+		})
+	}
+
+	const CLAIM_PARAMS = {
+		authorityGeneration: 2,
+		leaseAcquiredAt: new Date('2026-08-12T10:00:00Z'),
+		leaseExpiresAt: new Date('2026-08-12T10:05:00Z'),
+		leaseOwner: 'worker-1',
+		repositoryId: REPOSITORY_ID,
+		requestedSyncVersion: 1,
+	}
+
+	function claimSource(installationAccountNodeId: string | null) {
+		return {
+			id: EXTERNAL_SOURCE_ID,
+			repositoryId: REPOSITORY_ID,
+			installationId: INSTALLATION_ID,
+			installationAccountNodeId,
+			externalRepositoryId: 456n,
+			sourceUrl: 'https://github.com/owner-org/repo.git',
+			sourceDefaultBranch: 'main',
+			authorityGeneration: 2,
+			requestedSyncVersion: 1,
+			pullRequestSyncCursorAt: null,
+		}
+	}
+
+	test('blocks a claim when the bound installation account no longer matches the source', async () => {
+		returningMock.mockResolvedValue([claimSource('account-a')])
+		mockClaimContext({
+			storagePath: '/data/repo',
+			externalInstallationId: 123n,
+			suspendedAt: null,
+			accountNodeId: 'account-b',
+		})
+
+		expect(await repository.claimSync(CLAIM_PARAMS)).toBeUndefined()
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				syncStatus: 'blocked',
+				syncFailureCode: 'installation_account_mismatch',
+				syncLeaseOwner: null,
+			})
+		)
+	})
+
+	test('mints a claim when the bound installation account still matches the source', async () => {
+		returningMock.mockResolvedValue([claimSource('account-a')])
+		mockClaimContext({
+			storagePath: '/data/repo',
+			externalInstallationId: 123n,
+			suspendedAt: null,
+			accountNodeId: 'account-a',
+		})
+
+		expect(await repository.claimSync(CLAIM_PARAMS)).toEqual({
+			repositoryId: REPOSITORY_ID,
+			externalSourceId: EXTERNAL_SOURCE_ID,
+			installationId: INSTALLATION_ID,
+			externalInstallationId: 123n,
+			storagePath: '/data/repo',
+			externalRepositoryId: 456n,
+			sourceUrl: 'https://github.com/owner-org/repo.git',
+			sourceDefaultBranch: 'main',
+			pullRequestSyncCursorAt: undefined,
+			authorityGeneration: 2,
+			requestedSyncVersion: 1,
+			leaseOwner: 'worker-1',
+		})
+		expect(setMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({
+				syncFailureCode: 'installation_account_mismatch',
 			})
 		)
 	})

@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -40,7 +40,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -54,7 +54,7 @@ jobs:
 
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -82,7 +82,7 @@ jobs:
 
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -121,7 +121,7 @@ jobs:
 
     steps:
       - name: Checkout 🛎
-        uses: actions/checkout@master
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Setup 👨🏻‍💻
         uses: ./.github/actions/setup
@@ -131,3 +131,59 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/tessera_test
           REDIS_URL: redis://localhost:6379
         run: bun run test:e2e:git
+
+  security-audit:
+    name: 'Security Audit 🛡'
+    runs-on: ubuntu-latest
+    # Advisory reporting only. These steps surface known vulnerabilities for
+    # reachability triage; they intentionally do NOT fail CI purely on raw
+    # advisory counts. Confirmed, reachable advisories should be remediated
+    # (or explicitly ignored with justification) rather than auto-blocking.
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout 🛎
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup 👨🏻‍💻
+        uses: ./.github/actions/setup
+
+      - name: JS dependency audit (bun) 🛡
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "## JS dependency audit (\`bun audit\`)"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          bun audit 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=JS advisories reported::bun audit found advisories — triage reachability before acting; not a hard failure."
+          fi
+          # Do not gate on raw advisory counts.
+          exit 0
+
+      - name: Install cargo-audit 🦀
+        shell: bash
+        run: cargo install cargo-audit --locked
+
+      - name: Rust dependency audit (cargo) 🦀
+        shell: bash
+        run: |
+          set +e
+          {
+            echo "## Rust dependency audit (\`cargo audit\`)"
+            echo ""
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          cargo audit 2>&1 | tee -a "$GITHUB_STEP_SUMMARY"
+          status=${PIPESTATUS[0]}
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -ne 0 ]; then
+            echo "::warning title=Rust advisories reported::cargo audit found advisories — triage reachability before acting; not a hard failure."
+          fi
+          # Do not gate on raw advisory counts.
+          exit 0

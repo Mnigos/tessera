@@ -10,6 +10,7 @@ export type RepositoryExternalSourceReadModel = Omit<
 	| 'githubPushBackFailedAt'
 	| 'githubPushBackFailureReason'
 	| 'installationId'
+	| 'installationAccountNodeId'
 	| 'externalRepositoryNodeId'
 	| 'syncFailureCode'
 	| 'authorityGeneration'
