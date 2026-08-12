@@ -27,7 +27,7 @@
     "@tanstack/react-start": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@tanstack/virtual-file-routes": "^1.154.7",
-    "better-auth": "^1.6.9",
+    "better-auth": "^1.6.27",
     "class-variance-authority": "^0.7.1",
     "lucide-react": "catalog:",
     "nitro": "catalog:",

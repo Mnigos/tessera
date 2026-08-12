@@ -14,7 +14,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@better-auth/api-key": "1.6.9",
+    "@better-auth/api-key": "1.6.27",
     "@repo/db": "workspace:*",
     "@repo/domain": "workspace:*",
     "better-auth": "catalog:",
