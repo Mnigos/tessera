@@ -11,6 +11,9 @@ COPY . .
 CMD ["bun", "run", "--filter", "@repo/api", "dev"]
 
 FROM base AS production
+# Defense-in-depth: make production explicit. The env schema already defaults
+# NODE_ENV to 'production' (fail closed) when unset, so this is belt-and-braces.
+ENV NODE_ENV=production
 COPY package.json bun.lock turbo.json ./
 COPY apps/api/package.json apps/api/package.json
 COPY packages packages
