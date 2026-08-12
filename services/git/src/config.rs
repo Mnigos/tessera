@@ -62,27 +62,23 @@ impl Config {
         let ssh_host_key_path = env::var("GIT_SSH_HOST_KEY_PATH")
             .map(PathBuf::from)
             .unwrap_or_else(|_| storage_root.join("ssh_host_ed25519_key"));
-        let ssh_max_connections = env::var("GIT_SSH_MAX_CONNECTIONS")
-            .ok()
-            .map(|value| value.parse::<usize>())
-            .transpose()
-            .map_err(|_| ConfigError::InvalidSshMaxConnections)?
-            .filter(|value| *value > 0)
-            .unwrap_or(DEFAULT_SSH_MAX_CONNECTIONS);
-        let ssh_handshake_timeout = env::var("GIT_SSH_HANDSHAKE_TIMEOUT_SECS")
-            .ok()
-            .map(|value| value.parse::<u64>())
-            .transpose()
-            .map_err(|_| ConfigError::InvalidSshHandshakeTimeout)?
-            .map(Duration::from_secs)
-            .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_HANDSHAKE_TIMEOUT_SECS));
-        let ssh_inactivity_timeout = env::var("GIT_SSH_INACTIVITY_TIMEOUT_SECS")
-            .ok()
-            .map(|value| value.parse::<u64>())
-            .transpose()
-            .map_err(|_| ConfigError::InvalidSshInactivityTimeout)?
-            .map(Duration::from_secs)
-            .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_INACTIVITY_TIMEOUT_SECS));
+        let ssh_max_connections = parse_positive_env::<usize>(
+            "GIT_SSH_MAX_CONNECTIONS",
+            ConfigError::InvalidSshMaxConnections,
+        )?
+        .unwrap_or(DEFAULT_SSH_MAX_CONNECTIONS);
+        let ssh_handshake_timeout = parse_positive_env::<u64>(
+            "GIT_SSH_HANDSHAKE_TIMEOUT_SECS",
+            ConfigError::InvalidSshHandshakeTimeout,
+        )?
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_HANDSHAKE_TIMEOUT_SECS));
+        let ssh_inactivity_timeout = parse_positive_env::<u64>(
+            "GIT_SSH_INACTIVITY_TIMEOUT_SECS",
+            ConfigError::InvalidSshInactivityTimeout,
+        )?
+        .map(Duration::from_secs)
+        .unwrap_or_else(|| Duration::from_secs(DEFAULT_SSH_INACTIVITY_TIMEOUT_SECS));
         let git_binary = env::var("GIT_STORAGE_GIT_BINARY")
             .map(PathBuf::from)
             .unwrap_or_else(|_| PathBuf::from(DEFAULT_GIT_BINARY));
@@ -144,6 +140,44 @@ fn default_storage_root() -> PathBuf {
     env::temp_dir().join("tessera-git-storage")
 }
 
+/// Parses an optional environment variable into a positive integer.
+///
+/// Returns `Ok(None)` when the variable is unset so callers can fall back to a
+/// default. An unparseable value, or an explicit zero, is rejected with `error`
+/// because these limits (connection cap, handshake and inactivity timeouts) are
+/// documented as positive integers: a zero would otherwise be silently coerced
+/// into a default (connections) or produce a `Duration::ZERO` that rejects or
+/// kills every session (timeouts).
+fn parse_positive_env<T>(name: &str, error: ConfigError) -> Result<Option<T>, ConfigError>
+where
+    T: std::str::FromStr + PartialEq + Default,
+{
+    parse_positive_value(env::var(name).ok().as_deref(), error)
+}
+
+/// Pure core of [`parse_positive_env`], split out so the zero/invalid rejection
+/// can be unit tested without mutating process environment variables.
+fn parse_positive_value<T>(
+    value: Option<&str>,
+    error: ConfigError,
+) -> Result<Option<T>, ConfigError>
+where
+    T: std::str::FromStr + PartialEq + Default,
+{
+    match value {
+        Some(value) => {
+            let parsed = value.parse::<T>().map_err(|_| error)?;
+
+            if parsed == T::default() {
+                return Err(error);
+            }
+
+            Ok(Some(parsed))
+        }
+        None => Ok(None),
+    }
+}
+
 fn required_env(name: &str, error: ConfigError) -> Result<String, ConfigError> {
     let value = env::var(name).map_err(|_| error)?;
 
@@ -195,13 +229,13 @@ impl fmt::Display for ConfigError {
             Self::InvalidSshHandshakeTimeout => {
                 write!(
                     formatter,
-                    "GIT_SSH_HANDSHAKE_TIMEOUT_SECS must be a non-negative integer number of seconds"
+                    "GIT_SSH_HANDSHAKE_TIMEOUT_SECS must be a positive integer number of seconds"
                 )
             }
             Self::InvalidSshInactivityTimeout => {
                 write!(
                     formatter,
-                    "GIT_SSH_INACTIVITY_TIMEOUT_SECS must be a non-negative integer number of seconds"
+                    "GIT_SSH_INACTIVITY_TIMEOUT_SECS must be a positive integer number of seconds"
                 )
             }
             Self::InvalidSocketAddress => {
@@ -238,5 +272,39 @@ mod tests {
             default_storage_root(),
             env::temp_dir().join("tessera-git-storage")
         );
+    }
+
+    #[test]
+    fn parse_positive_value_defaults_when_unset() {
+        let parsed = parse_positive_value::<usize>(None, ConfigError::InvalidSshMaxConnections);
+
+        assert!(matches!(parsed, Ok(None)));
+    }
+
+    #[test]
+    fn parse_positive_value_accepts_positive_integers() {
+        let parsed =
+            parse_positive_value::<u64>(Some("30"), ConfigError::InvalidSshInactivityTimeout);
+
+        assert!(matches!(parsed, Ok(Some(30))));
+    }
+
+    #[test]
+    fn parse_positive_value_rejects_zero() {
+        let parsed =
+            parse_positive_value::<usize>(Some("0"), ConfigError::InvalidSshMaxConnections);
+
+        assert!(matches!(parsed, Err(ConfigError::InvalidSshMaxConnections)));
+    }
+
+    #[test]
+    fn parse_positive_value_rejects_unparseable_input() {
+        let parsed =
+            parse_positive_value::<u64>(Some("abc"), ConfigError::InvalidSshHandshakeTimeout);
+
+        assert!(matches!(
+            parsed,
+            Err(ConfigError::InvalidSshHandshakeTimeout)
+        ));
     }
 }

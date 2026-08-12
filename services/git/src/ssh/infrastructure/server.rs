@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::time::Duration;
 
 use russh::keys::ssh_key::{HashAlg, PublicKey};
@@ -53,10 +53,32 @@ where
             git_binary: self.git_binary.clone(),
             client_id,
             authenticated: None,
+            authenticated_flag: Arc::new(AtomicBool::new(false)),
             channels: HashMap::new(),
         }
     }
 }
+
+/// Accept errors that reflect a failure of the just-accepted peer connection
+/// rather than of the listener itself. These are safe to log and skip so a
+/// single misbehaving peer cannot take the accept loop down.
+fn is_connection_accept_error(error: &std::io::Error) -> bool {
+    use std::io::ErrorKind;
+
+    matches!(
+        error.kind(),
+        ErrorKind::ConnectionRefused | ErrorKind::ConnectionAborted | ErrorKind::ConnectionReset
+    )
+}
+
+/// Backoff applied after a non-connection accept error (for example `EMFILE`/
+/// `ENFILE` file-descriptor exhaustion) so the loop cannot spin hot while the
+/// transient condition clears.
+const ACCEPT_ERROR_BACKOFF: Duration = Duration::from_millis(50);
+
+/// Grace period granted to an unauthenticated session after the pre-authentication
+/// deadline fires, giving it time to observe the disconnect request and wind down.
+const PRE_AUTH_DISCONNECT_GRACE: Duration = Duration::from_secs(1);
 
 /// Runtime limits that bound how much work unauthenticated SSH clients can force
 /// the server to do. `max_connections` caps concurrently live sessions, while
@@ -81,7 +103,23 @@ where
     let permits = Arc::new(Semaphore::new(max_connections));
 
     loop {
-        let (stream, peer) = listener.accept().await?;
+        // A single failed `accept` must never propagate out of this loop: in
+        // `main` the SSH server shares a `try_join!` with the gRPC and HTTP
+        // servers, so returning here would abort the entire service. Transient
+        // per-connection errors are logged and skipped; resource exhaustion is
+        // backed off. The loop only ever exits with the listener still bound.
+        let (stream, peer) = match listener.accept().await {
+            Ok(accepted) => accepted,
+            Err(error) if is_connection_accept_error(&error) => {
+                tracing::debug!(error = %error, "transient SSH accept error; continuing");
+                continue;
+            }
+            Err(error) => {
+                tracing::warn!(error = %error, "SSH accept error; backing off and continuing");
+                tokio::time::sleep(ACCEPT_ERROR_BACKOFF).await;
+                continue;
+            }
+        };
 
         // Bound concurrent live sessions. When the server is saturated we drop the
         // connection immediately rather than queueing work for an unauthenticated peer.
@@ -95,6 +133,7 @@ where
         };
 
         let handler = server.new_client(Some(peer));
+        let authenticated = handler.authenticated_flag.clone();
         let config = config.clone();
         let handshake_timeout = limits.handshake_timeout;
 
@@ -110,8 +149,53 @@ where
             .await
             {
                 Ok(Ok(session)) => {
-                    if let Err(error) = session.await {
-                        tracing::debug!(%peer, error = %error, "SSH session ended with error");
+                    // `run_stream` returns after only the SSH identification exchange
+                    // and session setup; key exchange and user authentication run in
+                    // the session future it spawns. The timeout above therefore bounds
+                    // only that initial phase, so we additionally enforce a wall-clock
+                    // pre-authentication deadline on the session future itself. The
+                    // deadline is lifted the moment authentication succeeds, so it
+                    // bounds slow KEX/auth without ever terminating an already
+                    // authenticated session.
+                    let session_handle = session.handle();
+                    tokio::pin!(session);
+                    let pre_auth_deadline = tokio::time::sleep(handshake_timeout);
+                    tokio::pin!(pre_auth_deadline);
+
+                    loop {
+                        tokio::select! {
+                            result = &mut session => {
+                                if let Err(error) = result {
+                                    tracing::debug!(%peer, error = %error, "SSH session ended with error");
+                                }
+                                break;
+                            }
+                            () = &mut pre_auth_deadline, if !authenticated.load(Ordering::SeqCst) => {
+                                if authenticated.load(Ordering::SeqCst) {
+                                    // Authentication completed between the timer
+                                    // firing and this check; keep serving the session.
+                                    continue;
+                                }
+
+                                tracing::warn!(%peer, "SSH authentication deadline exceeded; disconnecting");
+                                let _ = session_handle
+                                    .disconnect(
+                                        russh::Disconnect::ByApplication,
+                                        "authentication timeout".to_string(),
+                                        String::new(),
+                                    )
+                                    .await;
+                                // Give the session a brief grace period to observe the
+                                // disconnect and wind down. Any residual stall is still
+                                // bounded by the russh inactivity timeout.
+                                let _ = tokio::time::timeout(
+                                    PRE_AUTH_DISCONNECT_GRACE,
+                                    &mut session,
+                                )
+                                .await;
+                                break;
+                            }
+                        }
                     }
                 }
                 Ok(Err(error)) => {
@@ -131,6 +215,9 @@ pub struct SshGitHandler<A> {
     git_binary: PathBuf,
     client_id: usize,
     authenticated: Option<AuthenticatedSshUser>,
+    /// Shared with the connection task so it can lift the pre-authentication
+    /// deadline as soon as this handler accepts a public key.
+    authenticated_flag: Arc<AtomicBool>,
     channels: HashMap<ChannelId, Arc<Mutex<Option<ChildStdin>>>>,
 }
 
@@ -172,6 +259,8 @@ where
             username: user.to_string(),
             public_key_fingerprint,
         });
+        // Lift the pre-authentication deadline enforced by the connection task.
+        self.authenticated_flag.store(true, Ordering::SeqCst);
 
         Ok(Auth::Accept)
     }

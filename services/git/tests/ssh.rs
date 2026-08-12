@@ -202,14 +202,11 @@ async fn ssh_server_rejects_connections_beyond_the_concurrency_limit() {
         "over-limit connection should be closed immediately"
     );
 
-    // Freeing the permit lets a subsequent client through again.
+    // Freeing the permit lets a subsequent client through again. Closing `first`
+    // only releases the permit once the server-side session task observes the
+    // closed socket, so poll briefly rather than racing that teardown.
     drop(first);
-    let mut third = TcpStream::connect(addr).await.unwrap();
-    let mut banner = [0_u8; 4];
-    tokio::time::timeout(Duration::from_secs(2), third.read_exact(&mut banner))
-        .await
-        .expect("permit should be released")
-        .unwrap();
+    let banner = poll_ssh_banner(addr).await;
     assert_eq!(&banner, b"SSH-");
 }
 
@@ -393,6 +390,33 @@ async fn connect_authenticated_client(
     try_authenticated_client(addr)
         .await
         .expect("client should authenticate against the SSH server")
+}
+
+/// Polls until the server readmits a raw connection and delivers its SSH banner
+/// after an admission permit is freed. Permit release is observed only once the
+/// prior session task sees its socket close, so a connection attempted too early
+/// is admission-denied and closed without a banner; retry until one succeeds.
+async fn poll_ssh_banner(addr: std::net::SocketAddr) -> [u8; 4] {
+    use std::time::Duration;
+
+    use tokio::io::AsyncReadExt;
+    use tokio::net::TcpStream;
+
+    for _ in 0..50 {
+        if let Ok(mut stream) = TcpStream::connect(addr).await {
+            let mut banner = [0_u8; 4];
+            let read =
+                tokio::time::timeout(Duration::from_secs(2), stream.read_exact(&mut banner)).await;
+
+            if matches!(read, Ok(Ok(_))) {
+                return banner;
+            }
+        }
+
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    panic!("server never delivered a banner after the permit was released");
 }
 
 /// Polls until the server readmits a client after an admission permit is freed.

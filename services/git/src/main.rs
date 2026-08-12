@@ -49,10 +49,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         auth_rejection_time: std::time::Duration::from_secs(1),
         auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
         max_auth_attempts: 3,
-        // Keep keepalives conservative so they cannot extend an otherwise idle
-        // session past the inactivity window.
-        keepalive_interval: Some(std::time::Duration::from_secs(15)),
-        keepalive_max: 3,
+        // Disable server-initiated keepalives. In russh 0.62.6 any received packet,
+        // including a client's reply to a keepalive probe, resets the inactivity
+        // timer; with keepalives enabled a responsive but otherwise idle client
+        // could hold its session open indefinitely. Leaving keepalive_interval as
+        // None keeps `inactivity_timeout` a true hard idle limit.
+        keepalive_interval: None,
         ..Default::default()
     });
 
