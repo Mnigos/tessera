@@ -642,7 +642,10 @@ export class GitHubSyncRepository {
 					accountNodeId: gitHubInstallations.accountNodeId,
 				})
 				.from(repositories)
-				.innerJoin(
+				// Left join so an absent installation binding (deleted/unbound) is
+				// distinguishable from a missing repository/storage row: the joined
+				// columns come back null instead of dropping the whole row.
+				.leftJoin(
 					gitHubInstallations,
 					eq(gitHubInstallations.id, source.installationId)
 				)
@@ -656,7 +659,11 @@ export class GitHubSyncRepository {
 			// tenant's mirror.
 			const block = resolveClaimBlock(source, context)
 
-			if (block || !context?.storagePath) {
+			if (
+				block ||
+				!context?.storagePath ||
+				context.externalInstallationId === null
+			) {
 				await transaction
 					.update(repositoryExternalSources)
 					.set({
@@ -1318,15 +1325,31 @@ export class GitHubSyncRepository {
 
 /**
  * Determines whether a claimed source must be blocked instead of synced.
- * Returns the failure code/reason when the bound installation is suspended or
- * no longer matches the account the source was authorized for, otherwise
- * `undefined`. Missing storage is handled by the caller so a valid `context`
- * can be narrowed for the returned claim.
+ * Returns the failure code/reason when the bound installation row is absent,
+ * suspended, or no longer matches the account the source was authorized for,
+ * otherwise `undefined`. Missing storage (a missing repository row) is handled
+ * by the caller so a valid `context` can be narrowed for the returned claim.
  */
 function resolveClaimBlock(
 	source: { installationAccountNodeId: string | null },
-	context: { suspendedAt: Date | null; accountNodeId: string } | undefined
+	context:
+		| {
+				externalInstallationId: bigint | null
+				suspendedAt: Date | null
+				accountNodeId: string | null
+		  }
+		| undefined
 ): { failureCode: string; failureReason: string } | undefined {
+	// The source still references an installation, but its row is gone (the
+	// binding was deleted/unbound). Report this distinctly from missing storage
+	// so operators reinstall the app instead of chasing a phantom storage fault.
+	if (context && context.externalInstallationId === null)
+		return {
+			failureCode: 'missing_installation',
+			failureReason:
+				'Install the Tessera GitHub App to resume synchronization.',
+		}
+
 	if (
 		source.installationAccountNodeId &&
 		context &&

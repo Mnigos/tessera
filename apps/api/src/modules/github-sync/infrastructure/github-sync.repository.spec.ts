@@ -544,13 +544,13 @@ describe(GitHubSyncRepository.name, () => {
 
 	function mockClaimContext(context: {
 		storagePath: string | null
-		externalInstallationId: bigint
+		externalInstallationId: bigint | null
 		suspendedAt: Date | null
-		accountNodeId: string
+		accountNodeId: string | null
 	}) {
 		selectMock.mockReturnValue({
 			from: vi.fn(() => ({
-				innerJoin: vi.fn(() => ({
+				leftJoin: vi.fn(() => ({
 					where: vi.fn(() => ({
 						limit: vi.fn().mockResolvedValue([context]),
 					})),
@@ -599,6 +599,30 @@ describe(GitHubSyncRepository.name, () => {
 				syncFailureCode: 'installation_account_mismatch',
 				syncLeaseOwner: null,
 			})
+		)
+	})
+
+	test('blocks a claim as missing_installation when the bound installation row is absent', async () => {
+		returningMock.mockResolvedValue([claimSource('account-a')])
+		mockClaimContext({
+			storagePath: '/data/repo',
+			externalInstallationId: null,
+			suspendedAt: null,
+			accountNodeId: null,
+		})
+
+		expect(await repository.claimSync(CLAIM_PARAMS)).toBeUndefined()
+		expect(setMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				syncStatus: 'blocked',
+				syncFailureCode: 'missing_installation',
+				syncFailureReason:
+					'Install the Tessera GitHub App to resume synchronization.',
+				syncLeaseOwner: null,
+			})
+		)
+		expect(setMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ syncFailureCode: 'missing_storage' })
 		)
 	})
 
