@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::server::{Auth, Handler, Msg, Server as RusshServer, Session};
@@ -9,7 +10,7 @@ use russh::{Channel, ChannelId};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::process::ChildStdin;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, Semaphore};
 use tokio::task::JoinHandle;
 
 use crate::ssh::application::{
@@ -57,18 +58,71 @@ where
     }
 }
 
+/// Runtime limits that bound how much work unauthenticated SSH clients can force
+/// the server to do. `max_connections` caps concurrently live sessions, while
+/// `handshake_timeout` bounds the pre-authentication setup for each connection so
+/// slow-loris style clients cannot hold a connection slot indefinitely.
+#[derive(Clone, Copy, Debug)]
+pub struct SshServerLimits {
+    pub max_connections: usize,
+    pub handshake_timeout: Duration,
+}
+
 pub async fn run_ssh_server<A>(
     listener: TcpListener,
     config: Arc<russh::server::Config>,
     mut server: SshGitServer<A>,
+    limits: SshServerLimits,
 ) -> Result<(), Box<dyn std::error::Error>>
 where
     A: SshGitAuthorizer,
 {
-    server
-        .run_on_socket(config, &listener)
-        .await
-        .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
+    let max_connections = limits.max_connections.max(1);
+    let permits = Arc::new(Semaphore::new(max_connections));
+
+    loop {
+        let (stream, peer) = listener.accept().await?;
+
+        // Bound concurrent live sessions. When the server is saturated we drop the
+        // connection immediately rather than queueing work for an unauthenticated peer.
+        let permit = match permits.clone().try_acquire_owned() {
+            Ok(permit) => permit,
+            Err(_) => {
+                tracing::warn!(%peer, "rejecting SSH connection: connection limit reached");
+                drop(stream);
+                continue;
+            }
+        };
+
+        let handler = server.new_client(Some(peer));
+        let config = config.clone();
+        let handshake_timeout = limits.handshake_timeout;
+
+        tokio::spawn(async move {
+            // The owned permit is held for the entire connection lifetime, so it is
+            // released only once the session future resolves.
+            let _permit = permit;
+
+            match tokio::time::timeout(
+                handshake_timeout,
+                russh::server::run_stream(config, stream, handler),
+            )
+            .await
+            {
+                Ok(Ok(session)) => {
+                    if let Err(error) = session.await {
+                        tracing::debug!(%peer, error = %error, "SSH session ended with error");
+                    }
+                }
+                Ok(Err(error)) => {
+                    tracing::debug!(%peer, error = %error, "SSH handshake failed");
+                }
+                Err(_) => {
+                    tracing::warn!(%peer, "SSH handshake timed out");
+                }
+            }
+        });
+    }
 }
 
 #[derive(Debug)]
@@ -125,9 +179,11 @@ where
     async fn channel_open_session(
         &mut self,
         _channel: Channel<Msg>,
+        reply: russh::server::ChannelOpenHandle,
         _session: &mut Session,
-    ) -> Result<bool, Self::Error> {
-        Ok(true)
+    ) -> Result<(), Self::Error> {
+        reply.accept().await;
+        Ok(())
     }
 
     async fn exec_request(

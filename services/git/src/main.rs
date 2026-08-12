@@ -2,7 +2,7 @@ use tessera_git::proto::git_storage_service_server::GitStorageServiceServer;
 use tessera_git::smart_http::http::router;
 use tessera_git::ssh::SshGitApplication;
 use tessera_git::ssh::infrastructure::{
-    ApiSshGitAuthorizer, SshGitServer, load_or_generate_host_key, run_ssh_server,
+    ApiSshGitAuthorizer, SshGitServer, SshServerLimits, load_or_generate_host_key, run_ssh_server,
 };
 use tessera_git::storage::grpc::storage_grpc_auth_interceptor;
 use tessera_git::storage::infrastructure::RepositoryStorage;
@@ -35,8 +35,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         RepositoryStorage::new(config.storage_root.clone(), config.git_binary.clone()),
     );
     let ssh_server = SshGitServer::new(ssh_application, config.git_binary.clone());
+    let ssh_limits = SshServerLimits {
+        max_connections: config.ssh_max_connections,
+        handshake_timeout: config.ssh_handshake_timeout,
+    };
     let ssh_config = std::sync::Arc::new(russh::server::Config {
         keys: vec![ssh_host_key],
+        // Garbage-collect idle sessions quickly so an authenticated-but-idle
+        // connection cannot occupy a slot indefinitely.
+        inactivity_timeout: Some(config.ssh_inactivity_timeout),
+        // Constant-time auth rejection with no artificial delay on the initial
+        // "none" probe, and a low cap on authentication attempts per connection.
+        auth_rejection_time: std::time::Duration::from_secs(1),
+        auth_rejection_time_initial: Some(std::time::Duration::from_secs(0)),
+        max_auth_attempts: 3,
+        // Keep keepalives conservative so they cannot extend an otherwise idle
+        // session past the inactivity window.
+        keepalive_interval: Some(std::time::Duration::from_secs(15)),
+        keepalive_max: 3,
         ..Default::default()
     });
 
@@ -55,7 +71,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .map_err(|error| -> Box<dyn std::error::Error> { Box::new(error) })
     };
-    let ssh_server = async { run_ssh_server(ssh_listener, ssh_config, ssh_server).await };
+    let ssh_server =
+        async { run_ssh_server(ssh_listener, ssh_config, ssh_server, ssh_limits).await };
 
     tokio::try_join!(grpc_server, http_server, ssh_server)?;
 
