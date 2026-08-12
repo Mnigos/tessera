@@ -32,7 +32,7 @@ UPDATE "repository_external_sources" AS "s"
 SET
 	"installation_id" = NULL,
 	"mirror_mode" = 'imported',
-	"sync_status" = 'blocked',
+	"sync_status" = 'failed',
 	"sync_failure_code" = 'ambiguous_provider_binding',
 	"sync_failure_reason" = 'Multiple Tessera repositories mapped to the same GitHub repository; this mirror was quarantined for manual review.',
 	"next_sync_at" = NULL,
