@@ -1,6 +1,5 @@
 import type { MergeQueueStatus, PullRequest } from '@repo/contracts'
 import { DEFAULT_MERGE_STRATEGY, type MergeStrategy } from '@repo/domain'
-import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { useState } from 'react'
 import {
@@ -109,10 +108,7 @@ export function PullRequestMergePanel({
 	}
 
 	return (
-		<Card className="gap-4 border-emerald-500/25 bg-emerald-500/5">
-			<h2 className="font-semibold text-base tracking-normal">
-				Merge pull request
-			</h2>
+		<div className="flex flex-col gap-3 p-4">
 			<PullRequestMergeStrategySelect
 				disabled={mergeMutation.isPending}
 				onStrategyChange={setSelectedStrategy}
@@ -155,6 +151,6 @@ export function PullRequestMergePanel({
 					username={username}
 				/>
 			)}
-		</Card>
+		</div>
 	)
 }
