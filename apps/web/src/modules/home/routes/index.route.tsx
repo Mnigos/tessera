@@ -78,7 +78,7 @@ function HeroActions() {
 				</>
 			) : (
 				<>
-					<Button disabled={isLoading} onClick={signIn} size="lg">
+					<Button disabled={isLoading} onClick={() => signIn()} size="lg">
 						<FaGithub className="size-5" />
 						Sign in with GitHub
 					</Button>

@@ -1,34 +1,10 @@
-import { ORPCError, safe } from '@orpc/client'
-import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { OrganizationSettingsPanel } from '../components/organization-settings-panel'
-import { getOrganizationQueryOptions } from '../hooks/use-organization.query'
-import { getOrganizationsQueryOptions } from '../hooks/use-organizations.query'
+import { loadOrganizationSettings } from '../helpers/load-organization-settings'
 
 export const Route = createFileRoute('/organizations/$slug/settings')({
-	loader: async ({ context, params: { slug } }) => {
-		if (!context.user) throw redirect({ to: '/' })
-
-		const { organizations } = await context.queryClient.ensureQueryData(
-			getOrganizationsQueryOptions()
-		)
-		const membership = organizations.find(
-			organization => organization.slug === slug
-		)
-
-		if (!membership) throw notFound()
-
-		const [error] = await safe(
-			context.queryClient.ensureQueryData(
-				getOrganizationQueryOptions({ organizationId: membership.id })
-			)
-		)
-
-		if (error instanceof ORPCError && error.status === 404) throw notFound()
-
-		if (error) throw error
-
-		return { name: membership.name, organizationId: membership.id }
-	},
+	loader: ({ context, params: { slug } }) =>
+		loadOrganizationSettings({ context, slug }),
 	head: ({ loaderData, params }) => ({
 		meta: [
 			{
@@ -47,6 +23,7 @@ function OrganizationSettingsRoute() {
 			<OrganizationSettingsPanel
 				key={organizationId}
 				organizationId={organizationId}
+				tab="general"
 			/>
 		</main>
 	)
