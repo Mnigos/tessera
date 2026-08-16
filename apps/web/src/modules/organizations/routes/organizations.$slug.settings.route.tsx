@@ -15,8 +15,6 @@ export const Route = createFileRoute('/organizations/$slug/settings')({
 			organization => organization.slug === slug
 		)
 
-		// A handle the viewer is not a member of is indistinguishable from one
-		// that does not exist, which is the answer the API gives too.
 		if (!membership) throw notFound()
 
 		const [error] = await safe(

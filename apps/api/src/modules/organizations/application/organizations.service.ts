@@ -46,8 +46,7 @@ export class OrganizationsService {
 		})
 
 		try {
-			// Headerless, so Better Auth reads this as a system action and skips
-			// `allowUserToCreateOrganization`; a future creation gate belongs here.
+			// Headerless: Better Auth treats this as a system action (no creation gate).
 			const created = await this.betterAuthService.api.createOrganization({
 				body: {
 					name,
@@ -87,8 +86,7 @@ export class OrganizationsService {
 			actorUserId
 		)
 
-		// Better Auth makes the authoritative decision below; this one keeps a
-		// member from spending a GitHub lookup on a rename that cannot happen.
+		// Better Auth rejects this too; checking first avoids a GitHub lookup.
 		if (role === 'member')
 			throw new OrganizationPermissionDeniedError({
 				organizationId,
@@ -151,16 +149,13 @@ export class OrganizationsService {
 					organizationId,
 				})
 			default:
-				// Unreachable: a deletion outcome added without a branch above fails
-				// typecheck here, and at runtime it must not report success.
 				result satisfies never
 
 				throw new InternalError('organization delete', { organizationId })
 		}
 	}
 
-	// Non-members are told the organization does not exist: who belongs to it is
-	// not a stranger's to confirm.
+	// Non-members get 404, not 403.
 	private async requireMembership(
 		organizationId: OrganizationId,
 		userId: UserId

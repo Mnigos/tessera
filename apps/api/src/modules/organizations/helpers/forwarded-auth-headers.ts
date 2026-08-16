@@ -1,7 +1,6 @@
 import type { AppRequest } from '~/shared/types/app-request'
 
-// Describe the body Tessera received, not the in-process body it is about to
-// send to Better Auth.
+// Body headers describe the inbound request, not the one sent to Better Auth.
 const BODY_HEADERS = new Set(['content-length', 'content-type'])
 
 export function toForwardedAuthHeaders(

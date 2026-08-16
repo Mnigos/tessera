@@ -11,8 +11,6 @@ export type GitHubLoginLookup =
 	| { exists: true; id: number; login: string }
 	| { exists: false }
 
-// `null` sends the request unauthenticated, which the lookup endpoint allows at
-// GitHub's 60 requests/hour per-IP limit.
 export interface GitHubLoginAuth {
 	accessToken: string | null
 }
@@ -25,8 +23,7 @@ interface GitHubRequestErrorLike {
 export class GitHubLoginClient {
 	private readonly logger = new Logger(GitHubLoginClient.name)
 
-	// Only 200 and 404 are answers: treating an unanswered lookup as "nobody
-	// owns this" would hand out a login during an outage.
+	// Only 200/404 are answers; anything else fails closed.
 	async lookupLogin(
 		login: string,
 		auth: GitHubLoginAuth
@@ -46,8 +43,7 @@ export class GitHubLoginClient {
 		try {
 			return await requestGitHubUser(login, accessToken)
 		} catch (error) {
-			// 403 fails closed; only a 401 (bad credentials) retries anonymously,
-			// which can never see more than the token-less path already allows.
+			// 401 (bad credentials) retries anonymously; 403 fails closed.
 			if (!(accessToken && isGitHubRequestError(error, HTTP_UNAUTHORIZED)))
 				throw error
 

@@ -102,9 +102,7 @@ export class OrganizationsRepository {
 		return row?.role
 	}
 
-	// Users and organizations share the /{handle} space, so both are checked.
-	// Lowercasing forgoes the unique indexes, which stay case-sensitive until
-	// TES-61 makes the shared namespace a database constraint.
+	// Case-insensitive across users and organizations; DB-level uniqueness is TES-61.
 	async isHandleTaken({
 		handle,
 		ignoreOrganizationId,
@@ -134,8 +132,7 @@ export class OrganizationsRepository {
 		return takenUsernames.length > 0 || takenSlugs.length > 0
 	}
 
-	// Re-linking writes another row and nothing makes (userId, providerId)
-	// unique, so the most recently updated account is the live one.
+	// Re-linking can leave several rows; the newest wins.
 	async findGitHubAccount({
 		userId,
 	}: UserParams): Promise<GitHubAccountIdentity | undefined> {
@@ -150,9 +147,8 @@ export class OrganizationsRepository {
 		})
 	}
 
-	// Every refusal is decided under the same `for update` lock the delete runs
-	// under: a second owner can rename, demote the actor, or attach a repository
-	// at any moment, and each would invalidate a check made beforehand.
+	// Every check runs under the row lock so a concurrent rename or demotion
+	// cannot slip between check and delete.
 	async deleteOwned({
 		confirmationSlug,
 		organizationId,
@@ -179,7 +175,6 @@ export class OrganizationsRepository {
 				)
 				.limit(1)
 
-			// A non-member is told the organization does not exist.
 			if (!actorMember) return { kind: 'not-found' }
 
 			if (actorMember.role !== 'owner')
@@ -197,9 +192,6 @@ export class OrganizationsRepository {
 			if (ownedRepositories > 0)
 				return { kind: 'has-repositories', repositoryCount: ownedRepositories }
 
-			// Better Auth's own delete is not used because it never asks what an
-			// organization owns; members and invitations go explicitly so what is
-			// removed is legible here rather than only in the schema.
 			await transaction
 				.delete(invitation)
 				.where(eq(invitation.organizationId, organizationId))

@@ -7,8 +7,7 @@ const BLOCKED_ORGANIZATION_PATHS = [
 	'/organization/cancel-invitation',
 	'/organization/create',
 	'/organization/delete',
-	// Reads that return invitation emails to any member; Tessera serves them
-	// through an admin/owner-gated procedure instead.
+	// Reads that expose invitation emails to any member.
 	'/organization/get-full-organization',
 	'/organization/invite-member',
 	'/organization/leave',
@@ -20,9 +19,7 @@ const BLOCKED_ORGANIZATION_PATHS = [
 	'/organization/update-member-role',
 ]
 
-// These routes carry Tessera rules Better Auth cannot know, so they are managed
-// only through our own procedures, which reach the same endpoints in-process.
-// 404 rather than 403 keeps them from advertising that they exist.
+// Managed only through Tessera's own procedures; 404 keeps them undiscoverable.
 export function organizationEndpointLockdown(): BetterAuthPlugin {
 	return {
 		id: 'organization-endpoint-lockdown',

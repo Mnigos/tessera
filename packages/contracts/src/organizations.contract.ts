@@ -62,8 +62,7 @@ export type ParsedUpdateOrganizationInput = z.infer<
 	typeof updateOrganizationInputSchema
 >
 
-// In the DELETE body, not a query parameter: the handle would otherwise land in
-// the access logs of a request that destroys what it names.
+// In the body so the handle stays out of access logs.
 export const deleteOrganizationInputSchema = organizationIdInputSchema.extend({
 	confirmationSlug: z.string().trim(),
 })

@@ -7,8 +7,7 @@ export function useDeleteOrganizationMutation() {
 	return useMutation(
 		orpcQuery.organizations.delete.mutationOptions({
 			onSuccess: async (_result, { organizationId }) => {
-				// Dropped rather than invalidated: the settings page is still mounted,
-				// and refetching a deleted organization would flash a failure.
+				// Remove, not invalidate: refetching the deleted organization would fail.
 				queryClient.removeQueries({
 					queryKey: orpcQuery.organizations.get.queryKey({
 						input: { organizationId },
