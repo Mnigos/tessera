@@ -13,6 +13,7 @@ export function useDeleteOrganizationMutation() {
 						input: { organizationId },
 					}),
 				})
+				queryClient.removeQueries({ queryKey: orpcQuery.handles.get.key() })
 				await queryClient.invalidateQueries({
 					queryKey: orpcQuery.organizations.list.key(),
 				})

@@ -13,8 +13,8 @@ export const Route = createFileRoute('/profile')({
 			})
 
 		throw redirect({
-			to: '/profile/$username',
-			params: { username: context.user.username },
+			to: '/$handle',
+			params: { handle: context.user.username },
 		})
 	},
 	component: ProfileRoute,
