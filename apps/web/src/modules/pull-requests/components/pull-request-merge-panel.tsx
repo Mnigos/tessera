@@ -68,14 +68,11 @@ export function PullRequestMergePanel({
 	const strategies = isGitHubAuthoritative
 		? GITHUB_MERGE_STRATEGY_ORDER
 		: MERGE_STRATEGY_ORDER
-	const resolvedStrategy = resolveMergeStrategy(
+	const strategy = resolveMergeStrategy(
 		selectedStrategy,
-		requirements?.strategyAvailability
+		requirements?.strategyAvailability,
+		strategies
 	)
-	// Authority can change under a selection the new list no longer offers.
-	const strategy = strategies.includes(resolvedStrategy)
-		? resolvedStrategy
-		: DEFAULT_MERGE_STRATEGY
 
 	if (!isOpen) return null
 
