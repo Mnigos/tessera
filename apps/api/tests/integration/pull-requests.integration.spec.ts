@@ -2,11 +2,13 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
 import { GitStorageClient, GitStorageModule } from '@config/git-storage'
+import { PushRefUpdateKind } from '@config/git-storage/generated/tessera/git/v1/git_authorization'
 import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { PullRequestsModule } from '@modules/pull-requests'
+import { PullRequestPushEventsService } from '@modules/pull-requests/application/pull-request-push-events.service'
 import { MergeQueueRepository } from '@modules/pull-requests/infrastructure/merge-queue.repository'
 import { PullRequestsRepository } from '@modules/pull-requests/infrastructure/pull-requests.repository'
 import { RepositoriesModule } from '@modules/repositories'
@@ -68,6 +70,7 @@ interface PullRequestResponseBody {
 	updatedAt: string
 	closedAt?: string
 	mergedAt?: string
+	diffStats?: { additions: number; deletions: number; changedFiles: number }
 }
 
 interface ErrorResponseBody {
@@ -90,6 +93,7 @@ describe('Pull requests integration', () => {
 	let gitStorageCheckRepositoryMergeability: ReturnType<typeof vi.fn>
 	let gitStorageFindMergeReceipt: ReturnType<typeof vi.fn>
 	let pullRequestsRepository: PullRequestsRepository
+	let pullRequestPushEventsService: PullRequestPushEventsService
 	let mergeQueueRepository: MergeQueueRepository
 
 	beforeAll(async () => {
@@ -133,6 +137,9 @@ describe('Pull requests integration', () => {
 		app = moduleRef.createNestApplication(adapter)
 		await app.init()
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository, {
+			strict: false,
+		})
+		pullRequestPushEventsService = moduleRef.get(PullRequestPushEventsService, {
 			strict: false,
 		})
 		mergeQueueRepository = moduleRef.get(MergeQueueRepository, {
@@ -345,6 +352,38 @@ describe('Pull requests integration', () => {
 		)
 	})
 
+	test('repairs cached stats when comparison serves a different pair', async () => {
+		const headers = await createUserAndRepository({ visibility: 'public' })
+		await createPullRequest(
+			'marta',
+			'notes',
+			{ sourceBranch: 'feature', targetBranch: 'main', title: 'Feature' },
+			headers
+		)
+		await db.update(pullRequests).set({
+			diffStatsBaseSha: 'old-base',
+			diffStatsHeadSha: 'old-head',
+			diffAdditions: 1,
+			diffDeletions: 1,
+			diffChangedFiles: 1,
+			diffStatsUpdatedAt: new Date('2026-08-17T09:00:00Z'),
+		})
+		gitStorageCompareRepositoryRefs.mockResolvedValue(
+			comparisonWithStats('merge-base-sha', 'head-sha', 9, 3)
+		)
+
+		expect((await getPullRequestComparison('marta', 'notes', 1)).status).toBe(
+			200
+		)
+		expect(await db.query.pullRequests.findFirst()).toMatchObject({
+			diffStatsBaseSha: 'merge-base-sha',
+			diffStatsHeadSha: 'head-sha',
+			diffAdditions: 9,
+			diffDeletions: 3,
+			diffChangedFiles: 1,
+		})
+	})
+
 	afterAll(async () => {
 		await resetIntegrationDatabase()
 		await app.close()
@@ -365,6 +404,9 @@ describe('Pull requests integration', () => {
 	})
 
 	test('creates, lists, and gets a public pull request with an opened event', async () => {
+		gitStorageCompareRepositoryRefs.mockResolvedValue(
+			comparisonWithStats('base-sha', 'head-sha')
+		)
 		const headers = await createUserAndRepository({ visibility: 'public' })
 		const createResponse = await createPullRequest(
 			'marta',
@@ -385,18 +427,28 @@ describe('Pull requests integration', () => {
 			openingBaseSha: 'base-sha',
 			openingHeadSha: 'head-sha',
 			state: 'open',
+			diffStats: { additions: 12, deletions: 4, changedFiles: 1 },
 		})
 
 		const listResponse = await listPullRequests('marta', 'notes')
 		expect(listResponse.status).toBe(200)
 		expect(await listResponse.json()).toMatchObject({
-			pullRequests: [{ number: 1, title: 'Add feature' }],
+			pullRequests: [
+				{
+					number: 1,
+					title: 'Add feature',
+					diffStats: { additions: 12, deletions: 4, changedFiles: 1 },
+				},
+			],
 		})
 
 		const getResponse = await getPullRequest('marta', 'notes', 1)
 		expect(getResponse.status).toBe(200)
 		expect(await getResponse.json()).toMatchObject({
-			pullRequest: { number: 1 },
+			pullRequest: {
+				number: 1,
+				diffStats: { additions: 12, deletions: 4, changedFiles: 1 },
+			},
 			events: [{ type: 'opened' }],
 		})
 	})
@@ -433,6 +485,8 @@ describe('Pull requests integration', () => {
 			body: '',
 			state: 'open',
 			draft: false,
+			labels: [],
+			assignees: [],
 			author: {
 				nodeId: 'github-user-node',
 				numericId: 7n,
@@ -470,6 +524,110 @@ describe('Pull requests integration', () => {
 				columns: { externalNumber: true },
 			})
 		).toEqual({ externalNumber: 1 })
+		expect(
+			await (await getPullRequest('marta', 'notes', 2)).json()
+		).toMatchObject({
+			pullRequest: { number: 2, github: { externalNumber: 1 } },
+		})
+	})
+
+	test.each([
+		'feature',
+		'main',
+	])('clears cached stats after a %s branch push', async pushedBranch => {
+		gitStorageCompareRepositoryRefs.mockResolvedValue(
+			comparisonWithStats('base-sha', 'head-sha')
+		)
+		const headers = await createUserAndRepository({ visibility: 'public' })
+		await createPullRequest(
+			'marta',
+			'notes',
+			{ sourceBranch: 'feature', targetBranch: 'main', title: 'Feature' },
+			headers
+		)
+		const repository = await getRepositoryRow()
+		const actor = await db.query.user.findFirst()
+		if (!actor) throw new Error('Failed to find repository owner')
+
+		await pullRequestPushEventsService.record({
+			repositoryId: repository.id,
+			actorUserId: actor.id,
+			operationId: '00000000-0000-4000-8000-000000000077',
+			occurredAtUnixMs: new Date('2026-08-17T10:00:00Z').getTime(),
+			updates: [
+				{
+					refName: `refs/heads/${pushedBranch}`,
+					oldSha: '1'.repeat(40),
+					newSha: '2'.repeat(40),
+					kind: PushRefUpdateKind.PUSH_REF_UPDATE_KIND_HEAD_UPDATED,
+				},
+			],
+		})
+
+		expect(await db.query.pullRequests.findFirst()).toMatchObject({
+			diffStatsBaseSha: null,
+			diffStatsHeadSha: null,
+			diffAdditions: null,
+			diffDeletions: null,
+			diffChangedFiles: null,
+			diffStatsUpdatedAt: null,
+		})
+	})
+
+	test('prevents an old comparison from restoring stats after a push clear', async () => {
+		gitStorageCompareRepositoryRefs.mockResolvedValue(
+			comparisonWithStats('base-sha', 'head-sha')
+		)
+		const headers = await createUserAndRepository({ visibility: 'public' })
+		await createPullRequest(
+			'marta',
+			'notes',
+			{ sourceBranch: 'feature', targetBranch: 'main', title: 'Feature' },
+			headers
+		)
+		const repository = await getRepositoryRow()
+		const actor = await db.query.user.findFirst()
+		if (!actor) throw new Error('Failed to find repository owner')
+		let releaseComparison:
+			| ((comparison: ReturnType<typeof comparisonWithStats>) => void)
+			| undefined
+		const pendingComparison = new Promise<
+			ReturnType<typeof comparisonWithStats>
+		>(resolve => {
+			releaseComparison = resolve
+		})
+		gitStorageCompareRepositoryRefs.mockReturnValueOnce(pendingComparison)
+
+		const comparisonResponse = getPullRequestComparison('marta', 'notes', 1)
+		await vi.waitFor(() => {
+			expect(gitStorageCompareRepositoryRefs).toHaveBeenCalledTimes(2)
+		})
+		await pullRequestPushEventsService.record({
+			repositoryId: repository.id,
+			actorUserId: actor.id,
+			operationId: '00000000-0000-4000-8000-000000000078',
+			occurredAtUnixMs: new Date('2026-08-17T10:00:00Z').getTime(),
+			updates: [
+				{
+					refName: 'refs/heads/feature',
+					oldSha: '1'.repeat(40),
+					newSha: '2'.repeat(40),
+					kind: PushRefUpdateKind.PUSH_REF_UPDATE_KIND_HEAD_UPDATED,
+				},
+			],
+		})
+		if (!releaseComparison) throw new Error('Comparison resolver missing')
+		releaseComparison(comparisonWithStats('base-sha', 'head-sha', 99, 33))
+
+		expect((await comparisonResponse).status).toBe(200)
+		expect(await db.query.pullRequests.findFirst()).toMatchObject({
+			diffStatsBaseSha: null,
+			diffStatsHeadSha: null,
+			diffAdditions: null,
+			diffDeletions: null,
+			diffChangedFiles: null,
+			diffStatsUpdatedAt: null,
+		})
 	})
 
 	test('allocates repository-scoped numbers safely for concurrent creates', async () => {
@@ -775,6 +933,33 @@ describe('Pull requests integration', () => {
 						payload: { fromBranch: 'main', toBranch: 'release' },
 					},
 				],
+			})
+		})
+
+		test('recomputes diff stats for the retargeted pair', async () => {
+			const headers = await createRetargetablePullRequest()
+			gitStorageCompareRepositoryRefs.mockResolvedValue(
+				comparisonWithStats('release-sha', 'head-sha', 7, 2)
+			)
+
+			const response = await retargetPullRequest(
+				'marta',
+				'notes',
+				1,
+				{ targetBranch: 'release' },
+				headers
+			)
+
+			expect(response.status).toBe(200)
+			expect(await response.json()).toMatchObject({
+				diffStats: { additions: 7, deletions: 2, changedFiles: 1 },
+			})
+			expect(await db.query.pullRequests.findFirst()).toMatchObject({
+				diffStatsBaseSha: 'release-sha',
+				diffStatsHeadSha: 'head-sha',
+				diffAdditions: 7,
+				diffDeletions: 2,
+				diffChangedFiles: 1,
 			})
 		})
 
@@ -1344,6 +1529,36 @@ describe('Pull requests integration', () => {
 			throw new Error(`Failed to create repository: ${response.status}`)
 
 		return headers
+	}
+
+	function comparisonWithStats(
+		baseSha: string,
+		headSha: string,
+		additions = 12,
+		deletions = 4
+	) {
+		return {
+			baseSha,
+			headSha,
+			mergeBaseSha: baseSha,
+			commits: [],
+			files: [
+				{
+					status: 'modified',
+					oldPath: 'src/index.ts',
+					newPath: 'src/index.ts',
+					baseBlobId: 'base-blob',
+					headBlobId: 'head-blob',
+					additions,
+					deletions,
+					isBinary: false,
+				},
+			],
+			isTruncated: false,
+			commitsTruncated: false,
+			commitLimit: 500,
+			fileLimit: 300,
+		}
 	}
 
 	async function createIntegrationSessionHeaders({
