@@ -37,6 +37,8 @@ const CREDENTIAL_PATTERN =
 	/token|sso|single[- ]sign[- ]on|saml|scope|credential|expired/i
 const SELF_APPROVAL_PATTERN = /own pull request/i
 const ANCHOR_PATTERN = /line|side|diff|position|commit_id|path/i
+// GitHub allows one unsubmitted review per reviewer, and names it when refusing.
+const PENDING_REVIEW_PATTERN = /pending review/i
 const STALE_COMMIT_PATTERN = /commit/i
 
 export function toGitHubWriteError(
@@ -82,6 +84,12 @@ function toUnprocessableError(
 
 	if (action === 'merge')
 		return new GitHubWriteRejectedError('unmergeable', { action, status })
+
+	if (action === 'review' && PENDING_REVIEW_PATTERN.test(detail))
+		return new GitHubWriteRejectedError('github_pending_review_exists', {
+			action,
+			status,
+		})
 
 	if (action === 'review' && STALE_COMMIT_PATTERN.test(detail))
 		return new GitHubWriteRejectedError('stale_head', { action, status })

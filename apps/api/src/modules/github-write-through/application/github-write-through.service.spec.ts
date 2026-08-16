@@ -9,6 +9,7 @@ import type {
 	GitHubActorId,
 	GitHubPullRequestMappingId,
 	GitHubPullRequestThreadMappingId,
+	PullRequestReviewSubmissionId,
 } from '@repo/db'
 import type {
 	PullRequestCommentId,
@@ -54,6 +55,7 @@ const TARGET: GitHubPullRequestWriteTarget = {
 		'00000000-0000-4000-8000-000000000011' as GitHubPullRequestMappingId,
 	externalNodeId: 'pull-request-node',
 	externalNumber: 17,
+	headSha: null,
 }
 const CONTEXT: GitHubWriteThroughContext = {
 	actorUserId: ACTOR_USER_ID,
@@ -126,6 +128,8 @@ const PULL_REQUEST = {
 	body: 'Body',
 	state: 'merged' as const,
 	draft: false,
+	labels: [],
+	assignees: [],
 	author: AUTHOR,
 	mergedBy: AUTHOR,
 	mergeCommitSha: 'get-merge-sha',
@@ -140,10 +144,17 @@ const PULL_REQUEST = {
 	closedAt: UPDATED_AT,
 	mergedAt: UPDATED_AT,
 }
+const SUBMISSION = {
+	id: '00000000-0000-4000-8000-000000000012' as PullRequestReviewSubmissionId,
+	createdAt: new Date('2026-08-16T09:00:00Z'),
+	externalReviewNodeId: null,
+	isUnresolved: false,
+}
 const ANCHOR = {
 	path: 'src/requested.ts',
 	side: 'right' as const,
-	line: 9,
+	startLine: 9,
+	endLine: 9,
 	anchorSha: 'anchor-sha',
 	baseSha: 'base-sha',
 	headSha: 'head-sha',
@@ -195,6 +206,8 @@ describe(GitHubWriteThroughService.name, () => {
 						requestReviewer: vi.fn(),
 						removeRequestedReviewer: vi.fn(),
 						createReview: vi.fn(),
+						listReviewComments: vi.fn(),
+						listOwnReviewsSince: vi.fn(),
 						updatePullRequest: vi.fn(),
 						mergePullRequest: vi.fn(),
 						getPullRequest: vi.fn(),
@@ -216,7 +229,11 @@ describe(GitHubWriteThroughService.name, () => {
 						echoThreadResolution: vi.fn(),
 						echoReviewerRequest: vi.fn(),
 						echoReviewerRequestRemoval: vi.fn(),
-						echoReview: vi.fn(),
+						echoBatchedReview: vi.fn(),
+						startReviewSubmission: vi.fn(),
+						recordReviewSubmissionPosted: vi.fn(),
+						failReviewSubmission: vi.fn(),
+						findMappedReviewNodeIds: vi.fn(),
 						echoPullRequest: vi.fn(),
 						requestSync: vi.fn(),
 					},
@@ -234,6 +251,10 @@ describe(GitHubWriteThroughService.name, () => {
 		targetSpy = vi
 			.spyOn(repository, 'findPullRequestTarget')
 			.mockResolvedValue(TARGET)
+		vi.spyOn(repository, 'startReviewSubmission').mockResolvedValue(SUBMISSION)
+		vi.spyOn(repository, 'recordReviewSubmissionPosted').mockResolvedValue()
+		vi.spyOn(repository, 'failReviewSubmission').mockResolvedValue()
+		vi.spyOn(client, 'listReviewComments').mockResolvedValue([])
 	})
 
 	afterEach(async () => {
@@ -273,12 +294,16 @@ describe(GitHubWriteThroughService.name, () => {
 			.mockResolvedValue(THREAD_ID)
 
 		expect(
-			await service.createThread(CONTEXT, { anchor: ANCHOR, body: 'Inline' })
+			await service.createThread(CONTEXT, {
+				body: 'Inline',
+				inline: { anchor: ANCHOR, headSha: 'resolved-head-sha' },
+			})
 		).toBe(THREAD_ID)
 		expect(clientSpy).toHaveBeenCalledWith({
 			...CLIENT_TARGET,
 			anchor: ANCHOR,
 			body: 'Inline',
+			headSha: 'resolved-head-sha',
 		})
 		expect(echoSpy).toHaveBeenCalledWith({
 			...ECHO_TARGET,
@@ -490,29 +515,189 @@ describe(GitHubWriteThroughService.name, () => {
 	test('submits and echoes an immediate GitHub review', async () => {
 		const clientSpy = vi.spyOn(client, 'createReview').mockResolvedValue(REVIEW)
 		const echoSpy = vi
-			.spyOn(repository, 'echoReview')
+			.spyOn(repository, 'echoBatchedReview')
 			.mockResolvedValue(REVIEW_ID)
 
 		expect(
 			await service.submitReview(CONTEXT, {
 				body: '',
+				drafts: [],
 				expectedHeadSha: 'expected-head',
 				outcome: 'approve',
+				pendingCommentCount: 0,
 			})
 		).toBe(REVIEW_ID)
 		expect(clientSpy).toHaveBeenCalledWith({
 			...CLIENT_TARGET,
 			body: '',
+			comments: [],
 			expectedHeadSha: 'expected-head',
 			outcome: 'approve',
 		})
 		expect(echoSpy).toHaveBeenCalledWith({
 			...ECHO_TARGET,
+			comments: [],
+			drafts: [],
 			headSha: 'expected-head',
+			isAdopted: false,
+			pendingReviewId: undefined,
 			review: REVIEW,
+			submissionId: SUBMISSION.id,
 		})
 		expect(repository.requestSync).not.toHaveBeenCalled()
 		expect(hasWriteOrder(accountSpy, targetSpy, clientSpy, echoSpy)).toBe(true)
+	})
+
+	test('posts every batched draft as one review and reads its comments back', async () => {
+		const draft = {
+			anchor: ANCHOR,
+			body: 'Inline',
+			commentId: COMMENT_ID,
+			threadId: THREAD_ID,
+		}
+		const clientSpy = vi.spyOn(client, 'createReview').mockResolvedValue(REVIEW)
+		const readBackSpy = vi
+			.spyOn(client, 'listReviewComments')
+			.mockResolvedValue([REVIEW_COMMENT])
+		const echoSpy = vi
+			.spyOn(repository, 'echoBatchedReview')
+			.mockResolvedValue(REVIEW_ID)
+
+		expect(
+			await service.submitReview(CONTEXT, {
+				body: 'Summary',
+				drafts: [draft],
+				expectedHeadSha: 'expected-head',
+				outcome: 'comment',
+				pendingCommentCount: 1,
+				pendingReviewId: REVIEW_ID,
+			})
+		).toBe(REVIEW_ID)
+		expect(clientSpy).toHaveBeenCalledOnce()
+		expect(clientSpy).toHaveBeenCalledWith({
+			...CLIENT_TARGET,
+			body: 'Summary',
+			comments: [draft],
+			expectedHeadSha: 'expected-head',
+			outcome: 'comment',
+		})
+		expect(readBackSpy).toHaveBeenCalledWith({
+			...CLIENT_TARGET,
+			reviewNumericId: REVIEW.numericId,
+		})
+		expect(echoSpy).toHaveBeenCalledWith({
+			...ECHO_TARGET,
+			comments: [REVIEW_COMMENT],
+			drafts: [draft],
+			headSha: 'expected-head',
+			isAdopted: false,
+			pendingReviewId: REVIEW_ID,
+			review: REVIEW,
+			submissionId: SUBMISSION.id,
+		})
+	})
+
+	test('replays a settled submission instead of leaving a second review', async () => {
+		vi.spyOn(repository, 'startReviewSubmission').mockResolvedValue({
+			...SUBMISSION,
+			settledReviewId: REVIEW_ID,
+		})
+
+		expect(
+			await service.submitReview(CONTEXT, {
+				body: '',
+				drafts: [],
+				expectedHeadSha: 'expected-head',
+				outcome: 'approve',
+				pendingCommentCount: 0,
+			})
+		).toBe(REVIEW_ID)
+		expect(client.createReview).not.toHaveBeenCalled()
+	})
+
+	test('adopts the review a lost attempt already created', async () => {
+		vi.spyOn(repository, 'startReviewSubmission').mockResolvedValue({
+			...SUBMISSION,
+			externalReviewNodeId: REVIEW.nodeId,
+			isUnresolved: true,
+		})
+		vi.spyOn(repository, 'findUserIdentity').mockResolvedValue({
+			actorId: ACTOR_ID,
+			externalNodeId: 'actor-node',
+			externalNumericId: 7n,
+			login: 'marta',
+		})
+		vi.spyOn(client, 'listOwnReviewsSince').mockResolvedValue([
+			{ ...REVIEW, commitId: 'expected-head' },
+		])
+		vi.spyOn(repository, 'findMappedReviewNodeIds').mockResolvedValue(new Set())
+		const echoSpy = vi
+			.spyOn(repository, 'echoBatchedReview')
+			.mockResolvedValue(REVIEW_ID)
+
+		expect(
+			await service.submitReview(CONTEXT, {
+				body: '',
+				drafts: [],
+				expectedHeadSha: 'expected-head',
+				outcome: 'approve',
+				pendingCommentCount: 0,
+			})
+		).toBe(REVIEW_ID)
+		expect(client.createReview).not.toHaveBeenCalled()
+		expect(echoSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ isAdopted: true })
+		)
+	})
+
+	test('refuses a submission whose head GitHub has already moved past', async () => {
+		targetSpy.mockResolvedValue({ ...TARGET, headSha: 'moved-head' })
+
+		await expect(
+			service.submitReview(CONTEXT, {
+				body: '',
+				drafts: [],
+				expectedHeadSha: 'expected-head',
+				outcome: 'approve',
+				pendingCommentCount: 0,
+			})
+		).rejects.toMatchObject({
+			reason: 'stale_head',
+			message: GITHUB_WRITE_REJECTED_MESSAGES.stale_head,
+		})
+		expect(client.createReview).not.toHaveBeenCalled()
+	})
+
+	test('reports an unplaceable batch and keeps the drafts by failing the ledger', async () => {
+		vi.spyOn(client, 'createReview').mockRejectedValue(
+			new GitHubWriteRejectedError('invalid_anchor')
+		)
+
+		await expect(
+			service.submitReview(CONTEXT, {
+				body: '',
+				drafts: [
+					{
+						anchor: ANCHOR,
+						body: 'Inline',
+						commentId: COMMENT_ID,
+						threadId: THREAD_ID,
+					},
+				],
+				expectedHeadSha: 'expected-head',
+				outcome: 'comment',
+				pendingCommentCount: 1,
+				pendingReviewId: REVIEW_ID,
+			})
+		).rejects.toMatchObject({
+			reason: 'unanchorable_comment',
+			message: GITHUB_WRITE_REJECTED_MESSAGES.unanchorable_comment,
+		})
+		expect(repository.failReviewSubmission).toHaveBeenCalledWith({
+			lastErrorCode: 'unanchorable_comment',
+			submissionId: SUBMISSION.id,
+		})
+		expect(repository.echoBatchedReview).not.toHaveBeenCalled()
 	})
 
 	test.each([
@@ -675,14 +860,33 @@ describe(GitHubWriteThroughService.name, () => {
 		await expect(
 			service.submitReview(CONTEXT, {
 				body: '',
+				drafts: [],
 				expectedHeadSha: 'head-sha',
 				outcome: 'request_changes',
+				pendingCommentCount: 0,
 			})
 		).rejects.toMatchObject({
 			reason: 'review_body_required',
 			message: GITHUB_WRITE_REJECTED_MESSAGES.review_body_required,
 		})
 		expect(client.createReview).not.toHaveBeenCalled()
+	})
+
+	test('lets a bodyless request-changes review through once it carries comments', async () => {
+		const clientSpy = vi.spyOn(client, 'createReview').mockResolvedValue(REVIEW)
+
+		vi.spyOn(repository, 'echoBatchedReview').mockResolvedValue(REVIEW_ID)
+
+		expect(
+			await service.submitReview(CONTEXT, {
+				body: '',
+				drafts: [],
+				expectedHeadSha: 'head-sha',
+				outcome: 'request_changes',
+				pendingCommentCount: 2,
+			})
+		).toBe(REVIEW_ID)
+		expect(clientSpy).toHaveBeenCalledOnce()
 	})
 
 	test('lets a blank recorded scope reach GitHub and keeps a credential refusal classified', async () => {
@@ -710,15 +914,17 @@ describe(GitHubWriteThroughService.name, () => {
 		await expect(
 			service.submitReview(CONTEXT, {
 				body: '',
+				drafts: [],
 				expectedHeadSha: 'head-sha',
 				outcome: 'approve',
+				pendingCommentCount: 0,
 			})
 		).rejects.toMatchObject({
 			reason: 'self_approval',
 			message: GITHUB_WRITE_REJECTED_MESSAGES.self_approval,
 		})
 		expect(repository.requestSync).not.toHaveBeenCalled()
-		expect(repository.echoReview).not.toHaveBeenCalled()
+		expect(repository.echoBatchedReview).not.toHaveBeenCalled()
 	})
 
 	test.each([
@@ -743,8 +949,10 @@ describe(GitHubWriteThroughService.name, () => {
 			() =>
 				service.submitReview(CONTEXT, {
 					body: '',
+					drafts: [],
 					expectedHeadSha: 'head-sha',
 					outcome: 'approve',
+					pendingCommentCount: 0,
 				}),
 		],
 	] as const)('requests sync when an accepted %s response cannot be read', async (_name, arrange, act) => {
