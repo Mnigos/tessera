@@ -10,6 +10,14 @@ export const routes = rootRoute('routes/__root.tsx', [
 		route('/$username', 'modules/profile/routes/profile.$username.route.tsx'),
 	]),
 	route(
+		'/organizations/new',
+		'modules/organizations/routes/organizations.new.route.tsx'
+	),
+	route(
+		'/organizations/$slug/settings',
+		'modules/organizations/routes/organizations.$slug.settings.route.tsx'
+	),
+	route(
 		'/$username/$slug',
 		'modules/repositories/routes/repository.$username.$slug.route.tsx'
 	),
