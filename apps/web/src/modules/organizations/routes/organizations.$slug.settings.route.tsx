@@ -18,9 +18,6 @@ export const Route = createFileRoute('/organizations/$slug/settings')({
 		// that does not exist, which is the answer the API gives too.
 		if (!membership) throw notFound()
 
-		// The membership list can be a moment stale: someone removed from the
-		// organization in between reads gets the not-found page rather than a
-		// generic route error.
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
 				getOrganizationQueryOptions({ organizationId: membership.id })

@@ -8,9 +8,10 @@ import type {
 	ParsedGetOrganizationInput,
 	ParsedUpdateOrganizationInput,
 } from '@repo/contracts'
-import type { OrganizationId, UserId } from '@repo/domain'
+import type { UserId } from '@repo/domain'
 import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
 import {
+	betterAuthOrganizationToOutput,
 	toOrganizationMembershipOutput,
 	toOrganizationOutput,
 } from '../domain/organization'
@@ -22,9 +23,6 @@ import {
 import { toOrganizationApiError } from '../helpers/better-auth-organization-error'
 import { OrganizationsRepository } from '../infrastructure/organizations.repository'
 import { OrganizationHandlePolicyService } from './organization-handle-policy.service'
-
-/** What Better Auth needs to evaluate the caller rather than the server. */
-type ActorHeaders = Record<string, string>
 
 @Injectable()
 export class OrganizationsService {
@@ -42,11 +40,6 @@ export class OrganizationsService {
 		return memberships.map(toOrganizationMembershipOutput)
 	}
 
-	/**
-	 * The handle is settled before Better Auth is asked to write anything, so a
-	 * handle Tessera would refuse never becomes an organization row that a later
-	 * check has to undo.
-	 */
 	async create(
 		actorUserId: UserId,
 		{ name, slug }: ParsedCreateOrganizationInput
@@ -57,11 +50,8 @@ export class OrganizationsService {
 		})
 
 		try {
-			// No headers: naming the creator is enough here, and Better Auth makes
-			// them the owner of what it creates. Better Auth reads a headerless
-			// call as a system action and skips `allowUserToCreateOrganization`,
-			// which Tessera leaves at its default of allowing everyone; a future
-			// creation gate has to be applied here rather than configured there.
+			// Headerless, so Better Auth reads this as a system action and skips
+			// `allowUserToCreateOrganization`; a future creation gate belongs here.
 			const created = await this.betterAuthService.api.createOrganization({
 				body: {
 					name,
@@ -73,23 +63,14 @@ export class OrganizationsService {
 
 			if (!created) throw new OrganizationCreateFailedError({ slug })
 
-			return toOrganizationOutput({
-				id: created.id as OrganizationId,
-				slug: created.slug,
-				name: created.name,
-				logo: created.logo ?? null,
-				createdAt: created.createdAt,
-			})
+			return betterAuthOrganizationToOutput(created)
 		} catch (error) {
 			throw toOrganizationApiError(error, { slug })
 		}
 	}
 
-	/**
-	 * Members only, and a non-member is told the organization does not exist:
-	 * the handle namespace is public, but who belongs to a private organization
-	 * is not, and a 403 would answer that question.
-	 */
+	// Non-members are told the organization does not exist: who belongs to it is
+	// not a stranger's to confirm.
 	async get(
 		viewerUserId: UserId,
 		{ organizationId }: ParsedGetOrganizationInput
@@ -108,13 +89,9 @@ export class OrganizationsService {
 		return { organization: toOrganizationOutput(organization), viewerRole }
 	}
 
-	/**
-	 * Rename re-runs the whole handle policy, because a slug is claimed here on
-	 * exactly the same terms as at creation.
-	 */
 	async update(
 		actorUserId: UserId,
-		actorHeaders: ActorHeaders,
+		actorHeaders: Record<string, string>,
 		{ name, organizationId, slug }: ParsedUpdateOrganizationInput
 	): Promise<Organization> {
 		const [organization, actorRole] = await Promise.all([
@@ -128,9 +105,8 @@ export class OrganizationsService {
 		if (!(organization && actorRole))
 			throw new OrganizationNotFoundError({ organizationId })
 
-		// Better Auth makes the authoritative decision below, from the caller's
-		// own session. This one is here so a member cannot spend a GitHub handle
-		// lookup on a rename that was never going to be allowed.
+		// Better Auth makes the authoritative decision below; this one keeps a
+		// member from spending a GitHub lookup on a rename that cannot happen.
 		if (actorRole === 'member')
 			throw new OrganizationPermissionDeniedError({ organizationId, actorRole })
 
@@ -147,8 +123,6 @@ export class OrganizationsService {
 			})
 
 		try {
-			// Forwarded headers, so the role check runs against the caller's real
-			// session instead of a user id this service asserted.
 			const updated = await this.betterAuthService.api.updateOrganization({
 				body: {
 					organizationId,
@@ -159,13 +133,7 @@ export class OrganizationsService {
 
 			if (!updated) throw new OrganizationNotFoundError({ organizationId })
 
-			return toOrganizationOutput({
-				id: updated.id as OrganizationId,
-				slug: updated.slug,
-				name: updated.name,
-				logo: updated.logo ?? null,
-				createdAt: updated.createdAt,
-			})
+			return betterAuthOrganizationToOutput(updated)
 		} catch (error) {
 			throw toOrganizationApiError(error, { organizationId, slug: nextSlug })
 		}

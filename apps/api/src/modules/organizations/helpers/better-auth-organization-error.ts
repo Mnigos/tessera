@@ -12,16 +12,8 @@ import {
 	OrganizationSlugTakenError,
 } from '../domain/organization.errors'
 
-/**
- * The last line of defence for a handle: two creations racing past every
- * application check still meet this index.
- */
 const ORGANIZATION_SLUG_CONSTRAINTS = new Set(['organization_slug_unique'])
 
-/**
- * Better Auth codes the reasons it refuses; the ones Tessera has an opinion
- * about are named here so the rest fall through to the status mapping.
- */
 const SLUG_TAKEN_CODES = new Set<string>([
 	'ORGANIZATION_ALREADY_EXISTS',
 	'ORGANIZATION_SLUG_ALREADY_TAKEN',
@@ -38,17 +30,6 @@ const PERMISSION_DENIED_CODES = new Set([
 	'YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_ORGANIZATION',
 ])
 
-/**
- * Turns whatever a Better Auth organization write threw into a Tessera error.
- *
- * Three kinds of failure arrive here. The handle conflicts are races rather
- * than duplicated policy — Tessera settles the handle before it calls, so
- * Better Auth and the unique index only reach the same conclusion when
- * something arrived in between. The coded refusals are Better Auth's own rules,
- * chiefly the role check that runs against the caller's real session. Anything
- * else still gets a status rather than escaping as an `APIError` nothing
- * downstream recognizes, which the exception filter would report as a 500.
- */
 export function toOrganizationApiError(
 	error: unknown,
 	context?: Record<string, unknown>

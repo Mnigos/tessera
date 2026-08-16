@@ -1,6 +1,7 @@
 import type { Organization } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
+import { Input } from '@repo/ui/components/input'
 import { Label } from '@repo/ui/components/label'
 import { useNavigate } from '@tanstack/react-router'
 import { TriangleAlert } from 'lucide-react'
@@ -11,8 +12,6 @@ import { useUpdateOrganizationMutation } from '../hooks/use-update-organization.
 import { OrganizationHandleField } from './organization-handle-field'
 
 const UPDATE_ORGANIZATION_ERROR_ID = 'update-organization-error'
-const NAME_INPUT_CLASSNAME =
-	'h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring'
 
 interface OrganizationSettingsFormProps {
 	organization: Organization
@@ -82,9 +81,8 @@ export function OrganizationSettingsForm({
 				<fieldset className="flex flex-col gap-4" disabled={!canRename}>
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="organization-settings-name">Name</Label>
-						<input
+						<Input
 							autoComplete="off"
-							className={NAME_INPUT_CLASSNAME}
 							id="organization-settings-name"
 							name="name"
 							onChange={event => setName(event.target.value)}

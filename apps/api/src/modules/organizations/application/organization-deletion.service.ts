@@ -15,20 +15,6 @@ export class OrganizationDeletionService {
 		private readonly organizationsRepository: OrganizationsRepository
 	) {}
 
-	/**
-	 * Deletes an organization, and says why when it does not.
-	 *
-	 * Every condition — the organization exists, the actor is an owner, the
-	 * typed handle is the handle, nothing is owned — is settled inside one
-	 * locked transaction rather than checked here first, because a second owner
-	 * renaming the organization or demoting the actor between the check and the
-	 * delete would otherwise pass unnoticed. What is left here is turning that
-	 * answer into the error the person reads.
-	 *
-	 * Owners only: `organization:delete` is the one default permission an admin
-	 * does not hold, and admins are not told a rename-capable role can also end
-	 * the organization.
-	 */
 	async delete(
 		actorUserId: UserId,
 		{ confirmationSlug, organizationId }: ParsedDeleteOrganizationInput
