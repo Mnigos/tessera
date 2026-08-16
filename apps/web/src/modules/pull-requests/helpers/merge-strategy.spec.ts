@@ -37,6 +37,33 @@ describe(resolveMergeStrategy.name, () => {
 		).toBe('squash')
 	})
 
+	test('falls back within the active list when the selection is not offered on GitHub', () => {
+		expect(
+			resolveMergeStrategy(
+				'fast_forward',
+				undefined,
+				GITHUB_MERGE_STRATEGY_ORDER
+			)
+		).toBe('merge_commit')
+	})
+
+	test('skips an unavailable method that the active list still lists', () => {
+		expect(
+			resolveMergeStrategy(
+				'fast_forward',
+				[
+					{
+						strategy: 'merge_commit',
+						available: false,
+						reason: 'conflict',
+					},
+					{ strategy: 'squash', available: true },
+				],
+				GITHUB_MERGE_STRATEGY_ORDER
+			)
+		).toBe('squash')
+	})
+
 	// With nothing available there is nothing to fall back to, and moving the
 	// selection would only hide which method the reader asked for.
 	test('keeps the selection when no method is available', () => {
