@@ -3,17 +3,13 @@ import { RequireAuth, Session, type UserSession } from '@modules/auth'
 import { Controller, Req } from '@nestjs/common'
 import { Implement, implement } from '@orpc/nest'
 import type { AppRequest } from '~/shared/types/app-request'
-import { OrganizationDeletionService } from '../application/organization-deletion.service'
 import { OrganizationsService } from '../application/organizations.service'
 import { toForwardedAuthHeaders } from '../helpers/forwarded-auth-headers'
 
 @Controller()
 @RequireAuth()
 export class OrganizationsController {
-	constructor(
-		private readonly organizationsService: OrganizationsService,
-		private readonly organizationDeletionService: OrganizationDeletionService
-	) {}
+	constructor(private readonly organizationsService: OrganizationsService) {}
 
 	@Implement(contract.organizations.list)
 	list(@Session() session: UserSession) {
@@ -58,7 +54,7 @@ export class OrganizationsController {
 	delete(@Session() session: UserSession) {
 		return implement(contract.organizations.delete).handler(
 			async ({ input }) => {
-				await this.organizationDeletionService.delete(session.user.id, input)
+				await this.organizationsService.delete(session.user.id, input)
 
 				return { deleted: true as const }
 			}

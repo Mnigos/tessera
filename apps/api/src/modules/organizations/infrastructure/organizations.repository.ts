@@ -1,5 +1,6 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
+import type { Organization, OrganizationMembership } from '@repo/contracts'
 import {
 	account,
 	and,
@@ -16,10 +17,6 @@ import {
 	user,
 } from '@repo/db'
 import type { OrganizationId, OrganizationRole, UserId } from '@repo/domain'
-import type {
-	OrganizationMembershipView,
-	OrganizationView,
-} from '../domain/organization'
 
 interface OrganizationParams {
 	organizationId: OrganizationId
@@ -57,7 +54,6 @@ const ORGANIZATION_COLUMNS = {
 	id: organization.id,
 	slug: organization.slug,
 	name: organization.name,
-	logo: organization.logo,
 	createdAt: organization.createdAt,
 }
 
@@ -67,7 +63,7 @@ export class OrganizationsRepository {
 
 	async listMemberships({
 		userId,
-	}: UserParams): Promise<OrganizationMembershipView[]> {
+	}: UserParams): Promise<OrganizationMembership[]> {
 		return await this.db
 			.select({ ...ORGANIZATION_COLUMNS, role: member.role })
 			.from(member)
@@ -78,7 +74,7 @@ export class OrganizationsRepository {
 
 	async findById({
 		organizationId,
-	}: OrganizationParams): Promise<OrganizationView | undefined> {
+	}: OrganizationParams): Promise<Organization | undefined> {
 		const [row] = await this.db
 			.select(ORGANIZATION_COLUMNS)
 			.from(organization)

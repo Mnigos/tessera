@@ -1,12 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Octokit } from '@octokit/rest'
-import type { GitHubLoginLookup } from '../domain/github-login-claim'
 import { GitHubLookupUnavailableError } from '../domain/organization.errors'
 
 const GITHUB_REQUEST_TIMEOUT_MS = 5000
 
 const HTTP_UNAUTHORIZED = 401
 const HTTP_NOT_FOUND = 404
+
+export type GitHubLoginLookup =
+	| { exists: true; id: number; login: string }
+	| { exists: false }
 
 // `null` sends the request unauthenticated, which the lookup endpoint allows at
 // GitHub's 60 requests/hour per-IP limit.
@@ -31,12 +34,7 @@ export class GitHubLoginClient {
 		try {
 			const response = await this.requestUser(login, auth.accessToken)
 
-			return {
-				exists: true,
-				id: response.data.id,
-				login: response.data.login,
-				type: response.data.type === 'Organization' ? 'Organization' : 'User',
-			}
+			return { exists: true, id: response.data.id, login: response.data.login }
 		} catch (error) {
 			if (isGitHubRequestError(error, HTTP_NOT_FOUND)) return { exists: false }
 

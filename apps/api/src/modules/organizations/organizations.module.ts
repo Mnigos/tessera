@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common'
-import { OrganizationDeletionService } from './application/organization-deletion.service'
 import { OrganizationHandlePolicyService } from './application/organization-handle-policy.service'
 import { OrganizationsService } from './application/organizations.service'
 import { GitHubLoginClient } from './infrastructure/github-login.client'
@@ -11,7 +10,6 @@ import { OrganizationsController } from './presentation/organizations.controller
 	controllers: [OrganizationsController],
 	providers: [
 		OrganizationsService,
-		OrganizationDeletionService,
 		OrganizationHandlePolicyService,
 		OrganizationsRepository,
 		GitHubLoginCacheRepository,

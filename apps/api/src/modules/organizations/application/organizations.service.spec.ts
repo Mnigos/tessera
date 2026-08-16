@@ -5,6 +5,8 @@ import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
 import { APIError } from 'better-auth/api'
 import {
 	OrganizationCreateFailedError,
+	OrganizationDeleteConfirmationError,
+	OrganizationHasRepositoriesError,
 	OrganizationNotFoundError,
 	OrganizationPermissionDeniedError,
 	OrganizationSlugTakenError,
@@ -20,9 +22,9 @@ const organization = {
 	id: organizationId,
 	slug: 'tessera',
 	name: 'Tessera',
-	logo: null,
 	createdAt,
 }
+const deleteInput = { organizationId, confirmationSlug: 'tessera' }
 
 describe(OrganizationsService.name, () => {
 	let moduleRef: TestingModule
@@ -50,6 +52,7 @@ describe(OrganizationsService.name, () => {
 						listMemberships: vi.fn(),
 						findById: vi.fn().mockResolvedValue(organization),
 						findMemberRole: vi.fn().mockResolvedValue('owner'),
+						deleteOwned: vi.fn().mockResolvedValue({ kind: 'deleted' }),
 					},
 				},
 				{
@@ -70,7 +73,7 @@ describe(OrganizationsService.name, () => {
 		vi.clearAllMocks()
 	})
 
-	test('lists mapped memberships', async () => {
+	test('lists the memberships the repository returns', async () => {
 		vi.spyOn(repository, 'listMemberships').mockResolvedValue([
 			{ ...organization, role: 'owner' },
 		])
@@ -80,7 +83,6 @@ describe(OrganizationsService.name, () => {
 				id: organizationId,
 				slug: 'tessera',
 				name: 'Tessera',
-				logoUrl: undefined,
 				createdAt,
 				role: 'owner',
 			},
@@ -237,5 +239,61 @@ describe(OrganizationsService.name, () => {
 				}
 			)
 		).rejects.toBeInstanceOf(OrganizationPermissionDeniedError)
+	})
+
+	test('delegates all deletion checks to the transactional repository', async () => {
+		const deleteOwnedSpy = vi.spyOn(repository, 'deleteOwned')
+
+		expect(await service.delete(actorUserId, deleteInput)).toBeUndefined()
+		expect(deleteOwnedSpy).toHaveBeenCalledWith({
+			organizationId,
+			userId: actorUserId,
+			confirmationSlug: 'tessera',
+		})
+	})
+
+	test('maps a missing organization or membership on delete to not found', async () => {
+		vi.spyOn(repository, 'deleteOwned').mockResolvedValue({ kind: 'not-found' })
+
+		await expect(
+			service.delete(actorUserId, deleteInput)
+		).rejects.toBeInstanceOf(OrganizationNotFoundError)
+	})
+
+	test.each([
+		'admin',
+		'member',
+	] as const)('refuses deletion by a %s', async role => {
+		vi.spyOn(repository, 'deleteOwned').mockResolvedValue({
+			kind: 'forbidden',
+			actorRole: role,
+		})
+
+		await expect(
+			service.delete(actorUserId, deleteInput)
+		).rejects.toBeInstanceOf(OrganizationPermissionDeniedError)
+	})
+
+	test('maps a confirmation mismatch to a bad request', async () => {
+		vi.spyOn(repository, 'deleteOwned').mockResolvedValue({
+			kind: 'confirmation-mismatch',
+		})
+
+		await expect(
+			service.delete(actorUserId, deleteInput)
+		).rejects.toBeInstanceOf(OrganizationDeleteConfirmationError)
+	})
+
+	test('reports the repository count when deletion is blocked', async () => {
+		vi.spyOn(repository, 'deleteOwned').mockResolvedValue({
+			kind: 'has-repositories',
+			repositoryCount: 2,
+		})
+
+		await expect(service.delete(actorUserId, deleteInput)).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof OrganizationHasRepositoriesError &&
+				error.context?.repositoryCount === 2
+		)
 	})
 })

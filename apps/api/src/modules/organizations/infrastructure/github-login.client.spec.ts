@@ -23,15 +23,15 @@ describe(GitHubLoginClient.name, () => {
 	})
 
 	test.each([
-		['User', 'User'],
-		['Organization', 'Organization'],
-		['Bot', 'User'],
-	] as const)('maps a GitHub %s login to %s', async (type, expectedType) => {
+		'User',
+		'Organization',
+		'Bot',
+	] as const)('reduces a GitHub %s login to its id and login', async type => {
 		request.mockResolvedValue({ data: { id: 42, login: 'TesseraHQ', type } })
 
 		expect(
 			await client.lookupLogin('tesserahq', { accessToken: null })
-		).toEqual({ exists: true, id: 42, login: 'TesseraHQ', type: expectedType })
+		).toEqual({ exists: true, id: 42, login: 'TesseraHQ' })
 		expect(request).toHaveBeenCalledWith(
 			'GET /users/{username}',
 			expect.objectContaining({

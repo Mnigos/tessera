@@ -39,7 +39,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 					useValue: {
 						get: vi.fn().mockResolvedValue(undefined),
 						set: vi.fn(),
-						withDedupe: vi.fn((_slug, resolve) => resolve()),
 					},
 				},
 				{
@@ -114,7 +113,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 42,
 			login: 'TesseraHQ',
-			type: 'Organization',
 		})
 
 		expect(
@@ -122,7 +120,7 @@ describe(OrganizationHandlePolicyService.name, () => {
 		).toBeUndefined()
 		expect(cache.set).toHaveBeenCalledWith(
 			'tesserahq',
-			{ exists: true, id: 42, login: 'TesseraHQ', type: 'Organization' },
+			{ exists: true, id: 42, login: 'TesseraHQ' },
 			GITHUB_LOGIN_EXISTS_TTL_SECONDS
 		)
 	})
@@ -132,7 +130,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 42,
 			login: 'CanonicalLogin',
-			type: 'User',
 		})
 
 		await expect(
@@ -161,7 +158,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 42,
 			login: 'TesseraHQ',
-			type: 'Organization',
 		})
 
 		await expect(
@@ -169,6 +165,7 @@ describe(OrganizationHandlePolicyService.name, () => {
 		).rejects.toBeInstanceOf(OrganizationSlugGitHubConflictError)
 
 		expect(client.lookupLogin).not.toHaveBeenCalled()
+		expect(cache.set).not.toHaveBeenCalled()
 	})
 
 	test('revalidates a cached positive before authorizing a linked account', async () => {
@@ -176,7 +173,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 42,
 			login: 'TesseraHQ',
-			type: 'Organization',
 		})
 		vi.spyOn(repository, 'findGitHubAccount').mockResolvedValue({
 			accountId: '42',
@@ -187,7 +183,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 43,
 			login: 'TesseraHQ',
-			type: 'Organization',
 		})
 
 		await expect(
@@ -214,7 +209,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			exists: true,
 			id: 42,
 			login: 'TesseraHQ',
-			type: 'Organization',
 		})
 
 		await expect(

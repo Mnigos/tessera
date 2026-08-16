@@ -1,7 +1,6 @@
 import { ORPCError, safe } from '@orpc/client'
 import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
-import { OrganizationSettings } from '../components/organization-settings'
-import { findOrganizationMembership } from '../helpers/find-organization-membership'
+import { OrganizationSettingsPanel } from '../components/organization-settings-panel'
 import { getOrganizationQueryOptions } from '../hooks/use-organization.query'
 import { getOrganizationsQueryOptions } from '../hooks/use-organizations.query'
 
@@ -12,7 +11,9 @@ export const Route = createFileRoute('/organizations/$slug/settings')({
 		const { organizations } = await context.queryClient.ensureQueryData(
 			getOrganizationsQueryOptions()
 		)
-		const membership = findOrganizationMembership(organizations, slug)
+		const membership = organizations.find(
+			organization => organization.slug === slug
+		)
 
 		// A handle the viewer is not a member of is indistinguishable from one
 		// that does not exist, which is the answer the API gives too.
@@ -28,7 +29,7 @@ export const Route = createFileRoute('/organizations/$slug/settings')({
 
 		if (error) throw error
 
-		return { name: membership.name }
+		return { name: membership.name, organizationId: membership.id }
 	},
 	head: ({ loaderData, params }) => ({
 		meta: [
@@ -41,11 +42,14 @@ export const Route = createFileRoute('/organizations/$slug/settings')({
 })
 
 function OrganizationSettingsRoute() {
-	const { slug } = Route.useParams()
+	const { organizationId } = Route.useLoaderData()
 
 	return (
 		<main className="mx-auto max-w-3xl px-6 py-8">
-			<OrganizationSettings slug={slug} />
+			<OrganizationSettingsPanel
+				key={organizationId}
+				organizationId={organizationId}
+			/>
 		</main>
 	)
 }

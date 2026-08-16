@@ -3,7 +3,6 @@ import type { Organization, OrganizationMembership } from '@repo/contracts'
 import type { OrganizationId } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
 import type { AppRequest } from '~/shared/types/app-request'
-import { OrganizationDeletionService } from '../application/organization-deletion.service'
 import { OrganizationsService } from '../application/organizations.service'
 import { OrganizationsController } from './organizations.controller'
 
@@ -19,7 +18,6 @@ describe(OrganizationsController.name, () => {
 	let moduleRef: TestingModule
 	let controller: OrganizationsController
 	let organizationsService: OrganizationsService
-	let deletionService: OrganizationDeletionService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -32,18 +30,14 @@ describe(OrganizationsController.name, () => {
 						create: vi.fn(),
 						get: vi.fn(),
 						update: vi.fn(),
+						delete: vi.fn(),
 					},
-				},
-				{
-					provide: OrganizationDeletionService,
-					useValue: { delete: vi.fn() },
 				},
 			],
 		}).compile()
 
 		controller = moduleRef.get(OrganizationsController)
 		organizationsService = moduleRef.get(OrganizationsService)
-		deletionService = moduleRef.get(OrganizationDeletionService)
 	})
 
 	afterEach(async () => {
@@ -119,7 +113,7 @@ describe(OrganizationsController.name, () => {
 				},
 			} as never)
 		).toEqual({ deleted: true })
-		expect(deletionService.delete).toHaveBeenCalledWith(mockUserId, {
+		expect(organizationsService.delete).toHaveBeenCalledWith(mockUserId, {
 			organizationId: organization.id,
 			confirmationSlug: 'tessera',
 		})
