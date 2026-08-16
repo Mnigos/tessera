@@ -5,18 +5,18 @@ import type {
 	OrganizationMembership,
 	OrganizationWithViewerRole,
 	ParsedCreateOrganizationInput,
+	ParsedDeleteOrganizationInput,
 	ParsedGetOrganizationInput,
 	ParsedUpdateOrganizationInput,
 } from '@repo/contracts'
-import type { UserId } from '@repo/domain'
+import type { OrganizationId, UserId } from '@repo/domain'
 import { AuthService as BetterAuthService } from '@thallesp/nestjs-better-auth'
-import {
-	betterAuthOrganizationToOutput,
-	toOrganizationMembershipOutput,
-	toOrganizationOutput,
-} from '../domain/organization'
+import { InternalError } from '~/shared/errors'
+import { toOrganization } from '../domain/organization'
 import {
 	OrganizationCreateFailedError,
+	OrganizationDeleteConfirmationError,
+	OrganizationHasRepositoriesError,
 	OrganizationNotFoundError,
 	OrganizationPermissionDeniedError,
 } from '../domain/organization.errors'
@@ -33,11 +33,7 @@ export class OrganizationsService {
 	) {}
 
 	async list(userId: UserId): Promise<OrganizationMembership[]> {
-		const memberships = await this.organizationsRepository.listMemberships({
-			userId,
-		})
-
-		return memberships.map(toOrganizationMembershipOutput)
+		return await this.organizationsRepository.listMemberships({ userId })
 	}
 
 	async create(
@@ -63,30 +59,22 @@ export class OrganizationsService {
 
 			if (!created) throw new OrganizationCreateFailedError({ slug })
 
-			return betterAuthOrganizationToOutput(created)
+			return toOrganization(created)
 		} catch (error) {
 			throw toOrganizationApiError(error, { slug })
 		}
 	}
 
-	// Non-members are told the organization does not exist: who belongs to it is
-	// not a stranger's to confirm.
 	async get(
 		viewerUserId: UserId,
 		{ organizationId }: ParsedGetOrganizationInput
 	): Promise<OrganizationWithViewerRole> {
-		const [organization, viewerRole] = await Promise.all([
-			this.organizationsRepository.findById({ organizationId }),
-			this.organizationsRepository.findMemberRole({
-				organizationId,
-				userId: viewerUserId,
-			}),
-		])
+		const { organization, role } = await this.requireMembership(
+			organizationId,
+			viewerUserId
+		)
 
-		if (!(organization && viewerRole))
-			throw new OrganizationNotFoundError({ organizationId })
-
-		return { organization: toOrganizationOutput(organization), viewerRole }
+		return { organization, viewerRole: role }
 	}
 
 	async update(
@@ -94,26 +82,23 @@ export class OrganizationsService {
 		actorHeaders: Record<string, string>,
 		{ name, organizationId, slug }: ParsedUpdateOrganizationInput
 	): Promise<Organization> {
-		const [organization, actorRole] = await Promise.all([
-			this.organizationsRepository.findById({ organizationId }),
-			this.organizationsRepository.findMemberRole({
-				organizationId,
-				userId: actorUserId,
-			}),
-		])
-
-		if (!(organization && actorRole))
-			throw new OrganizationNotFoundError({ organizationId })
+		const { organization, role } = await this.requireMembership(
+			organizationId,
+			actorUserId
+		)
 
 		// Better Auth makes the authoritative decision below; this one keeps a
 		// member from spending a GitHub lookup on a rename that cannot happen.
-		if (actorRole === 'member')
-			throw new OrganizationPermissionDeniedError({ organizationId, actorRole })
+		if (role === 'member')
+			throw new OrganizationPermissionDeniedError({
+				organizationId,
+				actorRole: role,
+			})
 
 		const nextName = name === organization.name ? undefined : name
 		const nextSlug = slug === organization.slug ? undefined : slug
 
-		if (!(nextName || nextSlug)) return toOrganizationOutput(organization)
+		if (!(nextName || nextSlug)) return organization
 
 		if (nextSlug)
 			await this.organizationHandlePolicyService.assertAvailable({
@@ -133,9 +118,61 @@ export class OrganizationsService {
 
 			if (!updated) throw new OrganizationNotFoundError({ organizationId })
 
-			return betterAuthOrganizationToOutput(updated)
+			return toOrganization(updated)
 		} catch (error) {
 			throw toOrganizationApiError(error, { organizationId, slug: nextSlug })
 		}
+	}
+
+	async delete(
+		actorUserId: UserId,
+		{ confirmationSlug, organizationId }: ParsedDeleteOrganizationInput
+	): Promise<void> {
+		const result = await this.organizationsRepository.deleteOwned({
+			organizationId,
+			userId: actorUserId,
+			confirmationSlug,
+		})
+
+		switch (result.kind) {
+			case 'deleted':
+				return
+			case 'not-found':
+				throw new OrganizationNotFoundError({ organizationId })
+			case 'forbidden':
+				throw new OrganizationPermissionDeniedError({
+					organizationId,
+					actorRole: result.actorRole,
+				})
+			case 'confirmation-mismatch':
+				throw new OrganizationDeleteConfirmationError({ organizationId })
+			case 'has-repositories':
+				throw new OrganizationHasRepositoriesError(result.repositoryCount, {
+					organizationId,
+				})
+			default:
+				// Unreachable: a deletion outcome added without a branch above fails
+				// typecheck here, and at runtime it must not report success.
+				result satisfies never
+
+				throw new InternalError('organization delete', { organizationId })
+		}
+	}
+
+	// Non-members are told the organization does not exist: who belongs to it is
+	// not a stranger's to confirm.
+	private async requireMembership(
+		organizationId: OrganizationId,
+		userId: UserId
+	) {
+		const [organization, role] = await Promise.all([
+			this.organizationsRepository.findById({ organizationId }),
+			this.organizationsRepository.findMemberRole({ organizationId, userId }),
+		])
+
+		if (!(organization && role))
+			throw new OrganizationNotFoundError({ organizationId })
+
+		return { organization, role }
 	}
 }

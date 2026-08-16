@@ -10,7 +10,6 @@ const organizationView = {
 	id: organizationId,
 	slug: 'tessera',
 	name: 'Tessera',
-	logo: null,
 	createdAt: new Date('2026-08-16T10:00:00.000Z'),
 }
 

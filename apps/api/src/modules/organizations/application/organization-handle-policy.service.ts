@@ -1,10 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import type { OrganizationId, UserId } from '@repo/domain'
 import {
-	decideGitHubLoginClaim,
-	isGitHubLoginCandidate,
-} from '../domain/github-login-claim'
-import {
 	OrganizationSlugGitHubConflictError,
 	OrganizationSlugTakenError,
 } from '../domain/organization.errors'
@@ -23,6 +19,8 @@ import {
 } from '../infrastructure/organizations.repository'
 
 interface AssertAvailableInput {
+	// Already validated against the handle grammar by the contract, which is what
+	// keeps a handle GitHub could never hold from costing a request.
 	slug: string
 	actorUserId: UserId
 	ignoreOrganizationId?: OrganizationId
@@ -51,10 +49,6 @@ export class OrganizationHandlePolicyService {
 		)
 			throw new OrganizationSlugTakenError({ handle })
 
-		// A handle outside the handle grammar cannot name a GitHub account, so it
-		// is not worth a request that can only 404.
-		if (!isGitHubLoginCandidate(handle)) return
-
 		await this.assertGitHubLoginClaimable(handle, actorUserId)
 	}
 
@@ -69,24 +63,21 @@ export class OrganizationHandlePolicyService {
 		const gitHubAccount = await this.organizationsRepository.findGitHubAccount({
 			userId: actorUserId,
 		})
-		const auth = toGitHubLoginAuth(gitHubAccount)
 		const actorAccountId = toActorAccountId(gitHubAccount)
 
-		// A shared answer only ever rejects an actor with nothing linked; an actor
-		// who could claim gets a live lookup, since a cached one may predate
+		// A cached positive can only ever reject an actor with nothing linked; an
+		// actor who could claim gets a live lookup, since a cached one may predate
 		// GitHub reassigning the login to somebody else.
 		const lookup =
-			actorAccountId === null
-				? (cachedLookup ??
-					(await this.gitHubLoginCacheRepository.withDedupe(
-						handle,
-						async () => await this.lookupLoginLive(handle, auth)
-					)))
-				: await this.lookupLoginLive(handle, auth)
+			actorAccountId === null && cachedLookup
+				? cachedLookup
+				: await this.lookupLoginLive(handle, toGitHubLoginAuth(gitHubAccount))
 
 		if (!lookup.exists) return
 
-		if (decideGitHubLoginClaim(lookup, actorAccountId) === 'conflict')
+		// The claim is settled on GitHub's immutable account id, never on the login
+		// string: a login can be released and re-registered by a stranger.
+		if (actorAccountId === null || lookup.id !== actorAccountId)
 			// GitHub follows rename redirects, so the message names the typed
 			// handle; the canonical login travels in the context.
 			throw new OrganizationSlugGitHubConflictError(handle, {

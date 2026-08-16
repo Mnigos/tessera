@@ -54,10 +54,9 @@ const GITHUB_CACHE_HANDLES = [
 	'admin-delete',
 	'confirm-delete',
 ]
-const GITHUB_CACHE_KEYS = GITHUB_CACHE_HANDLES.flatMap(handle => [
-	`github:login-exists:v1:${handle}`,
-	`github:login-exists-lock:v1:${handle}`,
-])
+const GITHUB_CACHE_KEYS = GITHUB_CACHE_HANDLES.map(
+	handle => `github:login-exists:v1:${handle}`
+)
 
 @Module({
 	imports: [
@@ -285,7 +284,6 @@ describe('Organizations integration', () => {
 			exists: true,
 			id: 4242,
 			login: 'CanonicalLogin',
-			type: 'User',
 		})
 
 		const response = await createOrganization('old-login', owner.headers)
@@ -307,7 +305,6 @@ describe('Organizations integration', () => {
 			exists: true,
 			id: 4242,
 			login: 'TesseraClaimed',
-			type: 'User',
 		})
 		expect(
 			(await createOrganization('tesseraclaimed', owner.headers)).status
@@ -372,7 +369,6 @@ describe('Organizations integration', () => {
 			exists: true,
 			id: 4242,
 			login: 'BlockedRename',
-			type: 'Organization',
 		})
 
 		const response = await updateOrganization(

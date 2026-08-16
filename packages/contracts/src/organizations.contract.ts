@@ -7,7 +7,6 @@ import {
 import { z } from 'zod'
 
 export const organizationRoleSchema = z.enum(organizationRoles)
-export type OrganizationRole = z.infer<typeof organizationRoleSchema>
 
 export const organizationSlugSchema = z
 	.string()
@@ -19,16 +18,13 @@ export const organizationSlugSchema = z
 		message:
 			'Handle may use lowercase letters, numbers, and single dashes between them.',
 	})
-export type OrganizationSlug = z.infer<typeof organizationSlugSchema>
 
 export const organizationNameSchema = z.string().trim().min(1).max(100)
-export type OrganizationName = z.infer<typeof organizationNameSchema>
 
 export const organizationSchema = z.object({
 	id: z.uuid().brand<'organization_id'>(),
 	slug: z.string(),
 	name: z.string(),
-	logoUrl: z.url().optional(),
 	createdAt: z.coerce.date(),
 })
 export type Organization = z.infer<typeof organizationSchema>
@@ -48,9 +44,6 @@ export const createOrganizationInputSchema = z.object({
 	name: organizationNameSchema,
 	slug: organizationSlugSchema,
 })
-export type CreateOrganizationInput = z.input<
-	typeof createOrganizationInputSchema
->
 export type ParsedCreateOrganizationInput = z.infer<
 	typeof createOrganizationInputSchema
 >
@@ -65,9 +58,6 @@ export const updateOrganizationInputSchema = organizationIdInputSchema.extend({
 	name: organizationNameSchema.optional(),
 	slug: organizationSlugSchema.optional(),
 })
-export type UpdateOrganizationInput = z.input<
-	typeof updateOrganizationInputSchema
->
 export type ParsedUpdateOrganizationInput = z.infer<
 	typeof updateOrganizationInputSchema
 >
@@ -77,9 +67,6 @@ export type ParsedUpdateOrganizationInput = z.infer<
 export const deleteOrganizationInputSchema = organizationIdInputSchema.extend({
 	confirmationSlug: z.string().trim(),
 })
-export type DeleteOrganizationInput = z.input<
-	typeof deleteOrganizationInputSchema
->
 export type ParsedDeleteOrganizationInput = z.infer<
 	typeof deleteOrganizationInputSchema
 >
