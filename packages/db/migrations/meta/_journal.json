@@ -169,6 +169,13 @@
       "when": 1786402856648,
       "tag": "0023_spotty_scarlet_witch",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "7",
+      "when": 1786891286924,
+      "tag": "0024_quiet_shaman",
+      "breakpoints": true
     }
   ]
 }
