@@ -37,7 +37,6 @@ export async function loadOrganizationSettings({
 	}
 }
 
-/** A viewer removed between two reads gets the not-found page, not a crash. */
 export async function ensureOrNotFound(prefetch: Promise<unknown>) {
 	const [error] = await safe(prefetch)
 

@@ -64,7 +64,7 @@ describe(OrganizationMemberRow.name, () => {
 			screen.getByRole<HTMLButtonElement>('combobox', {
 				name: 'Change role for Anna Example',
 			}).disabled
-		).toBe(true)
+		).toBeTruthy()
 	})
 
 	test('keeps role controls disabled and shows API copy while pending fails', () => {
