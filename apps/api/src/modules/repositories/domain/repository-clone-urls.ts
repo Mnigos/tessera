@@ -9,7 +9,7 @@ export interface RepositoryCloneBaseUrls {
 interface RepositoryCloneUrlsParams {
 	baseUrls: RepositoryCloneBaseUrls
 	externalSource?: RepositoryExternalSourceReadModel | null
-	ownerUsername: string
+	ownerHandle: string
 	slug: string
 }
 
@@ -26,7 +26,7 @@ const TRAILING_SLASHES_REGEX = /\/+$/
 export function toRepositoryCloneUrls({
 	baseUrls,
 	externalSource,
-	ownerUsername,
+	ownerHandle,
 	slug,
 }: RepositoryCloneUrlsParams): RepositoryCloneUrls {
 	const gitHubUrls =
@@ -36,7 +36,7 @@ export function toRepositoryCloneUrls({
 
 	if (gitHubUrls) return gitHubUrls
 
-	const path = `/${ownerUsername}/${slug}.git`
+	const path = `/${ownerHandle}/${slug}.git`
 
 	return {
 		authority: 'tessera',

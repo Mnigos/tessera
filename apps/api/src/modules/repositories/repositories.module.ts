@@ -2,7 +2,6 @@ import { ChecksModule } from '@modules/checks'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
-import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
 import { RepositoriesService } from './application/repositories.service'
 import { RepositoryPermissionsService } from './application/repository-permissions.service'
@@ -13,7 +12,6 @@ import { GitRepositoryWriteGuard } from './presentation/git-repository-write.gua
 import { InternalGitAuthorizationGuard } from './presentation/internal-git-authorization.guard'
 import { RepositoriesController } from './presentation/repositories.controller'
 import { RepositoryBrowserController } from './presentation/repository-browser.controller'
-import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 
 @Module({
 	imports: [
@@ -21,7 +19,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		GitAccessTokensModule,
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
-		UserModule,
 	],
 	controllers: [
 		RepositoriesController,
@@ -35,7 +32,6 @@ import { RepositoryOwnerGuard } from './presentation/repository-owner.guard'
 		RepositorySyncHealthRepository,
 		GitRepositoryWriteGuard,
 		InternalGitAuthorizationGuard,
-		RepositoryOwnerGuard,
 	],
 	exports: [
 		RepositoriesService,

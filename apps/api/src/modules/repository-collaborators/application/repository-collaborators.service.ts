@@ -60,7 +60,7 @@ export class RepositoryCollaboratorsService {
 			username,
 		}: ParsedAddRepositoryCollaboratorInput
 	): Promise<RepositoryCollaborator> {
-		const { ownerOrganizationId, ownerUserId, repositoryId, visibility } =
+		const { ownerOrganizationId, ownerUserId, repositoryId } =
 			await this.repositoriesService.getManageableRepositoryContext(
 				actorUserId,
 				{ username, slug }
@@ -71,7 +71,7 @@ export class RepositoryCollaboratorsService {
 		const implicitRole =
 			await this.repositoryPermissionsService.resolveImplicitRole(
 				collaboratorUserId,
-				{ id: repositoryId, visibility, ownerUserId, ownerOrganizationId }
+				{ ownerUserId, ownerOrganizationId }
 			)
 
 		if (implicitRole === 'owner')

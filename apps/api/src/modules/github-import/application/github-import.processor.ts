@@ -38,22 +38,14 @@ export class GitHubImportProcessor extends WorkerHost {
 		let didCreateRepositoryMetadata = false
 
 		try {
-			const [account, username] = await Promise.all([
-				this.githubImportRepository.findGitHubAccount({
-					userId: repositoryImport.ownerUserId,
-				}),
-				this.githubImportRepository.findOwnerUsername({
-					userId: repositoryImport.ownerUserId,
-				}),
-			])
+			const account = await this.githubImportRepository.findGitHubAccount({
+				userId: repositoryImport.ownerUserId,
+			})
 
 			if (!account?.accessToken) throw new Error('missing GitHub access token')
-			if (!username) throw new Error('missing owner username')
 
-			const repositoryMetadata = await this.prepareRepositoryMetadata({
-				repositoryImport,
-				username,
-			})
+			const repositoryMetadata =
+				await this.prepareRepositoryMetadata(repositoryImport)
 			repositoryId = repositoryMetadata.repositoryId
 			didCreateRepositoryMetadata =
 				repositoryMetadata.didCreateRepositoryMetadata
@@ -74,7 +66,6 @@ export class GitHubImportProcessor extends WorkerHost {
 			const repositoryWithStorage =
 				await this.repositoriesService.completeImportedGitHubRepository({
 					repositoryId,
-					username,
 					storagePath: importResult.storagePath,
 					defaultBranch:
 						importResult.defaultBranch || repositoryImport.sourceDefaultBranch,
@@ -125,13 +116,7 @@ export class GitHubImportProcessor extends WorkerHost {
 		}
 	}
 
-	private async prepareRepositoryMetadata({
-		repositoryImport,
-		username,
-	}: {
-		repositoryImport: RepositoryImport
-		username: string
-	}) {
+	private async prepareRepositoryMetadata(repositoryImport: RepositoryImport) {
 		if (repositoryImport.repositoryId)
 			return {
 				repositoryId: repositoryImport.repositoryId,
@@ -141,7 +126,6 @@ export class GitHubImportProcessor extends WorkerHost {
 		const repository =
 			await this.repositoriesService.createImportedRepositoryMetadata({
 				userId: repositoryImport.ownerUserId,
-				username,
 				name: normalizeRepositoryName(repositoryImport.sourceName),
 				slug: repositoryImport.targetSlug,
 				visibility:

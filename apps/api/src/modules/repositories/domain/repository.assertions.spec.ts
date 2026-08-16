@@ -19,7 +19,7 @@ const repository: RepositoryWithOwner = {
 	id: '00000000-0000-4000-8000-000000000003' as RepositoryId,
 	ownerUserId: mockUserId,
 	ownerOrganizationId: null,
-	ownerUser: { username: 'marta' },
+	owner: { kind: 'user', handle: 'marta' },
 	slug: 'tessera-notes' as RepositorySlug,
 	name: 'Tessera Notes' as RepositoryName,
 	description: 'Notes',
