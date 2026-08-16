@@ -26,6 +26,10 @@ interface UserParams {
 	userId: UserId
 }
 
+interface OrganizationSlugParams {
+	slug: string
+}
+
 interface MemberRoleParams extends OrganizationParams, UserParams {}
 
 interface DeleteOrganizationParams extends MemberRoleParams {
@@ -79,6 +83,18 @@ export class OrganizationsRepository {
 			.select(ORGANIZATION_COLUMNS)
 			.from(organization)
 			.where(eq(organization.id, organizationId))
+			.limit(1)
+
+		return row
+	}
+
+	async findBySlug({
+		slug,
+	}: OrganizationSlugParams): Promise<Organization | undefined> {
+		const [row] = await this.db
+			.select(ORGANIZATION_COLUMNS)
+			.from(organization)
+			.where(eq(organization.slug, slug))
 			.limit(1)
 
 		return row

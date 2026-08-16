@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common'
-import type { OrganizationId, UserId } from '@repo/domain'
+import {
+	type OrganizationId,
+	RESERVED_HANDLES,
+	type UserId,
+} from '@repo/domain'
 import {
 	OrganizationSlugGitHubConflictError,
 	OrganizationSlugTakenError,
@@ -40,10 +44,11 @@ export class OrganizationHandlePolicyService {
 		const handle = slug.trim().toLowerCase()
 
 		if (
-			await this.organizationsRepository.isHandleTaken({
+			RESERVED_HANDLES.has(handle) ||
+			(await this.organizationsRepository.isHandleTaken({
 				handle,
 				ignoreOrganizationId,
-			})
+			}))
 		)
 			throw new OrganizationSlugTakenError({ handle })
 

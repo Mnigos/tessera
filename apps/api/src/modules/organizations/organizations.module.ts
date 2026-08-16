@@ -15,6 +15,6 @@ import { OrganizationsController } from './presentation/organizations.controller
 		GitHubLoginCacheRepository,
 		GitHubLoginClient,
 	],
-	exports: [OrganizationsService],
+	exports: [OrganizationsService, OrganizationsRepository],
 })
 export class OrganizationsModule {}
