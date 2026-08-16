@@ -1,7 +1,11 @@
 import type { GitAccessTokenPermission } from '@repo/auth'
-import type { MergeStrategySelection } from '@repo/contracts'
+import type {
+	CreateRepositoryOwner,
+	MergeStrategySelection,
+} from '@repo/contracts'
 import { session, user } from '@repo/db'
 import { db } from '@repo/db/client'
+import type { UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { createGitE2EORPCClient } from './orpc-client'
 
@@ -16,6 +20,7 @@ interface CreateRepositoryOptions {
 	apiBaseUrl: string
 	headers: Headers
 	name: string
+	owner?: CreateRepositoryOwner
 	slug?: string
 	visibility?: 'private' | 'public'
 }
@@ -47,12 +52,12 @@ interface CreatePullRequestOptions extends PullRequestRepositoryOptions {
 	title?: string
 }
 
-export async function createTestSessionHeaders({
+export async function createTestSession({
 	apiBaseUrl,
 	email,
 	name,
 	username,
-}: CreateTestSessionOptions) {
+}: CreateTestSessionOptions): Promise<{ headers: Headers; userId: UserId }> {
 	const token = crypto.randomUUID()
 	const createdUsers = await db
 		.insert(user)
@@ -83,19 +88,26 @@ export async function createTestSessionHeaders({
 	)
 	headers.set('origin', apiBaseUrl)
 
-	return headers
+	return { headers, userId: createdUser.id }
+}
+
+export async function createTestSessionHeaders(
+	options: CreateTestSessionOptions
+) {
+	return (await createTestSession(options)).headers
 }
 
 export async function createRepository({
 	apiBaseUrl,
 	headers,
 	name,
+	owner,
 	slug,
 	visibility = 'private',
 }: CreateRepositoryOptions) {
 	const orpc = createGitE2EORPCClient(apiBaseUrl, headers)
 
-	return await orpc.repositories.create({ name, slug, visibility })
+	return await orpc.repositories.create({ name, owner, slug, visibility })
 }
 
 export async function createGitAccessToken({
