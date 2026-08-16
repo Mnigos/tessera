@@ -14,3 +14,4 @@ export {
 	type GitAccessTokenPermission,
 	getGitAccessTokenPermission,
 } from './src/git-access-tokens'
+export { ORGANIZATION_SLUG_TAKEN_BY_USER_CODE } from './src/handle-shadowing'
