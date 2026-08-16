@@ -21,9 +21,13 @@ export async function createCommittedRepository(
 	await runGit(['commit', '-m', `Add ${filename}`], directory)
 }
 
-export async function pushRepository(directory: string, remoteUrl: string) {
+export async function pushRepository(
+	directory: string,
+	remoteUrl: string,
+	refspec = 'main'
+) {
 	await runGit(['remote', 'add', 'origin', remoteUrl], directory)
-	return await runGit(['push', '-u', 'origin', 'main'], directory, {
+	return await runGit(['push', '-u', 'origin', refspec], directory, {
 		expectSuccess: false,
 	})
 }
