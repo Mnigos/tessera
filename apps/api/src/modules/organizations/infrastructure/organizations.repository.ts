@@ -17,6 +17,7 @@ import {
 	user,
 } from '@repo/db'
 import type { OrganizationId, OrganizationRole, UserId } from '@repo/domain'
+import { OrganizationBusyError } from '../domain/organization.errors'
 
 interface OrganizationParams {
 	organizationId: OrganizationId
@@ -82,6 +83,22 @@ export class OrganizationsRepository {
 			.limit(1)
 
 		return row
+	}
+
+	// Never waits: `run` needs a second pool connection, so waiters would starve it.
+	async withOrganizationLock<TResult>(
+		organizationId: OrganizationId,
+		run: () => Promise<TResult>
+	): Promise<TResult> {
+		return await this.db.transaction(async transaction => {
+			const [lock] = await transaction.execute<{ locked: boolean }>(
+				sql`select pg_try_advisory_xact_lock(hashtextextended(${`organization:${organizationId}`}, 0)) as locked`
+			)
+
+			if (!lock?.locked) throw new OrganizationBusyError({ organizationId })
+
+			return await run()
+		})
 	}
 
 	async findMemberRole({

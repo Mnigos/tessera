@@ -2,6 +2,7 @@ import { Database } from '@config/database'
 import { Test, type TestingModule } from '@nestjs/testing'
 import { invitation, member, organization } from '@repo/db'
 import type { OrganizationId, UserId } from '@repo/domain'
+import { OrganizationBusyError } from '../domain/organization.errors'
 import { OrganizationsRepository } from './organizations.repository'
 
 const userId = '00000000-0000-4000-8000-000000000001' as UserId
@@ -21,6 +22,7 @@ describe(OrganizationsRepository.name, () => {
 	const findFirst = vi.fn()
 
 	beforeEach(async () => {
+		vi.clearAllMocks()
 		moduleRef = await Test.createTestingModule({
 			providers: [
 				OrganizationsRepository,
@@ -40,7 +42,6 @@ describe(OrganizationsRepository.name, () => {
 
 	afterEach(async () => {
 		await moduleRef.close()
-		vi.clearAllMocks()
 	})
 
 	test('lists memberships in repository order', async () => {
@@ -81,6 +82,47 @@ describe(OrganizationsRepository.name, () => {
 		expect(await repository.findMemberRole({ organizationId, userId })).toBe(
 			undefined
 		)
+	})
+
+	test('takes the organization advisory lock before running the callback', async () => {
+		const operations: string[] = []
+		const execute = vi.fn(() => {
+			operations.push('lock')
+
+			return Promise.resolve([{ locked: true }])
+		})
+		transaction.mockImplementation(callback => callback({ execute }))
+		const run = vi.fn(() => {
+			operations.push('run')
+
+			return Promise.resolve('done')
+		})
+
+		expect(await repository.withOrganizationLock(organizationId, run)).toBe(
+			'done'
+		)
+		expect(execute).toHaveBeenCalledTimes(1)
+		expect(run).toHaveBeenCalledTimes(1)
+		expect(operations).toEqual(['lock', 'run'])
+	})
+
+	test('rejects a busy organization without running the callback', async () => {
+		const execute = vi.fn().mockResolvedValue([{ locked: false }])
+		transaction.mockImplementation(callback => callback({ execute }))
+		const run = vi.fn().mockResolvedValue('done')
+
+		await expect(
+			repository.withOrganizationLock(organizationId, run)
+		).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof OrganizationBusyError &&
+				error.code === 'CONFLICT' &&
+				error.message ===
+					'Another change to this organization is in progress. Try again.' &&
+				error.context?.organizationId === organizationId
+		)
+		expect(execute).toHaveBeenCalledTimes(1)
+		expect(run).not.toHaveBeenCalled()
 	})
 
 	test.each([
