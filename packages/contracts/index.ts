@@ -4,6 +4,7 @@ export * from './src/checks.contract'
 export * from './src/git-access-tokens.contract'
 export * from './src/github-import.contract'
 export * from './src/gpg-public-keys.contract'
+export * from './src/handles.contract'
 export * from './src/health.contract'
 export * from './src/organizations.contract'
 export * from './src/pull-requests.contract'
@@ -18,6 +19,7 @@ import { checksContract } from './src/checks.contract'
 import { gitAccessTokensContract } from './src/git-access-tokens.contract'
 import { githubImportContract } from './src/github-import.contract'
 import { gpgPublicKeysContract } from './src/gpg-public-keys.contract'
+import { handlesContract } from './src/handles.contract'
 import { healthContract } from './src/health.contract'
 import { organizationsContract } from './src/organizations.contract'
 import { pullRequestsContract } from './src/pull-requests.contract'
@@ -33,6 +35,7 @@ export const contract = {
 	gitAccessTokens: gitAccessTokensContract,
 	githubImport: githubImportContract,
 	gpgPublicKeys: gpgPublicKeysContract,
+	handles: handlesContract,
 	health: healthContract,
 	organizations: organizationsContract,
 	pullRequests: pullRequestsContract,
