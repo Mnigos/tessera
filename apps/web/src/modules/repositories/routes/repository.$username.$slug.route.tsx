@@ -44,7 +44,7 @@ export const Route = createFileRoute('/$username/$slug')({
 		return {
 			name: repository.repository.name,
 			slug: repository.repository.slug,
-			username: repository.owner.username,
+			username: repository.owner.handle,
 		}
 	},
 	head: ({ loaderData }) => ({

@@ -91,7 +91,7 @@ export function RepositoryBlobPreview({
 			path={blobQuery.data.path}
 			refName={blobQuery.data.ref}
 			slug={blobQuery.data.repository.slug}
-			username={blobQuery.data.owner.username}
+			username={blobQuery.data.owner.handle}
 		>
 			<BlobContent blob={blobQuery.data} />
 		</RepositoryBlobShell>
