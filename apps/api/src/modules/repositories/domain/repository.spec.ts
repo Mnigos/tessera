@@ -1,5 +1,6 @@
 import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
+	OrganizationId,
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
@@ -22,7 +23,7 @@ describe('repository domain mapper', () => {
 			id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
 			ownerUserId: '00000000-0000-4000-8000-000000000002' as UserId,
 			ownerOrganizationId: null,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 			slug: 'notes' as RepositorySlug,
 			name: 'Notes' as RepositoryName,
 			description: null,
@@ -51,6 +52,8 @@ describe('repository domain mapper', () => {
 				updatedAt: repository.updatedAt,
 			},
 			owner: {
+				kind: 'user',
+				handle: 'marta',
 				username: 'marta',
 			},
 		})
@@ -61,7 +64,7 @@ describe('repository domain mapper', () => {
 			id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
 			ownerUserId: '00000000-0000-4000-8000-000000000002' as UserId,
 			ownerOrganizationId: null,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 			slug: 'notes' as RepositorySlug,
 			name: 'Notes' as RepositoryName,
 			description: null,
@@ -127,14 +130,40 @@ describe('repository domain mapper', () => {
 		})
 	})
 
-	test('rejects rows without owner usernames', () => {
+	test('names an organization owner by its slug', () => {
+		const repository = toRepositoryWithOwner({
+			id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
+			ownerUserId: null,
+			ownerOrganizationId:
+				'00000000-0000-4000-8000-000000000050' as OrganizationId,
+			ownerHandle: 'tessera',
+			slug: 'notes' as RepositorySlug,
+			name: 'Notes' as RepositoryName,
+			description: null,
+			visibility: 'private',
+			defaultBranch: 'main',
+			storagePath: null,
+			createdAt: new Date('2026-05-12T00:00:00Z'),
+			updatedAt: new Date('2026-05-12T00:00:00Z'),
+		})
+
+		expect(repository?.owner).toEqual({
+			kind: 'organization',
+			handle: 'tessera',
+		})
+		expect(
+			repository && toRepositoryOutput(repository, CLONE_BASE_URLS).owner
+		).toEqual({ kind: 'organization', handle: 'tessera', username: 'tessera' })
+	})
+
+	test('rejects rows without an owner handle', () => {
 		expect(toRepositoryWithOwner()).toBeUndefined()
 		expect(
 			toRepositoryWithOwner({
 				id: '00000000-0000-4000-8000-000000000001' as RepositoryId,
 				ownerUserId: '00000000-0000-4000-8000-000000000002' as UserId,
 				ownerOrganizationId: null,
-				ownerUser: { username: null },
+				ownerHandle: null,
 				slug: 'notes' as RepositorySlug,
 				name: 'Notes' as RepositoryName,
 				description: null,

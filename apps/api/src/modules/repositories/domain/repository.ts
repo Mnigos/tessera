@@ -1,5 +1,9 @@
-import type { RepositoryWithOwner as RepositoryWithOwnerOutput } from '@repo/contracts'
+import type {
+	RepositoryOwnerKind,
+	RepositoryWithOwner as RepositoryWithOwnerOutput,
+} from '@repo/contracts'
 import type { Repository, RepositoryExternalSource } from '@repo/db'
+import type { OrganizationId, UserId } from '@repo/domain'
 import {
 	type RepositoryCloneBaseUrls,
 	toRepositoryCloneUrls,
@@ -38,28 +42,40 @@ export type RepositoryExternalSourceReadModel = Omit<
 		>
 	>
 
+/** Exactly one column is set; the repositories check constraint enforces it. */
+export interface RepositoryOwnerIdentity {
+	ownerUserId: UserId | null
+	ownerOrganizationId: OrganizationId | null
+}
+
+export interface RepositoryOwner {
+	kind: RepositoryOwnerKind
+	handle: string
+}
+
 export interface RepositoryWithOwner extends Repository {
-	ownerUser: {
-		username: string
-	}
+	owner: RepositoryOwner
 	externalSource?: RepositoryExternalSourceReadModel
 }
 
 export interface RepositoryOwnerRow extends Repository {
-	ownerUser?: {
-		username: string | null
-	} | null
+	ownerHandle: string | null
 	externalSource?: RepositoryExternalSourceReadModel
 }
 
 export function toRepositoryWithOwner(
-	repository?: RepositoryOwnerRow
+	row?: RepositoryOwnerRow
 ): RepositoryWithOwner | undefined {
-	if (!repository?.ownerUser?.username) return undefined
+	if (!row?.ownerHandle) return undefined
+
+	const { ownerHandle, ...repository } = row
 
 	return {
 		...repository,
-		ownerUser: { username: repository.ownerUser.username },
+		owner: {
+			kind: repository.ownerUserId ? 'user' : 'organization',
+			handle: ownerHandle,
+		},
 	}
 }
 
@@ -81,14 +97,15 @@ export function toRepositoryOutput(
 			cloneUrls: toRepositoryCloneUrls({
 				baseUrls: cloneBaseUrls,
 				externalSource: repository.externalSource,
-				ownerUsername: repository.ownerUser.username,
+				ownerHandle: repository.owner.handle,
 				slug: repository.slug,
 			}),
 			createdAt: repository.createdAt,
 			updatedAt: repository.updatedAt,
 		},
 		owner: {
-			username: repository.ownerUser.username,
+			...repository.owner,
+			username: repository.owner.handle,
 		},
 	}
 }

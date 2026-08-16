@@ -25,8 +25,6 @@ export class RepositoryWriteGuard implements CanActivate {
 		if (!slug) throw new RepositoryNotFoundError({ username })
 		if (!viewerUserId) throw new RepositoryNotFoundError({ username })
 
-		request.viewerUserId = viewerUserId
-
 		await this.repositoriesService.assertViewerRepositoryWriteAccess(
 			viewerUserId,
 			{ username, slug: slug as RepositorySlug }

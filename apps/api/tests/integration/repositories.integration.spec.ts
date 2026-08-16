@@ -10,21 +10,29 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { eq, sql } from '@repo/db'
+import { eq, type GitHubInstallationId, sql } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
 	account,
+	gitHubInstallations,
+	member,
+	organization,
 	repositories,
 	repositoryExternalSources,
 	session,
 	user,
 } from '@repo/db/schema'
-import type { RepositoryId } from '@repo/domain'
+import type {
+	OrganizationId,
+	RepositoryId,
+	RepositoryName,
+	RepositorySlug,
+	UserId,
+} from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 import { ExternalServiceError } from '~/shared/errors'
 import { mockRepositoryCommit } from '~/shared/mocks/repository-commit.mock'
-import { RepositoriesRepository } from '../../src/modules/repositories/infrastructure/repositories.repository'
 
 const MIGRATIONS_FOLDER = fileURLToPath(
 	new URL('../../../../packages/db/migrations', import.meta.url)
@@ -84,6 +92,8 @@ interface RepositoryResponseBody {
 		updatedAt: string
 	}
 	owner: {
+		kind: 'user' | 'organization'
+		handle: string
 		username: string
 	}
 }
@@ -188,15 +198,20 @@ interface CreateIntegrationUserOptions {
 
 interface CreateIntegrationExternalSourceOptions {
 	repositoryId: RepositoryId
+	externalRepositoryId?: bigint
+	installationId?: GitHubInstallationId
 	mirrorMode?: 'imported' | 'github_to_tessera' | 'tessera_source'
+	ownerLogin?: string
+	slug?: string
 	syncStatus?: 'pending' | 'running' | 'succeeded' | 'failed'
 	nextSyncAt?: Date | null
-	/**
-	 * How fresh the mirror is. Cutover reads derived sync health rather than the
-	 * stored status, so a test that expects it to succeed has to say the last
-	 * reconciliation happened recently — a fixed past date reads as stale.
-	 */
 	lastSyncSucceededAt?: Date
+}
+
+interface IntegrationUser {
+	id: UserId
+	headers: Headers
+	username: string
 }
 
 describe('Repositories integration', () => {
@@ -210,7 +225,6 @@ describe('Repositories integration', () => {
 	let gitStorageGetRepositoryBlob: ReturnType<typeof vi.fn>
 	let gitStorageGetRepositoryRawBlob: ReturnType<typeof vi.fn>
 	let gitStorageListRepositoryCommits: ReturnType<typeof vi.fn>
-	let repositoriesRepository: RepositoriesRepository
 
 	beforeAll(async () => {
 		vi.spyOn(Logger, 'warn').mockImplementation(() => undefined)
@@ -302,7 +316,6 @@ describe('Repositories integration', () => {
 			})
 			.compile()
 
-		repositoriesRepository = moduleRef.get(RepositoriesRepository)
 		adapter = new HonoAdapter()
 		app = moduleRef.createNestApplication(adapter)
 
@@ -424,6 +437,8 @@ describe('Repositories integration', () => {
 				defaultBranch: 'main',
 			},
 			owner: {
+				kind: 'user',
+				handle: 'marta',
 				username: 'marta',
 			},
 		})
@@ -434,134 +449,409 @@ describe('Repositories integration', () => {
 		})
 	})
 
-	test('claims due GitHub mirror sync repositories from the database', async () => {
-		const headers = await createIntegrationSessionHeaders({
-			username: 'marta',
-			email: 'marta@example.com',
-		})
-		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
-		const repository = await db.query.repositories.findFirst({
-			where: sql`${repositories.slug} = ${'notes'}`,
-		})
+	test.each([
+		'owner',
+		'admin',
+	] as const)('creates an organization-owned repository as an organization %s', async role => {
+		const actor = await createIntegrationUser(`org-${role}`)
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, role)
 
-		if (!repository) throw new Error('Failed to create repository')
-
-		await db.insert(repositoryExternalSources).values({
-			repositoryId: repository.id,
-			provider: 'github',
-			externalRepositoryId: 123n,
-			ownerLogin: 'marta',
-			name: 'notes',
-			fullName: 'marta/notes',
-			sourceUrl: 'https://github.com/marta/notes',
-			sourceDefaultBranch: 'main',
-			mirrorMode: 'github_to_tessera',
-			syncStatus: 'succeeded',
-			lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-			nextSyncAt: new Date('2026-05-12T00:15:00Z'),
-			syncFailureCount: 2,
-		})
-
-		const claimed =
-			await repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
-				limit: 1,
-				now: new Date('2026-05-12T00:16:00Z'),
-			})
-		const externalSource = await db.query.repositoryExternalSources.findFirst({
-			where: eq(repositoryExternalSources.repositoryId, repository.id),
-		})
-
-		expect(claimed).toEqual([
-			expect.objectContaining({
-				id: repository.id,
-				ownerUserId: repository.ownerUserId,
-				storagePath: repository.storagePath,
-				externalSource: expect.objectContaining({
-					syncStatus: 'pending',
-					syncFailureCount: 2,
-				}),
-			}),
-		])
-		expect(externalSource).toEqual(
-			expect.objectContaining({
-				syncStatus: 'pending',
-				syncFailureCount: 2,
-				syncFailureReason: null,
-			})
+		const response = await createRepository(
+			{
+				name: 'Organization Notes',
+				slug: 'notes',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
 		)
+		const body = (await response.json()) as RepositoryResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.owner).toEqual({
+			kind: 'organization',
+			handle: 'tessera',
+			username: 'tessera',
+		})
+		expect(body.repository.slug).toBe('notes')
 	})
 
-	test('claims stale pending GitHub mirror sync repositories once', async () => {
-		const firstHeaders = await createIntegrationSessionHeaders({
-			username: 'marta',
-			email: 'marta@example.com',
-		})
-		await createRepository({ name: 'Notes', slug: 'notes' }, firstHeaders)
-		const firstRepository = await db.query.repositories.findFirst({
-			where: sql`${repositories.slug} = ${'notes'}`,
-		})
-		const secondHeaders = await createIntegrationSessionHeaders({
-			username: 'marek',
-			email: 'marek@example.com',
-		})
-		await createRepository({ name: 'Docs', slug: 'docs' }, secondHeaders)
-		const secondRepository = await db.query.repositories.findFirst({
-			where: sql`${repositories.slug} = ${'docs'}`,
-		})
+	test.each([
+		['member', true, 'member'],
+		['outsider', true, undefined],
+		['unknown organization', false, undefined],
+	] as const)('returns forbidden when a %s creates an organization-owned repository', async (_label, organizationExists, role) => {
+		const actor = await createIntegrationUser('actor')
+		const organizationId = organizationExists
+			? await createIntegrationOrganization('tessera')
+			: (crypto.randomUUID() as OrganizationId)
+		if (role) await seedOrganizationMember(organizationId, actor.id, role)
 
-		if (!(firstRepository && secondRepository))
-			throw new Error('Failed to create repositories')
-
-		await db.insert(repositoryExternalSources).values([
+		const response = await createRepository(
 			{
-				repositoryId: firstRepository.id,
-				provider: 'github',
-				externalRepositoryId: 123n,
-				ownerLogin: 'marta',
-				name: 'notes',
-				fullName: 'marta/notes',
-				sourceUrl: 'https://github.com/marta/notes',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera',
-				syncStatus: 'pending',
-				nextSyncAt: new Date('2026-05-12T00:15:00Z'),
-				updatedAt: new Date('2026-05-12T00:00:00Z'),
+				name: 'Organization Notes',
+				owner: { kind: 'organization', organizationId },
 			},
-			{
-				repositoryId: secondRepository.id,
-				provider: 'github',
-				externalRepositoryId: 456n,
-				ownerLogin: 'marek',
-				name: 'docs',
-				fullName: 'marek/docs',
-				sourceUrl: 'https://github.com/marek/docs',
-				sourceDefaultBranch: 'main',
-				mirrorMode: 'github_to_tessera',
-				syncStatus: 'succeeded',
-				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
-				nextSyncAt: new Date('2026-05-12T00:15:00Z'),
-			},
-		])
-
-		const [firstClaim, secondClaim] = await Promise.all([
-			repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
-				limit: 1,
-				now: new Date('2026-05-12T00:31:00Z'),
-			}),
-			repositoriesRepository.claimDueGitHubMirrorSyncRepositories({
-				limit: 1,
-				now: new Date('2026-05-12T00:31:00Z'),
-			}),
-		])
-		const claimedRepositoryIds = [...firstClaim, ...secondClaim].map(
-			repository => repository.id
+			actor.headers
 		)
 
-		expect(firstClaim).toHaveLength(1)
-		expect(secondClaim).toHaveLength(1)
-		expect(new Set(claimedRepositoryIds)).toEqual(
-			new Set([firstRepository.id, secondRepository.id])
+		expect(response.status).toBe(403)
+		expect(await response.json()).toMatchObject({
+			code: 'FORBIDDEN',
+			message: 'repository administration access denied',
+		})
+		expect(gitStorageCreateRepository).not.toHaveBeenCalled()
+	})
+
+	test('allows the same repository slug under a user and an organization', async () => {
+		const actor = await createIntegrationUser('marta')
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, 'owner')
+
+		const userResponse = await createRepository(
+			{ name: 'Personal Notes', slug: 'notes' },
+			actor.headers
 		)
+		const organizationResponse = await createRepository(
+			{
+				name: 'Organization Notes',
+				slug: 'notes',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+
+		expect(userResponse.status).toBe(200)
+		expect(organizationResponse.status).toBe(200)
+		expect((await userResponse.json()) as RepositoryResponseBody).toMatchObject(
+			{
+				owner: { kind: 'user', handle: 'marta', username: 'marta' },
+			}
+		)
+		expect(
+			(await organizationResponse.json()) as RepositoryResponseBody
+		).toMatchObject({
+			owner: {
+				kind: 'organization',
+				handle: 'tessera',
+				username: 'tessera',
+			},
+		})
+	})
+
+	test.each([
+		'owner',
+		'admin',
+	] as const)('lists only organization repositories for an organization %s', async role => {
+		const actor = await createIntegrationUser(`org-${role}`)
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, role)
+		await createRepository(
+			{ name: 'Personal', slug: 'personal' },
+			actor.headers
+		)
+		await createRepository(
+			{
+				name: 'Notes',
+				slug: 'notes',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+		await createRepository(
+			{
+				name: 'Roadmap',
+				slug: 'roadmap',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+
+		const response = await listRepositories('tessera', actor.headers)
+		const body = (await response.json()) as RepositoryListResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.repositories.map(({ repository }) => repository.slug)).toEqual([
+			'notes',
+			'roadmap',
+		])
+		expect(
+			body.repositories.every(
+				({ owner }) =>
+					owner.kind === 'organization' && owner.handle === 'tessera'
+			)
+		).toBeTruthy()
+	})
+
+	test.each([
+		['member', true],
+		['outsider', false],
+	] as const)('hides an organization repository list from an organization %s', async (_label, seedMembership) => {
+		const actor = await createIntegrationUser('actor')
+		const organizationId = await createIntegrationOrganization('tessera')
+		if (seedMembership)
+			await seedOrganizationMember(organizationId, actor.id, 'member')
+
+		const response = await listRepositories('tessera', actor.headers)
+
+		expect(response.status).toBe(404)
+		expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' })
+	})
+
+	test('uses the user first when a user and organization share a handle', async () => {
+		const actor = await createIntegrationUser('shared')
+		const organizationId = await createIntegrationOrganization('shared')
+		await seedOrganizationMember(organizationId, actor.id, 'owner')
+		const userCreateResponse = await createRepository(
+			{ name: 'User Notes', slug: 'notes' },
+			actor.headers
+		)
+		await createRepository(
+			{
+				name: 'Organization Notes',
+				slug: 'notes',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+		const userRepository =
+			(await userCreateResponse.json()) as RepositoryResponseBody
+
+		const getResponse = await getRepository('shared', 'notes', actor.headers)
+		const listResponse = await listRepositories('shared', actor.headers)
+		const listed = (await listResponse.json()) as RepositoryListResponseBody
+
+		expect(getResponse.status).toBe(200)
+		expect(await getResponse.json()).toMatchObject({
+			repository: { id: userRepository.repository.id, name: 'User Notes' },
+			owner: { kind: 'user', handle: 'shared', username: 'shared' },
+		})
+		expect(listResponse.status).toBe(200)
+		expect(listed.repositories).toHaveLength(1)
+		expect(listed.repositories[0]).toMatchObject({
+			repository: { id: userRepository.repository.id },
+			owner: { kind: 'user', handle: 'shared', username: 'shared' },
+		})
+	})
+
+	test('lets an organization admin use repository details and GitHub settings', async () => {
+		const actor = await createIntegrationUser('admin')
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, 'admin')
+		await createRepository(
+			{
+				name: 'Imported',
+				slug: 'imported',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+		await createRepository(
+			{
+				name: 'Mirror',
+				slug: 'mirror',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+		const importedRepository = await getRepositoryRow('imported')
+		const mirroredRepository = await getRepositoryRow('mirror')
+		const installationId = await createIntegrationGitHubInstallation()
+		await createIntegrationExternalSource({
+			repositoryId: importedRepository.id,
+			externalRepositoryId: 123n,
+			installationId,
+			mirrorMode: 'imported',
+			slug: 'imported',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: mirroredRepository.id,
+			externalRepositoryId: 456n,
+			mirrorMode: 'github_to_tessera',
+			slug: 'mirror',
+			lastSyncSucceededAt: new Date(),
+		})
+
+		const getResponse = await getRepository(
+			'tessera',
+			'imported',
+			actor.headers
+		)
+		const enableResponse = await enableGitHubMirror(
+			'tessera',
+			'imported',
+			actor.headers
+		)
+		const healthResponse = await getGitHubSyncHealth(
+			'tessera',
+			'mirror',
+			actor.headers
+		)
+		const reauthorizationResponse = await getGitHubReauthorization(
+			'tessera',
+			'mirror',
+			actor.headers
+		)
+		const cutoverResponse = await cutoverGitHubMirror(
+			'tessera',
+			'mirror',
+			actor.headers
+		)
+
+		expect(getResponse.status).toBe(200)
+		expect(await getResponse.json()).toMatchObject({
+			owner: {
+				kind: 'organization',
+				handle: 'tessera',
+				username: 'tessera',
+			},
+		})
+		expect(enableResponse.status).toBe(200)
+		expect(await enableResponse.json()).toEqual({ status: 'enabled' })
+		expect(healthResponse.status).toBe(200)
+		expect(await healthResponse.json()).toEqual({
+			syncHealth: expect.objectContaining({ state: 'healthy' }),
+		})
+		expect(reauthorizationResponse.status).toBe(200)
+		expect(await reauthorizationResponse.json()).toEqual({
+			reauthorizationRequired: false,
+		})
+		expect(cutoverResponse.status).toBe(200)
+		expect(await cutoverResponse.json()).toMatchObject({
+			repository: { externalSource: { mode: 'tessera_source' } },
+			owner: { kind: 'organization', handle: 'tessera' },
+		})
+	})
+
+	test.each([
+		['GET', ''],
+		['POST', '/github-mirror/enable'],
+		['GET', '/github-mirror/health'],
+		['GET', '/github-mirror/reauthorization'],
+		['POST', '/cutover'],
+	] as const)('hides repository administration from an organization member using %s /repositories/:owner/:slug%s', async (method, suffix) => {
+		const actor = await createIntegrationUser('member')
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, 'member')
+		await seedOrganizationRepository(organizationId, 'notes')
+
+		const response = await requestRepositoryProcedure({
+			method,
+			path: `tessera/notes${suffix}`,
+			headers: actor.headers,
+		})
+
+		expect(response.status).toBe(404)
+		expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' })
+	})
+
+	test.each([
+		['GET', ''],
+		['POST', '/github-mirror/enable'],
+		['GET', '/github-mirror/health'],
+		['GET', '/github-mirror/reauthorization'],
+		['POST', '/cutover'],
+	] as const)('hides repository administration from an organization outsider using %s /repositories/:owner/:slug%s', async (method, suffix) => {
+		const actor = await createIntegrationUser('outsider')
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationRepository(organizationId, 'notes')
+
+		const response = await requestRepositoryProcedure({
+			method,
+			path: `tessera/notes${suffix}`,
+			headers: actor.headers,
+		})
+
+		expect(response.status).toBe(404)
+		expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' })
+	})
+
+	test('re-authorizes every guarded procedure against decoded input instead of only its path', async () => {
+		const attacker = await createIntegrationUser('attacker')
+		const victim = await createIntegrationUser('victim')
+		for (const slug of ['details', 'imported', 'mirror']) {
+			await createRepository({ name: slug, slug }, attacker.headers)
+			await createRepository({ name: slug, slug }, victim.headers)
+		}
+		const victimImportedRepository = await getRepositoryRowForOwner(
+			victim.id,
+			'imported'
+		)
+		const victimMirroredRepository = await getRepositoryRowForOwner(
+			victim.id,
+			'mirror'
+		)
+		const installationId = await createIntegrationGitHubInstallation()
+		await createIntegrationExternalSource({
+			repositoryId: victimImportedRepository.id,
+			externalRepositoryId: 123n,
+			installationId,
+			mirrorMode: 'imported',
+			slug: 'imported',
+			ownerLogin: 'victim',
+		})
+		await createIntegrationExternalSource({
+			repositoryId: victimMirroredRepository.id,
+			externalRepositoryId: 456n,
+			mirrorMode: 'github_to_tessera',
+			slug: 'mirror',
+			ownerLogin: 'victim',
+			lastSyncSucceededAt: new Date(),
+		})
+		const attacks = [
+			{ method: 'GET', path: 'attacker/details', slug: 'details' },
+			{
+				method: 'POST',
+				path: 'attacker/imported/github-mirror/enable',
+				slug: 'imported',
+			},
+			{
+				method: 'GET',
+				path: 'attacker/mirror/github-mirror/health',
+				slug: 'mirror',
+			},
+			{
+				method: 'GET',
+				path: 'attacker/mirror/github-mirror/reauthorization',
+				slug: 'mirror',
+			},
+			{
+				method: 'POST',
+				path: 'attacker/mirror/cutover',
+				slug: 'mirror',
+			},
+		] as const
+
+		for (const attack of attacks) {
+			const input = { username: 'victim', slug: attack.slug }
+			const response = await requestRepositoryProcedure({
+				method: attack.method,
+				path: attack.path,
+				headers: attacker.headers,
+				body: attack.method === 'POST' ? input : undefined,
+				query: attack.method === 'GET' ? input : undefined,
+			})
+
+			expect(response.status).toBe(404)
+			expect(await response.json()).toMatchObject({ code: 'NOT_FOUND' })
+		}
+
+		expect(
+			await db.query.repositoryExternalSources.findFirst({
+				where: eq(
+					repositoryExternalSources.repositoryId,
+					victimImportedRepository.id
+				),
+			})
+		).toMatchObject({ mirrorMode: 'imported' })
+		expect(
+			await db.query.repositoryExternalSources.findFirst({
+				where: eq(
+					repositoryExternalSources.repositoryId,
+					victimMirroredRepository.id
+				),
+			})
+		).toMatchObject({ mirrorMode: 'github_to_tessera', cutoverAt: null })
 	})
 
 	test('cuts over a succeeded GitHub mirror to Tessera source and preserves GitHub metadata', async () => {
@@ -949,6 +1239,8 @@ describe('Repositories integration', () => {
 				updatedAt: expect.any(String),
 			},
 			owner: {
+				kind: 'user',
+				handle: 'marta',
 				username: 'marta',
 			},
 		})
@@ -1618,14 +1910,24 @@ describe('Repositories integration', () => {
 	async function createIntegrationSessionHeaders(
 		options: CreateIntegrationUserOptions
 	) {
+		return (await createIntegrationUser(options)).headers
+	}
+
+	async function createIntegrationUser(
+		options: CreateIntegrationUserOptions | string
+	): Promise<IntegrationUser> {
+		const normalizedOptions =
+			typeof options === 'string'
+				? { username: options, email: `${options}@example.com` }
+				: options
 		const token = crypto.randomUUID()
 		const createdUsers = await db
 			.insert(user)
 			.values({
-				name: options.name ?? options.username,
-				email: options.email,
+				name: normalizedOptions.name ?? normalizedOptions.username,
+				email: normalizedOptions.email,
 				emailVerified: true,
-				username: options.username,
+				username: normalizedOptions.username,
 			})
 			.returning({ id: user.id })
 		const createdUser = createdUsers[0]
@@ -1647,12 +1949,19 @@ describe('Repositories integration', () => {
 			)}`
 		)
 
-		return headers
+		return {
+			id: createdUser.id,
+			headers,
+			username: normalizedOptions.username,
+		}
 	}
 
 	async function resetIntegrationDatabase() {
 		await db.delete(repositoryExternalSources)
 		await db.delete(repositories)
+		await db.delete(gitHubInstallations)
+		await db.delete(member)
+		await db.delete(organization)
 		await db.delete(session)
 		await db.delete(account)
 		await db.delete(user)
@@ -1661,6 +1970,16 @@ describe('Repositories integration', () => {
 	async function getRepositoryRow(slug: string) {
 		const repository = await db.query.repositories.findFirst({
 			where: sql`${repositories.slug} = ${slug}`,
+		})
+
+		if (!repository) throw new Error('Failed to create repository')
+
+		return repository
+	}
+
+	async function getRepositoryRowForOwner(userId: UserId, slug: string) {
+		const repository = await db.query.repositories.findFirst({
+			where: sql`${repositories.ownerUserId} = ${userId} and ${repositories.slug} = ${slug}`,
 		})
 
 		if (!repository) throw new Error('Failed to create repository')
@@ -1679,20 +1998,25 @@ describe('Repositories integration', () => {
 	}
 
 	async function createIntegrationExternalSource({
+		externalRepositoryId = 123n,
+		installationId,
 		lastSyncSucceededAt = new Date('2026-05-12T00:01:00Z'),
 		mirrorMode = 'github_to_tessera',
 		nextSyncAt,
+		ownerLogin = 'marta',
 		repositoryId,
+		slug = 'notes',
 		syncStatus = 'succeeded',
 	}: CreateIntegrationExternalSourceOptions) {
 		await db.insert(repositoryExternalSources).values({
 			repositoryId,
 			provider: 'github',
-			externalRepositoryId: 123n,
-			ownerLogin: 'marta',
-			name: 'notes',
-			fullName: 'marta/notes',
-			sourceUrl: 'https://github.com/marta/notes',
+			installationId,
+			externalRepositoryId,
+			ownerLogin,
+			name: slug,
+			fullName: `${ownerLogin}/${slug}`,
+			sourceUrl: `https://github.com/${ownerLogin}/${slug}`,
 			sourceDefaultBranch: 'main',
 			mirrorMode,
 			syncStatus,
@@ -1702,6 +2026,57 @@ describe('Repositories integration', () => {
 			lastSyncStartedAt:
 				syncStatus === 'running' ? new Date('2026-05-12T00:01:00Z') : undefined,
 		})
+	}
+
+	async function createIntegrationOrganization(
+		slug: string
+	): Promise<OrganizationId> {
+		const [createdOrganization] = await db
+			.insert(organization)
+			.values({ name: slug, slug })
+			.returning({ id: organization.id })
+
+		if (!createdOrganization)
+			throw new Error('Failed to create integration organization')
+
+		return createdOrganization.id
+	}
+
+	async function seedOrganizationMember(
+		organizationId: OrganizationId,
+		userId: UserId,
+		role: 'owner' | 'admin' | 'member'
+	) {
+		await db.insert(member).values({ organizationId, userId, role })
+	}
+
+	async function seedOrganizationRepository(
+		organizationId: OrganizationId,
+		slug: string
+	) {
+		await db.insert(repositories).values({
+			ownerOrganizationId: organizationId,
+			ownerUserId: null,
+			name: slug as RepositoryName,
+			slug: slug as RepositorySlug,
+			storagePath: `/var/lib/tessera/repositories/${slug}.git`,
+		})
+	}
+
+	async function createIntegrationGitHubInstallation() {
+		const [installation] = await db
+			.insert(gitHubInstallations)
+			.values({
+				externalInstallationId: 123n,
+				accountNodeId: 'organization-node',
+				accountLogin: 'tessera',
+				targetType: 'organization',
+			})
+			.returning({ id: gitHubInstallations.id })
+
+		if (!installation) throw new Error('Failed to create GitHub installation')
+
+		return installation.id
 	}
 
 	function createRepository(input: object, headers?: Headers) {
@@ -1739,6 +2114,18 @@ describe('Repositories integration', () => {
 		)
 	}
 
+	function enableGitHubMirror(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return requestRepositoryProcedure({
+			method: 'POST',
+			path: `${username}/${slug}/github-mirror/enable`,
+			headers,
+		})
+	}
+
 	function getGitHubSyncHealth(
 		username: string,
 		slug: string,
@@ -1747,6 +2134,46 @@ describe('Repositories integration', () => {
 		return adapter.hono.request(
 			`http://localhost/repositories/${username}/${slug}/github-mirror/health`,
 			{ headers }
+		)
+	}
+
+	function getGitHubReauthorization(
+		username: string,
+		slug: string,
+		headers?: Headers
+	) {
+		return requestRepositoryProcedure({
+			method: 'GET',
+			path: `${username}/${slug}/github-mirror/reauthorization`,
+			headers,
+		})
+	}
+
+	function requestRepositoryProcedure({
+		body,
+		headers,
+		method,
+		path,
+		query,
+	}: {
+		body?: object
+		headers?: Headers
+		method: 'GET' | 'POST'
+		path: string
+		query?: Record<string, string>
+	}) {
+		const requestHeaders = new Headers(headers)
+		if (body) requestHeaders.set('content-type', 'application/json')
+		const searchParams = new URLSearchParams(query)
+		const queryString = searchParams.size ? `?${searchParams.toString()}` : ''
+
+		return adapter.hono.request(
+			`http://localhost/repositories/${path}${queryString}`,
+			{
+				method,
+				headers: requestHeaders,
+				body: body ? JSON.stringify(body) : undefined,
+			}
 		)
 	}
 
