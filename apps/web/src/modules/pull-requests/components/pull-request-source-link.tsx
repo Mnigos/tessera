@@ -7,11 +7,7 @@ interface PullRequestSourceLinkProps {
 	className?: string
 }
 
-/**
- * Sends the reader to the copy of a synchronized conversation that they can
- * actually act on. Tessera never writes back, so every synchronized surface
- * offers this way out.
- */
+/** Marks provenance as much as it offers a destination: this row exists on GitHub. */
 export function PullRequestSourceLink({
 	href,
 	label = 'View on GitHub',

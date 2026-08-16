@@ -58,6 +58,7 @@ interface PullRequestComparisonFilesProps {
 	number: string
 	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
+	isGitHubAuthoritative: boolean
 }
 
 export function PullRequestComparisonFiles({
@@ -69,6 +70,7 @@ export function PullRequestComparisonFiles({
 	number,
 	review,
 	viewerUserId,
+	isGitHubAuthoritative,
 }: Readonly<PullRequestComparisonFilesProps>) {
 	const [expandedPaths, setExpandedPaths] = useState<string[]>([])
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
@@ -77,6 +79,7 @@ export function PullRequestComparisonFiles({
 	const permissions = getPullRequestThreadPermissions({
 		viewer: threadsQuery.data?.viewer,
 		viewerUserId,
+		isGitHubAuthoritative,
 		review: review && { ...review, headSha: comparison.headSha },
 	})
 	const unanchoredThreads = getUnanchoredInlineThreads(

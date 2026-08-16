@@ -8,6 +8,10 @@ import { mergeStrategies } from '@repo/domain'
 /** The methods, in the order they are offered. */
 export const MERGE_STRATEGY_ORDER: readonly MergeStrategy[] = mergeStrategies
 
+/** GitHub merges pull requests three ways; fast-forward is not one of them. */
+export const GITHUB_MERGE_STRATEGY_ORDER: readonly MergeStrategy[] =
+	MERGE_STRATEGY_ORDER.filter(strategy => strategy !== 'fast_forward')
+
 /** What the button says once a method is chosen. */
 export function getMergeStrategyLabel(strategy: MergeStrategy): string {
 	switch (strategy) {

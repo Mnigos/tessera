@@ -2,10 +2,12 @@ import type {
 	PullRequestActor,
 	PullRequestEffectiveReviewState,
 	PullRequestEvent,
+	PullRequestPendingReview,
 	PullRequestReview,
 	PullRequestReviewerRequest,
 	PullRequestReviewId,
 	PullRequestReviewOutcome,
+	PullRequestReviewViewer,
 	SessionUser,
 } from '@repo/contracts'
 import {
@@ -26,6 +28,20 @@ export interface PullRequestReviewContext {
 	canSubmitReview: boolean
 	hasPendingReview: boolean
 	headSha?: string
+}
+
+/** Absent on a mirror: GitHub has no batched review to start or add to. */
+export function getPullRequestReviewContext(
+	viewer: PullRequestReviewViewer,
+	viewerPendingReview: PullRequestPendingReview | undefined,
+	isGitHubAuthoritative: boolean
+): PullRequestReviewContext | undefined {
+	if (isGitHubAuthoritative) return undefined
+
+	return {
+		canSubmitReview: viewer.canSubmitReview,
+		hasPendingReview: Boolean(viewerPendingReview),
+	}
 }
 
 /**

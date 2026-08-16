@@ -3,12 +3,12 @@ import { Button } from '@repo/ui/components/button'
 import { cn } from '@repo/ui/utils'
 import { Check, History } from 'lucide-react'
 import { useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	getPullRequestReviewComposerLabel,
 	getPullRequestReviewMarker,
 } from '../helpers/pull-request-review'
 import {
+	canReplyToPullRequestThread,
 	canResolvePullRequestThread,
 	type PullRequestThreadPermissions,
 } from '../helpers/pull-request-thread-permissions'
@@ -17,6 +17,7 @@ import { useResolvePullRequestThreadMutation } from '../hooks/use-resolve-pull-r
 import { useUnresolvePullRequestThreadMutation } from '../hooks/use-unresolve-pull-request-thread.mutation'
 import { PullRequestComment } from './pull-request-comment'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 interface PullRequestThreadCardProps {
 	username: string
@@ -45,6 +46,7 @@ export function PullRequestThreadCard({
 	const unresolveMutation = useUnresolvePullRequestThreadMutation()
 
 	const isExpanded = expandedOverride ?? !thread.resolved
+	const canReply = canReplyToPullRequestThread(permissions, thread)
 	const resolveError = resolveMutation.error ?? unresolveMutation.error
 	const input = { username, slug, number, threadId: thread.id }
 	const reviewMarker = getPullRequestReviewMarker(
@@ -123,16 +125,10 @@ export function PullRequestThreadCard({
 							/>
 						))}
 					</ol>
-					{isReplying ? (
+					{isReplying && canReply ? (
 						<PullRequestCommentComposer
-							errorMessage={
-								replyMutation.isError
-									? getPullRequestErrorMessage(
-											replyMutation.error,
-											'The reply could not be posted.'
-										)
-									: undefined
-							}
+							error={replyMutation.error}
+							errorFallback="The reply could not be posted."
 							inputId={`pull-request-thread-reply-${thread.id}`}
 							isPending={replyMutation.isPending}
 							label="Reply to thread"
@@ -152,19 +148,17 @@ export function PullRequestThreadCard({
 							isResolvePending={
 								resolveMutation.isPending || unresolveMutation.isPending
 							}
-							onReply={permissions.canComment ? startReply : undefined}
+							onReply={canReply ? startReply : undefined}
 							onToggleResolved={handleToggleResolved}
 						/>
 					)}
 				</>
 			)}
-			{resolveError && (
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						resolveError,
-						'The thread state could not be changed.'
-					)}
-				</p>
+			{Boolean(resolveError) && (
+				<PullRequestErrorMessage
+					error={resolveError}
+					fallback="The thread state could not be changed."
+				/>
 			)}
 		</div>
 	)

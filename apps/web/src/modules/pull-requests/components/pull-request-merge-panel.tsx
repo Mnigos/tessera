@@ -3,10 +3,14 @@ import { DEFAULT_MERGE_STRATEGY, type MergeStrategy } from '@repo/domain'
 import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
-import { resolveMergeStrategy } from '../helpers/merge-strategy'
+import {
+	GITHUB_MERGE_STRATEGY_ORDER,
+	MERGE_STRATEGY_ORDER,
+	resolveMergeStrategy,
+} from '../helpers/merge-strategy'
 import { useMergePullRequestMutation } from '../hooks/use-merge-pull-request.mutation'
 import { usePullRequestMergeRequirementsQuery } from '../hooks/use-pull-request-merge-requirements.query'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestMergeQueuePanel } from './pull-request-merge-queue-panel'
 import { PullRequestMergeStrategySelect } from './pull-request-merge-strategy-select'
 import {
@@ -19,6 +23,7 @@ interface PullRequestMergePanelProps {
 	slug: string
 	pullRequest: PullRequest
 	mergeQueue: MergeQueueStatus
+	isGitHubAuthoritative: boolean
 }
 
 /**
@@ -35,6 +40,7 @@ export function PullRequestMergePanel({
 	slug,
 	pullRequest,
 	mergeQueue,
+	isGitHubAuthoritative,
 }: Readonly<PullRequestMergePanelProps>) {
 	const isOpen = pullRequest.state === 'open'
 	const requirementsQuery = usePullRequestMergeRequirementsQuery(
@@ -59,10 +65,17 @@ export function PullRequestMergePanel({
 	// Derived rather than stored, so a method the branches have made impossible
 	// since it was picked gives way on the next render instead of waiting for an
 	// effect to notice and correct it.
-	const strategy = resolveMergeStrategy(
+	const strategies = isGitHubAuthoritative
+		? GITHUB_MERGE_STRATEGY_ORDER
+		: MERGE_STRATEGY_ORDER
+	const resolvedStrategy = resolveMergeStrategy(
 		selectedStrategy,
 		requirements?.strategyAvailability
 	)
+	// Authority can change under a selection the new list no longer offers.
+	const strategy = strategies.includes(resolvedStrategy)
+		? resolvedStrategy
+		: DEFAULT_MERGE_STRATEGY
 
 	if (!isOpen) return null
 
@@ -106,6 +119,7 @@ export function PullRequestMergePanel({
 			<PullRequestMergeStrategySelect
 				disabled={mergeMutation.isPending}
 				onStrategyChange={setSelectedStrategy}
+				strategies={strategies}
 				strategy={strategy}
 				strategyAvailability={requirements?.strategyAvailability}
 				targetBranch={pullRequest.targetBranch}
@@ -120,6 +134,7 @@ export function PullRequestMergePanel({
 					error={requirementsQuery.error}
 					hasMerged={mergeMutation.data?.status === 'merged'}
 					isError={requirementsQuery.isError}
+					isGitHubAuthoritative={isGitHubAuthoritative}
 					isPending={mergeMutation.isPending}
 					onMerge={handleMerge}
 					onRetryRequirements={() => requirementsQuery.refetch()}
@@ -129,20 +144,20 @@ export function PullRequestMergePanel({
 				/>
 			)}
 			{mergeMutation.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						mergeMutation.error,
-						'The pull request could not be merged.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={mergeMutation.error}
+					fallback="The pull request could not be merged."
+				/>
 			)}
-			<PullRequestMergeQueuePanel
-				mergeQueue={mergeQueue}
-				pullRequest={pullRequest}
-				slug={slug}
-				strategy={strategy}
-				username={username}
-			/>
+			{!isGitHubAuthoritative && (
+				<PullRequestMergeQueuePanel
+					mergeQueue={mergeQueue}
+					pullRequest={pullRequest}
+					slug={slug}
+					strategy={strategy}
+					username={username}
+				/>
+			)}
 		</Card>
 	)
 }

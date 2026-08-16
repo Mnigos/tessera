@@ -1,8 +1,8 @@
 import { render, screen } from '@testing-library/react'
 import { PullRequestGitHubBadge } from './pull-request-github-badge'
-import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
+import { PullRequestGitHubWriteThroughNote } from './pull-request-github-write-through-note'
 
-const GITHUB_COUNTERPART_REGEX = /happen there/
+const GITHUB_COUNTERPART_REGEX = /GitHub owns this pull request/
 
 describe('pull request GitHub provenance', () => {
 	test('names GitHub as the origin and links the source pull request', () => {
@@ -28,29 +28,27 @@ describe('pull request GitHub provenance', () => {
 		expect(screen.queryByRole('link')).toBeNull()
 	})
 
-	test('leaves the banner with only the write boundary to explain', () => {
-		render(<PullRequestReadOnlyBanner isFromGitHub />)
+	test('leaves the note with only the attribution to explain', () => {
+		render(<PullRequestGitHubWriteThroughNote isFromGitHub />)
 
 		expect(
 			screen.getByText(
-				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
 			)
 		).toBeTruthy()
-		// The header carries identity and the link now; the banner must not
-		// duplicate either, nor offer a control the boundary forbids.
+		// The header already carries identity and the link.
 		expect(screen.queryByRole('link')).toBeNull()
 		expect(screen.queryByRole('button')).toBeNull()
 		expect(screen.queryByRole('heading')).toBeNull()
 	})
 
-	// A repository can be mirrored after native pull requests already exist in
-	// it. Those are frozen too, but there is no GitHub copy to send anybody to.
-	test('sends a frozen native pull request to no GitHub counterpart', () => {
-		render(<PullRequestReadOnlyBanner isFromGitHub={false} />)
+	// A pull request opened before the mirror has no GitHub copy to name.
+	test('names no GitHub counterpart for a native pull request', () => {
+		render(<PullRequestGitHubWriteThroughNote isFromGitHub={false} />)
 
 		expect(
 			screen.getByText(
-				'GitHub is the source of truth for this repository, so Tessera accepts no changes to this pull request.'
+				'GitHub is the source of truth for this repository; changes you make here are sent to GitHub as you.'
 			)
 		).toBeTruthy()
 		expect(screen.queryByText(GITHUB_COUNTERPART_REGEX)).toBeNull()

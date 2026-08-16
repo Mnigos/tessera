@@ -22,6 +22,7 @@ interface PullRequestReviewComparisonFilesProps {
 	onSelectedReviewIdChange: PullRequestReviewSelection['onReviewIdChange']
 	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
+	isGitHubAuthoritative: boolean
 }
 
 /**
@@ -38,6 +39,7 @@ export function PullRequestReviewComparisonFiles({
 	onSelectedReviewIdChange,
 	review,
 	viewerUserId,
+	isGitHubAuthoritative,
 }: Readonly<PullRequestReviewComparisonFilesProps>) {
 	const reviewComparisonQuery = usePullRequestReviewComparisonQuery({
 		username,
@@ -70,6 +72,7 @@ export function PullRequestReviewComparisonFiles({
 						headSha: reviewComparison.currentHeadSha,
 					}}
 					comparison={reviewComparison.comparison}
+					isGitHubAuthoritative={isGitHubAuthoritative}
 					isSinceReview
 					// Nothing about an expanded file survives a change of pair: the paths,
 					// and the diff behind them, belong to the comparison being shown.

@@ -3,8 +3,8 @@ import { Button } from '@repo/ui/components/button'
 import { Label } from '@repo/ui/components/label'
 import { UserPlus } from 'lucide-react'
 import type { ComponentProps } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { useRequestPullRequestReviewerMutation } from '../hooks/use-request-pull-request-reviewer.mutation'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 const REVIEWER_INPUT_ID = 'pull-request-reviewer-username'
 const REVIEWER_ERROR_ID = 'pull-request-reviewer-error'
@@ -102,16 +102,11 @@ export function PullRequestRequestReviewerForm({
 				</div>
 			)}
 			{requestReviewer.isError && (
-				<p
-					className="text-destructive text-sm"
+				<PullRequestErrorMessage
+					error={requestReviewer.error}
+					fallback="The review could not be requested."
 					id={REVIEWER_ERROR_ID}
-					role="alert"
-				>
-					{getPullRequestErrorMessage(
-						requestReviewer.error,
-						'The review could not be requested.'
-					)}
-				</p>
+				/>
 			)}
 		</form>
 	)

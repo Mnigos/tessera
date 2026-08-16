@@ -9,6 +9,8 @@ import type { PullRequestReviewContext } from './pull-request-review'
 export interface PullRequestThreadPermissions extends PullRequestThreadViewer {
 	viewerUserId?: SessionUser['id']
 	review?: PullRequestReviewContext
+	/** Whether every write here is forwarded to GitHub, which offers less. */
+	isGitHubAuthoritative?: boolean
 }
 
 export const READ_ONLY_PULL_REQUEST_THREAD_PERMISSIONS: PullRequestThreadPermissions =
@@ -22,6 +24,7 @@ interface GetPullRequestThreadPermissionsInput {
 	viewer?: PullRequestThreadViewer
 	viewerUserId?: SessionUser['id']
 	review?: PullRequestReviewContext
+	isGitHubAuthoritative?: boolean
 }
 
 /**
@@ -33,10 +36,11 @@ export function getPullRequestThreadPermissions({
 	viewer,
 	viewerUserId,
 	review,
+	isGitHubAuthoritative,
 }: GetPullRequestThreadPermissionsInput): PullRequestThreadPermissions {
 	if (!viewer) return READ_ONLY_PULL_REQUEST_THREAD_PERMISSIONS
 
-	return { ...viewer, viewerUserId, review }
+	return { ...viewer, viewerUserId, review, isGitHubAuthoritative }
 }
 
 /**
@@ -49,6 +53,8 @@ export function canResolvePullRequestThread(
 	permissions: PullRequestThreadPermissions,
 	thread: PullRequestThread
 ) {
+	if (isGitHubFlatThread(permissions, thread)) return false
+
 	if (!thread.comments.some(comment => comment.state === 'published'))
 		return false
 
@@ -58,6 +64,23 @@ export function canResolvePullRequestThread(
 			thread.comments.some(comment =>
 				isPullRequestCommentAuthor(comment, permissions.viewerUserId)
 			))
+	)
+}
+
+export function canReplyToPullRequestThread(
+	permissions: PullRequestThreadPermissions,
+	thread: PullRequestThread
+) {
+	return permissions.canComment && !isGitHubFlatThread(permissions, thread)
+}
+
+// A mirrored top-level thread is a GitHub issue comment: flat, unresolvable.
+function isGitHubFlatThread(
+	permissions: PullRequestThreadPermissions,
+	thread: PullRequestThread
+) {
+	return (
+		Boolean(permissions.isGitHubAuthoritative) && thread.kind === 'top_level'
 	)
 }
 

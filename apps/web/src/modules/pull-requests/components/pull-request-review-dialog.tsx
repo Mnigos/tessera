@@ -1,4 +1,7 @@
-import type { PullRequestReviewOutcome } from '@repo/contracts'
+import {
+	GITHUB_WRITE_REJECTED_MESSAGES,
+	type PullRequestReviewOutcome,
+} from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import {
 	Dialog,
@@ -13,14 +16,16 @@ import {
 import { Label } from '@repo/ui/components/label'
 import { cn } from '@repo/ui/utils'
 import { type ComponentProps, useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
+import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
 import {
 	getPullRequestReviewOutcomePresentation,
 	PULL_REQUEST_REVIEW_OUTCOME_OPTIONS,
 } from '../helpers/pull-request-review'
 import { useSubmitPullRequestReviewMutation } from '../hooks/use-submit-pull-request-review.mutation'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 const REVIEW_BODY_INPUT_ID = 'pull-request-review-body'
+const REVIEW_BODY_HINT_ID = 'pull-request-review-body-hint'
 
 interface PullRequestReviewDialogProps {
 	username: string
@@ -28,6 +33,8 @@ interface PullRequestReviewDialogProps {
 	number: string
 	headSha?: string
 	pendingCommentCount?: number
+	/** Left unset on surfaces a mirrored pull request never reaches. */
+	isGitHubAuthoritative?: boolean
 	triggerLabel: string
 	triggerVariant?: ComponentProps<typeof Button>['variant']
 }
@@ -38,6 +45,7 @@ export function PullRequestReviewDialog({
 	number,
 	headSha,
 	pendingCommentCount,
+	isGitHubAuthoritative = false,
 	triggerLabel,
 	triggerVariant,
 }: Readonly<PullRequestReviewDialogProps>) {
@@ -47,6 +55,10 @@ export function PullRequestReviewDialog({
 	// approval the viewer never read.
 	const [reviewedHeadSha, setReviewedHeadSha] = useState<string>()
 	const submitReview = useSubmitPullRequestReviewMutation()
+	// A draft left from before the mirror is not part of a GitHub review.
+	const batchedCommentCount = isGitHubAuthoritative
+		? undefined
+		: pendingCommentCount
 
 	function handleOpenChange(open: boolean) {
 		setIsOpen(open)
@@ -90,20 +102,14 @@ export function PullRequestReviewDialog({
 				<DialogHeader>
 					<DialogTitle>Review changes</DialogTitle>
 					<DialogDescription>
-						{pendingCommentCount
-							? `Submitting publishes ${pendingCommentCount} pending ${pendingCommentCount === 1 ? 'comment' : 'comments'} against the changes you are viewing.`
+						{batchedCommentCount
+							? `Submitting publishes ${batchedCommentCount} pending ${batchedCommentCount === 1 ? 'comment' : 'comments'} against the changes you are viewing.`
 							: 'Your review is recorded against the changes you are viewing and goes stale if the branch moves.'}
 					</DialogDescription>
 				</DialogHeader>
 				<PullRequestReviewForm
-					errorMessage={
-						submitReview.isError
-							? getPullRequestErrorMessage(
-									submitReview.error,
-									'The review could not be submitted.'
-								)
-							: undefined
-					}
+					error={submitReview.error}
+					isBodyRequired={isGitHubAuthoritative}
 					isPending={submitReview.isPending}
 					onSubmit={handleSubmit}
 				/>
@@ -113,24 +119,37 @@ export function PullRequestReviewDialog({
 }
 
 interface PullRequestReviewFormProps {
-	errorMessage?: string
+	error: unknown
+	/** GitHub takes no bodyless review other than an approval. */
+	isBodyRequired: boolean
 	isPending: boolean
 	onSubmit: (outcome: PullRequestReviewOutcome, body: string) => void
 }
 
 function PullRequestReviewForm({
-	errorMessage,
+	error,
+	isBodyRequired,
 	isPending,
 	onSubmit,
 }: Readonly<PullRequestReviewFormProps>) {
 	const [outcome, setOutcome] = useState<PullRequestReviewOutcome>('comment')
 	const [body, setBody] = useState('')
+	const [sent, setSent] = useState<`${PullRequestReviewOutcome}:${string}`>()
+	const trimmedBody = body.trim()
+	const isBodyMissing =
+		isBodyRequired && outcome !== 'approve' && trimmedBody.length === 0
+	// Resubmitting this exact review would leave a second one GitHub already has.
+	const isSpent =
+		isPending ||
+		isBodyMissing ||
+		(isGitHubSyncDelayedError(error) && `${outcome}:${trimmedBody}` === sent)
 
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()
-		if (isPending) return
+		if (isSpent) return
 
-		onSubmit(outcome, body.trim())
+		setSent(`${outcome}:${trimmedBody}`)
+		onSubmit(outcome, trimmedBody)
 	}
 
 	return (
@@ -182,24 +201,33 @@ function PullRequestReviewForm({
 					Review summary
 				</Label>
 				<textarea
+					aria-describedby={isBodyMissing ? REVIEW_BODY_HINT_ID : undefined}
 					className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
 					id={REVIEW_BODY_INPUT_ID}
 					maxLength={65_536}
 					onChange={event => setBody(event.target.value)}
-					placeholder="Leave a summary (optional)"
+					placeholder={
+						isBodyRequired ? 'Leave a summary' : 'Leave a summary (optional)'
+					}
 					value={body}
 				/>
+				{isBodyMissing && (
+					<p className="text-muted-foreground text-xs" id={REVIEW_BODY_HINT_ID}>
+						{GITHUB_WRITE_REJECTED_MESSAGES.review_body_required}
+					</p>
+				)}
 			</div>
-			{errorMessage && (
-				<p className="text-destructive text-sm" role="alert">
-					{errorMessage}
-				</p>
+			{Boolean(error) && (
+				<PullRequestErrorMessage
+					error={error}
+					fallback="The review could not be submitted."
+				/>
 			)}
 			<DialogFooter>
 				<DialogClose render={<Button type="button" variant="secondary" />}>
 					Cancel
 				</DialogClose>
-				<Button disabled={isPending} type="submit">
+				<Button disabled={isSpent} type="submit">
 					{isPending ? 'Submitting' : 'Submit review'}
 				</Button>
 			</DialogFooter>

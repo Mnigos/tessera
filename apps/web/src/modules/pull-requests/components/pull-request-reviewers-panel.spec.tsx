@@ -1,8 +1,10 @@
+import { ORPCError } from '@orpc/client'
 import type {
 	PullRequestEffectiveReviewState,
 	PullRequestReviewerRequest,
 	PullRequestReviewViewer,
 } from '@repo/contracts'
+import { GITHUB_SYNC_DELAYED_MESSAGE } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
@@ -119,6 +121,7 @@ describe(PullRequestReviewersPanel.name, () => {
 
 		render(
 			<PullRequestReviewersPanel
+				isGitHubAuthoritative={false}
 				{...repositoryProps}
 				effectiveReviewStates={[
 					approved,
@@ -151,6 +154,7 @@ describe(PullRequestReviewersPanel.name, () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewersPanel
+				isGitHubAuthoritative={false}
 				{...repositoryProps}
 				effectiveReviewStates={[]}
 				headSha={'a'.repeat(40)}
@@ -178,9 +182,63 @@ describe(PullRequestReviewersPanel.name, () => {
 		})
 	})
 
+	test('keeps idempotent reviewer requests retryable after delayed synchronization', async () => {
+		useRequestReviewerMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			mutate: requestMutate,
+		} as never)
+		render(
+			<PullRequestReviewersPanel
+				isGitHubAuthoritative
+				{...repositoryProps}
+				effectiveReviewStates={[]}
+				isOpen
+				reviewerCandidates={[
+					{
+						userId: '00000000-0000-4000-8000-000000000061' as never,
+						username: 'jan',
+					},
+				]}
+				reviewerRequests={[]}
+				viewer={{ ...FULL_VIEWER, canSubmitReview: false }}
+			/>
+		)
+
+		expect(screen.getByRole('status').textContent).toBe(
+			GITHUB_SYNC_DELAYED_MESSAGE
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Request review' })
+				.disabled
+		).toBeFalsy()
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'jan' }).disabled
+		).toBeFalsy()
+		const user = userEvent.setup()
+		await user.type(screen.getByLabelText('Request a review'), 'anna')
+		const requestButton = screen.getByRole('button', { name: 'Request review' })
+		fireEvent.submit(requestButton.closest('form') ?? requestButton)
+		await user.click(screen.getByRole('button', { name: 'jan' }))
+		expect(requestMutate).toHaveBeenNthCalledWith(
+			1,
+			{ ...repositoryProps, reviewerUsername: 'anna' },
+			expect.anything()
+		)
+		expect(requestMutate).toHaveBeenNthCalledWith(2, {
+			...repositoryProps,
+			reviewerUsername: 'jan',
+		})
+	})
+
 	test('hides request, remove, and review controls without capabilities', () => {
 		render(
 			<PullRequestReviewersPanel
+				isGitHubAuthoritative={false}
 				{...repositoryProps}
 				effectiveReviewStates={[]}
 				isOpen
