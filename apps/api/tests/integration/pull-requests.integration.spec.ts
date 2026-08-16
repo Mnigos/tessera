@@ -1298,7 +1298,7 @@ describe('Pull requests integration', () => {
 		// Retargeting a mirror is forwarded to GitHub as the caller, so a caller
 		// with no linked GitHub account is asked to reconnect rather than refused
 		// on authority.
-		test('sends a retarget to GitHub while GitHub is the source of truth', async () => {
+		test('asks an unlinked caller to reconnect GitHub instead of retargeting a mirrored pull request', async () => {
 			const headers = await createRetargetablePullRequest()
 			const repository = await getRepositoryRow()
 			await db.insert(repositoryExternalSources).values({

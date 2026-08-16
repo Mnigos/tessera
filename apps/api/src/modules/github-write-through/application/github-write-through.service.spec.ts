@@ -503,6 +503,7 @@ describe(GitHubWriteThroughService.name, () => {
 		expect(clientSpy).toHaveBeenCalledWith({
 			...CLIENT_TARGET,
 			body: '',
+			expectedHeadSha: 'expected-head',
 			outcome: 'approve',
 		})
 		expect(echoSpy).toHaveBeenCalledWith({

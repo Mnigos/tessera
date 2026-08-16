@@ -954,7 +954,7 @@ describe('Merge governance integration', () => {
 	// A repository GitHub is authoritative for merges on GitHub, as the caller.
 	// This writer has no linked GitHub account, so the attempt is refused before
 	// anything local is touched — Tessera's own governance never runs.
-	test('merges on GitHub for a repository GitHub is authoritative for', async () => {
+	test('asks an unlinked writer to reconnect GitHub before any merge governance runs on a mirror', async () => {
 		await createPullRequest()
 		await makeGitHubAuthoritative()
 

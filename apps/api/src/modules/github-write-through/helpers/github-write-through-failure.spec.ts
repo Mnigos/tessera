@@ -119,6 +119,14 @@ describe(toGitHubWriteError.name, () => {
 			GITHUB_WRITE_REJECTED_MESSAGES.unmergeable,
 		],
 		[
+			'422 review stale commit',
+			httpError(422, 'Commit abc123 is not part of the pull request'),
+			'review',
+			GitHubWriteRejectedError,
+			'CONFLICT',
+			GITHUB_WRITE_REJECTED_MESSAGES.stale_head,
+		],
+		[
 			'422 comment',
 			httpError(422),
 			'comment',
