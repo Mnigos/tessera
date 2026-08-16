@@ -62,7 +62,7 @@ export function RepositoryCommitHistory({
 		<RepositoryCommitHistoryShell
 			refName={data.ref}
 			slug={data.repository.slug}
-			username={data.owner.username}
+			username={data.owner.handle}
 		>
 			<RepositoryCommitRows commits={data.commits} />
 		</RepositoryCommitHistoryShell>

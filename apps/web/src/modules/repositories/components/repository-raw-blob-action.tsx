@@ -20,7 +20,7 @@ export function RepositoryRawBlobAction({
 }
 
 function getRawBlobHref(blob: RepositoryBlob) {
-	const basePath = `/repositories/${encodeURIComponent(blob.owner.username)}/${encodeURIComponent(blob.repository.slug)}/raw/${encodeURIComponent(blob.ref)}`
+	const basePath = `/repositories/${encodeURIComponent(blob.owner.handle)}/${encodeURIComponent(blob.repository.slug)}/raw/${encodeURIComponent(blob.ref)}`
 	const searchParams = new URLSearchParams({ path: blob.path })
 
 	return `${basePath}?${searchParams.toString()}`
