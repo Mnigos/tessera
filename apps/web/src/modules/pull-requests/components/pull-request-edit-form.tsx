@@ -2,8 +2,8 @@ import type { PullRequest } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Label } from '@repo/ui/components/label'
 import { type ComponentProps, useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { useEditPullRequestMutation } from '../hooks/use-edit-pull-request.mutation'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestMarkdownEditor } from './pull-request-markdown-editor'
 
 interface PullRequestEditFormProps {
@@ -75,12 +75,10 @@ export function PullRequestEditForm({
 				name="body"
 			/>
 			{editMutation.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						editMutation.error,
-						'The pull request could not be updated.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={editMutation.error}
+					fallback="The pull request could not be updated."
+				/>
 			)}
 			<div className="flex flex-wrap gap-2">
 				<Button disabled={editMutation.isPending} size="sm" type="submit">

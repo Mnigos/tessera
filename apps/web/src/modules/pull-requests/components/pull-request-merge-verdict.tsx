@@ -1,14 +1,15 @@
-import type {
-	MergeBlockingReason,
-	MergeRequirements,
-	PullRequest,
+import {
+	GITHUB_WRITE_REJECTED_MESSAGES,
+	type MergeBlockingReason,
+	type MergeRequirements,
+	type PullRequest,
 } from '@repo/contracts'
 import type { MergeStrategy } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
 import { CheckCircle2, GitMerge, ShieldAlert } from 'lucide-react'
 import { type ReactElement, useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { getMergeStrategyLabel } from '../helpers/merge-strategy'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestMergeBypassDialog } from './pull-request-merge-bypass-dialog'
 import { PullRequestMergeRequirementsList } from './pull-request-merge-requirements-list'
 import {
@@ -29,6 +30,8 @@ interface PullRequestMergeVerdictProps {
 	/** True once the merge went through, which is the only reason to close. */
 	hasMerged: boolean
 	isError: boolean
+	/** Whether GitHub, not Tessera, decides and performs this merge. */
+	isGitHubAuthoritative: boolean
 	isPending: boolean
 	onMerge: (command: PullRequestMergeCommand) => void
 	onRetryRequirements: () => void
@@ -48,6 +51,7 @@ export function PullRequestMergeVerdict({
 	error,
 	hasMerged,
 	isError,
+	isGitHubAuthoritative,
 	isPending,
 	onMerge,
 	onRetryRequirements,
@@ -62,12 +66,10 @@ export function PullRequestMergeVerdict({
 	if (isError || !requirements)
 		return (
 			<div className="flex flex-col gap-2">
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						error,
-						'The merge requirements could not be checked.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={error}
+					fallback="The merge requirements could not be checked."
+				/>
 				<Button
 					className="w-fit"
 					onClick={onRetryRequirements}
@@ -77,6 +79,18 @@ export function PullRequestMergeVerdict({
 					Check again
 				</Button>
 			</div>
+		)
+
+	// A mirrored pull request with no counterpart resolves no refs to merge.
+	if (
+		isGitHubAuthoritative &&
+		requirements.eligible &&
+		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
+	)
+		return (
+			<p className="text-sm">
+				{GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping}
+			</p>
 		)
 
 	const mergeLabel = getMergeStrategyLabel(strategy)
@@ -106,14 +120,16 @@ export function PullRequestMergeVerdict({
 	if (requirements.eligible)
 		return (
 			<div className="flex flex-col gap-3">
-				<p className="inline-flex items-center gap-2 text-sm">
-					<CheckCircle2
-						aria-hidden
-						className="size-4 text-emerald-600 dark:text-emerald-500"
-					/>
-					Everything this branch requires is satisfied.
-				</p>
-				{strategy === 'squash' ? (
+				{!isGitHubAuthoritative && (
+					<p className="inline-flex items-center gap-2 text-sm">
+						<CheckCircle2
+							aria-hidden
+							className="size-4 text-emerald-600 dark:text-emerald-500"
+						/>
+						Everything this branch requires is satisfied.
+					</p>
+				)}
+				{strategy === 'squash' && !isGitHubAuthoritative ? (
 					squashDialog(
 						undefined,
 						<Button className="w-fit" disabled={isPending} size="sm">
@@ -132,6 +148,11 @@ export function PullRequestMergeVerdict({
 						{isPending ? 'Merging' : mergeLabel}
 					</Button>
 				)}
+				{isGitHubAuthoritative && (
+					<p className="text-muted-foreground text-sm">
+						GitHub performs the merge and applies its own branch protection.
+					</p>
+				)}
 			</div>
 		)
 
@@ -142,6 +163,7 @@ export function PullRequestMergeVerdict({
 			</p>
 			<PullRequestMergeRequirementsList reasons={requirements.reasons} />
 			{requirements.canBypass &&
+				!isGitHubAuthoritative &&
 				(strategy === 'squash' ? (
 					squashDialog(
 						requirements.reasons,

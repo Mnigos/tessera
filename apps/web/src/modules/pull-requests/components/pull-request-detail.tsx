@@ -26,19 +26,22 @@ import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
-import type { PullRequestReviewSelection } from '../helpers/pull-request-review'
+import {
+	getPullRequestReviewContext,
+	type PullRequestReviewSelection,
+} from '../helpers/pull-request-review'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestEditForm } from './pull-request-edit-form'
 import { PullRequestGitHubBadge } from './pull-request-github-badge'
+import { PullRequestGitHubWriteThroughNote } from './pull-request-github-write-through-note'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
 import {
 	type PullRequestDetailTab,
 	PullRequestNavigation,
 } from './pull-request-navigation'
 import { PullRequestOverview } from './pull-request-overview'
-import { PullRequestReadOnlyBanner } from './pull-request-read-only-banner'
 import { PullRequestRetargetDialog } from './pull-request-retarget-dialog'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 import { PullRequestsMessage } from './pull-requests-message'
@@ -98,18 +101,17 @@ export function PullRequestDetail({
 			/>
 		)
 
-	// Authority, not the pull request's provider: a GitHub-origin pull request
-	// becomes writable again once the repository cuts over to Tessera.
-	const isReadOnly = data.authority === 'github'
+	// Authority decides where a write lands, not whether it is allowed.
+	const isGitHubAuthoritative = data.authority === 'github'
 
 	return (
 		<PullRequestDetailContent
 			canReadSyncHealth={isRepositoryOwner(data.viewerRole)}
-			canWrite={canWriteRepository(data.viewerRole) && !isReadOnly}
+			canWrite={canWriteRepository(data.viewerRole)}
 			checksSummary={data.checksSummary}
 			effectiveReviewStates={data.effectiveReviewStates}
 			events={data.events}
-			isReadOnly={isReadOnly}
+			isGitHubAuthoritative={isGitHubAuthoritative}
 			mergeQueue={data.mergeQueue}
 			pullRequest={data.pullRequest}
 			reviewerCandidates={data.reviewerCandidates}
@@ -140,7 +142,7 @@ interface PullRequestDetailContentProps {
 	viewerPendingReview?: PullRequestPendingReview
 	reviewViewer: PullRequestReviewViewer
 	canWrite: boolean
-	isReadOnly: boolean
+	isGitHubAuthoritative: boolean
 	canReadSyncHealth: boolean
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
@@ -161,7 +163,7 @@ function PullRequestDetailContent({
 	viewerPendingReview,
 	reviewViewer,
 	canWrite,
-	isReadOnly,
+	isGitHubAuthoritative,
 	canReadSyncHealth,
 	viewerUserId,
 	tab,
@@ -245,8 +247,8 @@ function PullRequestDetailContent({
 						)}
 					</>
 				)}
-				{isReadOnly && (
-					<PullRequestReadOnlyBanner isFromGitHub={isFromGitHub} />
+				{isGitHubAuthoritative && (
+					<PullRequestGitHubWriteThroughNote isFromGitHub={isFromGitHub} />
 				)}
 			</header>
 			<PullRequestNavigation
@@ -263,7 +265,7 @@ function PullRequestDetailContent({
 					effectiveReviewStates={effectiveReviewStates}
 					events={events}
 					isFromGitHub={isFromGitHub}
-					isGitHubAuthoritative={isReadOnly}
+					isGitHubAuthoritative={isGitHubAuthoritative}
 					mergeQueue={mergeQueue}
 					pullRequest={pullRequest}
 					reviewerCandidates={reviewerCandidates}
@@ -277,11 +279,13 @@ function PullRequestDetailContent({
 				/>
 			) : (
 				<PullRequestComparison
+					isGitHubAuthoritative={isGitHubAuthoritative}
 					number={String(pullRequest.number)}
-					review={{
-						canSubmitReview: reviewViewer.canSubmitReview,
-						hasPendingReview: Boolean(viewerPendingReview),
-					}}
+					review={getPullRequestReviewContext(
+						reviewViewer,
+						viewerPendingReview,
+						isGitHubAuthoritative
+					)}
 					reviewSelection={reviewSelection}
 					reviews={reviews}
 					slug={slug}

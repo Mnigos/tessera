@@ -1,8 +1,8 @@
 import type { PullRequest } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { useClosePullRequestMutation } from '../hooks/use-close-pull-request.mutation'
 import { useReopenPullRequestMutation } from '../hooks/use-reopen-pull-request.mutation'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 interface PullRequestLifecycleActionsProps {
 	username: string
@@ -46,12 +46,10 @@ export function PullRequestLifecycleActions({
 				</Button>
 			)}
 			{activeMutation.isError && (
-				<p className="text-destructive text-sm">
-					{getPullRequestErrorMessage(
-						activeMutation.error,
-						'The pull request state could not be changed.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={activeMutation.error}
+					fallback="The pull request state could not be changed."
+				/>
 			)}
 		</div>
 	)

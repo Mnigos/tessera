@@ -1,5 +1,8 @@
 import type { MergeStrategyAvailability } from '@repo/contracts'
-import { resolveMergeStrategy } from './merge-strategy'
+import {
+	GITHUB_MERGE_STRATEGY_ORDER,
+	resolveMergeStrategy,
+} from './merge-strategy'
 
 const ALL_AVAILABLE: MergeStrategyAvailability[] = [
 	{ strategy: 'merge_commit', available: true },
@@ -62,5 +65,16 @@ describe(resolveMergeStrategy.name, () => {
 				{ strategy: 'merge_commit', available: true },
 			])
 		).toBe('rebase')
+	})
+})
+
+describe('GitHub merge strategy order', () => {
+	test('keeps GitHub-supported methods in product order', () => {
+		expect(GITHUB_MERGE_STRATEGY_ORDER).toEqual([
+			'merge_commit',
+			'squash',
+			'rebase',
+		])
+		expect(GITHUB_MERGE_STRATEGY_ORDER).not.toContain('fast_forward')
 	})
 })

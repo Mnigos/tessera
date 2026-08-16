@@ -1,3 +1,4 @@
+import { ORPCError } from '@orpc/client'
 import type {
 	PullRequestChangedFile,
 	PullRequestCommentId,
@@ -7,12 +8,18 @@ import type {
 	PullRequestThreadId,
 	PullRequestThreadViewer,
 } from '@repo/contracts'
+import {
+	GITHUB_RECONNECT_REQUIRED_MESSAGE,
+	GITHUB_SYNC_DELAYED_MESSAGE,
+} from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useCreatePullRequestThreadMutation } from '../hooks/use-create-pull-request-thread.mutation'
+import { useEditPullRequestCommentMutation } from '../hooks/use-edit-pull-request-comment.mutation'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestFileDiffQuery } from '../hooks/use-pull-request-file-diff.query'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
+import { useReplyPullRequestThreadMutation } from '../hooks/use-reply-pull-request-thread.mutation'
 import { useResolvePullRequestThreadMutation } from '../hooks/use-resolve-pull-request-thread.mutation'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestThreadCard } from './pull-request-thread-card'
@@ -43,11 +50,11 @@ vi.mock('../hooks/use-create-pull-request-thread.mutation', () => ({
 }))
 
 vi.mock('../hooks/use-reply-pull-request-thread.mutation', () => ({
-	useReplyPullRequestThreadMutation: () => IDLE_MUTATION,
+	useReplyPullRequestThreadMutation: vi.fn(),
 }))
 
 vi.mock('../hooks/use-edit-pull-request-comment.mutation', () => ({
-	useEditPullRequestCommentMutation: () => IDLE_MUTATION,
+	useEditPullRequestCommentMutation: vi.fn(),
 }))
 
 vi.mock('../hooks/use-delete-pull-request-comment.mutation', () => ({
@@ -74,6 +81,8 @@ const useCreateThreadMutationMock = vi.mocked(
 	useCreatePullRequestThreadMutation
 )
 const useFileDiffQueryMock = vi.mocked(usePullRequestFileDiffQuery)
+const useEditCommentMutationMock = vi.mocked(useEditPullRequestCommentMutation)
+const useReplyMutationMock = vi.mocked(useReplyPullRequestThreadMutation)
 const useThreadsQueryMock = vi.mocked(usePullRequestThreadsQuery)
 const useResolveMutationMock = vi.mocked(useResolvePullRequestThreadMutation)
 
@@ -197,6 +206,7 @@ const FILE_DIFF = {
 describe('pull request threads', () => {
 	beforeEach(() => {
 		useCreateThreadMutationMock.mockReturnValue(IDLE_MUTATION as never)
+		useEditCommentMutationMock.mockReturnValue(IDLE_MUTATION as never)
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
 			isLoading: false,
@@ -204,6 +214,7 @@ describe('pull request threads', () => {
 		} as never)
 		useFileDiffQueryMock.mockReturnValue(FILE_DIFF as never)
 		useResolveMutationMock.mockReturnValue(IDLE_MUTATION as never)
+		useReplyMutationMock.mockReturnValue(IDLE_MUTATION as never)
 	})
 
 	afterEach(() => {
@@ -230,6 +241,7 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -274,6 +286,7 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -311,6 +324,7 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -347,6 +361,7 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -416,6 +431,7 @@ describe('pull request threads', () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -650,6 +666,8 @@ describe('pull request threads', () => {
 		expect(
 			screen.getByRole('textbox', { name: 'Reply to thread' })
 		).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Add to review' })).toBeNull()
 	})
 
 	test('collapses resolved threads and expands them on demand', async () => {
@@ -838,6 +856,7 @@ describe('pull request threads', () => {
 		const user = userEvent.setup()
 		const comparison = () => (
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				review={{ canSubmitReview: true, hasPendingReview: true }}
 				slug="notes"
@@ -1008,6 +1027,463 @@ describe('pull request threads', () => {
 		)
 
 		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
+	})
+
+	test('offers immediate mirrored comments without batched-review actions', async () => {
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+
+		render(
+			<PullRequestTimeline
+				canReadSyncHealth={false}
+				events={[]}
+				isFromGitHub
+				isGitHubAuthoritative
+				number="1"
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		await user.type(screen.getByRole('textbox', { name: 'Comment' }), 'Note')
+
+		expect(screen.getByRole('button', { name: 'Comment' })).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Add to review' })).toBeNull()
+	})
+
+	test('offers an immediate mirrored inline comment without a review action', async () => {
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+
+		render(
+			<PullRequestComparison
+				isGitHubAuthoritative
+				number="1"
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+
+		await user.click(
+			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
+		)
+		await user.click(
+			screen.getByRole('button', { name: 'Comment on original line 1' })
+		)
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment on line 1' }),
+			'Inline note'
+		)
+
+		expect(screen.getByRole('button', { name: 'Comment' })).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Add to review' })).toBeNull()
+	})
+
+	test.each([
+		['mirrored top-level', true, undefined, false],
+		['mirrored inline', true, 'src/old.ts', true],
+		['native top-level', false, undefined, true],
+	] as const)('offers thread actions correctly for %s', (_name, isGitHubAuthoritative, path, expected) => {
+		render(
+			<PullRequestThreadCard
+				number="1"
+				permissions={{
+					...FULL_VIEWER,
+					isGitHubAuthoritative,
+					viewerUserId: AUTHOR_USER_ID,
+				}}
+				slug="notes"
+				thread={thread({
+					id: crypto.randomUUID(),
+					path,
+					body: 'Thread body',
+				})}
+				username="marta"
+			/>
+		)
+
+		expect(Boolean(screen.queryByRole('button', { name: 'Reply' }))).toBe(
+			expected
+		)
+		expect(Boolean(screen.queryByRole('button', { name: 'Resolve' }))).toBe(
+			expected
+		)
+	})
+
+	test('closes an open top-level reply when authority changes to GitHub', async () => {
+		const user = userEvent.setup()
+		const topLevelThread = thread({
+			id: '00000000-0000-4000-8000-000000000017',
+			body: 'Top level',
+		})
+		const props = {
+			number: '1',
+			slug: 'notes',
+			thread: topLevelThread,
+			username: 'marta',
+		}
+		const { rerender } = render(
+			<PullRequestThreadCard
+				{...props}
+				permissions={{ ...FULL_VIEWER, viewerUserId: AUTHOR_USER_ID }}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(
+			screen.getByRole('textbox', { name: 'Reply to thread' })
+		).toBeTruthy()
+
+		rerender(
+			<PullRequestThreadCard
+				{...props}
+				permissions={{
+					...FULL_VIEWER,
+					isGitHubAuthoritative: true,
+					viewerUserId: AUTHOR_USER_ID,
+				}}
+			/>
+		)
+
+		expect(
+			screen.queryByRole('textbox', { name: 'Reply to thread' })
+		).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull()
+	})
+
+	test('keeps an open inline reply when authority changes to GitHub', async () => {
+		const user = userEvent.setup()
+		const inlineThread = thread({
+			id: '00000000-0000-4000-8000-000000000018',
+			path: 'src/old.ts',
+			body: 'Inline',
+		})
+		const props = {
+			number: '1',
+			slug: 'notes',
+			thread: inlineThread,
+			username: 'marta',
+		}
+		const { rerender } = render(
+			<PullRequestThreadCard
+				{...props}
+				permissions={{ ...FULL_VIEWER, viewerUserId: AUTHOR_USER_ID }}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		rerender(
+			<PullRequestThreadCard
+				{...props}
+				permissions={{
+					...FULL_VIEWER,
+					isGitHubAuthoritative: true,
+					viewerUserId: AUTHOR_USER_ID,
+				}}
+			/>
+		)
+
+		expect(
+			screen.getByRole('textbox', { name: 'Reply to thread' })
+		).toBeTruthy()
+	})
+
+	test('guards a delivered timeline comment only while its draft is unchanged', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const timeline = () => (
+			<PullRequestTimeline
+				canReadSyncHealth={false}
+				events={[]}
+				isFromGitHub
+				isGitHubAuthoritative
+				number="1"
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+		const { rerender } = render(timeline())
+
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment' }),
+			'Delivered note'
+		)
+		const commentButton = screen.getByRole('button', { name: 'Comment' })
+		fireEvent.submit(commentButton.closest('form') ?? commentButton)
+
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: 'Another conflict',
+			}),
+			isError: true,
+			mutate,
+		} as never)
+		rerender(timeline())
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
+				.disabled
+		).toBeFalsy()
+
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			mutate,
+		} as never)
+		rerender(timeline())
+
+		expect(screen.getByRole('status').textContent).toBe(
+			GITHUB_SYNC_DELAYED_MESSAGE
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
+				.disabled
+		).toBeTruthy()
+
+		await user.type(screen.getByRole('textbox', { name: 'Comment' }), '!')
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
+				.disabled
+		).toBeFalsy()
+		fireEvent.submit(commentButton.closest('form') ?? commentButton)
+		expect(mutate).toHaveBeenCalledTimes(2)
+	})
+
+	test('guards delivered inline comments, replies, and edits by draft', async () => {
+		const create = vi.fn()
+		const reply = vi.fn()
+		const edit = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate: create,
+		} as never)
+		useReplyMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate: reply,
+		} as never)
+		useEditCommentMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate: edit,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		const comparison = () => (
+			<PullRequestComparison
+				isGitHubAuthoritative
+				number="1"
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+		const comparisonView = render(comparison())
+
+		await user.click(
+			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
+		)
+		await user.click(
+			screen.getByRole('button', { name: 'Comment on original line 1' })
+		)
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment on line 1' }),
+			'Inline delivered'
+		)
+		const inlineCommentButton = screen.getByRole('button', { name: 'Comment' })
+		fireEvent.submit(inlineCommentButton.closest('form') ?? inlineCommentButton)
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			mutate: create,
+		} as never)
+		comparisonView.rerender(comparison())
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
+				.disabled
+		).toBeTruthy()
+		await user.type(
+			screen.getByRole('textbox', { name: 'Comment on line 1' }),
+			'!'
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
+				.disabled
+		).toBeFalsy()
+		comparisonView.unmount()
+
+		const inlineThread = thread({
+			id: '00000000-0000-4000-8000-000000000019',
+			path: 'src/old.ts',
+			body: 'Editable body',
+		})
+		const card = () => (
+			<PullRequestThreadCard
+				number="1"
+				permissions={{
+					...FULL_VIEWER,
+					isGitHubAuthoritative: true,
+					viewerUserId: AUTHOR_USER_ID,
+				}}
+				slug="notes"
+				thread={inlineThread}
+				username="marta"
+			/>
+		)
+		const cardView = render(card())
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		await user.type(
+			screen.getByRole('textbox', { name: 'Reply to thread' }),
+			'Delivered reply'
+		)
+		const replyButton = screen.getByRole('button', { name: 'Reply' })
+		fireEvent.submit(replyButton.closest('form') ?? replyButton)
+		useReplyMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			mutate: reply,
+		} as never)
+		cardView.rerender(card())
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Reply' }).disabled
+		).toBeTruthy()
+		await user.type(
+			screen.getByRole('textbox', { name: 'Reply to thread' }),
+			'!'
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Reply' }).disabled
+		).toBeFalsy()
+
+		await user.click(screen.getByRole('button', { name: 'Cancel' }))
+		await user.click(screen.getByRole('button', { name: 'Edit comment' }))
+		const saveButton = screen.getByRole('button', { name: 'Save changes' })
+		fireEvent.submit(saveButton.closest('form') ?? saveButton)
+		useEditCommentMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			mutate: edit,
+		} as never)
+		cardView.rerender(card())
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', {
+				name: 'Save changes',
+			}).disabled
+		).toBeTruthy()
+		await user.type(screen.getByRole('textbox', { name: 'Edit comment' }), '!')
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', {
+				name: 'Save changes',
+			}).disabled
+		).toBeFalsy()
+	})
+
+	test('shows reconnect recovery and the timeline fallback', () => {
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('UNAUTHORIZED', {
+				status: 401,
+				message: GITHUB_RECONNECT_REQUIRED_MESSAGE,
+			}),
+			isError: true,
+		} as never)
+		const timeline = () => (
+			<PullRequestTimeline
+				canReadSyncHealth={false}
+				events={[]}
+				isFromGitHub
+				isGitHubAuthoritative
+				number="1"
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+		const { rerender } = render(timeline())
+
+		expect(
+			screen.getByRole('button', { name: 'Reconnect GitHub' })
+		).toBeTruthy()
+
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError('INTERNAL_SERVER_ERROR', {
+				status: 500,
+				message: 'Internal detail',
+			}),
+			isError: true,
+		} as never)
+		rerender(timeline())
+
+		expect(screen.getByText('The comment could not be posted.')).toBeTruthy()
 	})
 
 	test("marks the author's pending comment as Pending", () => {

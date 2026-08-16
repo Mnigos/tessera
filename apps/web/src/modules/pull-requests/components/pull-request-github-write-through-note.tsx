@@ -1,32 +1,17 @@
-interface PullRequestReadOnlyBannerProps {
-	/**
-	 * Whether this pull request came from GitHub. A repository can be mirrored
-	 * after native pull requests already exist in it, and those have no GitHub
-	 * counterpart to send anybody to.
-	 */
+interface PullRequestGitHubWriteThroughNoteProps {
+	/** False for a native pull request frozen by mirroring: it has no GitHub copy. */
 	isFromGitHub: boolean
 }
 
-/**
- * The write boundary, and nothing else.
- *
- * The header badge already says where a synchronized pull request came from and
- * links it, so all this has left to do is explain why the comment box and the
- * merge button are missing — that they are a deliberate boundary rather than
- * permissions the viewer is somehow lacking.
- *
- * A native pull request frozen by its repository being mirrored gets the same
- * boundary without the destination: telling its author to go and comment on
- * GitHub would send them looking for a pull request that does not exist there.
- */
-export function PullRequestReadOnlyBanner({
+/** Attribution, not a boundary: what is typed here reaches GitHub as the reader. */
+export function PullRequestGitHubWriteThroughNote({
 	isFromGitHub,
-}: Readonly<PullRequestReadOnlyBannerProps>) {
+}: Readonly<PullRequestGitHubWriteThroughNoteProps>) {
 	return (
 		<p className="text-muted-foreground text-sm" role="note">
 			{isFromGitHub
-				? 'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
-				: 'GitHub is the source of truth for this repository, so Tessera accepts no changes to this pull request.'}
+				? 'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
+				: 'GitHub is the source of truth for this repository; changes you make here are sent to GitHub as you.'}
 		</p>
 	)
 }

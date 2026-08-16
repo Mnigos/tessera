@@ -13,9 +13,9 @@ import {
 import { GitBranch } from 'lucide-react'
 import { useState } from 'react'
 import { useRepositoryRefsQuery } from '@/modules/repositories/hooks/use-repository-refs.query'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { useRetargetPullRequestMutation } from '../hooks/use-retarget-pull-request.mutation'
 import { PullRequestBranchSelect } from './pull-request-branch-select'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 interface PullRequestRetargetDialogProps {
 	username: string
@@ -89,12 +89,10 @@ export function PullRequestRetargetDialog({
 					/>
 				)}
 				{retargetMutation.isError && (
-					<p className="text-destructive text-sm" role="alert">
-						{getPullRequestErrorMessage(
-							retargetMutation.error,
-							'The target branch could not be changed.'
-						)}
-					</p>
+					<PullRequestErrorMessage
+						error={retargetMutation.error}
+						fallback="The target branch could not be changed."
+					/>
 				)}
 				<DialogFooter>
 					<DialogClose render={<Button variant="secondary" />}>

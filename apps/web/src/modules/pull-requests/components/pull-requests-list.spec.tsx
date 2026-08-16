@@ -130,6 +130,27 @@ describe(PullRequestsList.name, () => {
 		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
 	})
 
+	test('hides the new pull request action on a writable GitHub mirror', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: {
+				authority: 'github',
+				pullRequests: [PULL_REQUEST],
+				viewerRole: 'write',
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
+	})
+
 	test('renders non-zero review summary badges and omits zero counts', () => {
 		usePullRequestsListQueryMock.mockReturnValue({
 			data: { pullRequests: [PULL_REQUEST], viewerRole: 'read' },

@@ -1,9 +1,14 @@
 import { ORPCError } from '@orpc/client'
 import type {
 	PullRequestComparison,
+	PullRequestPendingReview,
 	RepositoryBranchRef,
 } from '@repo/contracts'
-import { pullRequestSchema } from '@repo/contracts'
+import {
+	GITHUB_RECONNECT_REQUIRED_MESSAGE,
+	GITHUB_SYNC_DELAYED_MESSAGE,
+	pullRequestSchema,
+} from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
@@ -129,6 +134,7 @@ const usePullRequestMergeRequirementsQueryMock = vi.mocked(
 )
 const usePullRequestQueryMock = vi.mocked(usePullRequestQuery)
 const useReopenPullRequestMutationMock = vi.mocked(useReopenPullRequestMutation)
+const BATCHED_COMMENTS_REGEX = /2 comments are batched/
 
 const PULL_REQUEST = pullRequestSchema.parse({
 	id: 'd8101d74-b320-4482-a8f2-a25308fb2757',
@@ -258,6 +264,47 @@ describe('pull request review findings', () => {
 		expect(titleInput.getAttribute('aria-invalid')).toBe('true')
 	})
 
+	test('keeps an idempotent edit retryable after delayed synchronization', () => {
+		const mutate = vi.fn()
+		useEditPullRequestMutationMock.mockReturnValue({
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+			isError: true,
+			isPending: false,
+			mutate,
+		} as never)
+		render(
+			<PullRequestEditForm
+				onDone={vi.fn()}
+				pullRequest={PULL_REQUEST}
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('status').textContent).toBe(
+			GITHUB_SYNC_DELAYED_MESSAGE
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Save changes' })
+				.disabled
+		).toBeFalsy()
+		const saveButton = screen.getByRole('button', { name: 'Save changes' })
+		fireEvent.submit(saveButton.closest('form') ?? saveButton)
+		expect(mutate).toHaveBeenCalledWith(
+			{
+				username: 'marta',
+				slug: 'notes',
+				number: 1,
+				title: 'Review pull request UI',
+				body: '',
+			},
+			expect.anything()
+		)
+	})
+
 	// The description is a controlled field inside the Write panel now, so the
 	// edit still has to carry what the pull request was already saying plus
 	// whatever was typed on top of it.
@@ -324,9 +371,7 @@ describe('pull request review findings', () => {
 			} as never)
 	}
 
-	// The affordance moves a branch, which is a write on an open pull request. A
-	// closed one has nowhere to move to, and a repository GitHub owns is not
-	// Tessera's to move — the server refuses both, and the UI must not offer them.
+	// A closed pull request has nowhere to move its branch to.
 	test.each([
 		[
 			'a closed pull request',
@@ -334,10 +379,6 @@ describe('pull request review findings', () => {
 				viewerRole: 'write',
 				pullRequest: { ...PULL_REQUEST, state: 'closed' },
 			},
-		],
-		[
-			'a GitHub-authoritative repository',
-			{ viewerRole: 'write', authority: 'github' },
 		],
 		['a read-only viewer', { viewerRole: 'read' }],
 	])('hides the retarget affordance for %s', (_name, overrides) => {
@@ -360,7 +401,7 @@ describe('pull request review findings', () => {
 		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
 	})
 
-	test('shows GitHub provenance in the header and demotes the read-only banner', () => {
+	test('shows GitHub provenance in the header beside the write-through note', () => {
 		usePullRequestQueryMock.mockReturnValue({
 			data: detailData({
 				authority: 'github',
@@ -396,19 +437,61 @@ describe('pull request review findings', () => {
 		).toBe('https://github.com/mnigos/notes/pull/7')
 		expect(
 			screen.getByText(
-				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
 			)
 		).toBeTruthy()
-		// Read-only means read-only: no write control may survive the boundary.
+		// The note says where writes land, not who may make them.
 		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
 		expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
 	})
 
-	// Enabling mirroring freezes every pull request in the repository, including
-	// the native ones that were opened before it. Those have no GitHub copy, so
-	// nothing may point at one.
-	test('freezes a native pull request in a mirrored repository without inventing a GitHub copy', () => {
+	test('keeps every header write on a mirrored GitHub pull request', () => {
+		primeWriteControls()
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({
+				authority: 'github',
+				viewerRole: 'write',
+				pullRequest: {
+					...PULL_REQUEST,
+					provider: 'github',
+					github: {
+						nodeId: 'PR_kwDO',
+						htmlUrl: 'https://github.com/mnigos/notes/pull/7',
+						draft: false,
+						headSha: 'b'.repeat(40),
+						baseSha: 'a'.repeat(40),
+					},
+				},
+			}),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Close pull request' })
+		).toBeTruthy()
+		expect(
+			screen.getByText(
+				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
+			)
+		).toBeTruthy()
+	})
+
+	// A pull request opened before the mirror has no GitHub copy to point at.
+	test('writes a native pull request in a mirrored repository through without inventing a GitHub copy', () => {
+		primeWriteControls()
 		usePullRequestQueryMock.mockReturnValue({
 			data: detailData({ authority: 'github', viewerRole: 'write' }),
 			isError: false,
@@ -426,19 +509,22 @@ describe('pull request review findings', () => {
 
 		expect(
 			screen.getByText(
-				'GitHub is the source of truth for this repository, so Tessera accepts no changes to this pull request.'
+				'GitHub is the source of truth for this repository; changes you make here are sent to GitHub as you.'
 			)
 		).toBeTruthy()
 		expect(screen.queryByText('From GitHub')).toBeNull()
 		expect(screen.queryByRole('link', { name: 'View on GitHub' })).toBeNull()
 		expect(
 			screen.queryByText(
-				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
 			)
 		).toBeNull()
-		// Frozen is still frozen: no write control may survive.
-		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
+		// The writes go through to GitHub, so the controls that make them stay.
+		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Close pull request' })
+		).toBeTruthy()
 	})
 
 	test('keeps GitHub provenance after cutover, while writes become allowed again', () => {
@@ -476,10 +562,90 @@ describe('pull request review findings', () => {
 		expect(screen.getByRole('link', { name: 'View on GitHub' })).toBeTruthy()
 		expect(
 			screen.queryByText(
-				'GitHub owns this pull request. Comments, reviews, and merges happen there and appear here once they sync.'
+				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
 			)
 		).toBeNull()
 		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Close pull request' })
+		).toBeTruthy()
+	})
+
+	test('hides a pending-review banner after a repository becomes mirrored', () => {
+		primeWriteControls()
+		const viewerPendingReview: PullRequestPendingReview = {
+			id: '00000000-0000-4000-8000-000000000053' as PullRequestPendingReview['id'],
+			headSha: 'b'.repeat(40),
+			commentCount: 2,
+		}
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({
+				authority: 'github',
+				viewerPendingReview,
+				viewerRole: 'write',
+			}),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByText(BATCHED_COMMENTS_REGEX)).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
+	})
+
+	test('shows reconnect recovery and the lifecycle fallback on the mirrored detail', () => {
+		primeWriteControls()
+		useClosePullRequestMutationMock.mockReturnValue({
+			error: new ORPCError('UNAUTHORIZED', {
+				status: 401,
+				message: GITHUB_RECONNECT_REQUIRED_MESSAGE,
+			}),
+			isError: true,
+			isPending: false,
+			mutate: vi.fn(),
+		} as never)
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({ authority: 'github', viewerRole: 'write' }),
+			isError: false,
+			isLoading: false,
+		} as never)
+		const detail = () => (
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+		const { rerender } = render(detail())
+
+		expect(
+			screen.getByRole('button', { name: 'Reconnect GitHub' })
+		).toBeTruthy()
+
+		useClosePullRequestMutationMock.mockReturnValue({
+			error: new ORPCError('INTERNAL_SERVER_ERROR', {
+				status: 500,
+				message: 'Internal detail',
+			}),
+			isError: true,
+			isPending: false,
+			mutate: vi.fn(),
+		} as never)
+		rerender(detail())
+
+		expect(
+			screen.getByText('The pull request state could not be changed.')
+		).toBeTruthy()
 	})
 
 	test('shows no GitHub provenance on a native pull request', () => {

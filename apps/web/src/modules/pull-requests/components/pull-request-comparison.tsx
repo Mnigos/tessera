@@ -27,6 +27,7 @@ interface PullRequestComparisonProps {
 	review?: PullRequestReviewContext
 	reviews?: readonly PullRequestReview[]
 	viewerUserId?: SessionUser['id']
+	isGitHubAuthoritative: boolean
 	/** Absent on surfaces that carry no review selection in their URL. */
 	reviewSelection?: PullRequestReviewSelection
 }
@@ -40,6 +41,7 @@ export function PullRequestComparison({
 	reviews,
 	viewerUserId,
 	reviewSelection,
+	isGitHubAuthoritative,
 }: Readonly<PullRequestComparisonProps>) {
 	const selectedReviewId = reviewSelection?.reviewId
 	const comparisonQuery = usePullRequestComparisonQuery(
@@ -54,6 +56,7 @@ export function PullRequestComparison({
 	if (tab === 'files' && reviewSelection && selectedReviewId)
 		return (
 			<PullRequestReviewComparisonFiles
+				isGitHubAuthoritative={isGitHubAuthoritative}
 				number={number}
 				onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
 				review={review}
@@ -98,6 +101,7 @@ export function PullRequestComparison({
 			<PullRequestComparisonFiles
 				anchorComparison={comparisonQuery.data}
 				comparison={comparisonQuery.data}
+				isGitHubAuthoritative={isGitHubAuthoritative}
 				number={number}
 				review={review}
 				slug={slug}
