@@ -1,28 +1,23 @@
+import {
+	HANDLE_EDGE_DASH_REGEX,
+	HANDLE_MAX_LENGTH,
+	toHandle,
+} from '@repo/domain'
+
 const USERNAME_FALLBACK_BASE = 'user'
-const USERNAME_MAX_LENGTH = 39
+const USERNAME_MAX_LENGTH = HANDLE_MAX_LENGTH
 const USERNAME_SUFFIX_LENGTH = 6
 const USERNAME_COLLISION_MAX_ATTEMPTS = 100
-const USERNAME_UNSAFE_CHARS_REGEX = /[^a-z0-9-]+/g
-const USERNAME_REPEATED_DASH_REGEX = /-+/g
-const USERNAME_EDGE_DASH_REGEX = /^-|-$/g
 
 /**
  * Converts a provider username into Tessera's stable, URL-safe namespace format.
  *
- * Unsafe URL characters collapse to dashes, repeated dashes collapse to one dash,
- * and empty values fall back to a deterministic base username.
+ * The handle grammar is shared with organization slugs; the only thing added
+ * here is a deterministic fallback, because sign-in has to produce a username
+ * even for a login that normalizes to nothing.
  */
 export function normalizeUsername(value: string | null | undefined) {
-	const normalized = value
-		?.trim()
-		.toLowerCase()
-		.replace(USERNAME_UNSAFE_CHARS_REGEX, '-')
-		.replace(USERNAME_REPEATED_DASH_REGEX, '-')
-		.replace(USERNAME_EDGE_DASH_REGEX, '')
-		.slice(0, USERNAME_MAX_LENGTH)
-		.replace(USERNAME_EDGE_DASH_REGEX, '')
-
-	return normalized || USERNAME_FALLBACK_BASE
+	return toHandle(value) || USERNAME_FALLBACK_BASE
 }
 
 /**
@@ -60,7 +55,7 @@ export function createSuffixedUsername(base: string, suffix: string) {
 	)
 	const trimmedBase = normalizedBase
 		.slice(0, baseMaxLength)
-		.replace(USERNAME_EDGE_DASH_REGEX, '')
+		.replace(HANDLE_EDGE_DASH_REGEX, '')
 
 	if (!trimmedBase) return normalizedSuffix
 

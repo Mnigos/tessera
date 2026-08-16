@@ -28,6 +28,23 @@ import {
 	resolveGitHubUsername,
 } from './src/github-username'
 import { assertOrganizationSlugNotUserHandle } from './src/handle-shadowing'
+import { organizationEndpointLockdown } from './src/organization-endpoint-lockdown'
+
+/**
+ * Shared by organization creation and rename so both reject the same set of
+ * handles. Organization slugs are not consulted here: Better Auth already
+ * refuses a slug another organization holds.
+ */
+async function isUserHandleTaken(slug: string) {
+	const foundUser = await db.query.user.findFirst({
+		where: eq(user.username, slug),
+		columns: {
+			id: true,
+		},
+	})
+
+	return foundUser !== undefined
+}
 
 const LOCAL_HOSTNAMES = new Set(['localhost', '127.0.0.1', '0.0.0.0'])
 const LEADING_SUBDOMAIN_REGEX = /^(www|app)\./
@@ -157,16 +174,18 @@ export function initAuth({
 					beforeCreateOrganization: async ({ organization: newOrganization }) =>
 						await assertOrganizationSlugNotUserHandle(
 							newOrganization.slug,
-							async slug => {
-								const foundUser = await db.query.user.findFirst({
-									where: eq(user.username, slug),
-									columns: {
-										id: true,
-									},
-								})
-
-								return foundUser !== undefined
-							}
+							isUserHandleTaken
+						),
+					// Rename is the other way a slug is claimed, and it reaches a
+					// different hook. Better Auth passes only the fields being changed,
+					// so an update that leaves the slug alone arrives without one and
+					// the check returns immediately.
+					beforeUpdateOrganization: async ({
+						organization: organizationUpdate,
+					}) =>
+						await assertOrganizationSlugNotUserHandle(
+							organizationUpdate.slug,
+							isUserHandleTaken
 						),
 				},
 			}),
@@ -210,6 +229,7 @@ export function initAuth({
 				},
 			]),
 			apiKeyEndpointLockdown(),
+			organizationEndpointLockdown(),
 		],
 		trustedOrigins,
 		advanced: authAdvanced,
