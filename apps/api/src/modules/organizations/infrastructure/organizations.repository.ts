@@ -1,14 +1,19 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
 import {
+	account,
 	and,
 	asc,
 	count,
+	desc,
 	eq,
 	invitation,
 	member,
+	ne,
 	organization,
 	repositories,
+	sql,
+	user,
 } from '@repo/db'
 import type { OrganizationId, OrganizationRole, UserId } from '@repo/domain'
 import type {
@@ -30,11 +35,17 @@ interface DeleteOrganizationParams extends MemberRoleParams {
 	confirmationSlug: string
 }
 
-/**
- * Why the deletion ended, decided entirely inside the locked transaction. The
- * service turns each of these into the error the person reads; none of them is
- * a judgement the repository makes on its own beyond what the rows say.
- */
+interface IsHandleTakenParams {
+	handle: string
+	ignoreOrganizationId?: OrganizationId
+}
+
+export interface GitHubAccountIdentity {
+	accountId: string
+	accessToken: string | null
+	accessTokenExpiresAt: Date | null
+}
+
 export type OrganizationDeletionResult =
 	| { kind: 'deleted' }
 	| { kind: 'not-found' }
@@ -95,25 +106,57 @@ export class OrganizationsRepository {
 		return row?.role
 	}
 
-	/**
-	 * Deletes an organization, deciding every reason it might not be deleted
-	 * from rows read under the same lock that the delete runs under.
-	 *
-	 * The lock is what makes the answer true rather than merely recent. A second
-	 * owner can rename the organization, demote the actor, or attach a
-	 * repository at any moment, and each of those would invalidate a check made
-	 * beforehand — including the typed handle, which is compared against the
-	 * slug this transaction actually holds. Attaching a repository takes a key
-	 * share of this row, which `for update` conflicts with, so the count cannot
-	 * go stale between reading it and acting on it either. Two concurrent
-	 * deletions serialize: the second finds no row and reports `not-found`
-	 * rather than a second success.
-	 *
-	 * Better Auth's own delete is not used because it never asks what an
-	 * organization owns. Members and invitations are removed explicitly even
-	 * though both cascade, so what this deletes is legible here rather than
-	 * only in the schema.
-	 */
+	// Users and organizations share the /{handle} space, so both are checked.
+	// Lowercasing forgoes the unique indexes, which stay case-sensitive until
+	// TES-61 makes the shared namespace a database constraint.
+	async isHandleTaken({
+		handle,
+		ignoreOrganizationId,
+	}: IsHandleTakenParams): Promise<boolean> {
+		const organizationHandleTaken = sql`lower(${organization.slug}) = lower(${handle})`
+
+		const [takenUsernames, takenSlugs] = await Promise.all([
+			this.db
+				.select({ id: user.id })
+				.from(user)
+				.where(sql`lower(${user.username}) = lower(${handle})`)
+				.limit(1),
+			this.db
+				.select({ id: organization.id })
+				.from(organization)
+				.where(
+					ignoreOrganizationId
+						? and(
+								organizationHandleTaken,
+								ne(organization.id, ignoreOrganizationId)
+							)
+						: organizationHandleTaken
+				)
+				.limit(1),
+		])
+
+		return takenUsernames.length > 0 || takenSlugs.length > 0
+	}
+
+	// Re-linking writes another row and nothing makes (userId, providerId)
+	// unique, so the most recently updated account is the live one.
+	async findGitHubAccount({
+		userId,
+	}: UserParams): Promise<GitHubAccountIdentity | undefined> {
+		return await this.db.query.account.findFirst({
+			where: and(eq(account.userId, userId), eq(account.providerId, 'github')),
+			orderBy: [desc(account.updatedAt)],
+			columns: {
+				accountId: true,
+				accessToken: true,
+				accessTokenExpiresAt: true,
+			},
+		})
+	}
+
+	// Every refusal is decided under the same `for update` lock the delete runs
+	// under: a second owner can rename, demote the actor, or attach a repository
+	// at any moment, and each would invalidate a check made beforehand.
 	async deleteOwned({
 		confirmationSlug,
 		organizationId,
@@ -140,8 +183,7 @@ export class OrganizationsRepository {
 				)
 				.limit(1)
 
-			// A non-member is told the organization does not exist: which
-			// organizations somebody belongs to is not a stranger's to confirm.
+			// A non-member is told the organization does not exist.
 			if (!actorMember) return { kind: 'not-found' }
 
 			if (actorMember.role !== 'owner')
@@ -159,6 +201,9 @@ export class OrganizationsRepository {
 			if (ownedRepositories > 0)
 				return { kind: 'has-repositories', repositoryCount: ownedRepositories }
 
+			// Better Auth's own delete is not used because it never asks what an
+			// organization owns; members and invitations go explicitly so what is
+			// removed is legible here rather than only in the schema.
 			await transaction
 				.delete(invitation)
 				.where(eq(invitation.organizationId, organizationId))

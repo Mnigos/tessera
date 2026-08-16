@@ -41,11 +41,6 @@ export class OrganizationsController {
 		)
 	}
 
-	/**
-	 * Renaming is role-sensitive, and the role is Better Auth's to judge, so the
-	 * request headers travel with the call and it reads the caller's own session
-	 * rather than a user id this process vouched for.
-	 */
 	@Implement(contract.organizations.update)
 	update(@Req() request: AppRequest, @Session() session: UserSession) {
 		return implement(contract.organizations.update).handler(

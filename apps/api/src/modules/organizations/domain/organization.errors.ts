@@ -13,10 +13,6 @@ export class OrganizationNotFoundError extends NotFoundError {
 	}
 }
 
-/**
- * Users and organizations share the /{handle} namespace, so the message names
- * both rather than telling someone their handle is free when it is not.
- */
 export class OrganizationSlugTakenError extends ConflictError {
 	constructor(context?: Record<string, unknown>) {
 		super(
@@ -27,10 +23,6 @@ export class OrganizationSlugTakenError extends ConflictError {
 	}
 }
 
-/**
- * The handle belongs to a GitHub account nobody here can prove they own.
- * Linking that GitHub account is the way out, so the message says so.
- */
 export class OrganizationSlugGitHubConflictError extends ConflictError {
 	constructor(login: string, context?: Record<string, unknown>) {
 		super(
@@ -41,10 +33,6 @@ export class OrganizationSlugGitHubConflictError extends ConflictError {
 	}
 }
 
-/**
- * GitHub could not answer, so the handle is neither free nor taken. Failing
- * closed keeps an outage from handing out a login somebody else owns.
- */
 export class GitHubLookupUnavailableError extends ServiceUnavailableError {
 	constructor(
 		context?: Record<string, unknown>,

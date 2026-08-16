@@ -11,25 +11,17 @@ import {
 	DialogTitle,
 	DialogTrigger,
 } from '@repo/ui/components/dialog'
+import { Input } from '@repo/ui/components/input'
 import { Label } from '@repo/ui/components/label'
 import { useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { getOrganizationErrorMessage } from '../helpers/get-organization-error-message'
 import { useDeleteOrganizationMutation } from '../hooks/use-delete-organization.mutation'
 
-const CONFIRMATION_INPUT_CLASSNAME =
-	'h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring'
-
 interface OrganizationDeleteDialogProps {
 	organization: Organization
 }
 
-/**
- * Deleting is owner-only and irreversible, so the handle is typed back rather
- * than a button confirmed. The dialog stays open on failure: the common refusal
- * — the organization still owns repositories — is something the person has to
- * go and act on, and closing would take the reason with it.
- */
 export function OrganizationDeleteDialog({
 	organization,
 }: Readonly<OrganizationDeleteDialogProps>) {
@@ -83,10 +75,9 @@ export function OrganizationDeleteDialog({
 					</DialogHeader>
 					<div className="flex flex-col gap-2">
 						<Label htmlFor="organization-delete-confirmation">Handle</Label>
-						<input
+						<Input
 							autoCapitalize="none"
 							autoComplete="off"
-							className={CONFIRMATION_INPUT_CLASSNAME}
 							id="organization-delete-confirmation"
 							onChange={event =>
 								setConfirmationSlug(event.target.value.toLowerCase())

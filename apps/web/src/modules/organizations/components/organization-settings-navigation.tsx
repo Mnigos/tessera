@@ -13,10 +13,7 @@ interface OrganizationSettingsNavigationItem {
 	to: '/organizations/$slug/settings'
 }
 
-/**
- * One tab for now. It exists as a list because members and invitations join it
- * next, and a single tab that later becomes three should not change shape.
- */
+// A list already, because members and invitations join it next.
 const ORGANIZATION_SETTINGS_NAVIGATION: OrganizationSettingsNavigationItem[] = [
 	{ label: 'General', tab: 'general', to: '/organizations/$slug/settings' },
 ]

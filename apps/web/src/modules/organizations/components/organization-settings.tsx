@@ -7,12 +7,6 @@ interface OrganizationSettingsProps {
 	slug: string
 }
 
-/**
- * The URL names an organization by handle and the API answers by id, so the
- * viewer's own membership list is what resolves one to the other. A handle that
- * is not in it gets the same answer as a handle that does not exist: membership
- * of an organization is not something a stranger gets to confirm.
- */
 export function OrganizationSettings({
 	slug,
 }: Readonly<OrganizationSettingsProps>) {

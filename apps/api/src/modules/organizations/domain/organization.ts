@@ -3,11 +3,10 @@ import type {
 	Organization as OrganizationOutput,
 } from '@repo/contracts'
 import type { Organization } from '@repo/db'
-import type { OrganizationRole } from '@repo/domain'
+import type { OrganizationId, OrganizationRole } from '@repo/domain'
 
 const LOGO_URL_PROTOCOLS = new Set(['http:', 'https:'])
 
-/** The columns every organization projection needs, whoever is reading it. */
 export interface OrganizationView {
 	id: Organization['id']
 	slug: string
@@ -18,6 +17,14 @@ export interface OrganizationView {
 
 export interface OrganizationMembershipView extends OrganizationView {
 	role: OrganizationRole
+}
+
+interface BetterAuthOrganization {
+	id: string
+	slug: string
+	name: string
+	logo?: string | null
+	createdAt: Date
 }
 
 export function toOrganizationOutput(
@@ -42,12 +49,24 @@ export function toOrganizationMembershipOutput({
 	}
 }
 
-/**
- * Better Auth stores the logo as free text and the contract promises a URL.
- * Nothing in this release writes one, so this only guards the day something
- * does: a stored value that is not a URL is dropped rather than failing
- * response validation and taking a member's whole organization list with it.
- */
+export function betterAuthOrganizationToOutput({
+	id,
+	slug,
+	name,
+	logo,
+	createdAt,
+}: BetterAuthOrganization): OrganizationOutput {
+	return toOrganizationOutput({
+		id: id as OrganizationId,
+		slug,
+		name,
+		logo: logo ?? null,
+		createdAt,
+	})
+}
+
+// Better Auth stores the logo as free text and the contract promises a URL; a
+// stored non-URL is dropped rather than failing response validation.
 function toLogoUrl(logo: string | null): string | undefined {
 	if (!logo) return undefined
 

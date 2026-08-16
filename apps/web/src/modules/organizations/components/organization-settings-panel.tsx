@@ -43,8 +43,7 @@ export function OrganizationSettingsPanel({
 			</header>
 			<OrganizationSettingsNavigation slug={organization.slug} tab="general" />
 			<div className="flex flex-col gap-6">
-				{/* Keyed by handle: after a rename the form starts again from what
-				    was saved, rather than holding the value that was typed. */}
+				{/* Keyed by handle so a rename restarts the form from what was saved. */}
 				<OrganizationSettingsForm
 					canRename={viewerRole !== 'member'}
 					key={organization.slug}

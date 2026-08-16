@@ -3,8 +3,6 @@ import { CreateOrganizationForm } from '../components/create-organization-form'
 
 export const Route = createFileRoute('/organizations/new')({
 	beforeLoad: ({ context }) => {
-		// Creating an organization needs a signed-in owner, and the form has
-		// nothing to show without one.
 		if (!context.user) throw redirect({ to: '/' })
 	},
 	head: () => ({

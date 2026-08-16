@@ -7,11 +7,6 @@ export type OrganizationFormResult =
 	| { success: true; data: ParsedCreateOrganizationInput }
 	| { success: false; message: string }
 
-/**
- * Validates against the same schema the API enforces, so a malformed handle is
- * answered in place instead of after a round trip that also spends a GitHub
- * lookup.
- */
 export function parseOrganizationForm(input: {
 	name: string
 	slug: string

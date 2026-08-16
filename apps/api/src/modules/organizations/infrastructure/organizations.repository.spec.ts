@@ -19,12 +19,20 @@ describe(OrganizationsRepository.name, () => {
 	let repository: OrganizationsRepository
 	const select = vi.fn()
 	const transaction = vi.fn()
+	const findFirst = vi.fn()
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
 			providers: [
 				OrganizationsRepository,
-				{ provide: Database, useValue: { select, transaction } },
+				{
+					provide: Database,
+					useValue: {
+						select,
+						transaction,
+						query: { account: { findFirst } },
+					},
+				},
 			],
 		}).compile()
 
@@ -73,6 +81,51 @@ describe(OrganizationsRepository.name, () => {
 		)
 		expect(await repository.findMemberRole({ organizationId, userId })).toBe(
 			undefined
+		)
+	})
+
+	test.each([
+		['username', [{ id: userId }], []],
+		['organization slug', [], [{ id: organizationId }]],
+	] as const)('reports a taken %s', async (_label, users, organizations) => {
+		select
+			.mockReturnValueOnce(limitedRowsResult([...users]))
+			.mockReturnValueOnce(limitedRowsResult([...organizations]))
+
+		expect(await repository.isHandleTaken({ handle: 'TeSsErA' })).toBe(true)
+	})
+
+	test('reports an available handle and accepts a rename exclusion', async () => {
+		select
+			.mockReturnValueOnce(limitedRowsResult([]))
+			.mockReturnValueOnce(limitedRowsResult([]))
+
+		expect(
+			await repository.isHandleTaken({
+				handle: 'tessera-next',
+				ignoreOrganizationId: organizationId,
+			})
+		).toBe(false)
+		expect(select).toHaveBeenCalledTimes(2)
+	})
+
+	test('loads the newest linked GitHub account identity', async () => {
+		const identity = {
+			accountId: '42',
+			accessToken: 'github-token',
+			accessTokenExpiresAt: null,
+		}
+		findFirst.mockResolvedValue(identity)
+
+		expect(await repository.findGitHubAccount({ userId })).toEqual(identity)
+		expect(findFirst).toHaveBeenCalledWith(
+			expect.objectContaining({
+				columns: {
+					accountId: true,
+					accessToken: true,
+					accessTokenExpiresAt: true,
+				},
+			})
 		)
 	})
 

@@ -9,10 +9,6 @@ interface OrganizationsSectionProps {
 	enabled: boolean
 }
 
-/**
- * The way into organizations, on the one page a person already visits to manage
- * what they own. There is no separate organizations index in this release.
- */
 export function OrganizationsSection({
 	enabled,
 }: Readonly<OrganizationsSectionProps>) {

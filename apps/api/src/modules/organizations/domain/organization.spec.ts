@@ -1,5 +1,6 @@
 import type { OrganizationId } from '@repo/domain'
 import {
+	betterAuthOrganizationToOutput,
 	toOrganizationMembershipOutput,
 	toOrganizationOutput,
 } from './organization'
@@ -41,5 +42,37 @@ describe(toOrganizationMembershipOutput.name, () => {
 		expect(
 			toOrganizationMembershipOutput({ ...organization, role: 'admin' })
 		).toMatchObject({ id: organization.id, role: 'admin' })
+	})
+})
+
+describe(betterAuthOrganizationToOutput.name, () => {
+	test.each([
+		undefined,
+		null,
+	])('maps a Better Auth organization with a %s logo', logo => {
+		expect(
+			betterAuthOrganizationToOutput({
+				id: organization.id,
+				slug: 'tessera',
+				name: 'Tessera',
+				logo,
+				createdAt,
+			})
+		).toEqual({
+			id: organization.id,
+			slug: 'tessera',
+			name: 'Tessera',
+			logoUrl: undefined,
+			createdAt,
+		})
+	})
+
+	test('keeps a valid Better Auth logo url', () => {
+		expect(
+			betterAuthOrganizationToOutput({
+				...organization,
+				logo: organization.logo,
+			}).logoUrl
+		).toBe('https://example.com/logo.png')
 	})
 })

@@ -1,6 +1,7 @@
 import { toHandle } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
+import { Input } from '@repo/ui/components/input'
 import { Label } from '@repo/ui/components/label'
 import { useNavigate } from '@tanstack/react-router'
 import { Plus } from 'lucide-react'
@@ -11,15 +12,12 @@ import { useCreateOrganizationMutation } from '../hooks/use-create-organization.
 import { OrganizationHandleField } from './organization-handle-field'
 
 const CREATE_ORGANIZATION_ERROR_ID = 'create-organization-error'
-const NAME_INPUT_CLASSNAME =
-	'h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring'
 
 export function CreateOrganizationForm() {
 	const navigate = useNavigate()
 	const [name, setName] = useState('')
 	const [slug, setSlug] = useState('')
-	// Until the handle is typed into directly it follows the name, which is what
-	// people expect; after that it stops moving under them.
+	// Until the handle is typed into directly it follows the name.
 	const [isSlugEdited, setIsSlugEdited] = useState(false)
 	const [validationMessage, setValidationMessage] = useState<string>()
 	const createOrganization = useCreateOrganizationMutation()
@@ -81,9 +79,8 @@ export function CreateOrganizationForm() {
 			>
 				<div className="flex flex-col gap-2">
 					<Label htmlFor="organization-name">Name</Label>
-					<input
+					<Input
 						autoComplete="off"
-						className={NAME_INPUT_CLASSNAME}
 						id="organization-name"
 						name="name"
 						onChange={event => handleNameChange(event.target.value)}

@@ -11,8 +11,7 @@ import {
 	GITHUB_LOGIN_MISSING_TTL_SECONDS,
 	GitHubLoginCacheRepository,
 } from '../infrastructure/github-login-cache.repository'
-import { OrganizationHandlePolicyRepository } from '../infrastructure/organization-handle-policy.repository'
-import { LocalHandleAvailabilityService } from './local-handle-availability.service'
+import { OrganizationsRepository } from '../infrastructure/organizations.repository'
 import { OrganizationHandlePolicyService } from './organization-handle-policy.service'
 
 const actorUserId = '00000000-0000-4000-8000-000000000001' as UserId
@@ -21,19 +20,14 @@ const organizationId = '00000000-0000-4000-8000-000000000010' as OrganizationId
 describe(OrganizationHandlePolicyService.name, () => {
 	let moduleRef: TestingModule
 	let service: OrganizationHandlePolicyService
-	let localAvailability: LocalHandleAvailabilityService
 	let client: GitHubLoginClient
 	let cache: GitHubLoginCacheRepository
-	let repository: OrganizationHandlePolicyRepository
+	let repository: OrganizationsRepository
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
 			providers: [
 				OrganizationHandlePolicyService,
-				{
-					provide: LocalHandleAvailabilityService,
-					useValue: { isTaken: vi.fn().mockResolvedValue(false) },
-				},
 				{
 					provide: GitHubLoginClient,
 					useValue: {
@@ -49,17 +43,19 @@ describe(OrganizationHandlePolicyService.name, () => {
 					},
 				},
 				{
-					provide: OrganizationHandlePolicyRepository,
-					useValue: { findGitHubAccount: vi.fn().mockResolvedValue(undefined) },
+					provide: OrganizationsRepository,
+					useValue: {
+						isHandleTaken: vi.fn().mockResolvedValue(false),
+						findGitHubAccount: vi.fn().mockResolvedValue(undefined),
+					},
 				},
 			],
 		}).compile()
 
 		service = moduleRef.get(OrganizationHandlePolicyService)
-		localAvailability = moduleRef.get(LocalHandleAvailabilityService)
 		client = moduleRef.get(GitHubLoginClient)
 		cache = moduleRef.get(GitHubLoginCacheRepository)
-		repository = moduleRef.get(OrganizationHandlePolicyRepository)
+		repository = moduleRef.get(OrganizationsRepository)
 	})
 
 	afterEach(async () => {
@@ -68,12 +64,15 @@ describe(OrganizationHandlePolicyService.name, () => {
 	})
 
 	test('rejects a local handle before consulting GitHub', async () => {
-		vi.spyOn(localAvailability, 'isTaken').mockResolvedValue(true)
+		vi.spyOn(repository, 'isHandleTaken').mockResolvedValue(true)
 
 		await expect(
 			service.assertAvailable({ slug: ' Tessera ', actorUserId })
 		).rejects.toBeInstanceOf(OrganizationSlugTakenError)
-		expect(localAvailability.isTaken).toHaveBeenCalledWith('tessera', undefined)
+		expect(repository.isHandleTaken).toHaveBeenCalledWith({
+			handle: 'tessera',
+			ignoreOrganizationId: undefined,
+		})
 		expect(cache.get).not.toHaveBeenCalled()
 		expect(client.lookupLogin).not.toHaveBeenCalled()
 	})
@@ -85,10 +84,10 @@ describe(OrganizationHandlePolicyService.name, () => {
 			ignoreOrganizationId: organizationId,
 		})
 
-		expect(localAvailability.isTaken).toHaveBeenCalledWith(
-			'tessera-next',
-			organizationId
-		)
+		expect(repository.isHandleTaken).toHaveBeenCalledWith({
+			handle: 'tessera-next',
+			ignoreOrganizationId: organizationId,
+		})
 	})
 
 	test('allows a GitHub 404 and caches it for the negative TTL', async () => {
@@ -136,8 +135,6 @@ describe(OrganizationHandlePolicyService.name, () => {
 			type: 'User',
 		})
 
-		// GitHub follows rename redirects, so the message names the handle the
-		// user typed; the canonical login travels in the error context.
 		await expect(
 			service.assertAvailable({ slug: 'old-login', actorUserId })
 		).rejects.toSatisfy(

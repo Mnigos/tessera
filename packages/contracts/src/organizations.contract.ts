@@ -9,12 +9,6 @@ import { z } from 'zod'
 export const organizationRoleSchema = z.enum(organizationRoles)
 export type OrganizationRole = z.infer<typeof organizationRoleSchema>
 
-/**
- * An organization handle is a user handle: both name a page at `/{handle}` and
- * both prefix clone URLs, so neither namespace may accept what the other would
- * reject. Lowercased here rather than refused so a typed capital is not an
- * error the person has to read.
- */
 export const organizationSlugSchema = z
 	.string()
 	.trim()
@@ -39,7 +33,6 @@ export const organizationSchema = z.object({
 })
 export type Organization = z.infer<typeof organizationSchema>
 
-/** An organization as it looks to one of its members: the org, plus their role in it. */
 export const organizationMembershipSchema = organizationSchema.extend({
 	role: organizationRoleSchema,
 })
@@ -79,15 +72,8 @@ export type ParsedUpdateOrganizationInput = z.infer<
 	typeof updateOrganizationInputSchema
 >
 
-/**
- * The handle is typed back rather than a checkbox ticked: deletion is refused
- * outright while the organization owns repositories, and everything else it
- * removes — members, invitations — does not come back.
- *
- * It travels in the DELETE body, which oRPC's OpenAPI codec sends and reads for
- * every non-GET method. A query parameter would put the handle in access logs
- * of a request that destroys what it names.
- */
+// In the DELETE body, not a query parameter: the handle would otherwise land in
+// the access logs of a request that destroys what it names.
 export const deleteOrganizationInputSchema = organizationIdInputSchema.extend({
 	confirmationSlug: z.string().trim(),
 })
