@@ -46,7 +46,6 @@ export function toOrganizationInvitationOutput({
 		id,
 		organizationId,
 		email,
-		// The narrowest role, so a row without one cannot read as more access.
 		role: role ?? 'member',
 		status,
 		expiresAt,

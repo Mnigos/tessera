@@ -33,7 +33,6 @@ export function OrganizationInvitationPage({
 				</p>
 				<Button
 					className="self-start"
-					// Back here, not the profile: the link is the only copy there is.
 					onClick={() =>
 						signIn({ callbackPath: `/invitations/${invitationId}` })
 					}
@@ -98,7 +97,6 @@ function InvitationCard({ invitation }: Readonly<InvitationCardProps>) {
 		)
 	const isBusy = acceptInvitation.isPending || declineInvitation.isPending
 
-	// A declined invitation stops being readable, so say the outcome here.
 	if (declineInvitation.isSuccess)
 		return (
 			<InvitationMessage title="Invitation declined">

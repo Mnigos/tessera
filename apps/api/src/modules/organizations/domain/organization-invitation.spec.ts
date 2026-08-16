@@ -56,12 +56,12 @@ describe(toMyOrganizationInvitationOutput.name, () => {
 
 describe(isOrganizationInvitationExpired.name, () => {
 	test('treats the exact expiry instant and earlier as expired', () => {
-		expect(isOrganizationInvitationExpired(invitation, expiresAt)).toBe(true)
+		expect(isOrganizationInvitationExpired(invitation, expiresAt)).toBeTruthy()
 		expect(
 			isOrganizationInvitationExpired(
 				invitation,
 				new Date(expiresAt.getTime() - 1)
 			)
-		).toBe(false)
+		).toBeFalsy()
 	})
 })

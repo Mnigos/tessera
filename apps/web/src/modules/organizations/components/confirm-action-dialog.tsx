@@ -27,7 +27,6 @@ interface ConfirmActionDialogProps {
 	children?: ReactNode
 }
 
-/** Stays open on failure: the reason is usually something to go and act on. */
 export function ConfirmActionDialog({
 	cancelLabel = 'Cancel',
 	children,
@@ -44,7 +43,12 @@ export function ConfirmActionDialog({
 	trigger,
 }: Readonly<ConfirmActionDialogProps>) {
 	return (
-		<Dialog onOpenChange={onOpenChange} open={open}>
+		<Dialog
+			onOpenChange={next => {
+				if (next || !isPending) onOpenChange(next)
+			}}
+			open={open}
+		>
 			<DialogTrigger render={trigger} />
 			<DialogContent>
 				<DialogHeader>
