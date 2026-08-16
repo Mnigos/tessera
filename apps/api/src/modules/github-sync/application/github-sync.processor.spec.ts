@@ -391,7 +391,7 @@ describe(GitHubSyncProcessor.name, () => {
 	})
 
 	test('defers a rate-limited installation instead of retrying the job', async () => {
-		const resetAt = new Date('2026-08-11T13:00:00Z')
+		const resetAt = new Date(Date.now() + 60 * 60 * 1000)
 		vi.spyOn(client, 'getRepositoryReconciliation').mockRejectedValue(
 			new ExternalServiceError('GitHub', {
 				failureClass: 'rate_limit',
@@ -841,7 +841,7 @@ describe(GitHubSyncProcessor.name, () => {
 	})
 
 	test('escalates a rate limit found during the check stage', async () => {
-		const resetAt = new Date('2026-08-11T13:00:00Z')
+		const resetAt = new Date(Date.now() + 60 * 60 * 1000)
 		vi.spyOn(repository, 'listCheckTargets').mockResolvedValue([
 			'first-head',
 			'second-head',
