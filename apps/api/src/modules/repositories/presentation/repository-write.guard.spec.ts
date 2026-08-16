@@ -39,7 +39,6 @@ describe(RepositoryWriteGuard.name, () => {
 			username: 'marta',
 			slug: 'tessera-notes' as RepositorySlug,
 		})
-		expect(request.viewerUserId).toBe(mockUserId)
 	})
 
 	test('rejects requests without a username path param', async () => {

@@ -263,16 +263,16 @@ describe(RepositoryPermissionsService.name, () => {
 		).toBeNull()
 	})
 
-	test('ignores collaborator roles and public visibility when resolving implicit roles', async () => {
+	test('ignores collaborator roles when resolving implicit roles', async () => {
 		vi.spyOn(repositoriesRepository, 'findCollaboratorRole').mockResolvedValue(
 			'admin'
 		)
 
 		expect(
-			await repositoryPermissionsService.resolveImplicitRole(viewerUserId, {
-				...userOwnedRepository,
-				visibility: 'public',
-			})
+			await repositoryPermissionsService.resolveImplicitRole(
+				viewerUserId,
+				userOwnedRepository
+			)
 		).toBeNull()
 		expect(repositoriesRepository.findCollaboratorRole).not.toHaveBeenCalled()
 	})

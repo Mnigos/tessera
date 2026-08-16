@@ -60,7 +60,6 @@ describe(GitHubImportProcessor.name, () => {
 					useValue: {
 						markRunning: vi.fn(),
 						findGitHubAccount: vi.fn(),
-						findOwnerUsername: vi.fn(),
 						markRepositoryMetadata: vi.fn(),
 						markSucceeded: vi.fn(),
 						markFailed: vi.fn(),
@@ -71,7 +70,6 @@ describe(GitHubImportProcessor.name, () => {
 					useValue: {
 						createImportedRepositoryMetadata: vi.fn(),
 						completeImportedGitHubRepository: vi.fn(),
-						updateImportedRepositoryStorage: vi.fn(),
 						initializeImportedGitHubExternalSource: vi.fn(),
 						deleteRepositoryMetadata: vi.fn(),
 					},
@@ -107,9 +105,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		const createImportedRepositoryMetadataSpy = vi
 			.spyOn(repositoriesService, 'createImportedRepositoryMetadata')
 			.mockResolvedValue({
@@ -124,7 +119,7 @@ describe(GitHubImportProcessor.name, () => {
 				storagePath: null,
 				createdAt: repositoryImport.createdAt,
 				updatedAt: repositoryImport.updatedAt,
-				ownerUser: { username: 'marta' },
+				owner: { kind: 'user', handle: 'marta' },
 			})
 		const importRepositorySpy = vi
 			.spyOn(gitStorageClient, 'importRepository')
@@ -151,7 +146,7 @@ describe(GitHubImportProcessor.name, () => {
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				createdAt: repositoryImport.createdAt,
 				updatedAt: repositoryImport.updatedAt,
-				ownerUser: { username: 'marta' },
+				owner: { kind: 'user', handle: 'marta' },
 			})
 		const markSucceededSpy = vi.spyOn(githubImportRepository, 'markSucceeded')
 		const markRepositoryMetadataSpy = vi.spyOn(
@@ -163,7 +158,6 @@ describe(GitHubImportProcessor.name, () => {
 
 		expect(createImportedRepositoryMetadataSpy).toHaveBeenCalledWith({
 			userId: mockUserId,
-			username: 'marta',
 			name: 'tessera',
 			slug: 'tessera',
 			visibility: 'private',
@@ -182,7 +176,6 @@ describe(GitHubImportProcessor.name, () => {
 		})
 		expect(completeImportedGitHubRepositorySpy).toHaveBeenCalledWith({
 			repositoryId,
-			username: 'marta',
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'trunk',
 			externalRepositoryId: 123n,
@@ -210,9 +203,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		const createImportedRepositoryMetadataSpy = vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -243,7 +233,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 
 		await processor.process(job)
@@ -270,9 +260,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
 			new Error('storage unavailable')
 		)
@@ -297,9 +284,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -315,7 +299,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(
 			githubImportRepository,
@@ -341,9 +325,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -359,7 +340,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -395,9 +376,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -413,7 +391,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
 			new Error('storage unavailable')
@@ -445,9 +423,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -463,7 +438,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
 			new Error('storage unavailable')
@@ -490,9 +465,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -508,7 +480,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -540,9 +512,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -558,7 +527,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -597,9 +566,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -615,7 +581,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -639,7 +605,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(githubImportRepository, 'markSucceeded').mockRejectedValue(
 			new Error('status update failed')
@@ -673,9 +639,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -691,7 +654,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockResolvedValue({
 			storagePath: '/var/lib/tessera/repositories/repo.git',
@@ -731,9 +694,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
@@ -749,7 +709,7 @@ describe(GitHubImportProcessor.name, () => {
 			storagePath: null,
 			createdAt: repositoryImport.createdAt,
 			updatedAt: repositoryImport.updatedAt,
-			ownerUser: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta' },
 		})
 		vi.spyOn(gitStorageClient, 'createRepository').mockRejectedValue(
 			new ServiceUnavailableError('git storage')
@@ -776,9 +736,6 @@ describe(GitHubImportProcessor.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubImportRepository, 'findOwnerUsername').mockResolvedValue(
-			'marta'
-		)
 		vi.spyOn(
 			repositoriesService,
 			'createImportedRepositoryMetadata'
