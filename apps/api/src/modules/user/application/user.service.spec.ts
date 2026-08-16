@@ -55,6 +55,40 @@ describe(UserService.name, () => {
 		expect(findProfileSpy).toHaveBeenCalledWith({ username: 'github-user' })
 	})
 
+	test('finds a public user without wrapping the profile', async () => {
+		const findProfileSpy = vi
+			.spyOn(userRepository, 'findProfile')
+			.mockResolvedValue({
+				id: userId,
+				username: 'github-user',
+				name: 'GitHub User',
+				image: 'avatar.jpg',
+			})
+
+		expect(
+			await userService.findPublicUser({ username: 'github-user' })
+		).toEqual({
+			id: userId,
+			username: 'github-user',
+			displayName: 'GitHub User',
+			avatarUrl: 'avatar.jpg',
+		})
+		expect(findProfileSpy).toHaveBeenCalledWith({ username: 'github-user' })
+	})
+
+	test('does not expose a repository row without a username', async () => {
+		vi.spyOn(userRepository, 'findProfile').mockResolvedValue({
+			id: userId,
+			username: null,
+			name: 'GitHub User',
+			image: null,
+		})
+
+		expect(
+			await userService.findPublicUser({ username: 'github-user' })
+		).toBeUndefined()
+	})
+
 	test('omits absent avatar urls', async () => {
 		vi.spyOn(userRepository, 'findProfile').mockResolvedValue({
 			id: userId,

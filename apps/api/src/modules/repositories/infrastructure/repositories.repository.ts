@@ -7,6 +7,7 @@ import {
 	count,
 	type DrizzleTransaction,
 	eq,
+	exists,
 	inArray,
 	isNotNull,
 	isNull,
@@ -171,6 +172,31 @@ export interface GitHubMirrorSyncRepository extends RepositoryWithOwner {
 	externalSource: NonNullable<RepositoryWithOwner['externalSource']>
 	ownerUserId: UserId
 	storagePath: string
+}
+
+interface ViewerParams {
+	viewerUserId?: UserId
+}
+
+interface ListVisibleByUserParams extends ViewerParams {
+	ownerUserId: UserId
+	ownerOrganizationId?: never
+}
+
+interface ListVisibleByOrganizationParams extends ViewerParams {
+	ownerOrganizationId: OrganizationId
+	ownerUserId?: never
+}
+
+export type ListVisibleByOwnerParams =
+	| ListVisibleByUserParams
+	| ListVisibleByOrganizationParams
+
+export interface OwnedRepositoryListItem {
+	id: RepositoryId
+	name: RepositoryName
+	slug: RepositorySlug
+	visibility: RepositoryVisibility
 }
 
 type RepositoryDatabase = Database | DrizzleTransaction
@@ -1236,6 +1262,64 @@ export class RepositoriesRepository {
 					syncFailureReason,
 				},
 			})
+	}
+
+	async listVisibleByOwner(
+		params: ListVisibleByOwnerParams
+	): Promise<OwnedRepositoryListItem[]> {
+		const { viewerUserId } = params
+		const isOwnedByHandle =
+			params.ownerUserId === undefined
+				? eq(repositories.ownerOrganizationId, params.ownerOrganizationId)
+				: eq(repositories.ownerUserId, params.ownerUserId)
+		const isPublic = eq(repositories.visibility, 'public')
+		// An organization `member` is absent on purpose: TES-54 grants no implicit read.
+		const isVisibleToViewer = viewerUserId
+			? or(
+					isPublic,
+					eq(repositories.ownerUserId, viewerUserId),
+					exists(
+						this.db
+							.select({ id: member.id })
+							.from(member)
+							.where(
+								and(
+									eq(member.organizationId, repositories.ownerOrganizationId),
+									eq(member.userId, viewerUserId),
+									inArray(member.role, ['owner', 'admin'])
+								)
+							)
+					),
+					exists(
+						this.db
+							.select({ id: repositoryCollaborators.id })
+							.from(repositoryCollaborators)
+							.where(
+								and(
+									eq(repositoryCollaborators.repositoryId, repositories.id),
+									eq(repositoryCollaborators.userId, viewerUserId)
+								)
+							)
+					)
+				)
+			: isPublic
+
+		return await this.db
+			.select({
+				id: repositories.id,
+				name: repositories.name,
+				slug: repositories.slug,
+				visibility: repositories.visibility,
+			})
+			.from(repositories)
+			.where(
+				and(
+					isOwnedByHandle,
+					isNotNull(repositories.storagePath),
+					isVisibleToViewer
+				)
+			)
+			.orderBy(asc(repositories.createdAt))
 	}
 }
 
