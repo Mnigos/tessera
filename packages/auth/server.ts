@@ -171,8 +171,7 @@ export function initAuth({
 							newOrganization.slug,
 							isUserHandleTaken
 						),
-					// Better Auth passes only the fields being changed, so an update
-					// that leaves the slug alone arrives without one.
+					// Updates carry only the changed fields.
 					beforeUpdateOrganization: async ({
 						organization: organizationUpdate,
 					}) =>

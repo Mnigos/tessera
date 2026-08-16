@@ -17,7 +17,6 @@ export function CreateOrganizationForm() {
 	const navigate = useNavigate()
 	const [name, setName] = useState('')
 	const [slug, setSlug] = useState('')
-	// Until the handle is typed into directly it follows the name.
 	const [isSlugEdited, setIsSlugEdited] = useState(false)
 	const [validationMessage, setValidationMessage] = useState<string>()
 	const createOrganization = useCreateOrganizationMutation()

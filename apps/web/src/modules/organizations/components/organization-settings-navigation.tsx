@@ -13,7 +13,6 @@ interface OrganizationSettingsNavigationItem {
 	to: '/organizations/$slug/settings'
 }
 
-// A list already, because members and invitations join it next.
 const ORGANIZATION_SETTINGS_NAVIGATION: OrganizationSettingsNavigationItem[] = [
 	{ label: 'General', tab: 'general', to: '/organizations/$slug/settings' },
 ]

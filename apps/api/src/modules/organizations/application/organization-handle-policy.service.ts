@@ -19,8 +19,6 @@ import {
 } from '../infrastructure/organizations.repository'
 
 interface AssertAvailableInput {
-	// Already validated against the handle grammar by the contract, which is what
-	// keeps a handle GitHub could never hold from costing a request.
 	slug: string
 	actorUserId: UserId
 	ignoreOrganizationId?: OrganizationId
@@ -65,9 +63,7 @@ export class OrganizationHandlePolicyService {
 		})
 		const actorAccountId = toActorAccountId(gitHubAccount)
 
-		// A cached positive can only ever reject an actor with nothing linked; an
-		// actor who could claim gets a live lookup, since a cached one may predate
-		// GitHub reassigning the login to somebody else.
+		// Cached positives may only reject unlinked actors; linked actors look up live.
 		const lookup =
 			actorAccountId === null && cachedLookup
 				? cachedLookup
@@ -75,11 +71,9 @@ export class OrganizationHandlePolicyService {
 
 		if (!lookup.exists) return
 
-		// The claim is settled on GitHub's immutable account id, never on the login
-		// string: a login can be released and re-registered by a stranger.
+		// Compare account ids, not logins: logins can be re-registered by strangers.
 		if (actorAccountId === null || lookup.id !== actorAccountId)
-			// GitHub follows rename redirects, so the message names the typed
-			// handle; the canonical login travels in the context.
+			// Names the typed handle: GitHub redirects renamed logins.
 			throw new OrganizationSlugGitHubConflictError(handle, {
 				canonicalLogin: lookup.login,
 			})
@@ -112,8 +106,6 @@ function toGitHubLoginAuth(
 	return { accessToken: isExpired ? null : gitHubAccount.accessToken }
 }
 
-// Better Auth stores the provider account id as text; anything that is not a
-// positive integer did not come from GitHub and claims nothing.
 function toActorAccountId(gitHubAccount: GitHubAccountIdentity | undefined) {
 	if (!gitHubAccount) return null
 

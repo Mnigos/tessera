@@ -39,9 +39,7 @@ export const repositories = pgTable(
 		ownerUserId: uuid('owner_user_id')
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		// Restrict, not cascade: deleting an organization must never be a way to
-		// destroy the repositories it owns. Tessera refuses the deletion first;
-		// this is the backstop for any path that does not go through it.
+		// Deleting an organization must never delete its repositories.
 		ownerOrganizationId: uuid('owner_organization_id')
 			.$type<OrganizationId>()
 			.references(() => organization.id, { onDelete: 'restrict' }),

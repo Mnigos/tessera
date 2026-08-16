@@ -47,13 +47,7 @@ export const session = pgTable(
 			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'cascade' }),
-		/**
-		 * Declared by Better Auth's organization plugin, which reads and writes it
-		 * without asking the application. The reference clears itself rather than
-		 * trusting whoever deleted the organization to have cleared it: Tessera
-		 * deletes organizations in its own transaction, and a session pointing at
-		 * a row that is gone is a lookup that fails for reasons nobody can see.
-		 */
+		// Written by Better Auth's organization plugin.
 		activeOrganizationId: uuid('active_organization_id')
 			.$type<OrganizationId>()
 			.references(() => organization.id, { onDelete: 'set null' }),
