@@ -37,7 +37,9 @@ const baseEnvSchema = z.object({
 	DATABASE_URL: z
 		.string()
 		.default('postgresql://tessera:tessera@localhost:5432/tessera'),
-	DB_POOL_MAX: z.coerce.number().int().positive().default(5),
+	// At least 2: an organization write holds one connection while Better Auth
+	// takes a second one of its own.
+	DB_POOL_MAX: z.coerce.number().int().min(2).default(5),
 	DB_SLOW_QUERY_THRESHOLD_MS: z.coerce.number().int().positive().default(250),
 	REDIS_URL: z.string().default('redis://localhost:6379'),
 	GIT_SERVICE_URL: z.string().default('localhost:50051'),

@@ -78,3 +78,85 @@ export class OrganizationCreateFailedError extends InternalError {
 		super('organization create', context)
 	}
 }
+
+export class OrganizationMemberNotFoundError extends NotFoundError {
+	constructor(context?: Record<string, unknown>) {
+		super('organization member', context)
+	}
+}
+
+export class OrganizationLastOwnerError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization owner',
+			context,
+			'An organization needs at least one owner.'
+		)
+	}
+}
+
+export class OrganizationMemberAlreadyExistsError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization member',
+			context,
+			'This person is already a member of the organization.'
+		)
+	}
+}
+
+export class OrganizationInvitationNotFoundError extends NotFoundError {
+	constructor(context?: Record<string, unknown>) {
+		super('organization invitation', context)
+	}
+}
+
+export class OrganizationInvitationExpiredError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization invitation',
+			context,
+			'This invitation has expired. Ask an organization admin to send a new one.'
+		)
+	}
+}
+
+export class OrganizationInvitationEmailMismatchError extends ForbiddenError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization invitation',
+			context,
+			'This invitation was sent to a different email address.'
+		)
+	}
+}
+
+export class OrganizationInvitationPendingError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization invitation',
+			context,
+			'An invitation for this email is already pending.'
+		)
+	}
+}
+
+export class OrganizationLimitReachedError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization',
+			context,
+			'This organization has reached its limit. Remove a member or cancel a pending invitation first.'
+		)
+	}
+}
+
+export class OrganizationBusyError extends ConflictError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'organization',
+			context,
+			'Another change to this organization is in progress. Try again.'
+		)
+	}
+}
