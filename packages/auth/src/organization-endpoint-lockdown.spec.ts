@@ -25,6 +25,8 @@ describe('organization endpoint lockdown', () => {
 			'/api/auth/organization/remove-member',
 			'/api/auth/organization/update-member-role',
 			'/api/auth/organization/leave',
+			'/api/auth/organization/list-invitations',
+			'/api/auth/organization/get-full-organization',
 		]
 
 		for (const pathname of blocked)
@@ -44,9 +46,7 @@ describe('organization endpoint lockdown', () => {
 	test('leaves organization read routes open', async () => {
 		const allowed = [
 			'/api/auth/organization/list',
-			'/api/auth/organization/get-full-organization',
 			'/api/auth/organization/list-members',
-			'/api/auth/organization/list-invitations',
 			'/api/auth/organization/list-user-invitations',
 			'/api/auth/organization/get-invitation',
 			'/api/auth/organization/check-slug',

@@ -146,23 +146,25 @@ describe('Organizations integration', () => {
 		vi.restoreAllMocks()
 	})
 
-	test('locks down every raw Better Auth organization mutation route', async () => {
-		for (const path of [
-			'create',
-			'update',
-			'delete',
-			'leave',
-			'invite-member',
-			'remove-member',
-			'update-member-role',
-			'set-active',
-			'accept-invitation',
-			'reject-invitation',
-			'cancel-invitation',
-		]) {
+	test('locks down every raw Better Auth organization route Tessera owns', async () => {
+		for (const [path, method] of [
+			['create', 'POST'],
+			['update', 'POST'],
+			['delete', 'POST'],
+			['leave', 'POST'],
+			['invite-member', 'POST'],
+			['remove-member', 'POST'],
+			['update-member-role', 'POST'],
+			['set-active', 'POST'],
+			['accept-invitation', 'POST'],
+			['reject-invitation', 'POST'],
+			['cancel-invitation', 'POST'],
+			['list-invitations', 'GET'],
+			['get-full-organization', 'GET'],
+		] as const) {
 			const response = await adapter.hono.request(
 				`http://localhost/api/auth/organization/${path}`,
-				{ method: 'POST', headers: owner.headers }
+				{ method, headers: owner.headers }
 			)
 
 			expect(response.status).toBe(404)
