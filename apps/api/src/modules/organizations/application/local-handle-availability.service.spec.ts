@@ -35,7 +35,7 @@ describe(LocalHandleAvailabilityService.name, () => {
 			.spyOn(repository, 'isHandleTaken')
 			.mockResolvedValue(true)
 
-		expect(await service.isTaken('  Tessera  ', organizationId)).toBe(true)
+		expect(await service.isTaken('  Tessera  ', organizationId)).toBeTruthy()
 		expect(isHandleTakenSpy).toHaveBeenCalledWith({
 			handle: 'Tessera',
 			ignoreOrganizationId: organizationId,

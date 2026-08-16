@@ -30,6 +30,7 @@ function mockMutation(overrides: Record<string, unknown> = {}) {
 
 describe(CreateOrganizationForm.name, () => {
 	beforeEach(() => {
+		vi.clearAllMocks()
 		useNavigateMock.mockReturnValue(navigate)
 		mockMutation()
 	})

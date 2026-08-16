@@ -89,13 +89,10 @@ describe(OrganizationDeletionService.name, () => {
 			repositoryCount: 2,
 		})
 
-		const promise = service.delete(actorUserId, input)
-
-		await expect(promise).rejects.toBeInstanceOf(
-			OrganizationHasRepositoriesError
+		await expect(service.delete(actorUserId, input)).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof OrganizationHasRepositoriesError &&
+				error.context?.repositoryCount === 2
 		)
-		await expect(promise).rejects.toMatchObject({
-			context: expect.objectContaining({ repositoryCount: 2 }),
-		})
 	})
 })
