@@ -1,5 +1,9 @@
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { OrganizationId, UserId } from '@repo/domain'
+import {
+	type OrganizationId,
+	RESERVED_HANDLES,
+	type UserId,
+} from '@repo/domain'
 import {
 	GitHubLookupUnavailableError,
 	OrganizationSlugGitHubConflictError,
@@ -16,6 +20,15 @@ import { OrganizationHandlePolicyService } from './organization-handle-policy.se
 
 const actorUserId = '00000000-0000-4000-8000-000000000001' as UserId
 const organizationId = '00000000-0000-4000-8000-000000000010' as OrganizationId
+const RESERVED_HANDLE_FIXTURES = [
+	'organizations',
+	'profile',
+	'import',
+	'invitations',
+	'api',
+	'login',
+	'settings',
+] as const
 
 describe(OrganizationHandlePolicyService.name, () => {
 	let moduleRef: TestingModule
@@ -72,6 +85,26 @@ describe(OrganizationHandlePolicyService.name, () => {
 			handle: 'tessera',
 			ignoreOrganizationId: undefined,
 		})
+		expect(cache.get).not.toHaveBeenCalled()
+		expect(client.lookupLogin).not.toHaveBeenCalled()
+	})
+
+	test('keeps the exact reserved handle policy', () => {
+		expect([...RESERVED_HANDLES].sort()).toEqual(
+			[...RESERVED_HANDLE_FIXTURES].sort()
+		)
+	})
+
+	test.each(
+		RESERVED_HANDLE_FIXTURES
+	)('rejects the reserved %s handle before local or GitHub lookups', async reservedHandle => {
+		await expect(
+			service.assertAvailable({
+				slug: ` ${reservedHandle.toUpperCase()} `,
+				actorUserId,
+			})
+		).rejects.toBeInstanceOf(OrganizationSlugTakenError)
+		expect(repository.isHandleTaken).not.toHaveBeenCalled()
 		expect(cache.get).not.toHaveBeenCalled()
 		expect(client.lookupLogin).not.toHaveBeenCalled()
 	})

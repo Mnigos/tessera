@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common'
 import type {
+	PublicUser,
 	PublicUserProfileInput,
 	PublicUserProfileOutput,
 } from '@repo/contracts'
@@ -18,17 +19,25 @@ export class UserService {
 	async getProfile({
 		username,
 	}: PublicUserProfileInput): Promise<PublicUserProfileOutput> {
+		const user = await this.findPublicUser({ username })
+
+		if (!user) throw new ProfileNotFoundError(username)
+
+		return { user }
+	}
+
+	async findPublicUser({
+		username,
+	}: PublicUserProfileInput): Promise<PublicUser | undefined> {
 		const user = await this.userRepository.findProfile({ username })
 
-		if (!user?.username) throw new ProfileNotFoundError(username)
+		if (!user?.username) return undefined
 
 		return {
-			user: {
-				id: user.id,
-				username: user.username,
-				displayName: user.name,
-				avatarUrl: user.image ?? undefined,
-			},
+			id: user.id,
+			username: user.username,
+			displayName: user.name,
+			avatarUrl: user.image ?? undefined,
 		}
 	}
 

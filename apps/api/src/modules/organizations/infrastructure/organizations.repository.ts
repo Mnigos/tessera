@@ -27,6 +27,10 @@ interface UserParams {
 	userId: UserId
 }
 
+interface OrganizationSlugParams {
+	slug: string
+}
+
 interface MemberRoleParams extends OrganizationParams, UserParams {}
 
 interface DeleteOrganizationParams extends MemberRoleParams {
@@ -85,20 +89,16 @@ export class OrganizationsRepository {
 		return row
 	}
 
-	// Never waits: `run` needs a second pool connection, so waiters would starve it.
-	async withOrganizationLock<TResult>(
-		organizationId: OrganizationId,
-		run: () => Promise<TResult>
-	): Promise<TResult> {
-		return await this.db.transaction(async transaction => {
-			const [lock] = await transaction.execute<{ locked: boolean }>(
-				sql`select pg_try_advisory_xact_lock(hashtextextended(${`organization:${organizationId}`}, 0)) as locked`
-			)
+	async findBySlug({
+		slug,
+	}: OrganizationSlugParams): Promise<Organization | undefined> {
+		const [row] = await this.db
+			.select(ORGANIZATION_COLUMNS)
+			.from(organization)
+			.where(eq(organization.slug, slug))
+			.limit(1)
 
-			if (!lock?.locked) throw new OrganizationBusyError({ organizationId })
-
-			return await run()
-		})
+		return row
 	}
 
 	async findMemberRole({

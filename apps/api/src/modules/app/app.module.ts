@@ -12,6 +12,7 @@ import { GitAccessTokensModule } from '@modules/git-access-tokens'
 import { GitHubImportModule } from '@modules/github-import'
 import { GitHubSyncModule } from '@modules/github-sync'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
+import { HandlesModule } from '@modules/handles'
 import { HealthModule } from '@modules/health'
 import { OrganizationsModule } from '@modules/organizations'
 import { MergeQueueModule, PullRequestsModule } from '@modules/pull-requests'
@@ -38,6 +39,7 @@ import { APP_FILTER } from '@nestjs/core'
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
 		OrganizationsModule,
+		HandlesModule,
 		RepositoriesModule,
 		RepositoryCollaboratorsModule,
 		BranchProtectionModule,
