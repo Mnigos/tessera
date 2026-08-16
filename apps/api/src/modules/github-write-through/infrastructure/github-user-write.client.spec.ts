@@ -184,10 +184,12 @@ describe(GitHubUserWriteClient.name, () => {
 			await client.createReviewComment({
 				...PULL_REQUEST_TARGET,
 				body: 'Please rename this',
+				headSha: 'head-sha',
 				anchor: {
 					path: 'src/index.ts',
 					side: 'left',
-					line: 9,
+					startLine: 9,
+					endLine: 9,
 					anchorSha: 'anchor-sha',
 					baseSha: 'base-sha',
 					headSha: 'head-sha',
@@ -233,6 +235,37 @@ describe(GitHubUserWriteClient.name, () => {
 			'position'
 		)
 		expect(Octokit).toHaveBeenCalledWith({ auth: TARGET.accessToken })
+	})
+
+	test('sends GitHub range fields only for a real range', async () => {
+		await new GitHubUserWriteClient().createReviewComment({
+			...PULL_REQUEST_TARGET,
+			body: 'Review this range',
+			headSha: 'resolved-head-sha',
+			anchor: {
+				path: 'src/index.ts',
+				side: 'right',
+				startLine: 7,
+				endLine: 9,
+				anchorSha: 'anchor-sha',
+				baseSha: 'base-sha',
+				headSha: 'claimed-head-sha',
+				lineExcerpt: 'const value = 1',
+			},
+		})
+
+		expect(createReviewComment).toHaveBeenCalledWith({
+			owner: TARGET.owner,
+			repo: TARGET.repo,
+			pull_number: 17,
+			body: 'Review this range',
+			commit_id: 'resolved-head-sha',
+			path: 'src/index.ts',
+			side: 'RIGHT',
+			line: 9,
+			start_line: 7,
+			start_side: 'RIGHT',
+		})
 	})
 
 	test('replies to the numeric root review comment', async () => {

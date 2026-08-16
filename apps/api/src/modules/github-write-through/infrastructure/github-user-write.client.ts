@@ -52,6 +52,9 @@ const REVIEW_EVENTS: Record<
 	comment: 'COMMENT',
 }
 
+// GitHub caps a page at 100, and a batched review never approaches it.
+const REVIEW_COMMENT_PAGE_SIZE = 100
+
 const gitHubMergeResultSchema = z.object({
 	sha: z.string().min(1).optional(),
 	merged: z.boolean(),
@@ -87,6 +90,7 @@ interface CreateIssueCommentParams extends PullRequestTarget {
 interface CreateReviewCommentParams extends PullRequestTarget {
 	anchor: PullRequestThreadAnchor
 	body: string
+	headSha: string
 }
 
 interface ReplyReviewCommentParams extends PullRequestTarget {
@@ -106,10 +110,27 @@ interface ReviewerParams extends PullRequestTarget {
 	reviewerLogin: string
 }
 
+/** One batched draft, already mapped onto the coordinates GitHub places it by. */
+export interface GitHubReviewCommentInput {
+	anchor: PullRequestThreadAnchor
+	body: string
+}
+
 interface CreateReviewParams extends PullRequestTarget {
 	body: string
+	comments?: readonly GitHubReviewCommentInput[]
 	expectedHeadSha: string
 	outcome: GitHubSyncReviewOutcome
+}
+
+interface ReviewTarget extends PullRequestTarget {
+	reviewNumericId: bigint
+}
+
+interface ListReviewsParams extends PullRequestTarget {
+	reviewerLogin: string
+	/** Only reviews at least this recent can be the one the lost attempt created. */
+	since: Date
 }
 
 interface UpdatePullRequestParams extends PullRequestTarget {
@@ -152,6 +173,7 @@ export class GitHubUserWriteClient {
 		accessToken,
 		anchor,
 		body,
+		headSha,
 		owner,
 		pullRequestNumber,
 		repo,
@@ -163,11 +185,8 @@ export class GitHubUserWriteClient {
 					owner,
 					repo,
 					pull_number: pullRequestNumber,
-					body,
-					commit_id: anchor.headSha,
-					path: anchor.path,
-					side: anchor.side === 'left' ? 'LEFT' : 'RIGHT',
-					line: anchor.line,
+					commit_id: headSha,
+					...toGitHubReviewCommentPayload({ anchor, body }),
 				})
 		)
 
@@ -343,9 +362,14 @@ export class GitHubUserWriteClient {
 		)
 	}
 
+	/**
+	 * The whole batch in one call: GitHub validates every comment before it
+	 * creates the review, so the array is all-or-nothing.
+	 */
 	async createReview({
 		accessToken,
 		body,
+		comments,
 		expectedHeadSha,
 		outcome,
 		owner,
@@ -364,14 +388,77 @@ export class GitHubUserWriteClient {
 					commit_id: expectedHeadSha,
 					event: REVIEW_EVENTS[outcome],
 					body,
+					comments: comments?.map(toGitHubReviewCommentPayload),
 				})
 		)
-		const review = toGitHubSyncReview(gitHubReviewSchema.parse(response.data))
 
-		if (!review?.outcome)
-			throw new GitHubResponseUnreadableError({ action: 'review' })
+		return this.requireSubmittedReview(response.data)
+	}
 
-		return { ...review, outcome: review.outcome }
+	/** The review's own comments: `createReview` answers without them. */
+	async listReviewComments({
+		accessToken,
+		owner,
+		pullRequestNumber,
+		repo,
+		reviewNumericId,
+	}: ReviewTarget): Promise<GitHubSyncReviewComment[]> {
+		const response = await this.request(
+			'review',
+			async () =>
+				await this.createForUser(accessToken).rest.pulls.listCommentsForReview({
+					owner,
+					repo,
+					pull_number: pullRequestNumber,
+					review_id: Number(reviewNumericId),
+					per_page: REVIEW_COMMENT_PAGE_SIZE,
+				})
+		)
+
+		return response.data.flatMap(comment => {
+			const mapped = toGitHubSyncReviewComment(
+				gitHubReviewCommentSchema.parse(comment)
+			)
+
+			return mapped ? [mapped] : []
+		})
+	}
+
+	/**
+	 * The reviewer's own submissions from a moment on, which is how an attempt
+	 * whose response was lost finds the review it may already have created.
+	 */
+	async listOwnReviewsSince({
+		accessToken,
+		owner,
+		pullRequestNumber,
+		repo,
+		reviewerLogin,
+		since,
+	}: ListReviewsParams): Promise<
+		(GitHubSyncReview & { outcome: GitHubSyncReviewOutcome })[]
+	> {
+		const response = await this.request(
+			'review',
+			async () =>
+				await this.createForUser(accessToken).rest.pulls.listReviews({
+					owner,
+					repo,
+					pull_number: pullRequestNumber,
+					per_page: REVIEW_COMMENT_PAGE_SIZE,
+				})
+		)
+
+		return response.data.flatMap(data => {
+			if (data.user?.login !== reviewerLogin) return []
+
+			const review = toGitHubSyncReview(gitHubReviewSchema.parse(data))
+
+			if (!review?.outcome) return []
+			if (review.submittedAt.getTime() < since.getTime()) return []
+
+			return [{ ...review, outcome: review.outcome }]
+		})
 	}
 
 	async updatePullRequest({
@@ -474,6 +561,17 @@ export class GitHubUserWriteClient {
 		return comment
 	}
 
+	private requireSubmittedReview(
+		data: unknown
+	): GitHubSyncReview & { outcome: GitHubSyncReviewOutcome } {
+		const review = toGitHubSyncReview(gitHubReviewSchema.parse(data))
+
+		if (!review?.outcome)
+			throw new GitHubResponseUnreadableError({ action: 'review' })
+
+		return { ...review, outcome: review.outcome }
+	}
+
 	private requireReviewComment(data: unknown): GitHubSyncReviewComment {
 		const comment = toGitHubSyncReviewComment(
 			gitHubReviewCommentSchema.parse(data)
@@ -482,5 +580,23 @@ export class GitHubUserWriteClient {
 		if (!comment) throw new GitHubResponseUnreadableError({ action: 'comment' })
 
 		return comment
+	}
+}
+
+/** GitHub reads a start line as a second anchor, so a single line must omit it. */
+function toGitHubReviewCommentPayload({
+	anchor,
+	body,
+}: GitHubReviewCommentInput) {
+	const side = anchor.side === 'left' ? ('LEFT' as const) : ('RIGHT' as const)
+
+	return {
+		path: anchor.path,
+		body,
+		side,
+		line: anchor.endLine,
+		...(anchor.startLine < anchor.endLine
+			? ({ start_line: anchor.startLine, start_side: side } as const)
+			: {}),
 	}
 }
