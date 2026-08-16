@@ -5,6 +5,7 @@ export {
 	countDistinct,
 	desc,
 	eq,
+	exists,
 	gt,
 	gte,
 	inArray,
