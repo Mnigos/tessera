@@ -13,5 +13,6 @@ export {
 	NotFoundError,
 	PayloadTooLargeError,
 	ServiceUnavailableError,
+	TooManyRequestsError,
 	UnauthorizedError,
 } from './errors'

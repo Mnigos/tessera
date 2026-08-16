@@ -20,6 +20,36 @@ import {
 export const PULL_REQUEST_STALE_COMPARISON_MESSAGE =
 	'The source or target branch changed. Refresh the pull request and try again.'
 
+/** The wire carries only a code and a message, so the message is the whole explanation. */
+export const GITHUB_RECONNECT_REQUIRED_MESSAGE =
+	'Reconnect GitHub with repository access to do this from Tessera.'
+export const GITHUB_WRITE_FORBIDDEN_MESSAGE =
+	'GitHub did not allow this action for your account.'
+export const GITHUB_RATE_LIMITED_MESSAGE =
+	'GitHub is rate limiting your account. Try again shortly.'
+export const GITHUB_SYNC_DELAYED_MESSAGE =
+	'Posted to GitHub. It will appear in Tessera after the next sync.'
+export const GITHUB_UNAVAILABLE_MESSAGE = 'GitHub is unavailable. Try again.'
+
+export const GITHUB_WRITE_REJECTED_MESSAGES = {
+	missing_mapping:
+		'This pull request is not linked to GitHub yet. Wait for the next sync.',
+	self_approval: 'GitHub does not allow approving your own pull request.',
+	unmergeable: 'GitHub reports this pull request cannot be merged right now.',
+	stale_head: 'The pull request changed on GitHub. Refresh and try again.',
+	invalid_anchor: 'GitHub could not place this comment on the current diff.',
+	fast_forward_unsupported:
+		'GitHub does not support fast-forward merges. Choose merge, squash, or rebase.',
+	top_level_reply_unsupported:
+		'GitHub conversation comments cannot be replied to. Add a new comment instead.',
+	thread_not_resolvable:
+		'Only inline review threads can be resolved on GitHub.',
+	reviewer_not_on_github: 'This reviewer has no linked GitHub account.',
+	review_body_required: 'GitHub requires a comment for this kind of review.',
+} as const
+export type GitHubWriteRejectionReason =
+	keyof typeof GITHUB_WRITE_REJECTED_MESSAGES
+
 const pullRequestShaSchema = z.string().regex(/^[0-9a-f]{40}([0-9a-f]{24})?$/)
 
 export const pullRequestIdSchema = z.uuid().brand<'pull_request_id'>()
