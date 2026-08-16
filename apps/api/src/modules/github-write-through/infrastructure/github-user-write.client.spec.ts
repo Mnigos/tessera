@@ -273,6 +273,7 @@ describe(GitHubUserWriteClient.name, () => {
 			await new GitHubUserWriteClient().createReview({
 				...PULL_REQUEST_TARGET,
 				body: 'Review body',
+				expectedHeadSha: 'head-sha',
 				outcome,
 			})
 		).toMatchObject({ outcome, body: '', commitId: undefined })
@@ -280,6 +281,7 @@ describe(GitHubUserWriteClient.name, () => {
 			owner: TARGET.owner,
 			repo: TARGET.repo,
 			pull_number: 17,
+			commit_id: 'head-sha',
 			event,
 			body: 'Review body',
 		})
@@ -365,10 +367,11 @@ describe(GitHubUserWriteClient.name, () => {
 		})
 	})
 
-	test('rejects a successful HTTP response where GitHub declined the merge', async () => {
-		mergePullRequest.mockResolvedValue({
-			data: { merged: false, sha: 'unused' },
-		})
+	test.each([
+		['a sha', { merged: false, sha: 'unused' }],
+		['no sha', { merged: false }],
+	])('rejects a successful HTTP response where GitHub declined the merge with %s', async (_name, data) => {
+		mergePullRequest.mockResolvedValue({ data })
 
 		await expect(
 			new GitHubUserWriteClient().mergePullRequest({
@@ -506,6 +509,7 @@ describe(GitHubUserWriteClient.name, () => {
 				new GitHubUserWriteClient().createReview({
 					...PULL_REQUEST_TARGET,
 					body: '',
+					expectedHeadSha: 'head-sha',
 					outcome: 'approve',
 				}),
 		],

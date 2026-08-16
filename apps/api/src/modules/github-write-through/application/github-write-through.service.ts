@@ -351,6 +351,7 @@ export class GitHubWriteThroughService {
 			const review = await this.gitHubUserWriteClient.createReview({
 				...resolved,
 				body,
+				expectedHeadSha,
 				outcome,
 			})
 

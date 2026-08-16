@@ -23,9 +23,10 @@ Ambiguity here can create divergent histories, duplicate entities, and write-bac
 | `tessera_source` | Tessera | Stopped | Allowed by normal permissions | Native | Tessera HTTPS and SSH | None |
 
 `imported` is a one-time snapshot, not a continuously mirrored repository. Import completion
-establishes Tessera authority immediately. `github_to_tessera` is a read-only synchronized
-view in Tessera: Git refs, pull requests, comments, reviews, checks, and GitHub-owned
-repository settings are authoritative in GitHub. `tessera_source` records an explicit,
+establishes Tessera authority immediately. `github_to_tessera` keeps GitHub authoritative:
+Git refs, checks, and GitHub-owned repository settings are a read-only synchronized view in
+Tessera, and pull request collaboration is written through to GitHub as the acting user (see
+"While GitHub is authoritative" below). `tessera_source` records an explicit,
 irreversible cutover to Tessera authority. Reconnecting to GitHub requires a new import or
 mirror rather than reversing the transition.
 

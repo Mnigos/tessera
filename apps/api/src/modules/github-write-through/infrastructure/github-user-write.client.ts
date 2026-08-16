@@ -53,7 +53,7 @@ const REVIEW_EVENTS: Record<
 }
 
 const gitHubMergeResultSchema = z.object({
-	sha: z.string().min(1),
+	sha: z.string().min(1).optional(),
 	merged: z.boolean(),
 })
 
@@ -108,6 +108,7 @@ interface ReviewerParams extends PullRequestTarget {
 
 interface CreateReviewParams extends PullRequestTarget {
 	body: string
+	expectedHeadSha: string
 	outcome: GitHubSyncReviewOutcome
 }
 
@@ -345,6 +346,7 @@ export class GitHubUserWriteClient {
 	async createReview({
 		accessToken,
 		body,
+		expectedHeadSha,
 		outcome,
 		owner,
 		pullRequestNumber,
@@ -359,6 +361,7 @@ export class GitHubUserWriteClient {
 					owner,
 					repo,
 					pull_number: pullRequestNumber,
+					commit_id: expectedHeadSha,
 					event: REVIEW_EVENTS[outcome],
 					body,
 				})
@@ -421,7 +424,7 @@ export class GitHubUserWriteClient {
 		const result = gitHubMergeResultSchema.parse(response.data)
 
 		// GitHub answers 200 with `merged: false` when it declined the merge.
-		if (!result.merged)
+		if (!(result.merged && result.sha))
 			throw new GitHubWriteRejectedError('unmergeable', { action: 'merge' })
 
 		return result.sha

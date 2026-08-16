@@ -37,6 +37,7 @@ const CREDENTIAL_PATTERN =
 	/token|sso|single[- ]sign[- ]on|saml|scope|credential|expired/i
 const SELF_APPROVAL_PATTERN = /own pull request/i
 const ANCHOR_PATTERN = /line|side|diff|position|commit_id|path/i
+const STALE_COMMIT_PATTERN = /commit/i
 
 export function toGitHubWriteError(
 	error: unknown,
@@ -81,6 +82,9 @@ function toUnprocessableError(
 
 	if (action === 'merge')
 		return new GitHubWriteRejectedError('unmergeable', { action, status })
+
+	if (action === 'review' && STALE_COMMIT_PATTERN.test(detail))
+		return new GitHubWriteRejectedError('stale_head', { action, status })
 
 	if (action === 'comment' || ANCHOR_PATTERN.test(detail))
 		return new GitHubWriteRejectedError('invalid_anchor', { action, status })
