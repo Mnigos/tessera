@@ -1,4 +1,5 @@
 export {
+	type GitHubWriteThroughTarget,
 	RepositoriesService,
 	type RepositoryMergeContext,
 } from './application/repositories.service'

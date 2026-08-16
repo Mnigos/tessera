@@ -408,7 +408,14 @@ export class PullRequestThreadsRepository {
 
 		if (!comment) return undefined
 
-		const [editedComment] = await this.db
+		return await this.findCommentReadModel({ commentId, viewerUserId })
+	}
+
+	async findCommentReadModel({
+		commentId,
+		viewerUserId,
+	}: FindCommentParams): Promise<PullRequestCommentReadModel | undefined> {
+		const [comment] = await this.db
 			.select(COMMENT_READ_COLUMNS)
 			.from(pullRequestComments)
 			.leftJoin(
@@ -437,7 +444,7 @@ export class PullRequestThreadsRepository {
 			)
 			.limit(1)
 
-		return editedComment
+		return comment
 	}
 
 	async deleteComment({
