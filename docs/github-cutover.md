@@ -64,9 +64,13 @@ The pushed branch should resolve to the expected commit on the Tessera remote.
 ## Mirror Behavior After Cutover
 
 Before cutover, `github_to_tessera` means GitHub is authoritative. Verified webhooks keep
-Tessera current and backend scheduled reconciliation repairs gaps. Tessera is read-only,
-rejects Git writes, and presents GitHub HTTPS and SSH clone URLs. There is no frontend
+Tessera current and backend scheduled reconciliation repairs gaps. Tessera rejects Git writes
+and presents GitHub HTTPS and SSH clone URLs. There is no frontend
 scheduler, manual sync, or Tessera-to-GitHub push-back.
+
+Pull request collaboration written from Tessera while the repository is `github_to_tessera`
+is forwarded to GitHub as the acting user; that write-through ends at cutover, after which
+the same actions are written natively and never reach GitHub.
 
 Cutover records `tessera_source`. Inbound webhooks and scheduled reconciliation stop for that
 repository, clone guidance switches to Tessera, and direct pushes to Tessera are allowed
