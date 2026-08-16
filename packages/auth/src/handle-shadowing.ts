@@ -2,21 +2,12 @@ import { APIError } from 'better-auth/api'
 
 export type IsHandleTaken = (handle: string) => Promise<boolean>
 
-/**
- * Named so Tessera's own organization service can recognize this refusal among
- * Better Auth's, rather than matching on the sentence.
- */
+// Named so the API can recognize this refusal without matching on the sentence.
 export const ORGANIZATION_SLUG_TAKEN_BY_USER_CODE =
 	'ORGANIZATION_SLUG_TAKEN_BY_USER'
 
-/**
- * Rejects organization slugs that would shadow an existing user handle.
- *
- * Users and organizations share the /{handle} URL namespace and a user handle
- * wins deterministically, so an organization must not claim an existing
- * username. Application-level check only; the DB-level cross-namespace
- * guarantee is tracked by TES-61.
- */
+// User handles win the shared /{handle} namespace. Application-level only;
+// TES-61 makes it a database guarantee.
 export async function assertOrganizationSlugNotUserHandle(
 	slug: string | undefined,
 	isUserHandleTaken: IsHandleTaken

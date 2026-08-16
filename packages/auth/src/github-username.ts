@@ -9,13 +9,6 @@ const USERNAME_MAX_LENGTH = HANDLE_MAX_LENGTH
 const USERNAME_SUFFIX_LENGTH = 6
 const USERNAME_COLLISION_MAX_ATTEMPTS = 100
 
-/**
- * Converts a provider username into Tessera's stable, URL-safe namespace format.
- *
- * The handle grammar is shared with organization slugs; the only thing added
- * here is a deterministic fallback, because sign-in has to produce a username
- * even for a login that normalizes to nothing.
- */
 export function normalizeUsername(value: string | null | undefined) {
 	return toHandle(value) || USERNAME_FALLBACK_BASE
 }

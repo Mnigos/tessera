@@ -2,17 +2,17 @@ import type { BetterAuthPlugin } from 'better-auth'
 
 const TRAILING_SLASHES = /\/+$/
 
-/**
- * The organization plugin's own mutation surface. Better Auth exposes each of
- * these to any authenticated session that satisfies its role check.
- */
 const BLOCKED_ORGANIZATION_PATHS = [
 	'/organization/accept-invitation',
 	'/organization/cancel-invitation',
 	'/organization/create',
 	'/organization/delete',
+	// Reads that return invitation emails to any member; Tessera serves them
+	// through an admin/owner-gated procedure instead.
+	'/organization/get-full-organization',
 	'/organization/invite-member',
 	'/organization/leave',
+	'/organization/list-invitations',
 	'/organization/reject-invitation',
 	'/organization/remove-member',
 	'/organization/set-active',
@@ -20,27 +20,9 @@ const BLOCKED_ORGANIZATION_PATHS = [
 	'/organization/update-member-role',
 ]
 
-/**
- * Closes Better Auth's own organization-mutation routes.
- *
- * Every one of these decisions carries a Tessera rule Better Auth has no way to
- * know: a handle must be free in the user namespace and unclaimed on GitHub
- * before an organization can answer to it, and an organization that still owns
- * repositories must not be deleted at all — the plugin never asks what an
- * organization owns, and the restricting foreign key would refuse the delete
- * only after the plugin had already removed every member and invitation in
- * separate statements outside a transaction. Left open, `/organization/create`
- * and `/organization/update` would hand out handles the create form refuses,
- * and `/organization/delete` would be a way around the repository check rather
- * than a way through it.
- *
- * So organizations are managed only where those rules are actually applied:
- * Tessera's own procedures, which reach the same endpoints in-process. Direct
- * server-side `auth.api.*` calls never travel through this hook and are
- * unaffected. Read routes stay open — they enforce membership themselves and
- * decide nothing. Answering 404 rather than 403 keeps the routes from
- * advertising that they exist.
- */
+// These routes carry Tessera rules Better Auth cannot know, so they are managed
+// only through our own procedures, which reach the same endpoints in-process.
+// 404 rather than 403 keeps them from advertising that they exist.
 export function organizationEndpointLockdown(): BetterAuthPlugin {
 	return {
 		id: 'organization-endpoint-lockdown',
@@ -56,10 +38,7 @@ export function organizationEndpointLockdown(): BetterAuthPlugin {
 	}
 }
 
-/**
- * Matched by suffix because the router is mounted under a configurable base
- * path, and no other endpoint can end in one of these.
- */
+// Suffix-matched because the router is mounted under a configurable base path.
 function isBlockedOrganizationPath(pathname: string): boolean {
 	const normalized = pathname.replace(TRAILING_SLASHES, '')
 
