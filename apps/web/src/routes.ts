@@ -17,6 +17,7 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/organizations/$slug/settings',
 		'modules/organizations/routes/organizations.$slug.settings.route.tsx'
 	),
+	route('/$handle', 'modules/profile/routes/$handle.route.tsx'),
 	route(
 		'/$username/$slug',
 		'modules/repositories/routes/repository.$username.$slug.route.tsx'

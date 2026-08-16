@@ -98,8 +98,8 @@ function Navbar() {
 						<Link
 							activeProps={{ className: 'text-foreground' }}
 							className="text-muted-foreground text-sm hover:text-foreground"
-							params={{ username: user?.username ?? '' }}
-							to={user?.username ? '/profile/$username' : '/profile'}
+							params={{ handle: user?.username ?? '' }}
+							to={user?.username ? '/$handle' : '/profile'}
 						>
 							Profile
 						</Link>

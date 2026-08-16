@@ -22,13 +22,7 @@ const IMPORT_FROM_GITHUB_REGEX = /import from github/i
 describe('ProfileRepositoriesSection', () => {
 	test('points the owner toward GitHub import in the empty state', () => {
 		render(
-			<ProfileRepositoriesSection
-				isError={false}
-				isLoading={false}
-				isOwner
-				repositories={[]}
-				username="mnigos"
-			/>
+			<ProfileRepositoriesSection handle="mnigos" isOwner repositories={[]} />
 		)
 
 		const importLink = screen.getByRole('button', {
@@ -41,11 +35,9 @@ describe('ProfileRepositoriesSection', () => {
 	test('hides the GitHub import CTA for non-owners', () => {
 		render(
 			<ProfileRepositoriesSection
-				isError={false}
-				isLoading={false}
+				handle="mnigos"
 				isOwner={false}
 				repositories={[]}
-				username="mnigos"
 			/>
 		)
 

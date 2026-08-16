@@ -8,9 +8,16 @@ export function useCreateRepositoryMutation(input: ListRepositoriesInput) {
 	return useMutation(
 		orpcQuery.repositories.create.mutationOptions({
 			onSuccess: async () => {
-				await queryClient.invalidateQueries({
-					queryKey: orpcQuery.repositories.list.key({ input }),
-				})
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositories.list.key({ input }),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.handles.get.key({
+							input: { handle: input.username },
+						}),
+					}),
+				])
 			},
 		})
 	)

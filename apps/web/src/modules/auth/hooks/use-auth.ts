@@ -27,9 +27,8 @@ export function useAuth() {
 		await authClient.signOut({
 			fetchOptions: {
 				onSuccess: async () => {
-					await queryClient.invalidateQueries({
-						queryKey: orpcQuery.auth.session.key(),
-					})
+					// Every cached query is viewer-scoped, so none of it outlives the session.
+					queryClient.clear()
 					await router.invalidate()
 					await router.navigate({ to: '/' })
 				},
