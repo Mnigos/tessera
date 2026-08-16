@@ -1,6 +1,7 @@
 import {
 	HANDLE_EDGE_DASH_REGEX,
 	HANDLE_MAX_LENGTH,
+	RESERVED_HANDLES,
 	toHandle,
 } from '@repo/domain'
 
@@ -73,7 +74,11 @@ export async function resolveGitHubUsername(
 	isUsernameTaken: IsUsernameTaken
 ) {
 	const baseUsername = normalizeUsername(profile.login)
-	if (!(await isUsernameTaken(baseUsername))) return baseUsername
+	// Only the base can be reserved; every fallback below carries a dashed suffix.
+	const isBaseTaken =
+		RESERVED_HANDLES.has(baseUsername) || (await isUsernameTaken(baseUsername))
+
+	if (!isBaseTaken) return baseUsername
 
 	const suffix = createUsernameSuffix(profile.id)
 	const suffixedUsername = createSuffixedUsername(baseUsername, suffix)
