@@ -30,6 +30,13 @@ export function OrganizationSettings({
 			</section>
 		)
 
+	if (organizationsQuery.isError)
+		return (
+			<Card className="border-dashed p-6 text-muted-foreground text-sm">
+				Organizations could not be loaded.
+			</Card>
+		)
+
 	if (!membership)
 		return (
 			<Card className="border-dashed p-6 text-muted-foreground text-sm">

@@ -80,10 +80,10 @@ describe(OrganizationSettingsForm.name, () => {
 		expect(fieldset).toBeTruthy()
 		if (!fieldset) return
 
-		expect(fieldset.disabled).toBe(true)
+		expect(fieldset.disabled).toBeTruthy()
 		expect(
 			screen.getByRole<HTMLButtonElement>('button', { name: 'Save changes' })
 				.disabled
-		).toBe(true)
+		).toBeTruthy()
 	})
 })

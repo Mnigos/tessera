@@ -136,18 +136,18 @@ describe(OrganizationHandlePolicyService.name, () => {
 			type: 'User',
 		})
 
-		const promise = service.assertAvailable({ slug: 'old-login', actorUserId })
-
-		await expect(promise).rejects.toBeInstanceOf(
-			OrganizationSlugGitHubConflictError
-		)
 		// GitHub follows rename redirects, so the message names the handle the
 		// user typed; the canonical login travels in the error context.
-		await expect(promise).rejects.toMatchObject({
-			message:
-				'old-login is an existing GitHub account. Link that GitHub account to your Tessera user to claim it.',
-			context: { login: 'old-login', canonicalLogin: 'CanonicalLogin' },
-		})
+		await expect(
+			service.assertAvailable({ slug: 'old-login', actorUserId })
+		).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof OrganizationSlugGitHubConflictError &&
+				error.message ===
+					'old-login is an existing GitHub account. Link that GitHub account to your Tessera user to claim it.' &&
+				error.context?.login === 'old-login' &&
+				error.context?.canonicalLogin === 'CanonicalLogin'
+		)
 	})
 
 	test('uses a cached negative result without calling the client or actor lookup', async () => {
