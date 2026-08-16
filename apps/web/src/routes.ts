@@ -20,6 +20,18 @@ export const routes = rootRoute('routes/__root.tsx', [
 	// Every repository page hangs off one shell, so the title row and the tabs are
 	// loaded once and never remount between them.
 	route(
+		'/organizations/$slug/settings/members',
+		'modules/organizations/routes/organizations.$slug.settings.members.route.tsx'
+	),
+	route(
+		'/organizations/$slug/settings/invitations',
+		'modules/organizations/routes/organizations.$slug.settings.invitations.route.tsx'
+	),
+	route(
+		'/invitations/$invitationId',
+		'modules/organizations/routes/invitations.$invitationId.route.tsx'
+	),
+	route(
 		'/$username/$slug',
 		'modules/repositories/routes/repository.$username.$slug.route.tsx',
 		[

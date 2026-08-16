@@ -230,7 +230,7 @@ function GitHubImportRoute() {
 			) : (
 				<GitHubImportMessage
 					action={
-						<Button onClick={signIn} size="sm">
+						<Button onClick={() => signIn()} size="sm">
 							<FaGithub className="size-4" />
 							Sign in with GitHub
 						</Button>
