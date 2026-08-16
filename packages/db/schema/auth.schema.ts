@@ -1,4 +1,4 @@
-import type { ApiKeyId, UserId } from '@repo/domain'
+import type { ApiKeyId, OrganizationId, UserId } from '@repo/domain'
 import { relations } from 'drizzle-orm'
 import {
 	boolean,
@@ -10,7 +10,7 @@ import {
 	uniqueIndex,
 	uuid,
 } from 'drizzle-orm/pg-core'
-import { invitation, member } from './organizations.schema'
+import { invitation, member, organization } from './organizations.schema'
 import { repositories } from './repositories.schema'
 
 export const user = pgTable('user', {
@@ -47,6 +47,16 @@ export const session = pgTable(
 			.notNull()
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'cascade' }),
+		/**
+		 * Declared by Better Auth's organization plugin, which reads and writes it
+		 * without asking the application. The reference clears itself rather than
+		 * trusting whoever deleted the organization to have cleared it: Tessera
+		 * deletes organizations in its own transaction, and a session pointing at
+		 * a row that is gone is a lookup that fails for reasons nobody can see.
+		 */
+		activeOrganizationId: uuid('active_organization_id')
+			.$type<OrganizationId>()
+			.references(() => organization.id, { onDelete: 'set null' }),
 	},
 	table => [index('session_user_id_idx').on(table.userId)]
 )
