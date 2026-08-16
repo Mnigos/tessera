@@ -7,7 +7,6 @@ export function useLeaveOrganizationMutation() {
 	return useMutation(
 		orpcQuery.organizations.leave.mutationOptions({
 			onSuccess: async (_result, { organizationId }) => {
-				// Dropped, not invalidated: the page reading these is still mounted.
 				queryClient.removeQueries({
 					queryKey: orpcQuery.organizations.get.queryKey({
 						input: { organizationId },

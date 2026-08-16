@@ -234,13 +234,11 @@ describe('Organization membership integration', () => {
 	})
 
 	test('protects the last owner from remove, demote, and leave', async () => {
-		const responses = await Promise.all([
-			removeMember(ownerMember.id, owner.headers),
-			updateMemberRole(ownerMember.id, 'admin', owner.headers),
-			leaveOrganization(owner.headers),
-		])
-
-		expect(responses.map(response => response.status)).toEqual([409, 409, 409])
+		expect((await removeMember(ownerMember.id, owner.headers)).status).toBe(409)
+		expect(
+			(await updateMemberRole(ownerMember.id, 'admin', owner.headers)).status
+		).toBe(409)
+		expect((await leaveOrganization(owner.headers)).status).toBe(409)
 	})
 
 	test('allows owner promotion by an owner and forbids it for an admin', async () => {
