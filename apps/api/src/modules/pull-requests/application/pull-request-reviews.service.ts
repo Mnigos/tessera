@@ -1,4 +1,12 @@
-import { RepositoriesService } from '@modules/repositories'
+import {
+	type GitHubWriteThroughContext,
+	GitHubWriteThroughService,
+	toGitHubWriteThroughContext,
+} from '@modules/github-write-through'
+import {
+	type GitHubWriteThroughTarget,
+	RepositoriesService,
+} from '@modules/repositories'
 import { UserService } from '@modules/user'
 import { Injectable } from '@nestjs/common'
 import type {
@@ -16,6 +24,8 @@ import type {
 import {
 	canWriteRepository,
 	type PullRequestId,
+	type PullRequestReviewerRequestId,
+	type PullRequestReviewId,
 	type RepositoryId,
 	type RepositoryRole,
 	type UserId,
@@ -37,6 +47,8 @@ import {
 	PullRequestReviewerAlreadyRequestedError,
 	PullRequestReviewerIneligibleError,
 	PullRequestReviewerRequestForbiddenError,
+	PullRequestReviewerRequestNotFoundError,
+	PullRequestReviewNotFoundError,
 } from '../domain/pull-request-review.errors'
 import { PullRequestReviewsRepository } from '../infrastructure/pull-request-reviews.repository'
 import {
@@ -58,14 +70,15 @@ export interface PullRequestReviewState {
 }
 
 interface PullRequestReviewContext {
+	gitHubTarget?: GitHubWriteThroughTarget
 	pullRequest: PullRequestReadModel
 	repositoryId: RepositoryId
 	storagePath: string
-	tesseraWritesAllowed: boolean
 	viewerRole: RepositoryRole
 }
 
-interface GetReviewStateParams extends PullRequestReviewContext {
+interface GetReviewStateParams
+	extends Omit<PullRequestReviewContext, 'gitHubTarget'> {
 	viewerUserId?: UserId
 }
 
@@ -81,7 +94,8 @@ export class PullRequestReviewsService {
 		private readonly pullRequestsRepository: PullRequestsRepository,
 		private readonly pullRequestHeadResolver: PullRequestHeadResolver,
 		private readonly repositoriesService: RepositoriesService,
-		private readonly userService: UserService
+		private readonly userService: UserService,
+		private readonly gitHubWriteThroughService: GitHubWriteThroughService
 	) {}
 
 	async requestReviewer(
@@ -93,16 +107,28 @@ export class PullRequestReviewsService {
 			username,
 		}: ParsedRequestPullRequestReviewerInput
 	): Promise<PullRequestReviewerRequest> {
-		const { pullRequest } = await this.getOpenPullRequestContext(viewerUserId, {
+		const context = await this.getOpenPullRequestContext(viewerUserId, {
 			number,
 			slug,
 			username,
 		})
+		const { pullRequest } = context
 		const reviewerUserId = await this.resolveEligibleReviewer(
 			{ number, slug, username },
 			pullRequest,
 			reviewerUsername
 		)
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return toPullRequestReviewerRequestOutput(
+				await this.requireReviewerRequest(
+					await this.gitHubWriteThroughService.requestReviewer(writeThrough, {
+						reviewerUserId,
+					})
+				)
+			)
+
 		const result =
 			await this.pullRequestReviewsRepository.createReviewerRequest({
 				pullRequestId: pullRequest.id,
@@ -136,14 +162,25 @@ export class PullRequestReviewsService {
 			username,
 		}: ParsedRequestPullRequestReviewerInput
 	): Promise<{ removed: boolean }> {
-		const { pullRequest } = await this.getOpenPullRequestContext(viewerUserId, {
+		const context = await this.getOpenPullRequestContext(viewerUserId, {
 			number,
 			slug,
 			username,
 		})
+		const { pullRequest } = context
 		const reviewerUserId = await this.userService.findUserId({
 			username: reviewerUsername,
 		})
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return {
+				removed: await this.gitHubWriteThroughService.removeReviewerRequest(
+					writeThrough,
+					{ reviewerUserId }
+				),
+			}
+
 		const removed =
 			await this.pullRequestReviewsRepository.removeReviewerRequest({
 				pullRequestId: pullRequest.id,
@@ -167,13 +204,28 @@ export class PullRequestReviewsService {
 			username,
 		}: ParsedSubmitPullRequestReviewInput
 	): Promise<PullRequestReview> {
-		const { pullRequest } = await this.getOpenPullRequestContext(
+		const context = await this.getOpenPullRequestContext(
 			viewerUserId,
 			{ number, slug, username },
 			{ requireWriteRole: false }
 		)
+		const { pullRequest } = context
 
 		assertPullRequestReviewer(pullRequest, viewerUserId)
+
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return toPullRequestReviewOutput(
+				await this.requireReview(
+					pullRequest.id,
+					await this.gitHubWriteThroughService.submitReview(writeThrough, {
+						body: body ?? '',
+						expectedHeadSha,
+						outcome,
+					})
+				)
+			)
 
 		// The envelope is identified before the submission takes the pull request
 		// lock, so two simultaneous submissions race for the same review row and
@@ -213,13 +265,15 @@ export class PullRequestReviewsService {
 		viewerUserId: UserId,
 		input: ParsedGetPullRequestInput
 	): Promise<{ discarded: boolean }> {
-		const { pullRequest } = await this.getOpenPullRequestContext(
-			viewerUserId,
-			input,
-			{ requireWriteRole: false }
-		)
+		const context = await this.getOpenPullRequestContext(viewerUserId, input, {
+			requireWriteRole: false,
+		})
+		const { pullRequest } = context
 
 		assertPullRequestReviewer(pullRequest, viewerUserId)
+
+		// GitHub holds the drafts on a mirror; Tessera keeps none to discard.
+		if (context.gitHubTarget) return { discarded: false }
 
 		const discarded =
 			await this.pullRequestReviewsRepository.discardPendingReview({
@@ -234,16 +288,12 @@ export class PullRequestReviewsService {
 		pullRequest,
 		repositoryId,
 		storagePath,
-		tesseraWritesAllowed,
 		viewerRole,
 		viewerUserId,
 	}: GetReviewStateParams): Promise<PullRequestReviewState> {
 		const isAuthor =
 			viewerUserId !== undefined && pullRequest.authorUserId === viewerUserId
-		const canReview =
-			viewerUserId !== undefined &&
-			tesseraWritesAllowed &&
-			pullRequest.state === 'open'
+		const canReview = viewerUserId !== undefined && pullRequest.state === 'open'
 		const viewer: PullRequestReviewViewer = {
 			canSubmitReview: canReview && !isAuthor,
 			canRequestReviewers:
@@ -337,6 +387,36 @@ export class PullRequestReviewsService {
 		)
 	}
 
+	private async requireReviewerRequest(
+		requestId: PullRequestReviewerRequestId
+	) {
+		const request = await this.pullRequestReviewsRepository.findReviewerRequest(
+			{
+				requestId,
+			}
+		)
+
+		if (!request)
+			throw new PullRequestReviewerRequestNotFoundError({ requestId })
+
+		return request
+	}
+
+	private async requireReview(
+		pullRequestId: PullRequestId,
+		reviewId: PullRequestReviewId
+	) {
+		const review = await this.pullRequestReviewsRepository.findReview({
+			pullRequestId,
+			reviewId,
+		})
+
+		if (!review)
+			throw new PullRequestReviewNotFoundError({ pullRequestId, reviewId })
+
+		return review
+	}
+
 	private async resolveEligibleReviewer(
 		input: ParsedGetPullRequestInput,
 		pullRequest: PullRequestReadModel,
@@ -373,10 +453,13 @@ export class PullRequestReviewsService {
 		{ number, slug, username }: ParsedGetPullRequestInput,
 		{ requireWriteRole = true }: { requireWriteRole?: boolean } = {}
 	): Promise<PullRequestReviewContext> {
-		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
-			await this.repositoriesService.getReadableTesseraRepositoryContext(
+		const { gitHubTarget, repositoryId, storagePath, viewerRole } =
+			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
-				{ username, slug }
+				{
+					username,
+					slug,
+				}
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 
@@ -397,13 +480,18 @@ export class PullRequestReviewsService {
 				userId: viewerUserId,
 			})
 
-		return {
-			pullRequest,
+		return { gitHubTarget, pullRequest, repositoryId, storagePath, viewerRole }
+	}
+
+	private toWriteThroughContext(
+		viewerUserId: UserId,
+		{ gitHubTarget, pullRequest, repositoryId }: PullRequestReviewContext
+	): GitHubWriteThroughContext | undefined {
+		return toGitHubWriteThroughContext(viewerUserId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
 			repositoryId,
-			storagePath,
-			tesseraWritesAllowed,
-			viewerRole,
-		}
+		})
 	}
 
 	private async findPullRequest(

@@ -1,5 +1,6 @@
 import { BranchProtectionModule } from '@modules/branch-protection'
 import { ChecksModule } from '@modules/checks'
+import { GitHubWriteThroughModule } from '@modules/github-write-through'
 import { RepositoriesModule, RepositoryWriteGuard } from '@modules/repositories'
 import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
@@ -33,6 +34,7 @@ import { PullRequestsController } from './presentation/pull-requests.controller'
 	imports: [
 		BranchProtectionModule,
 		ChecksModule,
+		GitHubWriteThroughModule,
 		RepositoriesModule,
 		UserModule,
 	],

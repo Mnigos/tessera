@@ -255,6 +255,14 @@ export class PullRequestReviewsRepository {
 		return review
 	}
 
+	async findReviewerRequest({
+		requestId,
+	}: {
+		requestId: PullRequestReviewerRequestId
+	}): Promise<PullRequestReviewerRequestReadModel | undefined> {
+		return await this.findReviewerRequestIn(this.db, requestId)
+	}
+
 	async listActiveReviewerRequests({
 		pullRequestId,
 	}: PullRequestParams): Promise<PullRequestReviewerRequestReadModel[]> {
@@ -762,7 +770,7 @@ export class PullRequestReviewsRepository {
 	}
 
 	private async findReviewerRequestIn(
-		tx: DrizzleTransaction,
+		tx: PullRequestReviewDatabase,
 		requestId: PullRequestReviewerRequestId
 	): Promise<PullRequestReviewerRequestReadModel | undefined> {
 		const [request] = await this.reviewerRequestQuery(tx)

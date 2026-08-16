@@ -8,7 +8,15 @@ import { BranchProtectionService } from '@modules/branch-protection'
 import { ChecksReadService } from '@modules/checks'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
-import { RepositoriesService } from '@modules/repositories'
+import {
+	type GitHubWriteThroughContext,
+	GitHubWriteThroughService,
+	toGitHubWriteThroughContext,
+} from '@modules/github-write-through'
+import {
+	type GitHubWriteThroughTarget,
+	RepositoriesService,
+} from '@modules/repositories'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	ChecksList,
@@ -66,7 +74,10 @@ import {
 } from '../domain/pull-request.errors'
 import { toPullRequestReviewComparisonContext } from '../domain/pull-request-review'
 import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
-import { toMergeAuthorityReasons } from '../helpers/merge-authority-reasons'
+import {
+	toMergeAuthorityReasons,
+	toMergePermissionReasons,
+} from '../helpers/merge-authority-reasons'
 import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
@@ -141,7 +152,8 @@ export class PullRequestsService {
 		private readonly mergeQueueRepository: MergeQueueRepository,
 		private readonly mergeQueueStatusService: MergeQueueStatusService,
 		private readonly pullRequestMergeRunner: PullRequestMergeRunner,
-		private readonly gitStorageClient: GitStorageClient
+		private readonly gitStorageClient: GitStorageClient,
+		private readonly gitHubWriteThroughService: GitHubWriteThroughService
 	) {}
 
 	async reconcileGitHubPullRequests({
@@ -313,7 +325,6 @@ export class PullRequestsService {
 				pullRequest,
 				repositoryId,
 				storagePath,
-				tesseraWritesAllowed,
 				viewerRole,
 				viewerUserId,
 			}),
@@ -502,13 +513,28 @@ export class PullRequestsService {
 		userId: UserId,
 		{ body, number, slug, title, username }: ParsedEditPullRequestInput
 	): Promise<PullRequest> {
-		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+		const { gitHubTarget, repositoryId } =
+			await this.repositoriesService.getPullRequestWriteContext(userId, {
 				username,
 				slug,
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestEditable(pullRequest)
+
+		const writeThrough = toGitHubWriteThroughContext(userId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
+			repositoryId,
+		})
+
+		if (writeThrough)
+			return await this.updateThroughGitHub(writeThrough, {
+				body,
+				number,
+				repositoryId,
+				title,
+				username,
+			})
 
 		const updatedPullRequest = await this.pullRequestsRepository.edit({
 			repositoryId,
@@ -543,13 +569,27 @@ export class PullRequestsService {
 		userId: UserId,
 		{ number, slug, targetBranch, username }: ParsedRetargetPullRequestInput
 	): Promise<PullRequest> {
-		const { repositoryId, storagePath, tesseraWritesAllowed } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+		const { gitHubTarget, repositoryId, storagePath, tesseraWritesAllowed } =
+			await this.repositoriesService.getPullRequestWriteContext(userId, {
 				username,
 				slug,
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestRetargetable(pullRequest)
+
+		const writeThrough = toGitHubWriteThroughContext(userId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
+			repositoryId,
+		})
+
+		if (writeThrough)
+			return await this.updateThroughGitHub(writeThrough, {
+				number,
+				repositoryId,
+				targetBranch,
+				username,
+			})
 
 		// Asking for the target it already has is not a change. Nothing is written
 		// and nothing is recorded, so a retried request cannot leave a timeline
@@ -729,13 +769,27 @@ export class PullRequestsService {
 		userId: UserId,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
-		const { repositoryId, storagePath, tesseraWritesAllowed } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+		const { gitHubTarget, repositoryId, storagePath, tesseraWritesAllowed } =
+			await this.repositoriesService.getPullRequestWriteContext(userId, {
 				username,
 				slug,
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestClosable(pullRequest)
+
+		const writeThrough = toGitHubWriteThroughContext(userId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
+			repositoryId,
+		})
+
+		if (writeThrough)
+			return await this.updateThroughGitHub(writeThrough, {
+				number,
+				repositoryId,
+				state: 'closed',
+				username,
+			})
 		// An abandoned attempt may already have merged this pull request in Git.
 		// Closing it would delete the only record of that, so the intent is
 		// resolved first — and a pull request that turns out to be merged is no
@@ -774,13 +828,27 @@ export class PullRequestsService {
 		userId: UserId,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequest> {
-		const { repositoryId } =
-			await this.repositoriesService.getWritableRepositoryContext(userId, {
+		const { gitHubTarget, repositoryId } =
+			await this.repositoriesService.getPullRequestWriteContext(userId, {
 				username,
 				slug,
 			})
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		assertPullRequestReopenable(pullRequest)
+
+		const writeThrough = toGitHubWriteThroughContext(userId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
+			repositoryId,
+		})
+
+		if (writeThrough)
+			return await this.updateThroughGitHub(writeThrough, {
+				number,
+				repositoryId,
+				state: 'open',
+				username,
+			})
 
 		try {
 			const reopenedPullRequest = await this.pullRequestsRepository.reopen({
@@ -819,12 +887,23 @@ export class PullRequestsService {
 		viewerUserId: UserId | undefined,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<MergeRequirements> {
-		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
-			await this.repositoriesService.getReadableRepositoryContext(
-				viewerUserId,
-				{ username, slug }
-			)
+		const {
+			gitHubTarget,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			viewerRole,
+		} = await this.repositoriesService.getReadableRepositoryContext(
+			viewerUserId,
+			{
+				username,
+				slug,
+			}
+		)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
+
+		// GitHub judges a mirrored merge at the merge, so Tessera evaluates nothing.
+		if (gitHubTarget) return toGitHubMergeRequirements(pullRequest, viewerRole)
 
 		return await this.mergeRequirementsService.evaluate({
 			pullRequest,
@@ -851,11 +930,26 @@ export class PullRequestsService {
 	): Promise<MergePullRequestResult> {
 		const { bypass, expectedBaseSha, expectedHeadSha, number, slug, username } =
 			input
-		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
-			await this.repositoriesService.getReadableRepositoryContext(actor.id, {
-				username,
-				slug,
+		const {
+			gitHubTarget,
+			repositoryId,
+			storagePath,
+			tesseraWritesAllowed,
+			viewerRole,
+		} = await this.repositoriesService.getReadableRepositoryContext(actor.id, {
+			username,
+			slug,
+		})
+
+		if (gitHubTarget)
+			return await this.mergeThroughGitHub({
+				actor,
+				gitHubTarget,
+				input,
+				repositoryId,
+				viewerRole,
 			})
+
 		// Answered before the lease so a caller who could never merge here cannot
 		// take the repository from those who can. Nothing is skipped by it: the
 		// full evaluation still runs under the lease and reports these same
@@ -1399,6 +1493,84 @@ export class PullRequestsService {
 		return { status: 'blocked', requirements }
 	}
 
+	/** The timeline entry is left to the delivery, which is what can key it. */
+	private async updateThroughGitHub(
+		writeThrough: GitHubWriteThroughContext,
+		{
+			body,
+			number,
+			repositoryId,
+			state,
+			targetBranch,
+			title,
+			username,
+		}: {
+			body?: string
+			number: number
+			repositoryId: RepositoryId
+			state?: 'open' | 'closed'
+			targetBranch?: string
+			title?: string
+			username: string
+		}
+	): Promise<PullRequest> {
+		await this.gitHubWriteThroughService.updatePullRequest(writeThrough, {
+			body,
+			state,
+			targetBranch,
+			title,
+		})
+
+		return toPullRequestOutput(
+			await this.findPullRequest(repositoryId, number),
+			username
+		)
+	}
+
+	/** No lease, requirements or Git storage: they all describe refs GitHub owns. */
+	private async mergeThroughGitHub({
+		actor,
+		gitHubTarget,
+		input,
+		repositoryId,
+		viewerRole,
+	}: {
+		actor: PullRequestMergeActor
+		gitHubTarget: GitHubWriteThroughTarget
+		input: ParsedMergePullRequestInput
+		repositoryId: RepositoryId
+		viewerRole?: RepositoryRole
+	}): Promise<MergePullRequestResult> {
+		const { expectedHeadSha, number, strategy, username } = input
+		const pullRequest = await this.findPullRequest(repositoryId, number)
+		const reasons = toMirroredMergeReasons(pullRequest, viewerRole)
+
+		if (reasons.length > 0)
+			return await this.recordUnevaluatedBlock({
+				actorUserId: actor.id,
+				pullRequestId: pullRequest.id,
+				reasons,
+			})
+
+		await this.gitHubWriteThroughService.mergePullRequest(
+			{
+				actorUserId: actor.id,
+				externalRepository: gitHubTarget,
+				pullRequestId: pullRequest.id,
+				repositoryId,
+			},
+			{ expectedHeadSha, strategy }
+		)
+
+		return {
+			status: 'merged',
+			pullRequest: toPullRequestOutput(
+				await this.findPullRequest(repositoryId, number),
+				username
+			),
+		}
+	}
+
 	private async findChecksSummary({
 		pullRequest,
 		repositoryId,
@@ -1584,4 +1756,32 @@ function toStateConflictReason(
 	return state === 'open'
 		? { code: 'repository_merge_in_progress' }
 		: { code: 'pull_request_not_open', state }
+}
+
+function toGitHubMergeRequirements(
+	pullRequest: PullRequestReadModel,
+	viewerRole?: RepositoryRole
+): MergeRequirements {
+	const reasons = toMirroredMergeReasons(pullRequest, viewerRole)
+
+	return {
+		eligible: reasons.length === 0,
+		canBypass: false,
+		reasons,
+		evaluatedBaseSha: pullRequest.github?.baseSha,
+		evaluatedHeadSha: pullRequest.github?.headSha,
+	}
+}
+
+/** The only two things Tessera still decides about a merge GitHub will make. */
+function toMirroredMergeReasons(
+	pullRequest: PullRequestReadModel,
+	viewerRole?: RepositoryRole
+): MergeBlockingReason[] {
+	const reasons = toMergePermissionReasons(viewerRole)
+
+	if (pullRequest.state !== 'open')
+		reasons.push({ code: 'pull_request_not_open', state: pullRequest.state })
+
+	return reasons
 }
