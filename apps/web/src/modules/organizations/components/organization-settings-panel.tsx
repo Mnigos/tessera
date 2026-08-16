@@ -1,16 +1,20 @@
 import type { Organization } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { useOrganizationQuery } from '../hooks/use-organization.query'
-import { OrganizationDeleteDialog } from './organization-delete-dialog'
-import { OrganizationSettingsForm } from './organization-settings-form'
-import { OrganizationSettingsNavigation } from './organization-settings-navigation'
+import {
+	OrganizationSettingsNavigation,
+	type OrganizationSettingsTab,
+} from './organization-settings-navigation'
+import { OrganizationSettingsTabPanel } from './organization-settings-tab-panel'
 
 interface OrganizationSettingsPanelProps {
 	organizationId: Organization['id']
+	tab: OrganizationSettingsTab
 }
 
 export function OrganizationSettingsPanel({
 	organizationId,
+	tab,
 }: Readonly<OrganizationSettingsPanelProps>) {
 	const organizationQuery = useOrganizationQuery({ organizationId })
 
@@ -41,18 +45,16 @@ export function OrganizationSettingsPanel({
 					{organization.name}
 				</h1>
 			</header>
-			<OrganizationSettingsNavigation slug={organization.slug} tab="general" />
-			<div className="flex flex-col gap-6">
-				{/* Remount on rename */}
-				<OrganizationSettingsForm
-					canRename={viewerRole !== 'member'}
-					key={organization.slug}
-					organization={organization}
-				/>
-				{viewerRole === 'owner' && (
-					<OrganizationDeleteDialog organization={organization} />
-				)}
-			</div>
+			<OrganizationSettingsNavigation
+				canManageInvitations={viewerRole !== 'member'}
+				slug={organization.slug}
+				tab={tab}
+			/>
+			<OrganizationSettingsTabPanel
+				organization={organization}
+				tab={tab}
+				viewerRole={viewerRole}
+			/>
 		</section>
 	)
 }
