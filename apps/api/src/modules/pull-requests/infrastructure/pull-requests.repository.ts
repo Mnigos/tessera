@@ -477,6 +477,7 @@ export class PullRequestsRepository {
 				.select({
 					pullRequestId: gitHubPullRequestMappings.pullRequestId,
 					repositoryId: gitHubPullRequestMappings.repositoryId,
+					providerUpdatedAt: gitHubPullRequestMappings.providerUpdatedAt,
 				})
 				.from(gitHubPullRequestMappings)
 				.where(eq(gitHubPullRequestMappings.externalNodeId, pullRequest.nodeId))
@@ -488,8 +489,13 @@ export class PullRequestsRepository {
 					'GitHub pull request mapping belongs to another repository'
 				)
 
+			// A snapshot older than the mapping already holds never rewrites it.
+			const isStale =
+				existingMapping !== undefined &&
+				existingMapping.providerUpdatedAt > pullRequest.updatedAt
 			const pullRequestId = existingMapping?.pullRequestId
 				? await this.updateGitHubPullRequest(transaction, {
+						isStale,
 						pullRequestId: existingMapping.pullRequestId,
 						pullRequest,
 					})
@@ -498,31 +504,13 @@ export class PullRequestsRepository {
 						pullRequest,
 					})
 
-			await transaction
-				.insert(gitHubPullRequestMappings)
-				.values({
-					repositoryId,
-					pullRequestId,
-					externalNodeId: pullRequest.nodeId,
-					externalNumericId: pullRequest.numericId,
-					externalNumber: pullRequest.number,
-					htmlUrl: pullRequest.htmlUrl,
-					authorActorId,
-					mergedByActorId,
-					headRepositoryNodeId: pullRequest.headRepositoryNodeId,
-					baseRepositoryNodeId: pullRequest.baseRepositoryNodeId,
-					headSha: pullRequest.headSha,
-					baseSha: pullRequest.baseSha,
-					draft: pullRequest.draft,
-					providerCreatedAt: pullRequest.createdAt,
-					providerUpdatedAt: pullRequest.updatedAt,
-					providerClosedAt: pullRequest.closedAt,
-					providerMergedAt: pullRequest.mergedAt,
-					lastSyncedAt: new Date(),
-				})
-				.onConflictDoUpdate({
-					target: gitHubPullRequestMappings.externalNodeId,
-					set: {
+			if (!isStale)
+				await transaction
+					.insert(gitHubPullRequestMappings)
+					.values({
+						repositoryId,
+						pullRequestId,
+						externalNodeId: pullRequest.nodeId,
 						externalNumericId: pullRequest.numericId,
 						externalNumber: pullRequest.number,
 						htmlUrl: pullRequest.htmlUrl,
@@ -533,18 +521,37 @@ export class PullRequestsRepository {
 						headSha: pullRequest.headSha,
 						baseSha: pullRequest.baseSha,
 						draft: pullRequest.draft,
+						providerCreatedAt: pullRequest.createdAt,
 						providerUpdatedAt: pullRequest.updatedAt,
 						providerClosedAt: pullRequest.closedAt,
 						providerMergedAt: pullRequest.mergedAt,
 						lastSyncedAt: new Date(),
-						// The checks cursor records when the head this mapping points at
-						// was reconciled, so a new head has never been reconciled at all.
-						// Carrying the old commit's timestamp over would sort the moved
-						// pull request to the back of the rotation and leave the new head
-						// showing the previous one's results until its turn came around.
-						checksSyncedAt: sql`case when ${gitHubPullRequestMappings.headSha} = ${pullRequest.headSha} then ${gitHubPullRequestMappings.checksSyncedAt} else null end`,
-					},
-				})
+					})
+					.onConflictDoUpdate({
+						target: gitHubPullRequestMappings.externalNodeId,
+						set: {
+							externalNumericId: pullRequest.numericId,
+							externalNumber: pullRequest.number,
+							htmlUrl: pullRequest.htmlUrl,
+							authorActorId,
+							mergedByActorId,
+							headRepositoryNodeId: pullRequest.headRepositoryNodeId,
+							baseRepositoryNodeId: pullRequest.baseRepositoryNodeId,
+							headSha: pullRequest.headSha,
+							baseSha: pullRequest.baseSha,
+							draft: pullRequest.draft,
+							providerUpdatedAt: pullRequest.updatedAt,
+							providerClosedAt: pullRequest.closedAt ?? null,
+							providerMergedAt: pullRequest.mergedAt ?? null,
+							lastSyncedAt: new Date(),
+							// The checks cursor records when the head this mapping points at
+							// was reconciled, so a new head has never been reconciled at all.
+							// Carrying the old commit's timestamp over would sort the moved
+							// pull request to the back of the rotation and leave the new head
+							// showing the previous one's results until its turn came around.
+							checksSyncedAt: sql`case when ${gitHubPullRequestMappings.headSha} = ${pullRequest.headSha} then ${gitHubPullRequestMappings.checksSyncedAt} else null end`,
+						},
+					})
 
 			await this.createGitHubEvent(transaction, {
 				pullRequestId,
@@ -1257,13 +1264,17 @@ export class PullRequestsRepository {
 	private async updateGitHubPullRequest(
 		transaction: DrizzleTransaction,
 		{
+			isStale,
 			pullRequest,
 			pullRequestId,
 		}: {
+			isStale: boolean
 			pullRequest: GitHubSyncPullRequest
 			pullRequestId: PullRequestId
 		}
 	): Promise<PullRequestId> {
+		if (isStale) return pullRequestId
+
 		const [updatedPullRequest] = await transaction
 			.update(pullRequests)
 			.set({
@@ -1272,10 +1283,10 @@ export class PullRequestsRepository {
 				title: pullRequest.title,
 				body: pullRequest.body,
 				state: pullRequest.state,
-				mergeCommitSha: pullRequest.mergeCommitSha,
+				mergeCommitSha: pullRequest.mergeCommitSha ?? null,
 				updatedAt: pullRequest.updatedAt,
-				closedAt: pullRequest.closedAt,
-				mergedAt: pullRequest.mergedAt,
+				closedAt: pullRequest.closedAt ?? null,
+				mergedAt: pullRequest.mergedAt ?? null,
 			})
 			.where(
 				and(

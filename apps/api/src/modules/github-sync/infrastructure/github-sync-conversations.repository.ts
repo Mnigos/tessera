@@ -102,6 +102,7 @@ interface ProjectionContext extends ProjectPullRequestConversationParams {
 
 interface GitHubThreadMappingState {
 	id: GitHubPullRequestThreadMappingId
+	lastSeenSyncVersion: number
 	pullRequestThreadId: PullRequestThreadId | null
 	deliveryId: GitHubWebhookDeliveryId | null
 	providerOutdated: boolean
@@ -230,10 +231,14 @@ export class GitHubSyncConversationsRepository {
 					gitHubPullRequestReviewMappings.pullRequestReviewId,
 				providerDismissedAt:
 					gitHubPullRequestReviewMappings.providerDismissedAt,
+				lastSeenSyncVersion:
+					gitHubPullRequestReviewMappings.lastSeenSyncVersion,
 			})
 			.from(gitHubPullRequestReviewMappings)
 			.where(eq(gitHubPullRequestReviewMappings.externalNodeId, review.nodeId))
 			.limit(1)
+
+		if (isNewerThanSnapshot(existingMapping, syncVersion)) return
 
 		const storedReview = existingMapping?.pullRequestReviewId
 			? await this.findNativeReview(
@@ -421,6 +426,15 @@ export class GitHubSyncConversationsRepository {
 			pullRequestMappingId: target.pullRequestMappingId,
 			rootCommentNodeId: thread.rootCommentNodeId,
 		})
+		if (isNewerThanSnapshot(existingMapping, syncVersion)) {
+			await this.projectThreadComments(context, thread, {
+				threadId: existingMapping?.pullRequestThreadId ?? undefined,
+				threadMappingId: existingMapping?.id,
+			})
+
+			return
+		}
+
 		const resolution = this.readThreadResolution(context, {
 			existingMapping,
 			thread,
@@ -454,20 +468,10 @@ export class GitHubSyncConversationsRepository {
 			}
 		)
 
-		for (const comment of thread.comments)
-			await this.projectComment(context, {
-				authorActorId: requireActorId(context, comment.author),
-				body: comment.body,
-				createdAt: comment.createdAt,
-				externalNodeId: comment.nodeId,
-				externalNumericId: comment.numericId,
-				htmlUrl: comment.htmlUrl,
-				kind: 'review',
-				reviewComment: comment,
-				threadId,
-				threadMappingId,
-				updatedAt: comment.updatedAt,
-			})
+		await this.projectThreadComments(context, thread, {
+			threadId,
+			threadMappingId,
+		})
 
 		if (!(existingMapping && threadId && resolution.isObserved)) return
 		if (existingMapping.providerResolved === resolution.resolved) return
@@ -483,6 +487,33 @@ export class GitHubSyncConversationsRepository {
 			threadId,
 			threadNodeId: thread.externalNodeId ?? thread.rootCommentNodeId,
 		})
+	}
+
+	private async projectThreadComments(
+		context: ProjectionContext,
+		thread: GitHubGroupedReviewThread,
+		{
+			threadId,
+			threadMappingId,
+		}: {
+			threadId?: PullRequestThreadId
+			threadMappingId?: GitHubPullRequestThreadMappingId
+		}
+	): Promise<void> {
+		for (const comment of thread.comments)
+			await this.projectComment(context, {
+				authorActorId: requireActorId(context, comment.author),
+				body: comment.body,
+				createdAt: comment.createdAt,
+				externalNodeId: comment.nodeId,
+				externalNumericId: comment.numericId,
+				htmlUrl: comment.htmlUrl,
+				kind: 'review',
+				reviewComment: comment,
+				threadId,
+				threadMappingId,
+				updatedAt: comment.updatedAt,
+			})
 	}
 
 	/**
@@ -622,6 +653,8 @@ export class GitHubSyncConversationsRepository {
 					id: gitHubPullRequestThreadMappings.id,
 					pullRequestThreadId:
 						gitHubPullRequestThreadMappings.pullRequestThreadId,
+					lastSeenSyncVersion:
+						gitHubPullRequestThreadMappings.lastSeenSyncVersion,
 					deliveryId: gitHubPullRequestThreadMappings.deliveryId,
 					providerOutdated: gitHubPullRequestThreadMappings.providerOutdated,
 					providerResolved: gitHubPullRequestThreadMappings.providerResolved,
@@ -805,6 +838,8 @@ export class GitHubSyncConversationsRepository {
 				id: gitHubPullRequestCommentMappings.id,
 				pullRequestCommentId:
 					gitHubPullRequestCommentMappings.pullRequestCommentId,
+				lastSeenSyncVersion:
+					gitHubPullRequestCommentMappings.lastSeenSyncVersion,
 			})
 			.from(gitHubPullRequestCommentMappings)
 			.where(
@@ -814,6 +849,8 @@ export class GitHubSyncConversationsRepository {
 				)
 			)
 			.limit(1)
+
+		if (isNewerThanSnapshot(existingMapping, context.syncVersion)) return
 
 		const reviewId = params.reviewComment?.reviewNumericId
 			? context.reviewIdsByNumericId.get(params.reviewComment.reviewNumericId)
@@ -901,6 +938,8 @@ export class GitHubSyncConversationsRepository {
 				id: gitHubPullRequestReviewerRequestMappings.id,
 				pullRequestReviewerRequestId:
 					gitHubPullRequestReviewerRequestMappings.pullRequestReviewerRequestId,
+				lastSeenSyncVersion:
+					gitHubPullRequestReviewerRequestMappings.lastSeenSyncVersion,
 				targetActorId: gitHubPullRequestReviewerRequestMappings.targetActorId,
 				targetKind: gitHubPullRequestReviewerRequestMappings.targetKind,
 				targetNodeId: gitHubPullRequestReviewerRequestMappings.targetNodeId,
@@ -928,6 +967,8 @@ export class GitHubSyncConversationsRepository {
 			)
 
 			if (existingMapping) {
+				if (isNewerThanSnapshot(existingMapping, syncVersion)) continue
+
 				await transaction
 					.update(gitHubPullRequestReviewerRequestMappings)
 					.set({ lastSeenSyncVersion: syncVersion })
@@ -941,7 +982,12 @@ export class GitHubSyncConversationsRepository {
 		}
 
 		for (const mapping of activeMappings)
-			if (!seenTargetKeys.has(`${mapping.targetKind}:${mapping.targetNodeId}`))
+			if (
+				!(
+					seenTargetKeys.has(`${mapping.targetKind}:${mapping.targetNodeId}`) ||
+					isNewerThanSnapshot(mapping, syncVersion)
+				)
+			)
 				await this.deactivateReviewerRequest(context, mapping)
 	}
 
@@ -1516,8 +1562,16 @@ function toCommentMappingValues(
 	}
 }
 
+/** A write-through echo stamped a later version, so this snapshot predates it. */
+function isNewerThanSnapshot(
+	mapping: { lastSeenSyncVersion: number } | undefined,
+	syncVersion: number
+): boolean {
+	return mapping !== undefined && mapping.lastSeenSyncVersion > syncVersion
+}
+
 /** Keeps a deleted thread's identity readable without letting it collide. */
-function toTombstonedNodeId(
+export function toTombstonedNodeId(
 	mappingId: GitHubPullRequestThreadMappingId,
 	nodeId: string | null
 ): string | null {

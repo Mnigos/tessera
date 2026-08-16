@@ -6,40 +6,44 @@ import {
 	classifyGitHubSyncFailure,
 	type GitHubSyncRequestScope,
 } from '../domain/github-sync-failure'
+import {
+	type GitHubRestPullRequest,
+	gitHubActorSchema,
+	gitHubDiffSideSchema,
+	gitHubIssueCommentSchema,
+	gitHubPullRequestSchema,
+	gitHubReviewCommentSchema,
+	gitHubReviewSchema,
+	toGitHubSyncActor,
+	toGitHubSyncActorType,
+	toGitHubSyncDiffSide,
+	toGitHubSyncIssueComment,
+	toGitHubSyncPullRequest,
+	toGitHubSyncReview,
+	toGitHubSyncReviewComment,
+	toOptionalDate,
+} from './github-rest.mappers'
 import type {
 	GitHubChecksRequestScope,
 	GitHubChecksSnapshot,
 	GitHubPullRequestConversation,
 	GitHubRepositoryReconciliation,
 	GitHubSyncActor,
-	GitHubSyncActorType,
 	GitHubSyncCheckApp,
 	GitHubSyncCheckRun,
 	GitHubSyncCheckSuite,
 	GitHubSyncCommitStatus,
-	GitHubSyncDiffSide,
 	GitHubSyncIssueComment,
-	GitHubSyncPullRequest,
 	GitHubSyncRateLimit,
 	GitHubSyncReview,
 	GitHubSyncReviewComment,
 	GitHubSyncReviewerRequestTarget,
-	GitHubSyncReviewOutcome,
 	GitHubSyncReviewThread,
 } from './github-sync.client.types'
 
 const GITHUB_PAGE_SIZE = 100
 const MERGED_PULL_REQUEST_DETAIL_BATCH_SIZE = 10
 const GITHUB_CURSOR_FALLBACK_OVERLAP_MS = 60_000
-
-const gitHubActorSchema = z.object({
-	id: z.number().int().positive(),
-	node_id: z.string().min(1),
-	login: z.string().min(1),
-	type: z.string().min(1),
-	avatar_url: z.url().nullish(),
-	html_url: z.url().nullish(),
-})
 
 const gitHubRepositorySchema = z.object({
 	id: z.number().int().positive(),
@@ -50,83 +54,6 @@ const gitHubRepositorySchema = z.object({
 	html_url: z.url(),
 	clone_url: z.url(),
 	default_branch: z.string().min(1),
-})
-
-const gitHubPullRequestSchema = z.object({
-	id: z.number().int().positive(),
-	node_id: z.string().min(1),
-	number: z.number().int().positive(),
-	html_url: z.url(),
-	title: z.string(),
-	body: z.string().nullish(),
-	state: z.enum(['open', 'closed']),
-	draft: z.boolean().nullish(),
-	user: gitHubActorSchema,
-	merged_at: z.string().nullish(),
-	merged_by: gitHubActorSchema.nullish(),
-	merge_commit_sha: z.string().nullish(),
-	created_at: z.string(),
-	updated_at: z.string(),
-	closed_at: z.string().nullish(),
-	head: z.object({
-		ref: z.string().min(1),
-		sha: z.string().min(1),
-		repo: z.object({ node_id: z.string().min(1) }).nullish(),
-	}),
-	base: z.object({
-		ref: z.string().min(1),
-		sha: z.string().min(1),
-		repo: z.object({ node_id: z.string().min(1) }),
-	}),
-})
-
-type GitHubPullRequestInput = z.infer<typeof gitHubPullRequestSchema>
-
-const gitHubDiffSideSchema = z.enum(['LEFT', 'RIGHT'])
-const gitHubSubjectTypeSchema = z.enum(['line', 'file'])
-
-const gitHubIssueCommentSchema = z.object({
-	id: z.number().int().positive(),
-	node_id: z.string().min(1),
-	html_url: z.url(),
-	body: z.string().nullish(),
-	user: gitHubActorSchema.nullish(),
-	created_at: z.string(),
-	updated_at: z.string(),
-})
-
-const gitHubReviewCommentSchema = z.object({
-	id: z.number().int().positive(),
-	node_id: z.string().min(1),
-	html_url: z.url(),
-	body: z.string().nullish(),
-	user: gitHubActorSchema.nullish(),
-	pull_request_review_id: z.number().int().positive().nullish(),
-	in_reply_to_id: z.number().int().positive().nullish(),
-	subject_type: gitHubSubjectTypeSchema.nullish(),
-	path: z.string().min(1),
-	side: gitHubDiffSideSchema.nullish(),
-	line: z.number().int().nullish(),
-	original_line: z.number().int().nullish(),
-	start_side: gitHubDiffSideSchema.nullish(),
-	start_line: z.number().int().nullish(),
-	original_start_line: z.number().int().nullish(),
-	commit_id: z.string().min(1).nullish(),
-	original_commit_id: z.string().min(1).nullish(),
-	diff_hunk: z.string().nullish(),
-	created_at: z.string(),
-	updated_at: z.string(),
-})
-
-const gitHubReviewSchema = z.object({
-	id: z.number().int().positive(),
-	node_id: z.string().min(1),
-	html_url: z.url(),
-	body: z.string().nullish(),
-	user: gitHubActorSchema.nullish(),
-	state: z.string().min(1),
-	commit_id: z.string().min(1).nullish(),
-	submitted_at: z.string().nullish(),
 })
 
 const gitHubRequestedReviewersSchema = z.object({
@@ -705,21 +632,11 @@ export class GitHubSyncClient {
 		})
 
 		return comments.flatMap(comment => {
-			const parsed = gitHubIssueCommentSchema.parse(comment)
+			const parsed = toGitHubSyncIssueComment(
+				gitHubIssueCommentSchema.parse(comment)
+			)
 
-			if (!parsed.user) return []
-
-			return [
-				{
-					nodeId: parsed.node_id,
-					numericId: BigInt(parsed.id),
-					author: toGitHubSyncActor(parsed.user),
-					body: parsed.body ?? '',
-					htmlUrl: parsed.html_url,
-					createdAt: new Date(parsed.created_at),
-					updatedAt: new Date(parsed.updated_at),
-				},
-			]
+			return parsed ? [parsed] : []
 		})
 	}
 
@@ -740,34 +657,11 @@ export class GitHubSyncClient {
 		)
 
 		return comments.flatMap(comment => {
-			const parsed = gitHubReviewCommentSchema.parse(comment)
+			const parsed = toGitHubSyncReviewComment(
+				gitHubReviewCommentSchema.parse(comment)
+			)
 
-			if (!parsed.user) return []
-
-			return [
-				{
-					nodeId: parsed.node_id,
-					numericId: BigInt(parsed.id),
-					author: toGitHubSyncActor(parsed.user),
-					body: parsed.body ?? '',
-					htmlUrl: parsed.html_url,
-					reviewNumericId: toOptionalBigInt(parsed.pull_request_review_id),
-					inReplyToNumericId: toOptionalBigInt(parsed.in_reply_to_id),
-					subjectType: parsed.subject_type ?? 'line',
-					path: parsed.path,
-					side: toGitHubSyncDiffSide(parsed.side),
-					line: parsed.line ?? undefined,
-					originalLine: parsed.original_line ?? undefined,
-					startSide: toGitHubSyncDiffSide(parsed.start_side),
-					startLine: parsed.start_line ?? undefined,
-					originalStartLine: parsed.original_start_line ?? undefined,
-					commitId: parsed.commit_id ?? undefined,
-					originalCommitId: parsed.original_commit_id ?? undefined,
-					diffHunk: parsed.diff_hunk ?? undefined,
-					createdAt: new Date(parsed.created_at),
-					updatedAt: new Date(parsed.updated_at),
-				},
-			]
+			return parsed ? [parsed] : []
 		})
 	}
 
@@ -785,25 +679,9 @@ export class GitHubSyncClient {
 		})
 
 		return reviews.flatMap(review => {
-			const parsed = gitHubReviewSchema.parse(review)
-			const state = parsed.state.toLowerCase()
+			const parsed = toGitHubSyncReview(gitHubReviewSchema.parse(review))
 
-			if (!(parsed.user && parsed.submitted_at) || state === 'pending')
-				return []
-
-			return [
-				{
-					nodeId: parsed.node_id,
-					numericId: BigInt(parsed.id),
-					reviewer: toGitHubSyncActor(parsed.user),
-					body: parsed.body ?? '',
-					outcome: toGitHubSyncReviewOutcome(state),
-					dismissed: state === 'dismissed',
-					htmlUrl: parsed.html_url,
-					commitId: parsed.commit_id ?? undefined,
-					submittedAt: new Date(parsed.submitted_at),
-				},
-			]
+			return parsed ? [parsed] : []
 		})
 	}
 
@@ -884,9 +762,9 @@ export class GitHubSyncClient {
 	}: {
 		octokit: Octokit
 		owner: string
-		pullRequests: GitHubPullRequestInput[]
+		pullRequests: GitHubRestPullRequest[]
 		repo: string
-	}): Promise<GitHubPullRequestInput[]> {
+	}): Promise<GitHubRestPullRequest[]> {
 		const detailedPullRequests = [...pullRequests]
 		const mergedIndexes = pullRequests.flatMap((pullRequest, index) =>
 			pullRequest.merged_at ? [index] : []
@@ -1032,35 +910,6 @@ function toGitHubSyncGraphQlActor(
 	}
 }
 
-function toGitHubSyncDiffSide(
-	side: 'LEFT' | 'RIGHT' | null | undefined
-): GitHubSyncDiffSide | undefined {
-	if (!side) return undefined
-
-	return side === 'LEFT' ? 'left' : 'right'
-}
-
-function toGitHubSyncReviewOutcome(
-	state: string
-): GitHubSyncReviewOutcome | undefined {
-	switch (state) {
-		case 'approved':
-			return 'approve'
-		case 'changes_requested':
-			return 'request_changes'
-		case 'commented':
-			return 'comment'
-		default:
-			return undefined
-	}
-}
-
-function toOptionalBigInt(
-	value: number | null | undefined
-): bigint | undefined {
-	return value ? BigInt(value) : undefined
-}
-
 function getPullRequestCursorAt(providerDate?: string): Date {
 	const providerTimestamp = providerDate ? Date.parse(providerDate) : Number.NaN
 
@@ -1069,67 +918,4 @@ function getPullRequestCursorAt(providerDate?: string): Date {
 	return new Date(
 		Math.floor((Date.now() - GITHUB_CURSOR_FALLBACK_OVERLAP_MS) / 1000) * 1000
 	)
-}
-
-function toGitHubSyncPullRequest(
-	pullRequest: GitHubPullRequestInput
-): GitHubSyncPullRequest {
-	const mergedAt = toOptionalDate(pullRequest.merged_at)
-	const closedAt = toOptionalDate(pullRequest.closed_at)
-
-	return {
-		nodeId: pullRequest.node_id,
-		numericId: BigInt(pullRequest.id),
-		number: pullRequest.number,
-		htmlUrl: pullRequest.html_url,
-		title: pullRequest.title,
-		body: pullRequest.body ?? '',
-		state: mergedAt ? 'merged' : pullRequest.state,
-		draft: pullRequest.draft ?? false,
-		author: toGitHubSyncActor(pullRequest.user),
-		mergedBy: pullRequest.merged_by
-			? toGitHubSyncActor(pullRequest.merged_by)
-			: undefined,
-		mergeCommitSha: pullRequest.merge_commit_sha ?? undefined,
-		sourceBranch: pullRequest.head.ref,
-		targetBranch: pullRequest.base.ref,
-		headRepositoryNodeId: pullRequest.head.repo?.node_id,
-		baseRepositoryNodeId: pullRequest.base.repo.node_id,
-		headSha: pullRequest.head.sha,
-		baseSha: pullRequest.base.sha,
-		createdAt: new Date(pullRequest.created_at),
-		updatedAt: new Date(pullRequest.updated_at),
-		closedAt,
-		mergedAt,
-	}
-}
-
-function toGitHubSyncActor(
-	actor: z.infer<typeof gitHubActorSchema>
-): GitHubSyncActor {
-	return {
-		nodeId: actor.node_id,
-		numericId: BigInt(actor.id),
-		login: actor.login,
-		type: toGitHubSyncActorType(actor.type),
-		avatarUrl: actor.avatar_url ?? undefined,
-		htmlUrl: actor.html_url ?? undefined,
-	}
-}
-
-function toGitHubSyncActorType(type: string): GitHubSyncActorType {
-	switch (type.toLowerCase()) {
-		case 'bot':
-			return 'bot'
-		case 'organization':
-			return 'organization'
-		case 'mannequin':
-			return 'mannequin'
-		default:
-			return 'user'
-	}
-}
-
-function toOptionalDate(value: string | null | undefined): Date | undefined {
-	return value ? new Date(value) : undefined
 }
