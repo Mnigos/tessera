@@ -391,6 +391,31 @@ describe(PullRequestsRepository.name, () => {
 		expect(cursor.params).toContain('moved-head')
 	})
 
+	test('does not regress a pull request from a provider snapshot older than its mapping', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([
+			{
+				pullRequestId,
+				repositoryId,
+				providerUpdatedAt: new Date('2026-07-11T01:00:00Z'),
+			},
+		])
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: {
+				...gitHubPullRequest,
+				title: 'Stale title',
+				updatedAt: new Date('2026-07-11T00:30:00Z'),
+			},
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
+		expect(mappingValuesMock).not.toHaveBeenCalled()
+	})
+
 	test('edits a pull request and records an edited event', async () => {
 		pullRequestUpdateReturningMock.mockResolvedValue([
 			{ ...pullRequest, title: 'Updated' },
