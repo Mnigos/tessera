@@ -8,13 +8,15 @@ import { PullRequestsList } from './pull-requests-list'
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
 		children,
+		params,
 		to,
 		...props
 	}: AnchorHTMLAttributes<HTMLAnchorElement> & {
 		children: ReactNode
+		params?: { number?: string }
 		to: string
 	}) => (
-		<a href={to} {...props}>
+		<a data-route-number={params?.number} href={to} {...props}>
 			{children}
 		</a>
 	),
@@ -203,5 +205,51 @@ describe(PullRequestsList.name, () => {
 		)
 
 		expect(screen.queryByTitle(ANY_REVIEW_BADGE_REGEX)).toBeNull()
+	})
+
+	test.each([
+		[1, '1 file'],
+		[3, '3 files'],
+	] as const)('renders GitHub text and diff stats for %i changed files while routing locally', (changedFiles, filesLabel) => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: {
+				pullRequests: [
+					{
+						...PULL_REQUEST,
+						diffStats: { additions: 12, deletions: 4, changedFiles },
+						github: {
+							nodeId: 'PR_kwDOExample',
+							htmlUrl: 'https://github.com/marta/notes/pull/77',
+							draft: false,
+							headSha: 'b'.repeat(40),
+							baseSha: 'a'.repeat(40),
+							externalNumber: 77,
+						},
+					},
+				],
+				viewerRole: 'read',
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				selectedState="all"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('#77')).toBeTruthy()
+		expect(screen.getByText(filesLabel)).toBeTruthy()
+		expect(screen.getByText('+12')).toBeTruthy()
+		expect(screen.getByText('−4')).toBeTruthy()
+		expect(
+			screen
+				.getByRole('link', { name: 'Review pull request list' })
+				.getAttribute('data-route-number')
+		).toBe('1')
 	})
 })

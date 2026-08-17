@@ -1,5 +1,7 @@
 import { routes } from '@/routes'
+import { Route as commitsRoute } from './repository.$username.$slug.pulls.$number.commits.route'
 import { Route as filesRoute } from './repository.$username.$slug.pulls.$number.files.route'
+import { Route as overviewRoute } from './repository.$username.$slug.pulls.$number.route'
 
 const REVIEW_ID = '00000000-0000-4000-8000-000000000011'
 const PULL_REQUEST_PATHS = [
@@ -43,5 +45,31 @@ describe('pull request routes', () => {
 				search: { reviewId: REVIEW_ID },
 			} as never)
 		).toEqual({ reviewId: REVIEW_ID })
+	})
+
+	test.each([
+		[overviewRoute, 'marta/notes #77 · detent', 'marta/notes #42 · detent'],
+		[
+			commitsRoute,
+			'marta/notes #77 commits · detent',
+			'marta/notes #42 commits · detent',
+		],
+		[
+			filesRoute,
+			'marta/notes #77 files changed · detent',
+			'marta/notes #42 files changed · detent',
+		],
+	] as const)('uses the loaded display number in document titles and falls back to params', (route, loadedTitle, fallbackTitle) => {
+		const params = { username: 'marta', slug: 'notes', number: '42' }
+
+		expect(
+			route.options.head?.({
+				loaderData: { displayNumber: 77 },
+				params,
+			} as never)
+		).toMatchObject({ meta: [{ title: loadedTitle }] })
+		expect(
+			route.options.head?.({ loaderData: undefined, params } as never)
+		).toMatchObject({ meta: [{ title: fallbackTitle }] })
 	})
 })

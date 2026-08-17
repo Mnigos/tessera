@@ -21,7 +21,25 @@ class MockPointerEvent extends Event {
 	}
 }
 
+// happy-dom's IntersectionObserver never calls back, which would keep deferred content off screen.
+class MockIntersectionObserver {
+	constructor(private readonly callback: IntersectionObserverCallback) {}
+
+	observe(target: Element) {
+		this.callback(
+			[{ isIntersecting: true, target } as IntersectionObserverEntry],
+			this as unknown as IntersectionObserver
+		)
+	}
+
+	unobserve = vi.fn()
+	disconnect = vi.fn()
+	takeRecords = vi.fn((): IntersectionObserverEntry[] => [])
+}
+
 window.PointerEvent = MockPointerEvent as unknown as typeof PointerEvent
+window.IntersectionObserver =
+	MockIntersectionObserver as unknown as typeof IntersectionObserver
 Object.defineProperty(navigator, 'clipboard', {
 	configurable: true,
 	value: {

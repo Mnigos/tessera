@@ -41,6 +41,7 @@ describe(PullRequestPushEventsService.name, () => {
 					provide: PullRequestsRepository,
 					useValue: {
 						createPushEvents: vi.fn(),
+						clearBranchDiffStats: vi.fn(),
 					},
 				},
 			],
@@ -50,6 +51,7 @@ describe(PullRequestPushEventsService.name, () => {
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository)
 
 		vi.spyOn(pullRequestsRepository, 'createPushEvents').mockResolvedValue(1)
+		vi.spyOn(pullRequestsRepository, 'clearBranchDiffStats').mockResolvedValue()
 	})
 
 	afterEach(async () => {
@@ -74,6 +76,10 @@ describe(PullRequestPushEventsService.name, () => {
 					type: 'head_updated',
 				},
 			],
+		})
+		expect(pullRequestsRepository.clearBranchDiffStats).toHaveBeenCalledWith({
+			repositoryId,
+			branches: ['feature'],
 		})
 	})
 

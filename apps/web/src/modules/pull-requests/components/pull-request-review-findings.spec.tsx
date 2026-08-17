@@ -21,8 +21,22 @@ import { usePullRequestMergeRequirementsQuery } from '../hooks/use-pull-request-
 import { useReopenPullRequestMutation } from '../hooks/use-reopen-pull-request.mutation'
 import { CreatePullRequestForm } from './create-pull-request-form'
 import { PullRequestDetail } from './pull-request-detail'
-import { PullRequestEditForm } from './pull-request-edit-form'
+import {
+	PullRequestDescriptionEditForm,
+	PullRequestTitleEditForm,
+} from './pull-request-edit-form'
 import { PullRequestListItem } from './pull-request-list-item'
+
+vi.mock('../hooks/use-pull-request-activity.query', () => ({
+	usePullRequestActivityQuery: () => ({ data: undefined }),
+}))
+
+vi.mock('../hooks/use-refresh-pull-request-github.mutation', () => ({
+	useRefreshPullRequestGitHubMutation: () => ({
+		isPending: false,
+		mutate: vi.fn(),
+	}),
+}))
 
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
@@ -92,6 +106,16 @@ vi.mock('../hooks/use-pull-request.query', () => ({
 
 vi.mock('@/modules/auth/hooks/use-auth', () => ({
 	useAuth: () => ({ user: undefined }),
+}))
+
+// The sidebar is always drawn now, and the reviewers section reads its own
+// mutations whether or not this viewer may use them.
+vi.mock('../hooks/use-remove-pull-request-reviewer-request.mutation', () => ({
+	useRemovePullRequestReviewerRequestMutation: () => ({
+		isError: false,
+		isPending: false,
+		mutate: vi.fn(),
+	}),
 }))
 
 vi.mock('../hooks/use-pull-request-threads.query', () => ({
@@ -242,7 +266,7 @@ describe('pull request review findings', () => {
 			mutate: vi.fn(),
 		} as never)
 		render(
-			<PullRequestEditForm
+			<PullRequestTitleEditForm
 				onDone={vi.fn()}
 				pullRequest={PULL_REQUEST}
 				slug="notes"
@@ -276,7 +300,7 @@ describe('pull request review findings', () => {
 			mutate,
 		} as never)
 		render(
-			<PullRequestEditForm
+			<PullRequestTitleEditForm
 				onDone={vi.fn()}
 				pullRequest={PULL_REQUEST}
 				slug="notes"
@@ -288,18 +312,17 @@ describe('pull request review findings', () => {
 			GITHUB_SYNC_DELAYED_MESSAGE
 		)
 		expect(
-			screen.getByRole<HTMLButtonElement>('button', { name: 'Save changes' })
-				.disabled
+			screen.getByRole<HTMLButtonElement>('button', { name: 'Save' }).disabled
 		).toBeFalsy()
-		const saveButton = screen.getByRole('button', { name: 'Save changes' })
+		const saveButton = screen.getByRole('button', { name: 'Save' })
 		fireEvent.submit(saveButton.closest('form') ?? saveButton)
+		// The title is its own write now; the description is never carried along.
 		expect(mutate).toHaveBeenCalledWith(
 			{
 				username: 'marta',
 				slug: 'notes',
 				number: 1,
 				title: 'Review pull request UI',
-				body: '',
 			},
 			expect.anything()
 		)
@@ -317,7 +340,7 @@ describe('pull request review findings', () => {
 		} as never)
 		const user = userEvent.setup()
 		const { container } = render(
-			<PullRequestEditForm
+			<PullRequestDescriptionEditForm
 				onDone={vi.fn()}
 				pullRequest={{ ...PULL_REQUEST, body: 'Original body' }}
 				slug="notes"
@@ -441,7 +464,7 @@ describe('pull request review findings', () => {
 			)
 		).toBeTruthy()
 		// The note says where writes land, not who may make them.
-		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Edit title' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Change target' })).toBeNull()
 		expect(screen.queryByRole('textbox', { name: 'Comment' })).toBeNull()
 	})
@@ -477,7 +500,7 @@ describe('pull request review findings', () => {
 			/>
 		)
 
-		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Edit title' })).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
 		expect(
 			screen.getByRole('button', { name: 'Close pull request' })
@@ -487,6 +510,43 @@ describe('pull request review findings', () => {
 				'GitHub owns this pull request. Anything you post here is sent to GitHub as you.'
 			)
 		).toBeTruthy()
+	})
+
+	test('renders GitHub display number, diff stats, and the files-tab count', () => {
+		usePullRequestQueryMock.mockReturnValue({
+			data: detailData({
+				pullRequest: {
+					...PULL_REQUEST,
+					diffStats: { additions: 12, deletions: 4, changedFiles: 3 },
+					github: {
+						nodeId: 'PR_kwDO',
+						htmlUrl: 'https://github.com/mnigos/notes/pull/77',
+						draft: false,
+						headSha: 'b'.repeat(40),
+						baseSha: 'a'.repeat(40),
+						externalNumber: 77,
+					},
+				},
+			}),
+			isError: false,
+			isLoading: false,
+		} as never)
+
+		render(
+			<PullRequestDetail
+				number="1"
+				slug="notes"
+				tab="overview"
+				username="marta"
+			/>
+		)
+
+		const detail = screen
+			.getByRole('heading', { name: 'Review pull request UI #77' })
+			.closest('section')
+		expect(detail?.textContent?.match(/#77/g)).toHaveLength(1)
+		expect(screen.getByText('12 additions and 4 deletions')).toBeTruthy()
+		expect(screen.getByRole('link', { name: 'Files changed 3' })).toBeTruthy()
 	})
 
 	// A pull request opened before the mirror has no GitHub copy to point at.
@@ -520,7 +580,7 @@ describe('pull request review findings', () => {
 			)
 		).toBeNull()
 		// The writes go through to GitHub, so the controls that make them stay.
-		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Edit title' })).toBeTruthy()
 		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
 		expect(
 			screen.getByRole('button', { name: 'Close pull request' })
@@ -566,13 +626,13 @@ describe('pull request review findings', () => {
 			)
 		).toBeNull()
 		expect(screen.getByRole('button', { name: 'Change target' })).toBeTruthy()
-		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Edit title' })).toBeTruthy()
 		expect(
 			screen.getByRole('button', { name: 'Close pull request' })
 		).toBeTruthy()
 	})
 
-	test('hides a pending-review banner after a repository becomes mirrored', () => {
+	test('keeps the pending-review banner on a mirrored pull request', () => {
 		primeWriteControls()
 		const viewerPendingReview: PullRequestPendingReview = {
 			id: '00000000-0000-4000-8000-000000000053' as PullRequestPendingReview['id'],
@@ -598,8 +658,8 @@ describe('pull request review findings', () => {
 			/>
 		)
 
-		expect(screen.queryByText(BATCHED_COMMENTS_REGEX)).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
+		expect(screen.getByText(BATCHED_COMMENTS_REGEX)).toBeTruthy()
+		expect(screen.getByText('Your review is pending')).toBeTruthy()
 	})
 
 	test('shows reconnect recovery and the lifecycle fallback on the mirrored detail', () => {
@@ -775,7 +835,7 @@ describe('pull request review findings', () => {
 			/>
 		)
 
-		expect(screen.getByRole('button', { name: 'Edit' })).toBeTruthy()
+		expect(screen.getByRole('button', { name: 'Edit title' })).toBeTruthy()
 		expect(
 			screen.getByRole('button', { name: 'Close pull request' })
 		).toBeTruthy()
@@ -804,7 +864,7 @@ describe('pull request review findings', () => {
 		)
 
 		expect(screen.getByText('Review pull request UI')).toBeTruthy()
-		expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Edit title' })).toBeNull()
 		expect(
 			screen.queryByRole('button', { name: 'Close pull request' })
 		).toBeNull()

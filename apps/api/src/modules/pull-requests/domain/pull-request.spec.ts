@@ -35,6 +35,12 @@ const pullRequest: PullRequest = {
 	mergedBaseSha: null,
 	mergedHeadSha: null,
 	mergeActorUserId: null,
+	diffStatsBaseSha: null,
+	diffStatsHeadSha: null,
+	diffAdditions: null,
+	diffDeletions: null,
+	diffChangedFiles: null,
+	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
 	closedAt: null,
@@ -46,6 +52,7 @@ describe('pull request domain', () => {
 		expect(toPullRequestOutput(pullRequest, 'marta')).toEqual({
 			...pullRequest,
 			authorUsername: 'marta',
+			diffStats: undefined,
 			github: undefined,
 			mergeCommitSha: undefined,
 			mergeStrategy: undefined,
@@ -53,6 +60,31 @@ describe('pull request domain', () => {
 			closedAt: undefined,
 			mergedAt: undefined,
 		})
+	})
+
+	test('maps complete diff stats and withholds partial persistence rows', () => {
+		expect(
+			toPullRequestOutput(
+				{
+					...pullRequest,
+					diffAdditions: 12,
+					diffDeletions: 4,
+					diffChangedFiles: 3,
+				},
+				'marta'
+			).diffStats
+		).toEqual({ additions: 12, deletions: 4, changedFiles: 3 })
+		expect(
+			toPullRequestOutput(
+				{
+					...pullRequest,
+					diffAdditions: 12,
+					diffDeletions: null,
+					diffChangedFiles: 3,
+				},
+				'marta'
+			).diffStats
+		).toBeUndefined()
 	})
 
 	test('prefers a provider actor over the repository owner fallback', () => {
