@@ -8,6 +8,7 @@ import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { RepositoryExternalSourceId } from '@repo/db'
 import type {
+	OrganizationId,
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
@@ -19,6 +20,7 @@ import { mockUserId } from '~/shared/test-utils'
 import type { RepositoryWithOwner } from '../domain/repository'
 import {
 	DuplicateRepositorySlugError,
+	RepositoryAdminForbiddenError,
 	RepositoryBrowserInvalidRequestError,
 	RepositoryCreateFailedError,
 	RepositoryCreatorUsernameRequiredError,
@@ -68,7 +70,7 @@ const repository: RepositoryWithOwner = {
 	id: '00000000-0000-4000-8000-000000000003' as RepositoryId,
 	ownerUserId: mockUserId,
 	ownerOrganizationId: null,
-	ownerUser: { username: 'marta' },
+	owner: { kind: 'user', handle: 'marta' },
 	slug: 'tessera-notes' as RepositorySlug,
 	name: 'Tessera Notes' as RepositoryName,
 	description: 'Notes',
@@ -137,21 +139,13 @@ describe(RepositoriesService.name, () => {
 						create: vi.fn(),
 						list: vi.fn(),
 						find: vi.fn(),
+						findOwner: vi.fn(),
 						updateStoragePath: vi.fn(),
-						updateImportStorage: vi.fn(),
 						completeImportedGitHubRepository: vi.fn(),
 						upsertGitHubExternalSource: vi.fn(),
-						markGitHubMirrorSyncPending: vi.fn(),
-						markGitHubMirrorSyncFailed: vi.fn(),
 						findGitHubMirrorEnablement: vi.fn(),
 						enableGitHubMirror: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
-						enableGitHubPushBack: vi.fn(),
-						disableGitHubPushBack: vi.fn(),
-						markGitHubPushBackRunning: vi.fn(),
-						markGitHubPushBackSucceeded: vi.fn(),
-						markGitHubPushBackFailed: vi.fn(),
-						findGitHubAccount: vi.fn(),
 						findCollaboratorRole: vi.fn(),
 						findOrganizationMemberRole: vi.fn(),
 						delete: vi.fn(),
@@ -327,6 +321,7 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: ' Tessera Notes ',
 			})
 		).toEqual({
@@ -347,14 +342,15 @@ describe(RepositoriesService.name, () => {
 				updatedAt: repository.updatedAt,
 			},
 			owner: {
+				kind: 'user',
+				handle: 'marta',
 				username: 'marta',
 			},
 		})
 		expect(createSpy).toHaveBeenCalledWith({
-			userId: mockUserId,
+			owner: { ownerUserId: mockUserId, ownerOrganizationId: null },
 			name: 'Tessera Notes',
 			slug: 'tessera-notes',
-			username: 'marta',
 			description: undefined,
 			visibility: undefined,
 		})
@@ -364,7 +360,6 @@ describe(RepositoriesService.name, () => {
 		expect(updateStoragePathSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
 			storagePath: '/var/lib/tessera/repositories/repo.git',
-			username: 'marta',
 		})
 	})
 
@@ -383,6 +378,7 @@ describe(RepositoriesService.name, () => {
 
 		expect(
 			await repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 				slug: ' Custom Notes!! ' as RepositorySlug,
 			})
@@ -400,6 +396,83 @@ describe(RepositoriesService.name, () => {
 		)
 	})
 
+	test.each([
+		'owner',
+		'admin',
+	] as const)('creates an organization-owned repository for an organization %s', async role => {
+		const organizationId =
+			'00000000-0000-4000-8000-000000000050' as OrganizationId
+		const organizationRepository = {
+			...repository,
+			ownerUserId: null,
+			ownerOrganizationId: organizationId,
+			owner: { kind: 'organization' as const, handle: 'tessera' },
+		}
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue(role)
+		const createSpy = vi
+			.spyOn(repositoriesRepository, 'create')
+			.mockResolvedValue(organizationRepository)
+		vi.spyOn(repositoriesRepository, 'updateStoragePath').mockResolvedValue({
+			...organizationRepository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		})
+
+		expect(
+			await repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'organization', organizationId },
+				name: 'Tessera Notes',
+			})
+		).toEqual(
+			expect.objectContaining({
+				owner: {
+					kind: 'organization',
+					handle: 'tessera',
+					username: 'tessera',
+				},
+			})
+		)
+		expect(createSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				owner: { ownerUserId: null, ownerOrganizationId: organizationId },
+			})
+		)
+	})
+
+	test.each([
+		['plain member', 'member'],
+		['non-member or unknown organization', undefined],
+	] as const)('refuses an organization-owned repository for a %s', async (_label, role) => {
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue(role)
+
+		await expect(
+			repositoriesService.create(mockUserId, 'marta', {
+				owner: {
+					kind: 'organization',
+					organizationId:
+						'00000000-0000-4000-8000-000000000050' as OrganizationId,
+				},
+				name: 'Tessera Notes',
+			})
+		).rejects.toBeInstanceOf(RepositoryAdminForbiddenError)
+		expect(repositoriesRepository.create).not.toHaveBeenCalled()
+	})
+
+	test('rejects a user-owned repository when the session has no username', async () => {
+		await expect(
+			repositoriesService.create(mockUserId, undefined, {
+				owner: { kind: 'user' },
+				name: 'Tessera Notes',
+			})
+		).rejects.toBeInstanceOf(RepositoryCreatorUsernameRequiredError)
+		expect(repositoriesRepository.create).not.toHaveBeenCalled()
+	})
+
 	test('cleans up metadata when git storage creation fails', async () => {
 		vi.spyOn(repositoriesRepository, 'create').mockResolvedValue(repository)
 		vi.spyOn(
@@ -410,6 +483,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toThrow('git storage failed')
@@ -425,6 +499,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBeInstanceOf(RepositoryCreateFailedError)
@@ -439,6 +514,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBeInstanceOf(DuplicateRepositorySlugError)
@@ -454,6 +530,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBeInstanceOf(DuplicateRepositorySlugError)
@@ -468,6 +545,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBe(error)
@@ -485,6 +563,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBe('boom')
@@ -509,6 +588,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBe(storageError)
@@ -532,6 +612,7 @@ describe(RepositoriesService.name, () => {
 
 		await expect(
 			repositoriesService.create(mockUserId, 'marta', {
+				owner: { kind: 'user' },
 				name: 'Tessera Notes',
 			})
 		).rejects.toBe(storageError)
@@ -541,25 +622,91 @@ describe(RepositoriesService.name, () => {
 		)
 	})
 
-	test('rejects create requests when the session has no username', async () => {
-		await expect(
-			repositoriesService.create(mockUserId, undefined, {
-				name: 'Tessera Notes',
-			})
-		).rejects.toBeInstanceOf(RepositoryCreatorUsernameRequiredError)
-	})
-
-	test('lists repositories for the authenticated username', async () => {
+	test('lists repositories under a handle the viewer administers', async () => {
+		vi.spyOn(repositoriesRepository, 'findOwner').mockResolvedValue({
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+		})
 		const listSpy = vi
 			.spyOn(repositoriesRepository, 'list')
 			.mockResolvedValue([repository])
 
-		expect(await repositoriesService.list(mockUserId)).toEqual([
+		expect(
+			await repositoriesService.list(mockUserId, { username: 'marta' })
+		).toEqual([
 			expect.objectContaining({
 				repository: expect.objectContaining({ slug: repository.slug }),
 			}),
 		])
-		expect(listSpy).toHaveBeenCalledWith({ userId: mockUserId })
+		expect(listSpy).toHaveBeenCalledWith({
+			ownerUserId: mockUserId,
+			ownerOrganizationId: null,
+		})
+	})
+
+	test.each([
+		'owner',
+		'admin',
+	] as const)('lists repositories for an organization %s', async role => {
+		const organizationId =
+			'00000000-0000-4000-8000-000000000050' as OrganizationId
+		const organizationRepository = {
+			...repository,
+			ownerUserId: null,
+			ownerOrganizationId: organizationId,
+			owner: { kind: 'organization' as const, handle: 'tessera' },
+		}
+		vi.spyOn(repositoriesRepository, 'findOwner').mockResolvedValue({
+			ownerUserId: null,
+			ownerOrganizationId: organizationId,
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue(role)
+		const listSpy = vi
+			.spyOn(repositoriesRepository, 'list')
+			.mockResolvedValue([organizationRepository])
+
+		expect(
+			await repositoriesService.list(mockUserId, { username: 'tessera' })
+		).toEqual([
+			expect.objectContaining({
+				owner: {
+					kind: 'organization',
+					handle: 'tessera',
+					username: 'tessera',
+				},
+			}),
+		])
+		expect(listSpy).toHaveBeenCalledWith({
+			ownerUserId: null,
+			ownerOrganizationId: organizationId,
+		})
+	})
+
+	test('hides repositories under a handle the viewer does not administer', async () => {
+		vi.spyOn(repositoriesRepository, 'findOwner').mockResolvedValue({
+			ownerUserId: null,
+			ownerOrganizationId:
+				'00000000-0000-4000-8000-000000000050' as OrganizationId,
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue('member')
+
+		await expect(
+			repositoriesService.list(mockUserId, { username: 'tessera' })
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+	})
+
+	test('reports an unknown handle as a missing repository', async () => {
+		vi.spyOn(repositoriesRepository, 'findOwner').mockResolvedValue(undefined)
+
+		await expect(
+			repositoriesService.list(mockUserId, { username: 'nobody' })
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
 	})
 
 	test('initializes imported GitHub external source metadata', async () => {
@@ -609,7 +756,6 @@ describe(RepositoriesService.name, () => {
 		expect(
 			await repositoriesService.completeImportedGitHubRepository({
 				repositoryId: repository.id,
-				username: 'marta',
 				storagePath: '/var/lib/tessera/repositories/repo.git',
 				defaultBranch: 'trunk',
 				externalRepositoryId: 123n,
@@ -624,7 +770,6 @@ describe(RepositoriesService.name, () => {
 		).toBe(repository)
 		expect(completeImportedGitHubRepositorySpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
-			username: 'marta',
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			defaultBranch: 'trunk',
 			externalRepositoryId: 123n,
@@ -642,7 +787,7 @@ describe(RepositoriesService.name, () => {
 		})
 	})
 
-	test('gets an owned repository by username and repository slug', async () => {
+	test('gets a repository by owner handle and repository slug', async () => {
 		const findSpy = vi
 			.spyOn(repositoriesRepository, 'find')
 			.mockResolvedValue(repository)
@@ -658,12 +803,32 @@ describe(RepositoriesService.name, () => {
 			})
 		)
 		expect(findSpy).toHaveBeenCalledWith({
-			userId: mockUserId,
+			handle: 'marta',
 			slug: repository.slug,
 		})
 	})
 
-	test('throws when an owned repository is unknown', async () => {
+	test('re-authorizes repository administration from the service input', async () => {
+		const victimUserId = '00000000-0000-4000-8000-000000000099' as UserId
+		const findSpy = vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			ownerUserId: victimUserId,
+			owner: { kind: 'user', handle: 'victim' },
+		})
+
+		await expect(
+			repositoriesService.get(mockUserId, {
+				username: 'victim',
+				slug: repository.slug,
+			})
+		).rejects.toBeInstanceOf(RepositoryNotFoundError)
+		expect(findSpy).toHaveBeenCalledWith({
+			handle: 'victim',
+			slug: repository.slug,
+		})
+	})
+
+	test('throws when a repository is unknown', async () => {
 		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(undefined)
 
 		await expect(
@@ -699,7 +864,6 @@ describe(RepositoriesService.name, () => {
 		).toEqual({ status: 'enabled' })
 		expect(enableGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
-			userId: mockUserId,
 		})
 	})
 
@@ -728,11 +892,13 @@ describe(RepositoriesService.name, () => {
 
 	test('cuts over a succeeded GitHub mirror to Tessera source', async () => {
 		const actorUserId = '00000000-0000-4000-8000-000000000101' as UserId
-		const targetUserId = '00000000-0000-4000-8000-000000000102' as UserId
 		const cutoverAt = new Date('2026-05-12T00:02:00Z')
 		const mirroredRepository = {
 			...repository,
-			ownerUserId: targetUserId,
+			ownerUserId: null,
+			ownerOrganizationId:
+				'00000000-0000-4000-8000-000000000050' as OrganizationId,
+			owner: { kind: 'organization' as const, handle: 'tessera' },
 			storagePath: '/var/lib/tessera/repositories/repo.git',
 			externalSource: {
 				id: '00000000-0000-4000-8000-000000000092' as RepositoryExternalSourceId,
@@ -768,6 +934,10 @@ describe(RepositoriesService.name, () => {
 		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
 			mirroredRepository
 		)
+		vi.spyOn(
+			repositoriesRepository,
+			'findOrganizationMemberRole'
+		).mockResolvedValue('admin')
 		const cutoverGitHubMirrorSpy = vi
 			.spyOn(repositoriesRepository, 'cutoverGitHubMirror')
 			.mockResolvedValue({
@@ -783,7 +953,7 @@ describe(RepositoriesService.name, () => {
 			})
 
 		expect(
-			await repositoriesService.cutoverGitHubMirror(actorUserId, targetUserId, {
+			await repositoriesService.cutoverGitHubMirror(actorUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -802,12 +972,11 @@ describe(RepositoriesService.name, () => {
 			})
 		)
 		expect(repositoriesRepository.find).toHaveBeenCalledWith({
-			userId: targetUserId,
+			handle: 'marta',
 			slug: repository.slug,
 		})
 		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
-			userId: targetUserId,
 			actorUserId,
 			cutoverAt: expect.any(Date),
 		})
@@ -830,7 +999,7 @@ describe(RepositoriesService.name, () => {
 		// let through: switching authority here would keep whatever the partial run
 		// never reconciled out of Tessera permanently.
 		await expect(
-			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			repositoriesService.cutoverGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -848,7 +1017,7 @@ describe(RepositoriesService.name, () => {
 		).mockResolvedValue(healthyFacts({ pendingDeliveryCount: 2 }))
 
 		await expect(
-			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			repositoriesService.cutoverGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -955,9 +1124,9 @@ describe(RepositoriesService.name, () => {
 		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
 			mirroredGitHubRepository()
 		)
-		const markPendingSpy = vi.spyOn(
+		const enableGitHubMirrorSpy = vi.spyOn(
 			repositoriesRepository,
-			'markGitHubMirrorSyncPending'
+			'enableGitHubMirror'
 		)
 
 		expect(
@@ -966,7 +1135,7 @@ describe(RepositoriesService.name, () => {
 				slug: repository.slug,
 			})
 		).toEqual({ reauthorizationRequired: false })
-		expect(markPendingSpy).not.toHaveBeenCalled()
+		expect(enableGitHubMirrorSpy).not.toHaveBeenCalled()
 	})
 
 	test('rejects cutover while GitHub mirror sync is running', async () => {
@@ -1006,7 +1175,7 @@ describe(RepositoriesService.name, () => {
 		})
 
 		await expect(
-			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			repositoriesService.cutoverGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1051,7 +1220,7 @@ describe(RepositoriesService.name, () => {
 		})
 
 		await expect(
-			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			repositoriesService.cutoverGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1096,7 +1265,7 @@ describe(RepositoriesService.name, () => {
 		})
 
 		await expect(
-			repositoriesService.cutoverGitHubMirror(mockUserId, mockUserId, {
+			repositoriesService.cutoverGitHubMirror(mockUserId, {
 				username: 'marta',
 				slug: repository.slug,
 			})
@@ -1134,7 +1303,7 @@ describe(RepositoriesService.name, () => {
 			})
 		).toEqual({
 			repository: expect.objectContaining({ slug: repository.slug }),
-			owner: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta', username: 'marta' },
 			viewerRole: 'read',
 			isEmpty: false,
 			defaultBranch: 'main',
@@ -1184,7 +1353,7 @@ describe(RepositoriesService.name, () => {
 			},
 		})
 		expect(findSpy).toHaveBeenCalledWith({
-			username: 'marta',
+			handle: 'marta',
 			slug: repository.slug,
 		})
 		expect(getRepositoryBrowserSummarySpy).toHaveBeenCalledWith({
@@ -1385,7 +1554,7 @@ describe(RepositoriesService.name, () => {
 			})
 		).toEqual({
 			repository: expect.objectContaining({ slug: repository.slug }),
-			owner: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta', username: 'marta' },
 			branches: [
 				{
 					type: 'branch',
@@ -1417,6 +1586,47 @@ describe(RepositoriesService.name, () => {
 		expect(gpgPublicKeysService.list).toHaveBeenCalledWith(
 			repository.ownerUserId
 		)
+	})
+
+	test('does not trust user GPG keys for organization-owned repository refs', async () => {
+		const organizationRepository: RepositoryWithOwner = {
+			...repository,
+			ownerUserId: null,
+			ownerOrganizationId:
+				'00000000-0000-4000-8000-000000000050' as OrganizationId,
+			owner: { kind: 'organization', handle: 'tessera' },
+			visibility: 'public',
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+		}
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue(
+			organizationRepository
+		)
+		const gitStorageClient = moduleRef.get(GitStorageClient)
+		const listRepositoryRefsSpy = vi.spyOn(
+			gitStorageClient,
+			'listRepositoryRefs'
+		)
+
+		expect(
+			await repositoriesService.getRefs(undefined, {
+				username: 'tessera',
+				slug: repository.slug,
+			})
+		).toEqual(
+			expect.objectContaining({
+				owner: {
+					kind: 'organization',
+					handle: 'tessera',
+					username: 'tessera',
+				},
+			})
+		)
+		expect(listRepositoryRefsSpy).toHaveBeenCalledWith({
+			repositoryId: repository.id,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			trustedGpgKeys: [],
+		})
+		expect(gpgPublicKeysService.list).not.toHaveBeenCalled()
 	})
 
 	test('returns empty ref lists for empty repositories', async () => {
@@ -1509,7 +1719,7 @@ describe(RepositoriesService.name, () => {
 			})
 		).toEqual({
 			repository: expect.objectContaining({ slug: repository.slug }),
-			owner: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta', username: 'marta' },
 			ref: 'main',
 			commitId: 'commit123',
 			path: 'src',
@@ -1691,7 +1901,7 @@ describe(RepositoriesService.name, () => {
 			})
 		).toEqual({
 			repository: expect.objectContaining({ slug: repository.slug }),
-			owner: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta', username: 'marta' },
 			ref: 'main',
 			commits: [mockRepositoryCommit],
 		})
@@ -1828,7 +2038,7 @@ describe(RepositoriesService.name, () => {
 			})
 		).toEqual({
 			repository: expect.objectContaining({ slug: repository.slug }),
-			owner: { username: 'marta' },
+			owner: { kind: 'user', handle: 'marta', username: 'marta' },
 			ref: 'main',
 			path: 'src/index.ts',
 			name: 'index.ts',
@@ -2289,7 +2499,7 @@ describe(RepositoriesService.name, () => {
 			trustedUser: '',
 		})
 		expect(findSpy).toHaveBeenCalledWith({
-			username: 'marta',
+			handle: 'marta',
 			slug: repository.slug,
 		})
 	})
@@ -2379,7 +2589,7 @@ describe(RepositoriesService.name, () => {
 			trustedUser: mockUserId,
 		})
 		expect(findSpy).toHaveBeenCalledWith({
-			username: 'marta',
+			handle: 'marta',
 			slug: repository.slug,
 		})
 	})
@@ -2523,7 +2733,7 @@ describe(RepositoriesService.name, () => {
 		})
 		expect(findOwnerByFingerprintSpy).toHaveBeenCalledWith('SHA256:abc')
 		expect(findSpy).toHaveBeenCalledWith({
-			username: 'marta',
+			handle: 'marta',
 			slug: repository.slug,
 		})
 	})

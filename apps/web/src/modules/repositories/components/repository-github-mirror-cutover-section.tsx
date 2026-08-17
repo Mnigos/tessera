@@ -43,7 +43,7 @@ export function GitHubMirrorCutoverSection({
 
 		cutoverMutation.mutate({
 			slug: repository.slug,
-			username: owner.username,
+			username: owner.handle,
 		})
 	}
 

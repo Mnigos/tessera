@@ -96,7 +96,7 @@ function mockRepository(
 				createdAt: new Date('2026-01-01T00:00:00.000Z'),
 				updatedAt: new Date('2026-01-02T00:00:00.000Z'),
 			},
-			owner: { username: 'mnigos' },
+			owner: { kind: 'user', handle: 'mnigos', username: 'mnigos' },
 		} as unknown as RepositoryWithOwner,
 		error: null,
 		isError: false,
@@ -173,9 +173,7 @@ describe('RepositoryGitHubSettings', () => {
 		expect(screen.getByText('1200 ms')).toBeTruthy()
 	})
 
-	// Non-owners never reach this component: RepositoryOwnerGuard answers 404 and
-	// the route turns that into notFound(), so a load failure here is a genuine
-	// failure rather than a permission boundary.
+	// Non-admins never reach this component, so a load failure is a real failure.
 	test('reports a failed load without offering anything to configure', () => {
 		useRepositoryQueryMock.mockReturnValue({
 			data: undefined,

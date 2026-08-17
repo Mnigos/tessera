@@ -1,5 +1,10 @@
 import { db } from '@repo/db/client'
-import { pullRequestEvents, repositoryExternalSources } from '@repo/db/schema'
+import {
+	member,
+	organization,
+	pullRequestEvents,
+	repositoryExternalSources,
+} from '@repo/db/schema'
 import type { PullRequestId, RepositoryId } from '@repo/domain'
 import { $, file, sleep } from 'bun'
 import { asc, eq } from 'drizzle-orm'
@@ -9,6 +14,7 @@ import {
 	createPullRequest,
 	createRepository,
 	createSshPublicKey,
+	createTestSession,
 	createTestSessionHeaders,
 	getBlobPreview,
 	getBrowserSummary,
@@ -165,6 +171,127 @@ describe('Git smart HTTP e2e', () => {
 
 		expect(cloneResult.exitCode).toBe(0)
 		expect(fetchResult.exitCode, fetchResult.stderr).toBe(0)
+	})
+
+	test('enforces organization roles for HTTP pushes and anonymous clones', async () => {
+		const owner = await createTestSession({
+			apiBaseUrl,
+			email: 'organization-owner@example.com',
+			username: 'organization-owner',
+		})
+		const admin = await createTestSession({
+			apiBaseUrl,
+			email: 'organization-admin@example.com',
+			username: 'organization-admin',
+		})
+		const regularMember = await createTestSession({
+			apiBaseUrl,
+			email: 'organization-member@example.com',
+			username: 'organization-member',
+		})
+		const [createdOrganization] = await db
+			.insert(organization)
+			.values({ name: 'Tessera', slug: 'tessera' })
+			.returning({ id: organization.id })
+
+		if (!createdOrganization)
+			throw new Error('failed to create e2e organization')
+
+		await db.insert(member).values([
+			{
+				organizationId: createdOrganization.id,
+				userId: owner.userId,
+				role: 'owner',
+			},
+			{
+				organizationId: createdOrganization.id,
+				userId: admin.userId,
+				role: 'admin',
+			},
+			{
+				organizationId: createdOrganization.id,
+				userId: regularMember.userId,
+				role: 'member',
+			},
+		])
+		const { repository: privateRepository } = await createRepository({
+			apiBaseUrl,
+			headers: admin.headers,
+			name: 'Private Organization Notes',
+			owner: {
+				kind: 'organization',
+				organizationId: createdOrganization.id,
+			},
+			slug: 'private-notes',
+		})
+		const { repository: publicRepository } = await createRepository({
+			apiBaseUrl,
+			headers: admin.headers,
+			name: 'Public Organization Notes',
+			owner: {
+				kind: 'organization',
+				organizationId: createdOrganization.id,
+			},
+			slug: 'public-notes',
+			visibility: 'public',
+		})
+		const adminToken = await createGitAccessToken({
+			apiBaseUrl,
+			headers: admin.headers,
+			permissions: ['git:read', 'git:write'],
+		})
+		const memberToken = await createGitAccessToken({
+			apiBaseUrl,
+			headers: regularMember.headers,
+			permissions: ['git:write'],
+		})
+		const privateSource = `${runDirectory}/organization-private-source`
+		const memberSource = `${runDirectory}/organization-member-source`
+		const publicSource = `${runDirectory}/organization-public-source`
+		const publicClone = `${runDirectory}/organization-public-clone`
+
+		await createCommittedRepository(privateSource, 'README.md', '# Private\n')
+		await createCommittedRepository(memberSource, 'README.md', '# Member\n')
+		await createCommittedRepository(publicSource, 'README.md', '# Public\n')
+
+		const adminPush = await pushRepository(
+			privateSource,
+			smartHttpUrl(ports.gitHttp, 'tessera', privateRepository.slug, adminToken)
+		)
+		const memberPush = await pushRepository(
+			memberSource,
+			smartHttpUrl(
+				ports.gitHttp,
+				'tessera',
+				privateRepository.slug,
+				memberToken
+			),
+			'main:organization-member-attempt'
+		)
+		const publicPush = await pushRepository(
+			publicSource,
+			smartHttpUrl(ports.gitHttp, 'tessera', publicRepository.slug, adminToken)
+		)
+		const publicCloneResult = await cloneRepository(
+			smartHttpUrl(ports.gitHttp, 'tessera', publicRepository.slug),
+			publicClone
+		)
+		const privateLsResult = await lsRemote(
+			smartHttpUrl(ports.gitHttp, 'tessera', privateRepository.slug)
+		)
+		const authenticatedPrivateLsResult = await lsRemote(
+			smartHttpUrl(ports.gitHttp, 'tessera', privateRepository.slug, adminToken)
+		)
+
+		expect(adminPush.exitCode).toBe(0)
+		expect(memberPush.exitCode).not.toBe(0)
+		expect(authenticatedPrivateLsResult.exitCode).toBe(0)
+		expect(authenticatedPrivateLsResult.stdout).not.toContain(
+			'refs/heads/organization-member-attempt'
+		)
+		expect(publicPush.exitCode).toBe(0)
+		expect(publicCloneResult.exitCode).toBe(0)
+		expect(privateLsResult.exitCode).not.toBe(0)
 	})
 
 	test('merges a pull request into a real Git two-parent commit through the API', async () => {

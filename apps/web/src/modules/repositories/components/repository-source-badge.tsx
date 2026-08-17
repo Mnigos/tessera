@@ -33,7 +33,7 @@ export function RepositorySourceBadge({
 	// saying so would be noise on every native repository in Tessera.
 	const isMirrored = externalSource.mode === 'github_to_tessera'
 	const syncHealthQuery = useGitHubSyncHealthQuery(
-		{ slug: repository.slug, username: owner.username },
+		{ slug: repository.slug, username: owner.handle },
 		isOwner && isMirrored
 	)
 
@@ -135,7 +135,7 @@ function RepositorySourceSyncState({
 			{!presentation.isQuiet && isOwner && (
 				<Link
 					className="text-muted-foreground underline hover:text-foreground"
-					params={{ username: owner.username, slug: repository.slug }}
+					params={{ username: owner.handle, slug: repository.slug }}
 					to="/$username/$slug/settings/github"
 				>
 					Sync details

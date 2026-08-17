@@ -225,7 +225,13 @@ export const repositorySchema = z.object({
 })
 export type Repository = z.infer<typeof repositorySchema>
 
+export const repositoryOwnerKindSchema = z.enum(['user', 'organization'])
+export type RepositoryOwnerKind = z.infer<typeof repositoryOwnerKindSchema>
+
 export const repositoryOwnerSchema = z.object({
+	kind: repositoryOwnerKindSchema,
+	handle: z.string().min(1),
+	/** @deprecated Alias of `handle`, kept for one release. */
 	username: z.string().min(1),
 })
 export type RepositoryOwner = z.infer<typeof repositoryOwnerSchema>
@@ -239,18 +245,34 @@ export const repositoryWithOwnerSchema = z.object({
 })
 export type RepositoryWithOwner = z.infer<typeof repositoryWithOwnerSchema>
 
+export const createRepositoryOwnerSchema = z.discriminatedUnion('kind', [
+	z.object({ kind: z.literal('user') }),
+	z.object({
+		kind: z.literal('organization'),
+		organizationId: z.uuid().brand<'organization_id'>(),
+	}),
+])
+export type CreateRepositoryOwner = z.infer<typeof createRepositoryOwnerSchema>
+
 export const createRepositoryInputSchema = z.object({
 	name: repositoryNameSchema,
 	slug: z.string().trim().min(1).max(64).optional(),
 	description: z.string().trim().min(1).max(500).optional(),
 	visibility: z.enum(['public', 'private']).optional(),
+	owner: createRepositoryOwnerSchema.default({ kind: 'user' }),
 })
 export type CreateRepositoryInput = z.input<typeof createRepositoryInputSchema>
+export type ParsedCreateRepositoryInput = z.infer<
+	typeof createRepositoryInputSchema
+>
 
 export const listRepositoriesInputSchema = z.object({
 	username: z.string().min(1),
 })
 export type ListRepositoriesInput = z.input<typeof listRepositoriesInputSchema>
+export type ParsedListRepositoriesInput = z.infer<
+	typeof listRepositoriesInputSchema
+>
 
 export const getRepositoryInputSchema = z.object({
 	username: z.string().min(1),

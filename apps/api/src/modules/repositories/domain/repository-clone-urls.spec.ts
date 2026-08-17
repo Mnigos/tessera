@@ -9,7 +9,7 @@ const BASE_URLS = {
 
 const TARGET = {
 	baseUrls: BASE_URLS,
-	ownerUsername: 'marta',
+	ownerHandle: 'marta',
 	slug: 'notes',
 }
 

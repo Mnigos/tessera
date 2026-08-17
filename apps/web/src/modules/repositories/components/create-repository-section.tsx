@@ -1,11 +1,23 @@
+import type { CreateRepositoryOwner } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { Label } from '@repo/ui/components/label'
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@repo/ui/components/select'
+import { Skeleton } from '@repo/ui/components/skeleton'
 import { Link } from '@tanstack/react-router'
 import { Github, Plus } from 'lucide-react'
-import type { ComponentProps } from 'react'
+import { type ComponentProps, useState } from 'react'
+import { useOrganizationsQuery } from '@/modules/organizations/hooks/use-organizations.query'
 import { getCreateRepositoryInput } from '../helpers/create-repository-input'
 import { useCreateRepositoryMutation } from '../hooks/use-create-repository.mutation'
+
+const PERSONAL_OWNER_VALUE = 'personal'
 
 interface CreateRepositorySectionProps {
 	username: string
@@ -14,13 +26,32 @@ interface CreateRepositorySectionProps {
 export function CreateRepositorySection({
 	username,
 }: Readonly<CreateRepositorySectionProps>) {
-	const createRepository = useCreateRepositoryMutation({ username })
+	const [selectedOwner, setSelectedOwner] = useState(PERSONAL_OWNER_VALUE)
+	const organizationsQuery = useOrganizationsQuery()
+	const createRepository = useCreateRepositoryMutation()
+	// Only an organization the viewer administers can be handed a repository.
+	const organizations = (organizationsQuery.data?.organizations ?? []).filter(
+		({ role }) => role === 'owner' || role === 'admin'
+	)
+	// The form must not answer "personal" before the owner list has arrived.
+	const isOwnerPending = organizationsQuery.isLoading
+	const organization = organizations.find(({ id }) => id === selectedOwner)
+	// An organization that left the list stops being the answer to the form too.
+	const ownerValue = organization?.id ?? PERSONAL_OWNER_VALUE
+	const ownerHandle = organization?.slug ?? username
+	const owner: CreateRepositoryOwner = organization
+		? { kind: 'organization', organizationId: organization.id }
+		: { kind: 'user' }
 
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()
 		createRepository.mutate(
-			getCreateRepositoryInput(new FormData(event.currentTarget))
+			getCreateRepositoryInput(new FormData(event.currentTarget), owner)
 		)
+	}
+
+	function handleOwnerChange(value: string | null) {
+		setSelectedOwner(value ?? PERSONAL_OWNER_VALUE)
 	}
 
 	return (
@@ -30,10 +61,42 @@ export function CreateRepositorySection({
 					Create repository
 				</h2>
 				<p className="text-muted-foreground text-sm">
-					Start a repository under @{username}.
+					Start a repository under @{ownerHandle}.
 				</p>
 			</div>
 			<form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+				{(isOwnerPending ||
+					organizationsQuery.isError ||
+					organizations.length > 0) && (
+					<div className="flex flex-col gap-2">
+						<Label htmlFor="repository-owner">Owner</Label>
+						{isOwnerPending ? (
+							<Skeleton className="h-9 w-full" />
+						) : (
+							<Select onValueChange={handleOwnerChange} value={ownerValue}>
+								<SelectTrigger className="w-full" id="repository-owner">
+									<SelectValue>@{ownerHandle}</SelectValue>
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value={PERSONAL_OWNER_VALUE}>
+										@{username}
+									</SelectItem>
+									{organizations.map(({ id, slug }) => (
+										<SelectItem key={id} value={id}>
+											@{slug}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						)}
+						{organizationsQuery.isError && (
+							<p className="text-destructive text-sm">
+								Organizations could not be loaded; only @{username} is
+								available.
+							</p>
+						)}
+					</div>
+				)}
 				<div className="flex flex-col gap-2">
 					<Label htmlFor="repository-name">Name</Label>
 					<input
@@ -86,13 +149,19 @@ export function CreateRepositorySection({
 					</div>
 				</fieldset>
 				{createRepository.isError && (
-					<p className="text-destructive text-sm">
+					<p className="text-destructive text-sm" role="alert">
 						Repository could not be created.
 					</p>
 				)}
+				{createRepository.isSuccess && (
+					<output className="text-muted-foreground text-sm">
+						Created @{createRepository.data.owner.handle}/
+						{createRepository.data.repository.slug}.
+					</output>
+				)}
 				<Button
 					className="w-full"
-					disabled={createRepository.isPending}
+					disabled={createRepository.isPending || isOwnerPending}
 					type="submit"
 				>
 					<Plus className="size-4" />

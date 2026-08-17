@@ -53,7 +53,7 @@ export function RepositoryOverview({
 				<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
 					<div className="min-w-0">
 						<p className="truncate text-muted-foreground text-sm">
-							{owner.username}/{repository.slug}
+							{owner.handle}/{repository.slug}
 						</p>
 						<h1 className="truncate font-semibold text-3xl tracking-normal">
 							{repository.name}
@@ -78,7 +78,7 @@ export function RepositoryOverview({
 						aria-label={`View commits for ${selectedRefName}`}
 						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
 						params={{
-							username: owner.username,
+							username: owner.handle,
 							slug: repository.slug,
 							ref: selectedQualifiedRef,
 						}}
@@ -89,7 +89,7 @@ export function RepositoryOverview({
 					</Link>
 					<Link
 						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-						params={{ username: owner.username, slug: repository.slug }}
+						params={{ username: owner.handle, slug: repository.slug }}
 						to="/$username/$slug/pulls"
 					>
 						<GitPullRequest className="size-4" />
@@ -99,7 +99,7 @@ export function RepositoryOverview({
 						<>
 							<Link
 								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
+								params={{ username: owner.handle, slug: repository.slug }}
 								to="/$username/$slug/settings/collaborators"
 							>
 								<Settings className="size-4" />
@@ -107,7 +107,7 @@ export function RepositoryOverview({
 							</Link>
 							<Link
 								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
+								params={{ username: owner.handle, slug: repository.slug }}
 								to="/$username/$slug/settings/branch-protection"
 							>
 								<ShieldCheck className="size-4" />
@@ -115,7 +115,7 @@ export function RepositoryOverview({
 							</Link>
 							<Link
 								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
+								params={{ username: owner.handle, slug: repository.slug }}
 								to="/$username/$slug/settings/status-providers"
 							>
 								<CircleDot className="size-4" />
@@ -129,7 +129,7 @@ export function RepositoryOverview({
 						repository.externalSource.mode !== 'none' && (
 							<Link
 								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
+								params={{ username: owner.handle, slug: repository.slug }}
 								to="/$username/$slug/settings/github"
 							>
 								<Github className="size-4" />
@@ -158,7 +158,7 @@ export function RepositoryOverview({
 						entries={rootEntries}
 						refName={selectedQualifiedRef}
 						slug={repository.slug}
-						username={owner.username}
+						username={owner.handle}
 					/>
 				</>
 			)}

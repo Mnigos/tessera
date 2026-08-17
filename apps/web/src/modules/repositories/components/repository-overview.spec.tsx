@@ -78,6 +78,8 @@ const baseSummary = {
 		updatedAt: new Date('2026-01-02T00:00:00.000Z'),
 	},
 	owner: {
+		kind: 'user',
+		handle: 'mnigos',
 		username: 'mnigos',
 	},
 	viewerRole: 'read',
@@ -281,6 +283,25 @@ describe('RepositoryOverview', () => {
 			headings.indexOf(screen.getByRole('heading', { name: 'README.md' }))
 		).toBeLessThan(
 			headings.indexOf(screen.getByRole('heading', { name: 'Files' }))
+		)
+	})
+
+	test('uses the organization handle for repository copy and links', () => {
+		render(
+			<RepositoryOverview
+				summary={getSummary({
+					owner: {
+						kind: 'organization',
+						handle: 'tessera',
+						username: 'deprecated-owner-alias',
+					},
+				})}
+			/>
+		)
+
+		expect(screen.getByText('tessera/tessera-notes')).toBeTruthy()
+		expect(screen.getByText('src').closest('a')?.getAttribute('href')).toBe(
+			'/tessera/tessera-notes/tree/refs%2Fheads%2Fmain/src'
 		)
 	})
 
