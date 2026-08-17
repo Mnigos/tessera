@@ -108,6 +108,31 @@ describe('pull request event row', () => {
 		expect(screen.getByText('octocat')).toBeTruthy()
 	})
 
+	test('names a native actor by their profile with the login in reach', () => {
+		render(
+			<PullRequestEventRow
+				event={{
+					...pushEvent('closed'),
+					actor: {
+						key: '00000000-0000-4000-8000-000000000001',
+						provider: 'tessera',
+						userId: '00000000-0000-4000-8000-000000000001' as NonNullable<
+							PullRequestEvent['actor']
+						>['userId'],
+						username: 'marta',
+						displayName: 'Marta Nowak',
+						avatarUrl: 'https://avatars.githubusercontent.com/u/2',
+					},
+				}}
+			/>
+		)
+
+		expect(screen.getByTitle('marta').textContent).toContain('Marta Nowak')
+		expect(
+			screen.getByTitle('marta').querySelector('img')?.getAttribute('src')
+		).toBe('https://avatars.githubusercontent.com/u/2')
+	})
+
 	test('keeps system-authored rows attributed to Tessera', () => {
 		const { container } = render(
 			<PullRequestEventRow

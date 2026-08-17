@@ -131,6 +131,8 @@ describe('pull request domain', () => {
 				actor: {
 					userId: null,
 					username: null,
+					displayName: null,
+					imageUrl: null,
 					externalNodeId: 'MDQ6VXNlcjE=',
 					externalLogin: 'octocat',
 					externalAvatarUrl: 'https://avatars.githubusercontent.com/u/1',
@@ -161,6 +163,8 @@ describe('pull request domain', () => {
 				actor: {
 					userId: mockUserId,
 					username: 'marta',
+					displayName: null,
+					imageUrl: null,
 					externalNodeId: null,
 					externalLogin: null,
 					externalAvatarUrl: null,

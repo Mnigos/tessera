@@ -2,6 +2,7 @@ import { Button } from '@repo/ui/components/button'
 import { Label } from '@repo/ui/components/label'
 import { type ComponentProps, useState } from 'react'
 import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
+import { submitPullRequestComposerOnShortcut } from '../helpers/pull-request-composer-shortcut'
 import { PullRequestErrorMessage } from './pull-request-error-message'
 
 interface PullRequestCommentComposerProps {
@@ -76,6 +77,7 @@ export function PullRequestCommentComposer({
 				id={inputId}
 				maxLength={65_536}
 				onChange={event => setBody(event.target.value)}
+				onKeyDown={submitPullRequestComposerOnShortcut}
 				placeholder={placeholder}
 				ref={focusOnMount}
 				value={body}

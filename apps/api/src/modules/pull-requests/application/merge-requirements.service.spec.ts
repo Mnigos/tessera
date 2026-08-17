@@ -101,6 +101,8 @@ function review(
 		reviewer: {
 			userId: reviewerUserId,
 			username: 'ada',
+			displayName: null,
+			imageUrl: null,
 			externalNodeId: null,
 			externalLogin: null,
 			externalAvatarUrl: null,
@@ -114,6 +116,8 @@ function review(
 		dismissedBy: {
 			userId: null,
 			username: null,
+			displayName: null,
+			imageUrl: null,
 			externalNodeId: null,
 			externalLogin: null,
 			externalAvatarUrl: null,

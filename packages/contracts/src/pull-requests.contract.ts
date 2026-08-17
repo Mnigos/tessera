@@ -163,12 +163,16 @@ export type PullRequestAuthority = z.infer<typeof pullRequestAuthoritySchema>
  * across reconciliations — native user ID when mapped, GitHub node ID
  * otherwise — and is what list rows must be keyed and grouped by, because
  * logins are renameable and unmapped actors share a null user ID.
+ *
+ * `displayName` is the profile name to show the login under, and is absent for
+ * a GitHub actor Tessera never linked: the projection keeps no name for one.
  */
 export const pullRequestActorSchema = z.object({
 	key: z.string().min(1),
 	provider: pullRequestProviderSchema,
 	userId: z.uuid().brand<'user_id'>().optional(),
 	username: z.string().min(1),
+	displayName: z.string().min(1).optional(),
 	externalNodeId: z.string().min(1).optional(),
 	avatarUrl: z.url().optional(),
 	htmlUrl: z.url().optional(),

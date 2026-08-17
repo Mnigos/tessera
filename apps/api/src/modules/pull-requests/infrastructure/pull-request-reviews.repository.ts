@@ -159,6 +159,8 @@ const REVIEW_READ_COLUMNS = {
 	reviewer: {
 		userId: pullRequestReviews.reviewerUserId,
 		username: reviewerUser.username,
+		displayName: reviewerUser.name,
+		imageUrl: reviewerUser.image,
 		externalNodeId: reviewerGitHubActor.externalNodeId,
 		externalLogin: reviewerGitHubActor.login,
 		externalAvatarUrl: reviewerGitHubActor.avatarUrl,
@@ -173,6 +175,8 @@ const REVIEW_READ_COLUMNS = {
 	dismissedBy: {
 		userId: pullRequestReviews.dismissedByUserId,
 		username: dismissedByUser.username,
+		displayName: dismissedByUser.name,
+		imageUrl: dismissedByUser.image,
 		externalNodeId: dismissedByGitHubActor.externalNodeId,
 		externalLogin: dismissedByGitHubActor.login,
 		externalAvatarUrl: dismissedByGitHubActor.avatarUrl,
@@ -187,6 +191,8 @@ const REVIEWER_REQUEST_READ_COLUMNS = {
 	reviewer: {
 		userId: pullRequestReviewerRequests.reviewerUserId,
 		username: reviewerUser.username,
+		displayName: reviewerUser.name,
+		imageUrl: reviewerUser.image,
 		// A team has no actor row, so its snapshot on the mapping stands in for one.
 		externalNodeId: sql<
 			string | null
@@ -204,6 +210,8 @@ const REVIEWER_REQUEST_READ_COLUMNS = {
 	requestedBy: {
 		userId: pullRequestReviewerRequests.requestedByUserId,
 		username: requestedByUser.username,
+		displayName: requestedByUser.name,
+		imageUrl: requestedByUser.image,
 		externalNodeId: requestedByGitHubActor.externalNodeId,
 		externalLogin: requestedByGitHubActor.login,
 		externalAvatarUrl: requestedByGitHubActor.avatarUrl,
@@ -325,6 +333,8 @@ export class PullRequestReviewsRepository {
 					reviewer: {
 						userId: pullRequestReviews.reviewerUserId,
 						username: reviewerUser.username,
+						displayName: reviewerUser.name,
+						imageUrl: reviewerUser.image,
 						externalNodeId: reviewerGitHubActor.externalNodeId,
 						externalLogin: reviewerGitHubActor.login,
 						externalAvatarUrl: reviewerGitHubActor.avatarUrl,

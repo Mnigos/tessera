@@ -155,6 +155,8 @@ const THREAD_READ_COLUMNS = {
 	resolvedBy: {
 		userId: pullRequestThreads.resolvedByUserId,
 		username: resolvedByUser.username,
+		displayName: resolvedByUser.name,
+		imageUrl: resolvedByUser.image,
 		externalNodeId: resolvedByGitHubActor.externalNodeId,
 		externalLogin: resolvedByGitHubActor.login,
 		externalAvatarUrl: resolvedByGitHubActor.avatarUrl,
@@ -177,6 +179,8 @@ const COMMENT_READ_COLUMNS = {
 	author: {
 		userId: pullRequestComments.authorUserId,
 		username: commentAuthorUser.username,
+		displayName: commentAuthorUser.name,
+		imageUrl: commentAuthorUser.image,
 		externalNodeId: commentAuthorGitHubActor.externalNodeId,
 		externalLogin: commentAuthorGitHubActor.login,
 		externalAvatarUrl: commentAuthorGitHubActor.avatarUrl,

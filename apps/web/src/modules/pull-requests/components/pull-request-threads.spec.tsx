@@ -910,6 +910,92 @@ describe('pull request threads', () => {
 		)
 	})
 
+	test('leads the line composer with the review while one is pending', async () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		const user = userEvent.setup()
+		render(
+			<PullRequestComparison
+				isGitHubAuthoritative={false}
+				number="1"
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: true,
+				}}
+				reviewViewer={NO_REVIEW_VIEWER}
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+
+		await user.click(
+			screen.getByRole('button', { name: 'Comment on original line 1' })
+		)
+		const composer = screen.getByRole('textbox', { name: 'Comment on line 1' })
+		fireEvent.change(composer, { target: { value: 'Line note' } })
+
+		expect(
+			screen.getByRole('button', { name: 'Add review comment' })
+		).toBeTruthy()
+		await user.click(screen.getByRole('button', { name: 'Add single comment' }))
+
+		expect(mutate).toHaveBeenLastCalledWith(
+			expect.not.objectContaining({ review: expect.anything() }),
+			expect.anything()
+		)
+	})
+
+	test('submits the composer on the platform shortcut', () => {
+		const mutate = vi.fn()
+		useCreateThreadMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			mutate,
+		} as never)
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestTimeline
+				canReadSyncHealth={false}
+				events={[]}
+				isFromGitHub={false}
+				isGitHubAuthoritative={false}
+				number="1"
+				slug="notes"
+				username="marta"
+				viewerUserId={AUTHOR_USER_ID}
+			/>
+		)
+
+		const composer = screen.getByRole('textbox', { name: 'Comment' })
+		fireEvent.change(composer, { target: { value: 'Shortcut note' } })
+		fireEvent.keyDown(composer, { key: 'Enter', metaKey: true })
+
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ body: 'Shortcut note' }),
+			expect.anything()
+		)
+	})
+
 	test('offers the review action with the loaded head when data arrives after mount', async () => {
 		const mutate = vi.fn()
 		useCreateThreadMutationMock.mockReturnValue({
@@ -1022,7 +1108,7 @@ describe('pull request threads', () => {
 			isError: false,
 		} as never)
 		rerender(comparison())
-		await user.click(screen.getByRole('button', { name: 'Add to review' }))
+		fireEvent.submit(composer.closest('form') ?? composer)
 
 		expect(mutate).toHaveBeenLastCalledWith(
 			expect.objectContaining({ review: { expectedHeadSha: HEAD_SHA } }),

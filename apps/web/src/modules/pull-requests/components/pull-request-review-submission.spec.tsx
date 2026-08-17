@@ -201,14 +201,14 @@ describe('pull request review submission', () => {
 	test.each([
 		['Comment', GITHUB_WRITE_REJECTED_MESSAGES.review_body_required],
 		['Request changes', GITHUB_WRITE_REJECTED_MESSAGES.review_body_required],
-	] as const)('requires body copy before a mirrored %s review', async (label, hint) => {
+	] as const)('requires body copy before a commentless mirrored %s review', async (label, hint) => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
 				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isGitHubAuthoritative
-				pendingCommentCount={2}
+				pendingCommentCount={0}
 				triggerLabel="Review changes"
 			/>
 		)
@@ -223,6 +223,31 @@ describe('pull request review submission', () => {
 		).toBeTruthy()
 		expect(screen.getByText(hint)).toBeTruthy()
 		expect(screen.queryByText(PENDING_COMMENTS_REGEX)).toBeNull()
+	})
+
+	test('keeps the summary optional once the review carries comments', async () => {
+		const user = userEvent.setup()
+		render(
+			<PullRequestReviewDialog
+				{...reviewProps}
+				headSha={REVIEWED_HEAD_SHA}
+				isGitHubAuthoritative
+				pendingCommentCount={2}
+				triggerLabel="Review changes"
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Review changes' }))
+		fireEvent.click(screen.getByRole('radio', { name: REQUEST_CHANGES_REGEX }))
+
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', {
+				name: 'Submit review',
+			}).disabled
+		).toBeFalsy()
+		expect(
+			screen.queryByText(GITHUB_WRITE_REJECTED_MESSAGES.review_body_required)
+		).toBeNull()
 	})
 
 	test('submits a bodyless mirrored approval', async () => {

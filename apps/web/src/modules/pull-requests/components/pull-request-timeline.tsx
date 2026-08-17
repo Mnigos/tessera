@@ -151,7 +151,9 @@ export function PullRequestTimeline({
 				<PullRequestTimelineComposer
 					key={permissions.review ? 'with-review' : 'without-review'}
 					number={number}
-					review={permissions.review}
+					review={
+						permissions.isGitHubAuthoritative ? undefined : permissions.review
+					}
 					slug={slug}
 					username={username}
 				/>

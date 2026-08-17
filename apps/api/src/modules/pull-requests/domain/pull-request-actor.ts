@@ -10,6 +10,8 @@ import type { UserId } from '@repo/domain'
 export interface PullRequestActorReadModel {
 	userId: UserId | null
 	username: string | null
+	displayName: string | null
+	imageUrl: string | null
 	externalNodeId: string | null
 	externalLogin: string | null
 	externalAvatarUrl: string | null
@@ -34,6 +36,8 @@ export function toPullRequestActorOutput(
 			provider: 'tessera',
 			userId: actor.userId,
 			username: actor.username,
+			displayName: actor.displayName ?? undefined,
+			avatarUrl: actor.imageUrl ?? undefined,
 		}
 
 	if (!(actor.externalNodeId && actor.externalLogin)) return undefined

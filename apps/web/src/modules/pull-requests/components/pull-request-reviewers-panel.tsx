@@ -16,6 +16,7 @@ import {
 	type PullRequestReviewerEntry,
 } from '../helpers/pull-request-review'
 import { useRemovePullRequestReviewerRequestMutation } from '../hooks/use-remove-pull-request-reviewer-request.mutation'
+import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestRequestReviewerForm } from './pull-request-request-reviewer-form'
 import { PullRequestReviewDialog } from './pull-request-review-dialog'
@@ -151,23 +152,18 @@ function PullRequestReviewerRow({
 				className={cn('mt-0.5 size-4 shrink-0', presentation.iconClassName)}
 			/>
 			<div className="flex min-w-0 flex-1 flex-col gap-0.5">
-				<span
-					className="truncate font-medium text-sm"
-					title={reviewer.username}
-				>
-					{reviewer.htmlUrl ? (
-						<a
-							className="hover:underline"
-							href={reviewer.htmlUrl}
-							rel="noreferrer"
-							target="_blank"
-						>
-							{reviewer.username}
-						</a>
-					) : (
-						reviewer.username
-					)}
-				</span>
+				{reviewer.htmlUrl ? (
+					<a
+						className="flex min-w-0 hover:underline"
+						href={reviewer.htmlUrl}
+						rel="noreferrer"
+						target="_blank"
+					>
+						<PullRequestActorLabel actor={reviewer} className="text-sm" />
+					</a>
+				) : (
+					<PullRequestActorLabel actor={reviewer} className="text-sm" />
+				)}
 				<span
 					className="text-muted-foreground text-xs"
 					title={

@@ -14,6 +14,7 @@ import {
 } from '../helpers/pull-request-thread-permissions'
 import { useDeletePullRequestCommentMutation } from '../hooks/use-delete-pull-request-comment.mutation'
 import { useEditPullRequestCommentMutation } from '../hooks/use-edit-pull-request-comment.mutation'
+import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestSourceLink } from './pull-request-source-link'
@@ -54,8 +55,8 @@ export function PullRequestComment({
 
 	return (
 		<li className="flex flex-col gap-2">
-			<div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
-				<span className="font-medium text-sm">{comment.author.username}</span>
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+				<PullRequestActorLabel actor={comment.author} className="text-sm" />
 				<time
 					className="text-muted-foreground text-xs"
 					dateTime={formatPullRequestDateTime(comment.createdAt)}

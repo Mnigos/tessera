@@ -7,6 +7,7 @@ import {
 } from '@repo/ui/components/tabs'
 import { useState } from 'react'
 import { MarkdownContent } from '@/shared/components/markdown-content'
+import { submitPullRequestComposerOnShortcut } from '../helpers/pull-request-composer-shortcut'
 
 const BODY_MAX_LENGTH = 65_536
 
@@ -44,6 +45,7 @@ export function PullRequestMarkdownEditor({
 						maxLength={BODY_MAX_LENGTH}
 						name={name}
 						onChange={event => setBody(event.target.value)}
+						onKeyDown={submitPullRequestComposerOnShortcut}
 						placeholder={placeholder}
 						value={body}
 					/>

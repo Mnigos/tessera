@@ -82,6 +82,8 @@ const pullRequest: PullRequest = {
 const unknownActor = {
 	userId: null,
 	username: null,
+	displayName: null,
+	imageUrl: null,
 	externalNodeId: null,
 	externalLogin: null,
 	externalAvatarUrl: null,
