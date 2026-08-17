@@ -4,7 +4,7 @@ import { cn } from '@repo/ui/utils'
 import { Check, History } from 'lucide-react'
 import { useState } from 'react'
 import {
-	getPullRequestReviewComposerLabel,
+	getPullRequestReviewComposerActions,
 	getPullRequestReviewMarker,
 } from '../helpers/pull-request-review'
 import {
@@ -15,6 +15,7 @@ import {
 import { useReplyPullRequestThreadMutation } from '../hooks/use-reply-pull-request-thread.mutation'
 import { useResolvePullRequestThreadMutation } from '../hooks/use-resolve-pull-request-thread.mutation'
 import { useUnresolvePullRequestThreadMutation } from '../hooks/use-unresolve-pull-request-thread.mutation'
+import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestComment } from './pull-request-comment'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestErrorMessage } from './pull-request-error-message'
@@ -53,9 +54,15 @@ export function PullRequestThreadCard({
 		permissions.review,
 		replyHeadSha
 	)
-	const reviewLabel = permissions.review
-		? getPullRequestReviewComposerLabel(permissions.review)
-		: undefined
+	const reviewActions =
+		reviewMarker && permissions.review && !permissions.isGitHubAuthoritative
+			? getPullRequestReviewComposerActions(permissions.review, 'Reply')
+			: undefined
+	const isPrimaryReview = reviewActions?.isPrimaryReview ?? false
+	const handlePrimaryReply = isPrimaryReview ? handleReplyToReview : handleReply
+	const handleSecondaryReply = isPrimaryReview
+		? handleReply
+		: handleReplyToReview
 
 	function startReply() {
 		setReplyHeadSha(permissions.review?.headSha)
@@ -133,13 +140,15 @@ export function PullRequestThreadCard({
 							isPending={replyMutation.isPending}
 							label="Reply to thread"
 							onCancel={() => setIsReplying(false)}
-							onSecondarySubmit={reviewMarker ? handleReplyToReview : undefined}
-							onSubmit={handleReply}
+							onSecondarySubmit={
+								reviewActions ? handleSecondaryReply : undefined
+							}
+							onSubmit={handlePrimaryReply}
 							pendingLabel="Replying"
 							placeholder="Write a reply"
-							secondarySubmitLabel={reviewLabel}
+							secondarySubmitLabel={reviewActions?.secondaryLabel}
 							shouldFocusOnMount
-							submitLabel="Reply"
+							submitLabel={reviewActions?.primaryLabel ?? 'Reply'}
 						/>
 					) : (
 						<PullRequestThreadActions
@@ -184,7 +193,8 @@ function PullRequestThreadHeader({
 			{thread.resolved && (
 				<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
 					<Check aria-hidden className="size-3.5" />
-					Resolved by {thread.resolved.by.username}
+					Resolved by
+					<PullRequestActorLabel actor={thread.resolved.by} />
 				</span>
 			)}
 			{thread.outdated && (

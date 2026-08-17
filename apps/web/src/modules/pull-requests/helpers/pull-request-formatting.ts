@@ -1,4 +1,5 @@
 import type {
+	PullRequestActor,
 	PullRequestEvent,
 	PullRequestEventType,
 	PullRequestState,
@@ -167,4 +168,12 @@ export function formatPullRequestShortSha(sha: string) {
  */
 export function formatPullRequestDateTime(date: Date) {
 	return date.toISOString()
+}
+
+/**
+ * How an actor is named on screen: the profile name Tessera holds, falling back
+ * to the login for a GitHub account the projection knows no name for.
+ */
+export function getPullRequestActorName(actor: PullRequestActor) {
+	return actor.displayName ?? actor.username
 }

@@ -269,6 +269,37 @@ export function getPullRequestReviewComposerLabel(
 	return review.hasPendingReview ? 'Add to review' : 'Start a review'
 }
 
+export interface PullRequestReviewComposerActions {
+	primaryLabel: string
+	secondaryLabel: string
+	/** Whether the primary button batches into the review rather than publishing. */
+	isPrimaryReview: boolean
+}
+
+/**
+ * Both ways out of a review composer, ordered as GitHub orders them: an open
+ * review makes batching the expected action and demotes the single published
+ * comment, and with no review open the single comment leads and starting one
+ * is the alternative.
+ */
+export function getPullRequestReviewComposerActions(
+	review: PullRequestReviewContext,
+	singleLabel: string
+): PullRequestReviewComposerActions {
+	if (review.hasPendingReview)
+		return {
+			primaryLabel: 'Add review comment',
+			secondaryLabel: 'Add single comment',
+			isPrimaryReview: true,
+		}
+
+	return {
+		primaryLabel: singleLabel,
+		secondaryLabel: 'Start a review',
+		isPrimaryReview: false,
+	}
+}
+
 interface PullRequestReviewerEventPayload {
 	reviewerUsername: string
 }

@@ -5,7 +5,7 @@ import type {
 import { History } from 'lucide-react'
 import { useState } from 'react'
 import {
-	getPullRequestReviewComposerLabel,
+	getPullRequestReviewComposerActions,
 	getPullRequestReviewMarker,
 } from '../helpers/pull-request-review'
 import type { PullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
@@ -86,9 +86,18 @@ function PullRequestDiffThreadComposer({
 		permissions.review,
 		draftHeadSha
 	)
-	const reviewLabel = permissions.review
-		? getPullRequestReviewComposerLabel(permissions.review)
-		: undefined
+	// GitHub keeps no Tessera-side draft, so a mirrored comment can only be posted at once.
+	const reviewActions =
+		reviewMarker && permissions.review && !permissions.isGitHubAuthoritative
+			? getPullRequestReviewComposerActions(permissions.review, 'Comment')
+			: undefined
+	const isPrimaryReview = reviewActions?.isPrimaryReview ?? false
+	const handlePrimarySubmit = isPrimaryReview
+		? handleCreateReviewThread
+		: handleCreateThread
+	const handleSecondarySubmit = isPrimaryReview
+		? handleCreateThread
+		: handleCreateReviewThread
 	const isRange = anchor.startLine < anchor.endLine
 	const lines = isRange
 		? `lines ${anchor.startLine}–${anchor.endLine}`
@@ -118,17 +127,17 @@ function PullRequestDiffThreadComposer({
 				isPending={createThreadMutation.isPending}
 				label={`Comment on ${lines}`}
 				onCancel={onDone}
-				onSecondarySubmit={reviewMarker ? handleCreateReviewThread : undefined}
-				onSubmit={handleCreateThread}
+				onSecondarySubmit={reviewActions ? handleSecondarySubmit : undefined}
+				onSubmit={handlePrimarySubmit}
 				pendingLabel="Posting"
 				placeholder={
 					isRange
 						? 'Leave a comment on these lines'
 						: 'Leave a comment on this line'
 				}
-				secondarySubmitLabel={reviewLabel}
+				secondarySubmitLabel={reviewActions?.secondaryLabel}
 				shouldFocusOnMount
-				submitLabel="Comment"
+				submitLabel={reviewActions?.primaryLabel ?? 'Comment'}
 			/>
 		</div>
 	)

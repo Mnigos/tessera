@@ -8,6 +8,7 @@ import {
 	getPullRequestHeadUpdate,
 	getPullRequestRetarget,
 } from '../helpers/pull-request-formatting'
+import { PullRequestActorLabel } from './pull-request-actor-label'
 
 interface PullRequestEventRowProps {
 	event: PullRequestEvent
@@ -41,54 +42,35 @@ interface PullRequestEventActorProps {
 }
 
 /**
- * Who did it, with the identity the projection kept.
- *
- * A synchronized event has a GitHub account behind it that exists nowhere in
- * Tessera, so it is shown as GitHub shows it — avatar and a link to the profile
- * — rather than as a bare login the reader has no way to place. Queue
- * transitions nobody performed keep saying Tessera.
+ * Who did it, with the identity the projection kept: avatar and profile name,
+ * and a link to the GitHub profile when the actor has one. Queue transitions
+ * nobody performed keep saying Tessera.
  */
 function PullRequestEventActor({
 	actor,
 	actorUsername,
 }: Readonly<PullRequestEventActorProps>) {
-	const username = actor?.username ?? actorUsername ?? 'Tessera'
-
-	if (actor?.provider !== 'github')
-		return <span className="font-medium text-foreground">{username}</span>
-
-	const identity = (
-		<>
-			{actor.avatarUrl && (
-				// Decorative: the login it belongs to is rendered right beside it, so
-				// naming the actor twice would only make the row longer to hear.
-				<img
-					alt=""
-					className="size-4 shrink-0 rounded-full bg-muted"
-					height={16}
-					src={actor.avatarUrl}
-					width={16}
-				/>
-			)}
-			<span className="truncate font-medium text-foreground">{username}</span>
-		</>
-	)
-
-	if (!actor.htmlUrl)
+	if (!actor)
 		return (
-			<span className="inline-flex min-w-0 items-center gap-1.5">
-				{identity}
+			<span className="font-medium text-foreground">
+				{actorUsername ?? 'Tessera'}
 			</span>
 		)
 
+	const label = (
+		<PullRequestActorLabel actor={actor} className="text-foreground" />
+	)
+
+	if (!actor.htmlUrl) return label
+
 	return (
 		<a
-			className="inline-flex min-w-0 items-center gap-1.5 hover:underline"
+			className="inline-flex min-w-0 items-center hover:underline"
 			href={actor.htmlUrl}
 			rel="noreferrer"
 			target="_blank"
 		>
-			{identity}
+			{label}
 		</a>
 	)
 }

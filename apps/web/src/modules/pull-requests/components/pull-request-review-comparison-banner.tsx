@@ -16,6 +16,7 @@ import {
 import {
 	formatPullRequestDate,
 	formatPullRequestShortSha,
+	getPullRequestActorName,
 } from '../helpers/pull-request-formatting'
 import {
 	getDefaultPullRequestReviewId,
@@ -88,7 +89,7 @@ export function PullRequestReviewComparisonBanner({
 								<SelectItem key={review.id} value={review.id}>
 									<span className="flex min-w-0 flex-col items-start">
 										<span className="truncate">
-											{review.reviewer.username} ·{' '}
+											{getPullRequestActorName(review.reviewer)} ·{' '}
 											{getPullRequestReviewLabel(review)}
 										</span>
 										<span className="text-muted-foreground text-xs">
@@ -122,8 +123,8 @@ function PullRequestReviewComparisonState({
 	if (reviewComparison.status === 'nothing_new')
 		return (
 			<p className="text-muted-foreground text-sm">
-				Nothing new since {review.reviewer.username} reviewed on {reviewedAt}.
-				The head is still <ShaLabel sha={currentHeadSha} />.
+				Nothing new since {getPullRequestActorName(review.reviewer)} reviewed on{' '}
+				{reviewedAt}. The head is still <ShaLabel sha={currentHeadSha} />.
 			</p>
 		)
 
@@ -132,9 +133,9 @@ function PullRequestReviewComparisonState({
 			<div className="flex flex-col gap-1">
 				<p className="text-amber-400 text-sm">
 					The commit <ShaLabel sha={review.headSha} /> that{' '}
-					{review.reviewer.username} reviewed is no longer in this repository,
-					so what changed since cannot be worked out. A force-push followed by
-					cleanup removes it.
+					{getPullRequestActorName(review.reviewer)} reviewed is no longer in
+					this repository, so what changed since cannot be worked out. A
+					force-push followed by cleanup removes it.
 				</p>
 				<p className="text-muted-foreground text-sm">
 					The full diff still shows every change up to{' '}
@@ -146,8 +147,9 @@ function PullRequestReviewComparisonState({
 	return (
 		<div className="flex flex-col gap-1">
 			<p className="text-sm">
-				Changes since {review.reviewer.username} reviewed on {reviewedAt} —{' '}
-				<ShaLabel sha={review.headSha} /> → <ShaLabel sha={currentHeadSha} />
+				Changes since {getPullRequestActorName(review.reviewer)} reviewed on{' '}
+				{reviewedAt} — <ShaLabel sha={review.headSha} /> →{' '}
+				<ShaLabel sha={currentHeadSha} />
 			</p>
 			{reviewComparison.historiesDiverged && (
 				<p className="text-amber-400 text-sm">

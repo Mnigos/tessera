@@ -217,6 +217,14 @@ export class PullRequestReviewsService {
 		assertAllowedReviewOutcome(pullRequest, viewerUserId, outcome)
 
 		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+		// The envelope is identified before the submission takes the pull request
+		// lock, so two simultaneous submissions race for the same review row and
+		// the loser conflicts instead of opening a second review.
+		const pendingReview =
+			await this.pullRequestReviewsRepository.findPendingReview({
+				pullRequestId: pullRequest.id,
+				reviewerUserId: viewerUserId,
+			})
 
 		if (writeThrough)
 			return toPullRequestReviewOutput(
@@ -226,18 +234,11 @@ export class PullRequestReviewsService {
 						body: body ?? '',
 						expectedHeadSha,
 						outcome,
+						pendingCommentCount: pendingReview?.commentCount ?? 0,
 					})
 				)
 			)
 
-		// The envelope is identified before the submission takes the pull request
-		// lock, so two simultaneous submissions race for the same review row and
-		// the loser conflicts instead of opening a second review.
-		const pendingReview =
-			await this.pullRequestReviewsRepository.findPendingReview({
-				pullRequestId: pullRequest.id,
-				reviewerUserId: viewerUserId,
-			})
 		const result = await this.pullRequestReviewsRepository.submitReview({
 			pullRequestId: pullRequest.id,
 			reviewerUserId: viewerUserId,

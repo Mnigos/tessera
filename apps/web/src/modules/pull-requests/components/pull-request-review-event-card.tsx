@@ -11,6 +11,7 @@ import {
 	getPullRequestReviewEventPayload,
 	getPullRequestReviewOutcomePresentation,
 } from '../helpers/pull-request-review'
+import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestSourceLink } from './pull-request-source-link'
 
 interface PullRequestReviewEventCardProps {
@@ -41,16 +42,21 @@ export function PullRequestReviewEventCard({
 				presentation?.cardClassName ?? 'border-border bg-card'
 			)}
 		>
-			<div className="flex flex-wrap items-baseline gap-x-2 gap-y-1">
+			<div className="flex flex-wrap items-center gap-x-2 gap-y-1">
 				<OutcomeIcon
 					aria-hidden
 					className={cn(
-						'size-4 shrink-0 self-center',
+						'size-4 shrink-0',
 						presentation?.iconClassName ?? 'text-muted-foreground'
 					)}
 				/>
 				<span className="font-medium text-sm">
-					{event.actorUsername} {presentation?.timelineLabel ?? 'left a review'}
+					{event.actor ? (
+						<PullRequestActorLabel actor={event.actor} />
+					) : (
+						event.actorUsername
+					)}{' '}
+					{presentation?.timelineLabel ?? 'left a review'}
 				</span>
 				{review?.state === 'dismissed' && (
 					<span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">

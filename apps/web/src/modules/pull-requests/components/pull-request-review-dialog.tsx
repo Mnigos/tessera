@@ -22,6 +22,7 @@ import {
 import { cn } from '@repo/ui/utils'
 import { type ComponentProps, useState } from 'react'
 import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
+import { submitPullRequestComposerOnShortcut } from '../helpers/pull-request-composer-shortcut'
 import {
 	getPullRequestReviewOutcomePresentation,
 	PULL_REQUEST_REVIEW_OUTCOME_OPTIONS,
@@ -121,7 +122,7 @@ export function PullRequestReviewDialog({
 				<PullRequestReviewForm
 					allowedOutcomes={allowedOutcomes}
 					error={submitReview.error}
-					isBodyRequired={isGitHubAuthoritative}
+					isBodyRequired={isGitHubAuthoritative && !pendingCommentCount}
 					isPending={submitReview.isPending}
 					onSubmit={handleSubmit}
 				/>
@@ -133,7 +134,7 @@ export function PullRequestReviewDialog({
 interface PullRequestReviewFormProps {
 	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	error: unknown
-	/** GitHub takes no bodyless review other than an approval. */
+	/** GitHub takes no bodyless review other than an approval that carries no comments. */
 	isBodyRequired: boolean
 	isPending: boolean
 	onSubmit: (outcome: PullRequestReviewOutcome, body: string) => void
@@ -254,6 +255,7 @@ function PullRequestReviewForm({
 					id={REVIEW_BODY_INPUT_ID}
 					maxLength={65_536}
 					onChange={event => setBody(event.target.value)}
+					onKeyDown={submitPullRequestComposerOnShortcut}
 					placeholder={
 						isBodyRequired ? 'Leave a summary' : 'Leave a summary (optional)'
 					}

@@ -77,6 +77,8 @@ const pullRequest: PullRequestReadModel = {
 const unknownActor = {
 	userId: null,
 	username: null,
+	displayName: null,
+	imageUrl: null,
 	externalNodeId: null,
 	externalLogin: null,
 	externalAvatarUrl: null,
@@ -271,12 +273,16 @@ describe(PullRequestReviewsService.name, () => {
 				provider: 'tessera',
 				userId: reviewerUserId,
 				username: 'reviewer',
+				displayName: undefined,
+				avatarUrl: undefined,
 			},
 			requestedBy: {
 				key: mockUserId,
 				provider: 'tessera',
 				userId: mockUserId,
 				username: 'marta',
+				displayName: undefined,
+				avatarUrl: undefined,
 			},
 			createdAt,
 		})
@@ -300,6 +306,8 @@ describe(PullRequestReviewsService.name, () => {
 				provider: 'tessera',
 				userId: reviewerUserId,
 				username: 'reviewer',
+				displayName: undefined,
+				avatarUrl: undefined,
 			},
 			state: 'submitted',
 			outcome: 'approve',
@@ -333,6 +341,7 @@ describe(PullRequestReviewsService.name, () => {
 				body: '',
 				expectedHeadSha: 'expected-head',
 				outcome: 'approve',
+				pendingCommentCount: 0,
 			}
 		)
 		expect(reviewsRepository.findReviewerRequest).toHaveBeenCalledWith({
