@@ -264,6 +264,15 @@ export class GitHubSyncProcessor extends WorkerHost {
 		const failure = readGitHubSyncFailure(error)
 		const failureReason = toGitHubSyncFailureReason(failure.failureClass)
 
+		// An unclassified failure is the one case nothing else records the cause of.
+		if (failure.failureClass === 'unknown')
+			this.logger.error(
+				`GitHub sync failed for repository ${claim.repositoryId}`,
+				error instanceof Error
+					? `${error.stack}\ncause: ${String(error.cause)}`
+					: String(error)
+			)
+
 		if (failure.failureClass === 'authentication') {
 			this.gitHubAppAuthService.evictInstallationToken(
 				claim.externalInstallationId
