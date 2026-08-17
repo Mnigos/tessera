@@ -339,7 +339,7 @@ export class PullRequestsRepository {
 				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
 			)
 			.where(and(...conditions))
-			.orderBy(desc(pullRequests.number))
+			.orderBy(desc(pullRequests.createdAt), desc(pullRequests.number))
 
 		return rows.map(toPullRequestReadModel)
 	}

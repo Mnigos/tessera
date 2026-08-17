@@ -1,21 +1,23 @@
 import type { PullRequestState } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 
+export type PullRequestStateFilterValue = PullRequestState | 'all'
+
 interface PullRequestStateFilterOption {
 	label: string
-	value?: PullRequestState
+	value: PullRequestStateFilterValue
 }
 
 const PULL_REQUEST_STATE_FILTER_OPTIONS: PullRequestStateFilterOption[] = [
 	{ label: 'Open', value: 'open' },
 	{ label: 'Closed', value: 'closed' },
 	{ label: 'Merged', value: 'merged' },
-	{ label: 'All' },
+	{ label: 'All', value: 'all' },
 ]
 
 interface PullRequestsStateFilterProps {
-	selectedState?: PullRequestState
-	onSelectedStateChange: (state?: PullRequestState) => void
+	selectedState: PullRequestStateFilterValue
+	onSelectedStateChange: (state: PullRequestStateFilterValue) => void
 }
 
 export function PullRequestsStateFilter({
