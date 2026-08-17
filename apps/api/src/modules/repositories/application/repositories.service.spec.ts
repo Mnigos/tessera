@@ -3,6 +3,7 @@ import { GitStorageClient } from '@config/git-storage'
 import { status } from '@grpc/grpc-js'
 import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { GitHubSyncQueue } from '@modules/github-sync/infrastructure/github-sync.queue'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -297,6 +298,7 @@ describe(RepositoriesService.name, () => {
 					provide: RepositorySyncHealthRepository,
 					useValue: { findFacts: vi.fn().mockResolvedValue(healthyFacts()) },
 				},
+				{ provide: GitHubSyncQueue, useValue: { enqueue: vi.fn() } },
 			],
 		}).compile()
 
@@ -859,9 +861,15 @@ describe(RepositoriesService.name, () => {
 			installationId: '00000000-0000-4000-8000-000000000099',
 			mirrorMode: 'imported',
 		})
+		const syncRequest = {
+			repositoryId: repository.id,
+			authorityGeneration: 1,
+			requestedSyncVersion: 3,
+		}
 		const enableGitHubMirrorSpy = vi
 			.spyOn(repositoriesRepository, 'enableGitHubMirror')
-			.mockResolvedValue(true)
+			.mockResolvedValue(syncRequest)
+		const gitHubSyncQueue = moduleRef.get(GitHubSyncQueue)
 
 		expect(
 			await repositoriesService.enableGitHubMirror(mockUserId, {
@@ -872,6 +880,7 @@ describe(RepositoriesService.name, () => {
 		expect(enableGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
 		})
+		expect(gitHubSyncQueue.enqueue).toHaveBeenCalledWith(syncRequest)
 	})
 
 	test('returns the GitHub App installation URL when installation is required', async () => {

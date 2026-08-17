@@ -1,5 +1,6 @@
 import { ChecksModule } from '@modules/checks'
 import { GitAccessTokensModule } from '@modules/git-access-tokens'
+import { GitHubSyncQueueModule } from '@modules/github-sync/github-sync-queue.module'
 import { GpgPublicKeysModule } from '@modules/gpg-public-keys'
 import { SshPublicKeysModule } from '@modules/ssh-public-keys'
 import { Module } from '@nestjs/common'
@@ -17,6 +18,7 @@ import { RepositoryBrowserController } from './presentation/repository-browser.c
 	imports: [
 		ChecksModule,
 		GitAccessTokensModule,
+		GitHubSyncQueueModule,
 		GpgPublicKeysModule,
 		SshPublicKeysModule,
 	],

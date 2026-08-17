@@ -16,6 +16,7 @@ import {
 } from '@config/git-storage'
 import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { GitHubSyncQueue } from '@modules/github-sync/infrastructure/github-sync.queue'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
@@ -231,7 +232,8 @@ export class RepositoriesService {
 		private readonly repositoryPermissionsService: RepositoryPermissionsService,
 		private readonly gitAccessTokensService: GitAccessTokensService,
 		private readonly checksReadService: ChecksReadService,
-		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository
+		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository,
+		private readonly gitHubSyncQueue: GitHubSyncQueue
 	) {}
 
 	private get cloneBaseUrls(): RepositoryCloneBaseUrls {
@@ -635,14 +637,16 @@ export class RepositoriesService {
 			return { status: 'installation_required' as const, installUrl }
 		}
 
-		const didEnable = await this.repositoriesRepository.enableGitHubMirror({
+		const syncRequest = await this.repositoriesRepository.enableGitHubMirror({
 			repositoryId: repository.id,
 		})
 
-		if (!didEnable)
+		if (!syncRequest)
 			throw new RepositoryGitHubMirrorSyncUnavailableError({
 				repositoryId: repository.id,
 			})
+
+		await this.gitHubSyncQueue.enqueue(syncRequest)
 
 		return { status: 'enabled' as const }
 	}

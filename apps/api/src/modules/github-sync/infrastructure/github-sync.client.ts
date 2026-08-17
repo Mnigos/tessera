@@ -1005,3 +1005,69 @@ function getPullRequestCursorAt(providerDate?: string): Date {
 		Math.floor((Date.now() - GITHUB_CURSOR_FALLBACK_OVERLAP_MS) / 1000) * 1000
 	)
 }
+
+function toGitHubSyncPullRequest(
+	pullRequest: GitHubPullRequestInput
+): GitHubSyncPullRequest {
+	const mergedAt = toOptionalDate(pullRequest.merged_at)
+	const closedAt = toOptionalDate(pullRequest.closed_at)
+
+	return {
+		nodeId: pullRequest.node_id,
+		numericId: BigInt(pullRequest.id),
+		number: pullRequest.number,
+		htmlUrl: pullRequest.html_url,
+		title: pullRequest.title,
+		body: pullRequest.body ?? '',
+		state: mergedAt ? 'merged' : pullRequest.state,
+		draft: pullRequest.draft ?? false,
+		author: toGitHubSyncActor(pullRequest.user),
+		mergedBy: pullRequest.merged_by
+			? toGitHubSyncActor(pullRequest.merged_by)
+			: undefined,
+		// GitHub reports a test-merge sha on open pull requests; only a merge counts.
+		mergeCommitSha: mergedAt
+			? (pullRequest.merge_commit_sha ?? undefined)
+			: undefined,
+		sourceBranch: pullRequest.head.ref,
+		targetBranch: pullRequest.base.ref,
+		headRepositoryNodeId: pullRequest.head.repo?.node_id,
+		baseRepositoryNodeId: pullRequest.base.repo.node_id,
+		headSha: pullRequest.head.sha,
+		baseSha: pullRequest.base.sha,
+		createdAt: new Date(pullRequest.created_at),
+		updatedAt: new Date(pullRequest.updated_at),
+		closedAt,
+		mergedAt,
+	}
+}
+
+function toGitHubSyncActor(
+	actor: z.infer<typeof gitHubActorSchema>
+): GitHubSyncActor {
+	return {
+		nodeId: actor.node_id,
+		numericId: BigInt(actor.id),
+		login: actor.login,
+		type: toGitHubSyncActorType(actor.type),
+		avatarUrl: actor.avatar_url ?? undefined,
+		htmlUrl: actor.html_url ?? undefined,
+	}
+}
+
+function toGitHubSyncActorType(type: string): GitHubSyncActorType {
+	switch (type.toLowerCase()) {
+		case 'bot':
+			return 'bot'
+		case 'organization':
+			return 'organization'
+		case 'mannequin':
+			return 'mannequin'
+		default:
+			return 'user'
+	}
+}
+
+function toOptionalDate(value: string | null | undefined): Date | undefined {
+	return value ? new Date(value) : undefined
+}
