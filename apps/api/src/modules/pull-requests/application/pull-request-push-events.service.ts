@@ -35,6 +35,11 @@ export class PullRequestPushEventsService {
 			repositoryId,
 			updates,
 		})
+		// Recomputed when a comparison is next read, never while the push waits.
+		await this.pullRequestsRepository.clearBranchDiffStats({
+			branches: updates.map(update => update.sourceBranch),
+			repositoryId,
+		})
 
 		this.logger.log(
 			`Push ${operationId} on repository ${repositoryId} recorded ${createdEvents} pull request events`

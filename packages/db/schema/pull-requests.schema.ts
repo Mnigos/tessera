@@ -242,6 +242,13 @@ export const pullRequests = pgTable(
 		mergeActorUserId: uuid('merge_actor_user_id')
 			.$type<UserId>()
 			.references(() => user.id, { onDelete: 'restrict' }),
+		// Cached totals of the merge base..head pair below; a moved pair is recomputed.
+		diffStatsBaseSha: text('diff_stats_base_sha'),
+		diffStatsHeadSha: text('diff_stats_head_sha'),
+		diffAdditions: integer('diff_additions'),
+		diffDeletions: integer('diff_deletions'),
+		diffChangedFiles: integer('diff_changed_files'),
+		diffStatsUpdatedAt: timestamp('diff_stats_updated_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')
 			.defaultNow()
@@ -283,6 +290,10 @@ export const pullRequests = pgTable(
 		check(
 			'pull_requests_author_check',
 			sql`${table.provider}::text = 'github' or ${table.authorUserId} is not null`
+		),
+		check(
+			'pull_requests_diff_stats_check',
+			sql`num_nulls(${table.diffStatsBaseSha}, ${table.diffStatsHeadSha}, ${table.diffAdditions}, ${table.diffDeletions}, ${table.diffChangedFiles}, ${table.diffStatsUpdatedAt}) in (0, 6)`
 		),
 		// The merge-time pair is written together or not at all, and only a merged
 		// pull request has one. Rows merged before this column existed have none,

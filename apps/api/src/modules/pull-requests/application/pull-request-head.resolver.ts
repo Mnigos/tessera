@@ -73,6 +73,28 @@ export class PullRequestHeadResolver {
 		}
 	}
 
+	// The head a comparison would report, at the cost of a refs lookup rather than a diff.
+	async resolveComparisonHeadSha(
+		params: ResolveHeadParams
+	): Promise<string | undefined> {
+		const { pullRequest } = params
+
+		if (pullRequest.github) return pullRequest.github.headSha
+
+		if (pullRequest.state === 'merged')
+			return (
+				pullRequest.mergedHeadSha ?? (await this.resolveCurrentHeadSha(params))
+			)
+
+		const branchTargets = await this.listBranchTargets({
+			repositoryId: params.repositoryId,
+			storagePath: params.storagePath,
+			isNeeded: true,
+		})
+
+		return branchTargets.get(pullRequest.sourceBranch)
+	}
+
 	/** The cheap resolution for a single pull request, sharing the batch's rules. */
 	async resolveHeadRef({
 		pullRequest,

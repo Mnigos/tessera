@@ -2,7 +2,12 @@ import { Database } from '@config/database'
 import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { Injectable } from '@nestjs/common'
-import type { GitHubActorId, GitHubWebhookDeliveryId } from '@repo/db'
+import type {
+	GitHubActorId,
+	GitHubPullRequestAssignee,
+	GitHubPullRequestLabel,
+	GitHubWebhookDeliveryId,
+} from '@repo/db'
 import {
 	and,
 	asc,
@@ -13,8 +18,10 @@ import {
 	gitHubPullRequestEventMappings,
 	gitHubPullRequestMappings,
 	inArray,
+	isNull,
 	lte,
 	ne,
+	or,
 	type PullRequest,
 	type PullRequestEvent,
 	type PullRequestEventPayload,
@@ -66,6 +73,26 @@ interface CreateParams extends RepositoryParams {
 	openingHeadSha: string
 	title: string
 	body: string
+}
+
+interface ClearBranchDiffStatsParams extends RepositoryParams {
+	branches: string[]
+}
+
+export interface ReconciledGitHubPullRequest {
+	id: PullRequestId
+	/** Whether the mapped pair moved, which is what dates the cached diff totals. */
+	comparisonChanged: boolean
+}
+
+interface WriteDiffStatsParams {
+	pullRequestId: PullRequestId
+	baseSha: string
+	headSha: string
+	additions: number
+	deletions: number
+	changedFiles: number
+	computedAt: Date
 }
 
 interface ReconcileGitHubPullRequestParams extends RepositoryParams {
@@ -208,6 +235,9 @@ export interface PullRequestReadModel extends PullRequest {
 		headSha: string
 		baseSha: string
 		mergedByUsername?: string
+		externalNumber?: number
+		labels?: GitHubPullRequestLabel[]
+		assignees?: GitHubPullRequestAssignee[]
 	}
 }
 
@@ -228,6 +258,9 @@ interface PullRequestReadRow extends PullRequest {
 	githubHeadSha: string | null
 	githubBaseSha: string | null
 	githubMergedByUsername: string | null
+	githubExternalNumber: number | null
+	githubLabels: GitHubPullRequestLabel[] | null
+	githubAssignees: GitHubPullRequestAssignee[] | null
 }
 
 const PULL_REQUEST_COLUMNS = {
@@ -248,10 +281,27 @@ const PULL_REQUEST_COLUMNS = {
 	mergedBaseSha: pullRequests.mergedBaseSha,
 	mergedHeadSha: pullRequests.mergedHeadSha,
 	mergeActorUserId: pullRequests.mergeActorUserId,
+	diffStatsBaseSha: pullRequests.diffStatsBaseSha,
+	diffStatsHeadSha: pullRequests.diffStatsHeadSha,
+	diffAdditions: pullRequests.diffAdditions,
+	diffDeletions: pullRequests.diffDeletions,
+	diffChangedFiles: pullRequests.diffChangedFiles,
+	diffStatsUpdatedAt: pullRequests.diffStatsUpdatedAt,
 	createdAt: pullRequests.createdAt,
 	updatedAt: pullRequests.updatedAt,
 	closedAt: pullRequests.closedAt,
 	mergedAt: pullRequests.mergedAt,
+}
+
+const CLEARED_DIFF_STATS = {
+	diffStatsBaseSha: null,
+	diffStatsHeadSha: null,
+	diffAdditions: null,
+	diffDeletions: null,
+	diffChangedFiles: null,
+	diffStatsUpdatedAt: null,
+	// Caching a diff is not a change to the pull request itself.
+	updatedAt: sql`${pullRequests.updatedAt}`,
 }
 
 const authorUser = alias(user, 'pull_request_author_user')
@@ -277,6 +327,9 @@ const PULL_REQUEST_READ_COLUMNS = {
 	githubHeadSha: gitHubPullRequestMappings.headSha,
 	githubBaseSha: gitHubPullRequestMappings.baseSha,
 	githubMergedByUsername: mergedByGitHubActor.login,
+	githubExternalNumber: gitHubPullRequestMappings.externalNumber,
+	githubLabels: gitHubPullRequestMappings.labels,
+	githubAssignees: gitHubPullRequestMappings.assignees,
 }
 
 @Injectable()
@@ -431,6 +484,8 @@ export class PullRequestsRepository {
 				actor: {
 					userId: pullRequestEvents.actorUserId,
 					username: eventActorUser.username,
+					displayName: eventActorUser.name,
+					imageUrl: eventActorUser.image,
 					externalNodeId: eventGitHubActor.externalNodeId,
 					externalLogin: eventGitHubActor.login,
 					externalAvatarUrl: eventGitHubActor.avatarUrl,
@@ -466,14 +521,73 @@ export class PullRequestsRepository {
 			)
 	}
 
+	async clearBranchDiffStats({
+		branches,
+		repositoryId,
+	}: ClearBranchDiffStatsParams): Promise<void> {
+		await this.db
+			.update(pullRequests)
+			.set(CLEARED_DIFF_STATS)
+			.where(
+				and(
+					eq(pullRequests.repositoryId, repositoryId),
+					eq(pullRequests.provider, 'tessera'),
+					eq(pullRequests.state, 'open'),
+					or(
+						inArray(pullRequests.sourceBranch, branches),
+						inArray(pullRequests.targetBranch, branches)
+					)
+				)
+			)
+	}
+
+	async clearDiffStats(pullRequestId: PullRequestId): Promise<void> {
+		await this.db
+			.update(pullRequests)
+			.set(CLEARED_DIFF_STATS)
+			.where(eq(pullRequests.id, pullRequestId))
+	}
+
+	/** A comparison that started before the stored one cannot undo it. */
+	async writeDiffStats({
+		additions,
+		baseSha,
+		changedFiles,
+		computedAt,
+		deletions,
+		headSha,
+		pullRequestId,
+	}: WriteDiffStatsParams): Promise<void> {
+		await this.db
+			.update(pullRequests)
+			.set({
+				diffStatsBaseSha: baseSha,
+				diffStatsHeadSha: headSha,
+				diffAdditions: additions,
+				diffDeletions: deletions,
+				diffChangedFiles: changedFiles,
+				diffStatsUpdatedAt: computedAt,
+				updatedAt: sql`${pullRequests.updatedAt}`,
+			})
+			.where(
+				and(
+					eq(pullRequests.id, pullRequestId),
+					or(
+						isNull(pullRequests.diffStatsUpdatedAt),
+						lte(pullRequests.diffStatsUpdatedAt, computedAt)
+					)
+				)
+			)
+	}
+
 	async reconcileGitHubPullRequest({
 		authorActorId,
 		mergedByActorId,
 		pendingEvents,
 		pullRequest,
 		repositoryId,
-	}: ReconcileGitHubPullRequestParams): Promise<void> {
-		await this.db.transaction(async transaction => {
+	}: ReconcileGitHubPullRequestParams): Promise<ReconciledGitHubPullRequest> {
+		return await this.db.transaction(async transaction => {
 			await transaction.execute(
 				sql`select pg_advisory_xact_lock(hashtextextended(${pullRequest.nodeId}, 0))`
 			)
@@ -482,6 +596,8 @@ export class PullRequestsRepository {
 					pullRequestId: gitHubPullRequestMappings.pullRequestId,
 					repositoryId: gitHubPullRequestMappings.repositoryId,
 					providerUpdatedAt: gitHubPullRequestMappings.providerUpdatedAt,
+					headSha: gitHubPullRequestMappings.headSha,
+					baseSha: gitHubPullRequestMappings.baseSha,
 				})
 				.from(gitHubPullRequestMappings)
 				.where(eq(gitHubPullRequestMappings.externalNodeId, pullRequest.nodeId))
@@ -525,6 +641,8 @@ export class PullRequestsRepository {
 						headSha: pullRequest.headSha,
 						baseSha: pullRequest.baseSha,
 						draft: pullRequest.draft,
+						labels: pullRequest.labels,
+						assignees: pullRequest.assignees,
 						providerCreatedAt: pullRequest.createdAt,
 						providerUpdatedAt: pullRequest.updatedAt,
 						providerClosedAt: pullRequest.closedAt,
@@ -544,6 +662,8 @@ export class PullRequestsRepository {
 							headSha: pullRequest.headSha,
 							baseSha: pullRequest.baseSha,
 							draft: pullRequest.draft,
+							labels: pullRequest.labels,
+							assignees: pullRequest.assignees,
 							providerUpdatedAt: pullRequest.updatedAt,
 							providerClosedAt: pullRequest.closedAt ?? null,
 							providerMergedAt: pullRequest.mergedAt ?? null,
@@ -590,6 +710,13 @@ export class PullRequestsRepository {
 					externalKey: event.deliveryId,
 					createdAt: event.receivedAt,
 				})
+			}
+
+			return {
+				id: pullRequestId,
+				comparisonChanged:
+					existingMapping?.headSha !== pullRequest.headSha ||
+					existingMapping.baseSha !== pullRequest.baseSha,
 			}
 		})
 	}
@@ -1404,6 +1531,12 @@ function toPullRequestReadModel(
 		updatedAt: pullRequest.updatedAt,
 		closedAt: pullRequest.closedAt,
 		mergedAt: pullRequest.mergedAt,
+		diffStatsBaseSha: pullRequest.diffStatsBaseSha,
+		diffStatsHeadSha: pullRequest.diffStatsHeadSha,
+		diffAdditions: pullRequest.diffAdditions,
+		diffDeletions: pullRequest.diffDeletions,
+		diffChangedFiles: pullRequest.diffChangedFiles,
+		diffStatsUpdatedAt: pullRequest.diffStatsUpdatedAt,
 		github:
 			pullRequest.githubNodeId &&
 			pullRequest.githubHtmlUrl &&
@@ -1417,6 +1550,11 @@ function toPullRequestReadModel(
 						headSha: pullRequest.githubHeadSha,
 						baseSha: pullRequest.githubBaseSha,
 						mergedByUsername: pullRequest.githubMergedByUsername ?? undefined,
+						externalNumber: pullRequest.githubExternalNumber ?? undefined,
+						// Null is a mapping written before the columns existed, which is
+						// indistinguishable from a pull request GitHub labelled with nothing.
+						labels: pullRequest.githubLabels ?? [],
+						assignees: pullRequest.githubAssignees ?? [],
 					}
 				: undefined,
 	}
