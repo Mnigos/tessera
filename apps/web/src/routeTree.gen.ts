@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as modulesProfileRoutesProfileDotrouteRouteImport } from './modules/profile/routes/profile.route'
 import { Route as modulesGithubImportRoutesImportDotrouteRouteImport } from './modules/github-import/routes/import.route'
+import { Route as modulesProfileRoutesHandleDotrouteRouteImport } from './modules/profile/routes/$handle.route'
 import { Route as modulesHomeRoutesIndexDotrouteRouteImport } from './modules/home/routes/index.route'
 import { Route as modulesProfileRoutesProfileDotusernameDotrouteRouteImport } from './modules/profile/routes/profile.$username.route'
 import { Route as modulesOrganizationsRoutesOrganizationsDotnewDotrouteRouteImport } from './modules/organizations/routes/organizations.new.route'
@@ -44,6 +45,12 @@ const modulesGithubImportRoutesImportDotrouteRoute =
   modulesGithubImportRoutesImportDotrouteRouteImport.update({
     id: '/import',
     path: '/import',
+    getParentRoute: () => rootRouteImport,
+  } as any)
+const modulesProfileRoutesHandleDotrouteRoute =
+  modulesProfileRoutesHandleDotrouteRouteImport.update({
+    id: '/$handle',
+    path: '/$handle',
     getParentRoute: () => rootRouteImport,
   } as any)
 const modulesHomeRoutesIndexDotrouteRoute =
@@ -215,6 +222,7 @@ const modulesRepositoriesRoutesRepositoryDotusernameDotslugDotblobDotrefDotDotro
 
 export interface FileRoutesByFullPath {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/$handle': typeof modulesProfileRoutesHandleDotrouteRoute
   '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
@@ -241,6 +249,7 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/$handle': typeof modulesProfileRoutesHandleDotrouteRoute
   '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
@@ -268,6 +277,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof modulesHomeRoutesIndexDotrouteRoute
+  '/$handle': typeof modulesProfileRoutesHandleDotrouteRoute
   '/import': typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   '/profile': typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   '/$username/$slug': typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
@@ -296,6 +306,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/$handle'
     | '/import'
     | '/profile'
     | '/$username/$slug'
@@ -322,6 +333,7 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/$handle'
     | '/import'
     | '/profile'
     | '/$username/$slug'
@@ -348,6 +360,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/$handle'
     | '/import'
     | '/profile'
     | '/$username/$slug'
@@ -375,6 +388,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   modulesHomeRoutesIndexDotrouteRoute: typeof modulesHomeRoutesIndexDotrouteRoute
+  modulesProfileRoutesHandleDotrouteRoute: typeof modulesProfileRoutesHandleDotrouteRoute
   modulesGithubImportRoutesImportDotrouteRoute: typeof modulesGithubImportRoutesImportDotrouteRouteWithChildren
   modulesProfileRoutesProfileDotrouteRoute: typeof modulesProfileRoutesProfileDotrouteRouteWithChildren
   modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute: typeof modulesRepositoriesRoutesRepositoryDotusernameDotslugDotrouteRoute
@@ -412,6 +426,13 @@ declare module '@tanstack/react-router' {
       path: '/import'
       fullPath: '/import'
       preLoaderRoute: typeof modulesGithubImportRoutesImportDotrouteRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/$handle': {
+      id: '/$handle'
+      path: '/$handle'
+      fullPath: '/$handle'
+      preLoaderRoute: typeof modulesProfileRoutesHandleDotrouteRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/': {
@@ -603,6 +624,8 @@ const modulesProfileRoutesProfileDotrouteRouteWithChildren =
 
 const rootRouteChildren: RootRouteChildren = {
   modulesHomeRoutesIndexDotrouteRoute: modulesHomeRoutesIndexDotrouteRoute,
+  modulesProfileRoutesHandleDotrouteRoute:
+    modulesProfileRoutesHandleDotrouteRoute,
   modulesGithubImportRoutesImportDotrouteRoute:
     modulesGithubImportRoutesImportDotrouteRouteWithChildren,
   modulesProfileRoutesProfileDotrouteRoute:

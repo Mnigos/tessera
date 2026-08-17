@@ -8,10 +8,13 @@ import {
 	isNotNull,
 	member,
 	repositories,
+	repositoryCollaborators,
 	repositoryExternalSources,
+	sql,
 	user,
 } from '@repo/db'
 import type {
+	OrganizationId,
 	RepositoryId,
 	RepositoryName,
 	RepositorySlug,
@@ -215,6 +218,102 @@ describe(RepositoriesRepository.name, () => {
 				ownerUser: { username: 'marta' },
 			}),
 		])
+	})
+
+	test('lists authenticated organization repositories with the complete visibility predicate', async () => {
+		const ownerOrganizationId =
+			'00000000-0000-4000-8000-000000000010' as OrganizationId
+		const memberWhereMock = vi.fn((condition: SQL) => ({
+			getSQL: () => sql`select ${member.id} from ${member} where ${condition}`,
+		}))
+		const collaboratorWhereMock = vi.fn((condition: SQL) => ({
+			getSQL: () =>
+				sql`select ${repositoryCollaborators.id} from ${repositoryCollaborators} where ${condition}`,
+		}))
+		const visibleWhereMock = vi.fn((_condition: SQL) => ({
+			orderBy: orderByMock,
+		}))
+
+		selectMock
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: memberWhereMock })),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: collaboratorWhereMock })),
+			})
+			.mockReturnValueOnce({
+				from: vi.fn(() => ({ where: visibleWhereMock })),
+			})
+
+		await repositoriesRepository.listVisibleByOwner({
+			ownerOrganizationId,
+			viewerUserId: mockUserId,
+		})
+
+		expect(memberWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(member.organizationId, repositories.ownerOrganizationId),
+				eq(member.userId, mockUserId),
+				inArray(member.role, ['owner', 'admin'])
+			)
+		)
+		expect(collaboratorWhereMock).toHaveBeenCalledWith(
+			and(
+				eq(repositoryCollaborators.repositoryId, repositories.id),
+				eq(repositoryCollaborators.userId, mockUserId)
+			)
+		)
+		const condition = visibleWhereMock.mock.calls[0]?.[0]
+		if (!condition) throw new Error('Expected visible repository predicate')
+		const whereQuery = renderWhereQuery(condition)
+
+		expect(whereQuery.sql).toContain(
+			'"repositories"."owner_organization_id" = $1'
+		)
+		expect(whereQuery.sql).toContain(
+			'"repositories"."storage_path" is not null'
+		)
+		expect(whereQuery.sql).toContain('"repositories"."visibility" = $2')
+		expect(whereQuery.sql).toContain('"repositories"."owner_user_id" = $3')
+		expect(whereQuery.sql).toContain('exists (select "member"."id"')
+		expect(whereQuery.sql).toContain(
+			'exists (select "repository_collaborators"."id"'
+		)
+		expect(whereQuery.params).toEqual(
+			expect.arrayContaining([
+				ownerOrganizationId,
+				'public',
+				mockUserId,
+				'owner',
+				'admin',
+			])
+		)
+		expect(orderByMock).toHaveBeenCalledWith(asc(repositories.createdAt))
+	})
+
+	test('limits anonymous user repositories to public stored rows', async () => {
+		const visibleWhereMock = vi.fn((_condition: SQL) => ({
+			orderBy: orderByMock,
+		}))
+		selectMock.mockReturnValueOnce({
+			from: vi.fn(() => ({ where: visibleWhereMock })),
+		})
+
+		await repositoriesRepository.listVisibleByOwner({
+			ownerUserId: mockUserId,
+		})
+
+		const condition = visibleWhereMock.mock.calls[0]?.[0]
+		if (!condition) throw new Error('Expected visible repository predicate')
+		const whereQuery = renderWhereQuery(condition)
+
+		expect(whereQuery.sql).toContain('"repositories"."owner_user_id" = $1')
+		expect(whereQuery.sql).toContain(
+			'"repositories"."storage_path" is not null'
+		)
+		expect(whereQuery.sql).toContain('"repositories"."visibility" = $2')
+		expect(whereQuery.sql).not.toContain('exists')
+		expect(whereQuery.params).toEqual([mockUserId, 'public'])
 	})
 
 	test('creates a repository from the insert returning row', async () => {
