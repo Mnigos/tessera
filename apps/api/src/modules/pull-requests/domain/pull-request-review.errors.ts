@@ -1,3 +1,4 @@
+import { PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE } from '@repo/contracts'
 import { ConflictError, ForbiddenError, NotFoundError } from '~/shared/errors'
 
 export class PullRequestReviewerIneligibleError extends ForbiddenError {
@@ -37,7 +38,7 @@ export class PullRequestReviewAuthorForbiddenError extends ForbiddenError {
 		super(
 			'pull request review',
 			context,
-			'The pull request author cannot review their own pull request.'
+			PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE
 		)
 	}
 }

@@ -20,6 +20,7 @@ import {
 	type RepositoryId,
 	type RepositoryRole,
 } from '@repo/domain'
+import { getPullRequestAuthorUserId } from '../domain/pull-request'
 import { toPullRequestEffectiveReviewStates } from '../domain/pull-request-review'
 import { toMergeAuthorityReasons } from '../helpers/merge-authority-reasons'
 import { toMergeQueueBlockingReasons } from '../helpers/merge-queue-blocking-reasons'
@@ -435,7 +436,7 @@ export class MergeRequirementsService {
 		})
 
 		return toPullRequestEffectiveReviewStates(reviews, {
-			authorUserId: pullRequest.authorUserId,
+			authorUserId: getPullRequestAuthorUserId(pullRequest),
 			authorActorNodeId: pullRequest.authorActorNodeId,
 			currentHeadSha: headSha,
 		})

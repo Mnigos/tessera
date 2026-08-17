@@ -63,6 +63,7 @@ export interface GitHubConversationAnchor {
 	path: string
 	side: 'left' | 'right'
 	line: number
+	startLine?: number
 	anchorSha: string
 	baseSha: string
 	headSha: string
@@ -694,6 +695,8 @@ export class GitHubSyncConversationsRepository {
 			provider: 'github' as const,
 			kind: 'inline' as const,
 			...anchor,
+			// An absent field is omitted from an update, leaving a narrowed thread a range.
+			startLine: anchor.startLine ?? null,
 			createdAt,
 			resolvedAt: resolvedAt ?? null,
 			// A native thread may only name a resolver while it is resolved, and

@@ -47,6 +47,9 @@ export const pullRequestThreads = pgTable(
 		kind: pullRequestThreadKindEnum('kind').notNull(),
 		path: text('path'),
 		side: pullRequestThreadSideEnum('side'),
+		/** First line of the commented range; null on a single-line anchor. */
+		startLine: integer('start_line'),
+		/** Last line of the commented range, and the only line of a single-line one. */
 		line: integer('line'),
 		anchorSha: text('anchor_sha'),
 		baseSha: text('base_sha'),
@@ -74,8 +77,8 @@ export const pullRequestThreads = pgTable(
 		check(
 			'pull_request_threads_anchor_check',
 			sql`(
-				(${table.kind}::text = 'top_level' and ${table.path} is null and ${table.side} is null and ${table.line} is null and ${table.anchorSha} is null and ${table.baseSha} is null and ${table.headSha} is null and ${table.lineExcerpt} is null)
-				or (${table.kind}::text = 'inline' and ${table.path} is not null and ${table.side} is not null and ${table.line} is not null and ${table.line} > 0 and ${table.anchorSha} is not null and ${table.baseSha} is not null and ${table.headSha} is not null and ${table.lineExcerpt} is not null)
+				(${table.kind}::text = 'top_level' and ${table.path} is null and ${table.side} is null and ${table.startLine} is null and ${table.line} is null and ${table.anchorSha} is null and ${table.baseSha} is null and ${table.headSha} is null and ${table.lineExcerpt} is null)
+				or (${table.kind}::text = 'inline' and ${table.path} is not null and ${table.side} is not null and ${table.line} is not null and ${table.line} > 0 and (${table.startLine} is null or (${table.startLine} > 0 and ${table.startLine} <= ${table.line})) and ${table.anchorSha} is not null and ${table.baseSha} is not null and ${table.headSha} is not null and ${table.lineExcerpt} is not null)
 			)`
 		),
 		check(

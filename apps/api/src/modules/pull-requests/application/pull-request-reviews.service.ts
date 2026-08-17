@@ -18,6 +18,7 @@ import type {
 	PullRequestReview,
 	PullRequestReviewerCandidate,
 	PullRequestReviewerRequest,
+	PullRequestReviewOutcome,
 	PullRequestReviewSummary,
 	PullRequestReviewViewer,
 } from '@repo/contracts'
@@ -30,12 +31,14 @@ import {
 	type RepositoryRole,
 	type UserId,
 } from '@repo/domain'
+import { getPullRequestAuthorUserId } from '../domain/pull-request'
 import {
 	PullRequestNotFoundError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import {
 	isAttributableReview,
+	toAllowedPullRequestReviewOutcomes,
 	toPullRequestEffectiveReviewStates,
 	toPullRequestReviewerRequestOutput,
 	toPullRequestReviewOutput,
@@ -211,7 +214,7 @@ export class PullRequestReviewsService {
 		)
 		const { pullRequest } = context
 
-		assertPullRequestReviewer(pullRequest, viewerUserId)
+		assertAllowedReviewOutcome(pullRequest, viewerUserId, outcome)
 
 		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
 
@@ -270,8 +273,6 @@ export class PullRequestReviewsService {
 		})
 		const { pullRequest } = context
 
-		assertPullRequestReviewer(pullRequest, viewerUserId)
-
 		// GitHub holds the drafts on a mirror; Tessera keeps none to discard.
 		if (context.gitHubTarget) return { discarded: false }
 
@@ -291,11 +292,13 @@ export class PullRequestReviewsService {
 		viewerRole,
 		viewerUserId,
 	}: GetReviewStateParams): Promise<PullRequestReviewState> {
-		const isAuthor =
-			viewerUserId !== undefined && pullRequest.authorUserId === viewerUserId
+		const authorUserId = getPullRequestAuthorUserId(pullRequest)
+		const isAuthor = viewerUserId !== undefined && authorUserId === viewerUserId
 		const canReview = viewerUserId !== undefined && pullRequest.state === 'open'
 		const viewer: PullRequestReviewViewer = {
-			canSubmitReview: canReview && !isAuthor,
+			allowedOutcomes: canReview
+				? toAllowedPullRequestReviewOutcomes(isAuthor)
+				: [],
 			canRequestReviewers:
 				canReview && (isAuthor || canWriteRepository(viewerRole)),
 			canRemoveReviewerRequests:
@@ -310,7 +313,7 @@ export class PullRequestReviewsService {
 				this.pullRequestReviewsRepository.listReviewHistory({
 					pullRequestId: pullRequest.id,
 				}),
-				viewerUserId && !isAuthor
+				viewerUserId
 					? this.pullRequestReviewsRepository.findPendingReview({
 							pullRequestId: pullRequest.id,
 							reviewerUserId: viewerUserId,
@@ -337,13 +340,13 @@ export class PullRequestReviewsService {
 				.filter(isAttributableReview)
 				.map(toPullRequestReviewOutput),
 			effectiveReviewStates: toPullRequestEffectiveReviewStates(reviews, {
-				authorUserId: pullRequest.authorUserId,
+				authorUserId,
 				authorActorNodeId: pullRequest.authorActorNodeId,
 				currentHeadSha,
 			}),
 			viewerPendingReview: pendingReview,
 			reviewerCandidates: principals.filter(
-				principal => principal.userId !== pullRequest.authorUserId
+				principal => principal.userId !== authorUserId
 			),
 			viewer,
 		}
@@ -426,7 +429,7 @@ export class PullRequestReviewsService {
 			username: reviewerUsername,
 		})
 
-		if (reviewerUserId === pullRequest.authorUserId)
+		if (reviewerUserId === getPullRequestAuthorUserId(pullRequest))
 			throw new PullRequestReviewerIneligibleError({
 				pullRequestId: pullRequest.id,
 				reviewerUsername,
@@ -472,7 +475,7 @@ export class PullRequestReviewsService {
 
 		if (
 			requireWriteRole &&
-			pullRequest.authorUserId !== viewerUserId &&
+			getPullRequestAuthorUserId(pullRequest) !== viewerUserId &&
 			!canWriteRepository(viewerRole)
 		)
 			throw new PullRequestReviewerRequestForbiddenError({
@@ -537,14 +540,20 @@ function toStalenessHeadShas(
 	)
 }
 
-function assertPullRequestReviewer(
+function assertAllowedReviewOutcome(
 	pullRequest: PullRequestReadModel,
-	viewerUserId: UserId
+	viewerUserId: UserId,
+	outcome: PullRequestReviewOutcome
 ): void {
-	if (pullRequest.authorUserId !== viewerUserId) return
+	const allowedOutcomes = toAllowedPullRequestReviewOutcomes(
+		getPullRequestAuthorUserId(pullRequest) === viewerUserId
+	)
+
+	if (allowedOutcomes.includes(outcome)) return
 
 	throw new PullRequestReviewAuthorForbiddenError({
 		pullRequestId: pullRequest.id,
 		userId: viewerUserId,
+		outcome,
 	})
 }

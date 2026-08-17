@@ -19,6 +19,8 @@ import {
 
 export const PULL_REQUEST_STALE_COMPARISON_MESSAGE =
 	'The source or target branch changed. Refresh the pull request and try again.'
+export const PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE =
+	'The pull request author can only comment on their own pull request.'
 
 /** The wire carries only a code and a message, so the message is the whole explanation. */
 export const GITHUB_RECONNECT_REQUIRED_MESSAGE =
@@ -495,15 +497,22 @@ export const pullRequestFileDiffSchema = z.object({
 })
 export type PullRequestFileDiff = z.infer<typeof pullRequestFileDiffSchema>
 
-export const pullRequestThreadAnchorInputSchema = z.object({
-	path: z.string().trim().min(1).max(4096),
-	side: pullRequestThreadSideSchema,
-	line: z.number().int().positive(),
-	anchorSha: pullRequestShaSchema,
-	baseSha: pullRequestShaSchema,
-	headSha: pullRequestShaSchema,
-	lineExcerpt: z.string().max(4096),
-})
+/** A range on one side of one file; a single-line anchor repeats its line. */
+export const pullRequestThreadAnchorInputSchema = z
+	.object({
+		path: z.string().trim().min(1).max(4096),
+		side: pullRequestThreadSideSchema,
+		startLine: z.number().int().positive(),
+		endLine: z.number().int().positive(),
+		anchorSha: pullRequestShaSchema,
+		baseSha: pullRequestShaSchema,
+		headSha: pullRequestShaSchema,
+		lineExcerpt: z.string().max(4096),
+	})
+	.refine(anchor => anchor.startLine <= anchor.endLine, {
+		message: 'The comment range must not end before it starts',
+		path: ['startLine'],
+	})
 export type PullRequestThreadAnchor = z.infer<
 	typeof pullRequestThreadAnchorInputSchema
 >
@@ -665,7 +674,8 @@ export type PullRequestReviewSummary = z.infer<
 >
 
 export const pullRequestReviewViewerSchema = z.object({
-	canSubmitReview: z.boolean(),
+	/** Empty when the viewer cannot review at all; submitting anything absent is refused. */
+	allowedOutcomes: z.array(pullRequestReviewOutcomeSchema),
 	canRequestReviewers: z.boolean(),
 	canRemoveReviewerRequests: z.boolean(),
 })
