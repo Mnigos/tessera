@@ -288,9 +288,11 @@ function PullRequestDetailContent({
 					)}
 					reviewSelection={reviewSelection}
 					reviews={reviews}
+					reviewViewer={reviewViewer}
 					slug={slug}
 					tab={tab}
 					username={username}
+					viewerPendingReview={viewerPendingReview}
 					viewerUserId={viewerUserId}
 				/>
 			)}

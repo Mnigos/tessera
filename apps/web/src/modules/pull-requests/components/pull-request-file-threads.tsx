@@ -89,6 +89,10 @@ function PullRequestDiffThreadComposer({
 	const reviewLabel = permissions.review
 		? getPullRequestReviewComposerLabel(permissions.review)
 		: undefined
+	const isRange = anchor.startLine < anchor.endLine
+	const lines = isRange
+		? `lines ${anchor.startLine}–${anchor.endLine}`
+		: `line ${anchor.endLine}`
 
 	function handleCreateThread(body: string) {
 		createThreadMutation.mutate(
@@ -106,18 +110,22 @@ function PullRequestDiffThreadComposer({
 
 	return (
 		<div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
-			<h3 className="font-medium text-sm">Comment on line {anchor.line}</h3>
+			<h3 className="font-medium text-sm">Comment on {lines}</h3>
 			<PullRequestCommentComposer
 				error={createThreadMutation.error}
 				errorFallback="The comment could not be posted."
-				inputId={`pull-request-line-comment-${anchor.side}-${anchor.line}`}
+				inputId={`pull-request-line-comment-${anchor.side}-${anchor.startLine}-${anchor.endLine}`}
 				isPending={createThreadMutation.isPending}
-				label={`Comment on line ${anchor.line}`}
+				label={`Comment on ${lines}`}
 				onCancel={onDone}
 				onSecondarySubmit={reviewMarker ? handleCreateReviewThread : undefined}
 				onSubmit={handleCreateThread}
 				pendingLabel="Posting"
-				placeholder="Leave a comment on this line"
+				placeholder={
+					isRange
+						? 'Leave a comment on these lines'
+						: 'Leave a comment on this line'
+				}
 				secondarySubmitLabel={reviewLabel}
 				shouldFocusOnMount
 				submitLabel="Comment"

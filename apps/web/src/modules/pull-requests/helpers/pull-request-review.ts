@@ -25,7 +25,7 @@ import {
  * they have not read.
  */
 export interface PullRequestReviewContext {
-	canSubmitReview: boolean
+	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	hasPendingReview: boolean
 	headSha?: string
 }
@@ -39,7 +39,7 @@ export function getPullRequestReviewContext(
 	if (isGitHubAuthoritative) return undefined
 
 	return {
-		canSubmitReview: viewer.canSubmitReview,
+		allowedOutcomes: viewer.allowedOutcomes,
 		hasPendingReview: Boolean(viewerPendingReview),
 	}
 }
@@ -254,7 +254,7 @@ export function getPullRequestReviewMarker(
 	review: PullRequestReviewContext | undefined,
 	draftHeadSha: string | undefined
 ) {
-	if (!(review?.canSubmitReview && draftHeadSha)) return undefined
+	if (!(review?.allowedOutcomes.length && draftHeadSha)) return undefined
 
 	return { expectedHeadSha: draftHeadSha }
 }

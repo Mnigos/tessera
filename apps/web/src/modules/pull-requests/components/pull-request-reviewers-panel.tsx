@@ -103,9 +103,10 @@ export function PullRequestReviewersPanel({
 					username={username}
 				/>
 			)}
-			{viewer.canSubmitReview && isOpen && (
+			{viewer.allowedOutcomes.length > 0 && (
 				<div className="flex border-border border-t pt-3">
 					<PullRequestReviewDialog
+						allowedOutcomes={viewer.allowedOutcomes}
 						headSha={headSha}
 						isGitHubAuthoritative={isGitHubAuthoritative}
 						number={number}

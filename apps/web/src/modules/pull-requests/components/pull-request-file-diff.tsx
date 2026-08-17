@@ -6,14 +6,21 @@ import type {
 } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 import { Plus } from 'lucide-react'
-import { useState } from 'react'
+import {
+	type DiffLineHunkRange,
+	type DiffLineSelection,
+	type DiffLineSelectionAction,
+	isDiffLineSelected,
+} from '../helpers/diff-line-selection'
 import {
 	getInlineThreadsForLine,
 	getLeftoverInlineThreads,
+	isLineInsideInlineThread,
 	toThreadLineExcerpt,
 } from '../helpers/pull-request-inline-threads'
 import type { PullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePullRequestFileDiffQuery } from '../hooks/use-pull-request-file-diff.query'
+import { usePullRequestDiffSelection } from './pull-request-diff-selection-context'
 import {
 	PullRequestDiffThreadRow,
 	PullRequestOutdatedThreads,
@@ -135,7 +142,7 @@ function FileDiff({
 	slug,
 	number,
 }: Readonly<FileDiffProps>) {
-	const [activeAnchor, setActiveAnchor] = useState<PullRequestThreadAnchor>()
+	const [selection, dispatchSelection] = usePullRequestDiffSelection()
 
 	if (diff.file.isBinary)
 		return (
@@ -173,28 +180,25 @@ function FileDiff({
 		...threads.filter(thread => !placeableThreads.includes(thread)),
 	]
 	const threading: PullRequestDiffThreading = {
-		activeAnchor,
 		anchorableSides,
+		anchorComparison,
 		number,
-		onComment: (anchor, content) =>
-			setActiveAnchor({
-				path: anchor.path,
-				side: anchor.side,
-				line: anchor.line,
-				anchorSha: anchor.sha,
-				baseSha: anchorComparison.baseSha,
-				headSha: anchorComparison.headSha,
-				lineExcerpt: toThreadLineExcerpt(content),
-			}),
-		onComposerDone: () => setActiveAnchor(undefined),
+		onSelect: permissions.canComment ? dispatchSelection : undefined,
 		permissions,
+		selection,
 		slug,
 		threads: placeableThreads,
 		username,
 	}
 
 	return (
-		<div className="overflow-x-auto border-border border-t bg-background">
+		// biome-ignore lint/a11y: Escape only shortcuts the composer's own Cancel button
+		<div
+			className="overflow-x-auto border-border border-t bg-background"
+			onKeyDown={event => {
+				if (event.key === 'Escape') dispatchSelection({ type: 'clear' })
+			}}
+		>
 			{diff.isTruncated && (
 				<p className="border-border border-b px-4 py-2 text-amber-300 text-xs">
 					Diff truncated at {diff.patchLimitBytes.toLocaleString()} bytes.
@@ -204,20 +208,28 @@ function FileDiff({
 				className="min-w-[80rem] font-mono text-xs leading-5 [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none]"
 				data-diff-code
 			>
-				{diff.hunks.map(hunk => (
-					<div key={hunk.header}>
-						<div className="bg-secondary px-4 py-2 text-muted-foreground">
-							{hunk.header}
+				{diff.hunks.map(hunk => {
+					const hunkRanges = {
+						left: toHunkRange(hunk.lines, 'left'),
+						right: toHunkRange(hunk.lines, 'right'),
+					}
+
+					return (
+						<div key={hunk.header}>
+							<div className="bg-secondary px-4 py-2 text-muted-foreground">
+								{hunk.header}
+							</div>
+							{getSplitDiffRows(hunk.lines).map((row, index) => (
+								<DiffRow
+									hunkRanges={hunkRanges}
+									key={`${row.left?.old?.line ?? '-'}:${row.right?.new?.line ?? '-'}:${index}`}
+									row={row}
+									threading={threading}
+								/>
+							))}
 						</div>
-						{getSplitDiffRows(hunk.lines).map((row, index) => (
-							<DiffRow
-								key={`${row.left?.old?.line ?? '-'}:${row.right?.new?.line ?? '-'}:${index}`}
-								row={row}
-								threading={threading}
-							/>
-						))}
-					</div>
-				))}
+					)
+				})}
 			</div>
 			{leftoverThreads.length > 0 && (
 				<PullRequestOutdatedThreads
@@ -234,7 +246,6 @@ function FileDiff({
 }
 
 type PullRequestDiffLine = PullRequestFileDiff['hunks'][number]['lines'][number]
-type PullRequestDiffAnchor = NonNullable<PullRequestDiffLine['old']>
 
 interface PullRequestDiffThreading {
 	username: string
@@ -242,23 +253,69 @@ interface PullRequestDiffThreading {
 	number: string
 	permissions: PullRequestThreadPermissions
 	threads: PullRequestThread[]
+	anchorComparison: PullRequestDiffAnchorComparison
 	anchorableSides: readonly PullRequestThreadSide[]
-	activeAnchor?: PullRequestThreadAnchor
-	onComment: (anchor: PullRequestDiffAnchor, content: string) => void
-	onComposerDone: () => void
+	selection?: DiffLineSelection
+	onSelect?: (action: DiffLineSelectionAction) => void
+}
+
+/** The anchor the composer posts, which the row holding the range's last line owns. */
+function toSelectionAnchor(
+	{ anchorComparison, selection }: PullRequestDiffThreading,
+	line: PullRequestDiffLine | undefined,
+	side: PullRequestThreadSide
+): PullRequestThreadAnchor | undefined {
+	const anchor = side === 'left' ? line?.old : line?.new
+
+	if (!(line && anchor && selection) || selection.isSelecting) return undefined
+	if (
+		selection.side !== side ||
+		selection.path !== anchor.path ||
+		selection.endLine !== anchor.line
+	)
+		return undefined
+
+	return {
+		path: selection.path,
+		side,
+		startLine: selection.startLine,
+		endLine: selection.endLine,
+		anchorSha: anchor.sha,
+		baseSha: anchorComparison.baseSha,
+		headSha: anchorComparison.headSha,
+		lineExcerpt: toThreadLineExcerpt(line.content),
+	}
+}
+
+/** The line numbers a hunk renders on one side, absent when it renders none. */
+function toHunkRange(
+	lines: PullRequestDiffLine[],
+	side: PullRequestThreadSide
+): DiffLineHunkRange | undefined {
+	const numbers = lines.flatMap(line => {
+		const anchor = side === 'left' ? line.old : line.new
+
+		return anchor ? [anchor.line] : []
+	})
+
+	if (numbers.length === 0) return undefined
+
+	return { startLine: Math.min(...numbers), endLine: Math.max(...numbers) }
 }
 
 interface DiffRowProps {
 	row: SplitDiffRow
+	hunkRanges: { left?: DiffLineHunkRange; right?: DiffLineHunkRange }
 	threading: PullRequestDiffThreading
 }
 
-function DiffRow({ row, threading }: Readonly<DiffRowProps>) {
+function DiffRow({ hunkRanges, row, threading }: Readonly<DiffRowProps>) {
 	const {
-		activeAnchor,
 		anchorableSides,
 		number,
+		onSelect,
 		permissions,
+		selection,
 		slug,
 		threads,
 		username,
@@ -271,35 +328,34 @@ function DiffRow({ row, threading }: Readonly<DiffRowProps>) {
 	const rightThreads = rightLine
 		? getInlineThreadsForLine(threads, 'right', rightLine)
 		: []
-	const leftAnchor =
-		activeAnchor?.side === 'left' && activeAnchor.line === leftLine
-			? activeAnchor
-			: undefined
-	const rightAnchor =
-		activeAnchor?.side === 'right' && activeAnchor.line === rightLine
-			? activeAnchor
-			: undefined
-	const onComment = permissions.canComment ? threading.onComment : undefined
+	const leftAnchor = toSelectionAnchor(threading, row.left, 'left')
+	const rightAnchor = toSelectionAnchor(threading, row.right, 'right')
 
 	return (
 		<>
 			<div className="group/diff-row grid grid-cols-[3.5rem_2rem_minmax(32rem,1fr)_3.5rem_2rem_minmax(32rem,1fr)]">
 				<DiffSide
+					hunkRange={hunkRanges.left}
 					line={row.left}
-					onComment={anchorableSides.includes('left') ? onComment : undefined}
+					onSelect={anchorableSides.includes('left') ? onSelect : undefined}
+					selection={selection}
 					side="left"
+					threads={threads}
 				/>
 				<DiffSide
+					hunkRange={hunkRanges.right}
 					line={row.right}
-					onComment={anchorableSides.includes('right') ? onComment : undefined}
+					onSelect={anchorableSides.includes('right') ? onSelect : undefined}
+					selection={selection}
 					side="right"
+					threads={threads}
 				/>
 			</div>
 			{(leftThreads.length > 0 || leftAnchor) && (
 				<PullRequestDiffThreadRow
 					anchor={leftAnchor}
 					number={number}
-					onComposerDone={threading.onComposerDone}
+					onComposerDone={() => onSelect?.({ type: 'clear' })}
 					permissions={permissions}
 					slug={slug}
 					threads={leftThreads}
@@ -310,7 +366,7 @@ function DiffRow({ row, threading }: Readonly<DiffRowProps>) {
 				<PullRequestDiffThreadRow
 					anchor={rightAnchor}
 					number={number}
-					onComposerDone={threading.onComposerDone}
+					onComposerDone={() => onSelect?.({ type: 'clear' })}
 					permissions={permissions}
 					slug={slug}
 					threads={rightThreads}
@@ -386,33 +442,74 @@ const DIFF_LINE_PREFIXES: Record<DiffLineTone, string> = {
 	empty: '',
 }
 
+const PRIMARY_BUTTON_HELD = 1
+
+const DIFF_SELECTED_CLASSES = 'bg-primary/20'
+/** A left rule rather than a tint, so an added or removed line keeps its colour. */
+const DIFF_COMMENTED_CLASSES = 'border-l-2 border-l-amber-400/60'
+
 interface DiffSideProps {
 	line?: PullRequestDiffLine
-	side: 'left' | 'right'
-	onComment?: (anchor: PullRequestDiffAnchor, content: string) => void
+	side: PullRequestThreadSide
+	threads: PullRequestThread[]
+	hunkRange?: DiffLineHunkRange
+	selection?: DiffLineSelection
+	onSelect?: (action: DiffLineSelectionAction) => void
 }
 
-function DiffSide({ line, side, onComment }: Readonly<DiffSideProps>) {
+function DiffSide({
+	hunkRange,
+	line,
+	onSelect,
+	selection,
+	side,
+	threads,
+}: Readonly<DiffSideProps>) {
 	const tone: DiffLineTone = line?.kind ?? 'empty'
 	const anchor = side === 'left' ? line?.old : line?.new
+	const target = anchor &&
+		hunkRange && { hunk: hunkRange, line: anchor.line, path: anchor.path, side }
+	const isSelected = isDiffLineSelected(selection, target)
+	const isCommented = anchor
+		? isLineInsideInlineThread(threads, side, anchor.line)
+		: false
 
 	return (
 		<div
 			className="contents"
+			data-commented={isCommented || undefined}
 			data-empty={tone === 'empty' || undefined}
+			data-selected={isSelected || undefined}
 			data-side={side}
 		>
 			<span
 				className={cn(
 					'relative select-none border-border border-r px-2 text-right text-muted-foreground',
-					DIFF_GUTTER_TONE_CLASSES[tone]
+					DIFF_GUTTER_TONE_CLASSES[tone],
+					isCommented && DIFF_COMMENTED_CLASSES,
+					isSelected && DIFF_SELECTED_CLASSES
 				)}
 			>
-				{onComment && line && anchor && (
+				{onSelect && line && anchor && target && (
 					<button
 						aria-label={`Comment on ${side === 'left' ? 'original' : 'updated'} line ${anchor.line}`}
-						className="absolute top-1/2 left-1 flex size-4 -translate-y-1/2 items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/diff-row:opacity-100"
-						onClick={() => onComment(anchor, line.content)}
+						className="absolute inset-y-0 left-1 flex w-4 items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/diff-row:opacity-100"
+						onClick={event =>
+							onSelect({
+								type: event.shiftKey ? 'extend' : 'select',
+								target,
+							})
+						}
+						onPointerDown={event =>
+							onSelect({
+								type: event.shiftKey ? 'extend' : 'begin',
+								target,
+							})
+						}
+						onPointerEnter={event => {
+							if (event.buttons === PRIMARY_BUTTON_HELD)
+								onSelect({ type: 'extend', target })
+						}}
 						type="button"
 					>
 						<Plus aria-hidden className="size-3" />
@@ -423,7 +520,8 @@ function DiffSide({ line, side, onComment }: Readonly<DiffSideProps>) {
 			<span
 				className={cn(
 					'select-none text-center text-muted-foreground',
-					DIFF_CELL_TONE_CLASSES[tone]
+					DIFF_CELL_TONE_CLASSES[tone],
+					isSelected && DIFF_SELECTED_CLASSES
 				)}
 			>
 				{DIFF_LINE_PREFIXES[tone]}
@@ -432,7 +530,8 @@ function DiffSide({ line, side, onComment }: Readonly<DiffSideProps>) {
 				className={cn(
 					'whitespace-pre-wrap pr-4 [overflow-wrap:anywhere]',
 					side === 'left' && 'border-border border-r',
-					DIFF_CELL_TONE_CLASSES[tone]
+					DIFF_CELL_TONE_CLASSES[tone],
+					isSelected && DIFF_SELECTED_CLASSES
 				)}
 				data-kind={line?.kind}
 				data-side={side}
