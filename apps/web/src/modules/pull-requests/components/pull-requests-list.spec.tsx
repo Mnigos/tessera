@@ -68,6 +68,7 @@ describe(PullRequestsList.name, () => {
 			username: 'marta',
 			slug: 'notes',
 			onSelectedStateChange: vi.fn(),
+			selectedState: 'all' as const,
 		}
 		const { rerender } = render(<PullRequestsList {...props} />)
 		expect(document.querySelector('.animate-pulse')).toBeTruthy()
@@ -122,6 +123,7 @@ describe(PullRequestsList.name, () => {
 		render(
 			<PullRequestsList
 				onSelectedStateChange={vi.fn()}
+				selectedState="all"
 				slug="notes"
 				username="marta"
 			/>
@@ -160,6 +162,7 @@ describe(PullRequestsList.name, () => {
 		render(
 			<PullRequestsList
 				onSelectedStateChange={vi.fn()}
+				selectedState="all"
 				slug="notes"
 				username="marta"
 			/>
@@ -193,6 +196,7 @@ describe(PullRequestsList.name, () => {
 		render(
 			<PullRequestsList
 				onSelectedStateChange={vi.fn()}
+				selectedState="all"
 				slug="notes"
 				username="marta"
 			/>

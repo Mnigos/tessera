@@ -1,7 +1,4 @@
-import type {
-	PullRequestListItem as PullRequestListItemData,
-	PullRequestState,
-} from '@repo/contracts'
+import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { Link } from '@tanstack/react-router'
 import { GitPullRequest, Plus } from 'lucide-react'
@@ -9,13 +6,16 @@ import { canWriteRepository } from '@/modules/repositories/helpers/repository-vi
 import { usePullRequestsListQuery } from '../hooks/use-pull-requests-list.query'
 import { PullRequestListItem } from './pull-request-list-item'
 import { PullRequestsMessage } from './pull-requests-message'
-import { PullRequestsStateFilter } from './pull-requests-state-filter'
+import {
+	type PullRequestStateFilterValue,
+	PullRequestsStateFilter,
+} from './pull-requests-state-filter'
 
 interface PullRequestsListProps {
 	username: string
 	slug: string
-	selectedState?: PullRequestState
-	onSelectedStateChange: (state?: PullRequestState) => void
+	selectedState: PullRequestStateFilterValue
+	onSelectedStateChange: (state: PullRequestStateFilterValue) => void
 }
 
 export function PullRequestsList({
@@ -27,7 +27,7 @@ export function PullRequestsList({
 	const { data, isError, isLoading } = usePullRequestsListQuery({
 		username,
 		slug,
-		state: selectedState,
+		state: selectedState === 'all' ? undefined : selectedState,
 	})
 
 	return (
