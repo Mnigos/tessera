@@ -196,9 +196,9 @@ function PullRequestThreadHeader({
 			{shouldShowAnchor && thread.anchor && (
 				<span
 					className="min-w-0 truncate font-mono text-muted-foreground text-xs"
-					title={`${thread.anchor.path}:${thread.anchor.line}`}
+					title={toAnchorLabel(thread.anchor)}
 				>
-					{thread.anchor.path}:{thread.anchor.line}
+					{toAnchorLabel(thread.anchor)}
 				</span>
 			)}
 			<Button
@@ -251,4 +251,15 @@ function PullRequestThreadActions({
 			)}
 		</div>
 	)
+}
+
+function toAnchorLabel(
+	anchor: NonNullable<PullRequestThread['anchor']>
+): string {
+	const lines =
+		anchor.startLine < anchor.endLine
+			? `${anchor.startLine}–${anchor.endLine}`
+			: `${anchor.endLine}`
+
+	return `${anchor.path}:${lines}`
 }

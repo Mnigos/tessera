@@ -14,6 +14,11 @@ import {
 	DialogTrigger,
 } from '@repo/ui/components/dialog'
 import { Label } from '@repo/ui/components/label'
+import {
+	Tooltip,
+	TooltipContent,
+	TooltipTrigger,
+} from '@repo/ui/components/tooltip'
 import { cn } from '@repo/ui/utils'
 import { type ComponentProps, useState } from 'react'
 import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
@@ -26,11 +31,16 @@ import { PullRequestErrorMessage } from './pull-request-error-message'
 
 const REVIEW_BODY_INPUT_ID = 'pull-request-review-body'
 const REVIEW_BODY_HINT_ID = 'pull-request-review-body-hint'
+const REVIEW_OUTCOME_HINT_ID = 'pull-request-review-outcome-hint'
+// Only the pull request author is ever left a subset of the outcomes.
+const REVIEW_OUTCOME_REFUSED_REASON =
+	'You can comment on your own pull request, but not approve or block it.'
 
 interface PullRequestReviewDialogProps {
 	username: string
 	slug: string
 	number: string
+	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	headSha?: string
 	pendingCommentCount?: number
 	/** Left unset on surfaces a mirrored pull request never reaches. */
@@ -43,6 +53,7 @@ export function PullRequestReviewDialog({
 	username,
 	slug,
 	number,
+	allowedOutcomes,
 	headSha,
 	pendingCommentCount,
 	isGitHubAuthoritative = false,
@@ -108,6 +119,7 @@ export function PullRequestReviewDialog({
 					</DialogDescription>
 				</DialogHeader>
 				<PullRequestReviewForm
+					allowedOutcomes={allowedOutcomes}
 					error={submitReview.error}
 					isBodyRequired={isGitHubAuthoritative}
 					isPending={submitReview.isPending}
@@ -119,6 +131,7 @@ export function PullRequestReviewDialog({
 }
 
 interface PullRequestReviewFormProps {
+	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	error: unknown
 	/** GitHub takes no bodyless review other than an approval. */
 	isBodyRequired: boolean
@@ -127,6 +140,7 @@ interface PullRequestReviewFormProps {
 }
 
 function PullRequestReviewForm({
+	allowedOutcomes,
 	error,
 	isBodyRequired,
 	isPending,
@@ -138,6 +152,9 @@ function PullRequestReviewForm({
 	const trimmedBody = body.trim()
 	const isBodyMissing =
 		isBodyRequired && outcome !== 'approve' && trimmedBody.length === 0
+	const hasRefusedOutcome = PULL_REQUEST_REVIEW_OUTCOME_OPTIONS.some(
+		option => !allowedOutcomes.includes(option.value)
+	)
 	// Resubmitting this exact review would leave a second one GitHub already has.
 	const isSpent =
 		isPending ||
@@ -161,40 +178,71 @@ function PullRequestReviewForm({
 						option.value
 					)
 					const isSelected = outcome === option.value
+					const isAllowed = allowedOutcomes.includes(option.value)
 
 					return (
-						<label
-							className={cn(
-								'flex cursor-pointer items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors',
-								isSelected
-									? presentation.cardClassName
-									: 'border-border hover:bg-muted/40'
-							)}
-							key={option.value}
-						>
-							<input
-								checked={isSelected}
-								className="mt-1 accent-primary"
-								name="pull-request-review-outcome"
-								onChange={() => setOutcome(option.value)}
-								type="radio"
-								value={option.value}
-							/>
-							<span className="flex min-w-0 flex-col gap-0.5">
-								<span className="flex items-center gap-2 font-medium text-sm">
-									<presentation.icon
-										aria-hidden
-										className={cn('size-4', presentation.iconClassName)}
+						<Tooltip key={option.value}>
+							{/* A disabled radio takes no focus, so the reason hangs off the wrapper. */}
+							<TooltipTrigger
+								render={
+									<span
+										className="flex flex-col"
+										tabIndex={isAllowed ? undefined : 0}
 									/>
-									{option.label}
-								</span>
-								<span className="text-muted-foreground text-xs">
-									{option.description}
-								</span>
-							</span>
-						</label>
+								}
+							>
+								<label
+									className={cn(
+										'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors',
+										isAllowed
+											? 'cursor-pointer'
+											: 'cursor-not-allowed border-border opacity-50',
+										isAllowed &&
+											(isSelected
+												? presentation.cardClassName
+												: 'border-border hover:bg-muted/40')
+									)}
+								>
+									<input
+										aria-describedby={
+											isAllowed ? undefined : REVIEW_OUTCOME_HINT_ID
+										}
+										checked={isSelected}
+										className="mt-1 accent-primary"
+										disabled={!isAllowed}
+										name="pull-request-review-outcome"
+										onChange={() => setOutcome(option.value)}
+										type="radio"
+										value={option.value}
+									/>
+									<span className="flex min-w-0 flex-col gap-0.5">
+										<span className="flex items-center gap-2 font-medium text-sm">
+											<presentation.icon
+												aria-hidden
+												className={cn('size-4', presentation.iconClassName)}
+											/>
+											{option.label}
+										</span>
+										<span className="text-muted-foreground text-xs">
+											{option.description}
+										</span>
+									</span>
+								</label>
+							</TooltipTrigger>
+							{!isAllowed && (
+								<TooltipContent>{REVIEW_OUTCOME_REFUSED_REASON}</TooltipContent>
+							)}
+						</Tooltip>
 					)
 				})}
+				{hasRefusedOutcome && (
+					<p
+						className="text-muted-foreground text-xs"
+						id={REVIEW_OUTCOME_HINT_ID}
+					>
+						{REVIEW_OUTCOME_REFUSED_REASON}
+					</p>
+				)}
 			</fieldset>
 			<div className="flex flex-col gap-2">
 				<Label className="sr-only" htmlFor={REVIEW_BODY_INPUT_ID}>

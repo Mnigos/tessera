@@ -77,7 +77,7 @@ export function PullRequestOverview({
 		reviewerRequests.length > 0 ||
 		effectiveReviewStates.length > 0 ||
 		reviewViewer.canRequestReviewers ||
-		reviewViewer.canSubmitReview
+		reviewViewer.allowedOutcomes.length > 0
 
 	return (
 		<div
@@ -117,7 +117,7 @@ export function PullRequestOverview({
 				)}
 				{viewerPendingReview && !isGitHubAuthoritative && (
 					<PullRequestPendingReviewBanner
-						canSubmitReview={reviewViewer.canSubmitReview}
+						allowedOutcomes={reviewViewer.allowedOutcomes}
 						headSha={headSha}
 						isOpen={isOpen}
 						number={number}

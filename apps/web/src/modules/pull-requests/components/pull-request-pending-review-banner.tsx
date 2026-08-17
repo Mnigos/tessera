@@ -1,4 +1,7 @@
-import type { PullRequestPendingReview } from '@repo/contracts'
+import type {
+	PullRequestPendingReview,
+	PullRequestReviewOutcome,
+} from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
 import { EyeOff } from 'lucide-react'
 import { PullRequestDiscardReviewDialog } from './pull-request-discard-review-dialog'
@@ -10,7 +13,7 @@ interface PullRequestPendingReviewBannerProps {
 	number: string
 	pendingReview: PullRequestPendingReview
 	headSha?: string
-	canSubmitReview: boolean
+	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	isOpen: boolean
 }
 
@@ -20,7 +23,7 @@ export function PullRequestPendingReviewBanner({
 	number,
 	pendingReview,
 	headSha,
-	canSubmitReview,
+	allowedOutcomes,
 	isOpen,
 }: Readonly<PullRequestPendingReviewBannerProps>) {
 	const { commentCount } = pendingReview
@@ -45,9 +48,10 @@ export function PullRequestPendingReviewBanner({
 					</p>
 				)}
 			</div>
-			{canSubmitReview ? (
+			{allowedOutcomes.length > 0 ? (
 				<div className="flex flex-wrap items-center gap-2">
 					<PullRequestReviewDialog
+						allowedOutcomes={allowedOutcomes}
 						headSha={headSha}
 						number={number}
 						pendingCommentCount={commentCount}

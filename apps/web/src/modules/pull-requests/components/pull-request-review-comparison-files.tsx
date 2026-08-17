@@ -1,6 +1,8 @@
 import type {
+	PullRequestPendingReview,
 	PullRequestReview,
 	PullRequestReviewId,
+	PullRequestReviewViewer,
 	SessionUser,
 } from '@repo/contracts'
 import type {
@@ -10,6 +12,7 @@ import type {
 import { usePullRequestReviewComparisonQuery } from '../hooks/use-pull-request-review-comparison.query'
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
+import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
 import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
 import { PullRequestsMessage } from './pull-requests-message'
 
@@ -21,6 +24,8 @@ interface PullRequestReviewComparisonFilesProps {
 	reviews: readonly PullRequestReview[]
 	onSelectedReviewIdChange: PullRequestReviewSelection['onReviewIdChange']
 	review?: PullRequestReviewContext
+	reviewViewer: PullRequestReviewViewer
+	viewerPendingReview?: PullRequestPendingReview
 	viewerUserId?: SessionUser['id']
 	isGitHubAuthoritative: boolean
 }
@@ -38,6 +43,8 @@ export function PullRequestReviewComparisonFiles({
 	reviews,
 	onSelectedReviewIdChange,
 	review,
+	reviewViewer,
+	viewerPendingReview,
 	viewerUserId,
 	isGitHubAuthoritative,
 }: Readonly<PullRequestReviewComparisonFilesProps>) {
@@ -66,23 +73,34 @@ export function PullRequestReviewComparisonFiles({
 				/>
 			)}
 			{reviewComparison?.status === 'ready' && (
-				<PullRequestComparisonFiles
-					anchorComparison={{
-						baseSha: reviewComparison.canonicalBaseSha,
-						headSha: reviewComparison.currentHeadSha,
-					}}
-					comparison={reviewComparison.comparison}
-					isGitHubAuthoritative={isGitHubAuthoritative}
-					isSinceReview
-					// Nothing about an expanded file survives a change of pair: the paths,
-					// and the diff behind them, belong to the comparison being shown.
-					key={`${reviewComparison.review.headSha}:${reviewComparison.currentHeadSha}`}
-					number={number}
-					review={review}
-					slug={slug}
-					username={username}
-					viewerUserId={viewerUserId}
-				/>
+				<>
+					<PullRequestReviewChangesAction
+						headSha={reviewComparison.currentHeadSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
+						number={number}
+						slug={slug}
+						username={username}
+						viewer={reviewViewer}
+						viewerPendingReview={viewerPendingReview}
+					/>
+					<PullRequestComparisonFiles
+						anchorComparison={{
+							baseSha: reviewComparison.canonicalBaseSha,
+							headSha: reviewComparison.currentHeadSha,
+						}}
+						comparison={reviewComparison.comparison}
+						isGitHubAuthoritative={isGitHubAuthoritative}
+						isSinceReview
+						// Nothing about an expanded file survives a change of pair: the paths,
+						// and the diff behind them, belong to the comparison being shown.
+						key={`${reviewComparison.review.headSha}:${reviewComparison.currentHeadSha}`}
+						number={number}
+						review={review}
+						slug={slug}
+						username={username}
+						viewerUserId={viewerUserId}
+					/>
+				</>
 			)}
 		</div>
 	)

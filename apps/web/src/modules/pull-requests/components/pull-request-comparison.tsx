@@ -1,6 +1,8 @@
 import type {
 	PullRequestComparison as PullRequestComparisonData,
+	PullRequestPendingReview,
 	PullRequestReview,
+	PullRequestReviewViewer,
 	SessionUser,
 } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
@@ -13,6 +15,8 @@ import type {
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
+import { PullRequestDiffSelectionProvider } from './pull-request-diff-selection-context'
+import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
 import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
 import { PullRequestReviewComparisonFiles } from './pull-request-review-comparison-files'
 import { PullRequestsMessage } from './pull-requests-message'
@@ -25,6 +29,8 @@ interface PullRequestComparisonProps {
 	number: string
 	tab: PullRequestDetailTab
 	review?: PullRequestReviewContext
+	reviewViewer: PullRequestReviewViewer
+	viewerPendingReview?: PullRequestPendingReview
 	reviews?: readonly PullRequestReview[]
 	viewerUserId?: SessionUser['id']
 	isGitHubAuthoritative: boolean
@@ -38,6 +44,8 @@ export function PullRequestComparison({
 	number,
 	tab,
 	review,
+	reviewViewer,
+	viewerPendingReview,
 	reviews,
 	viewerUserId,
 	reviewSelection,
@@ -55,17 +63,21 @@ export function PullRequestComparison({
 	// its states describe the selected one instead.
 	if (tab === 'files' && reviewSelection && selectedReviewId)
 		return (
-			<PullRequestReviewComparisonFiles
-				isGitHubAuthoritative={isGitHubAuthoritative}
-				number={number}
-				onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
-				review={review}
-				reviewId={selectedReviewId}
-				reviews={reviews ?? []}
-				slug={slug}
-				username={username}
-				viewerUserId={viewerUserId}
-			/>
+			<PullRequestDiffSelectionProvider>
+				<PullRequestReviewComparisonFiles
+					isGitHubAuthoritative={isGitHubAuthoritative}
+					number={number}
+					onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
+					review={review}
+					reviewId={selectedReviewId}
+					reviews={reviews ?? []}
+					reviewViewer={reviewViewer}
+					slug={slug}
+					username={username}
+					viewerPendingReview={viewerPendingReview}
+					viewerUserId={viewerUserId}
+				/>
+			</PullRequestDiffSelectionProvider>
 		)
 
 	if (comparisonQuery.isLoading) return <PullRequestComparisonSkeleton />
@@ -98,16 +110,27 @@ export function PullRequestComparison({
 					viewerUserId={viewerUserId}
 				/>
 			)}
-			<PullRequestComparisonFiles
-				anchorComparison={comparisonQuery.data}
-				comparison={comparisonQuery.data}
+			<PullRequestReviewChangesAction
+				headSha={comparisonQuery.data.headSha}
 				isGitHubAuthoritative={isGitHubAuthoritative}
 				number={number}
-				review={review}
 				slug={slug}
 				username={username}
-				viewerUserId={viewerUserId}
+				viewer={reviewViewer}
+				viewerPendingReview={viewerPendingReview}
 			/>
+			<PullRequestDiffSelectionProvider>
+				<PullRequestComparisonFiles
+					anchorComparison={comparisonQuery.data}
+					comparison={comparisonQuery.data}
+					isGitHubAuthoritative={isGitHubAuthoritative}
+					number={number}
+					review={review}
+					slug={slug}
+					username={username}
+					viewerUserId={viewerUserId}
+				/>
+			</PullRequestDiffSelectionProvider>
 		</div>
 	)
 }
