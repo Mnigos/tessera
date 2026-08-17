@@ -12,6 +12,7 @@ interface PullRequestNavigationProps {
 	slug: string
 	number: string
 	tab: PullRequestDetailTab
+	changedFilesCount?: number
 }
 
 interface PullRequestNavigationItem {
@@ -46,6 +47,7 @@ export function PullRequestNavigation({
 	slug,
 	number,
 	tab,
+	changedFilesCount,
 }: Readonly<PullRequestNavigationProps>) {
 	return (
 		<nav aria-label="Pull request details">
@@ -65,6 +67,11 @@ export function PullRequestNavigation({
 								to={item.to}
 							>
 								{item.label}
+								{item.tab === 'files' && changedFilesCount !== undefined && (
+									<span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+										{changedFilesCount}
+									</span>
+								)}
 							</Link>
 						</li>
 					)
