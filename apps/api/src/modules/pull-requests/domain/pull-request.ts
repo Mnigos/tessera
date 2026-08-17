@@ -3,6 +3,7 @@ import type {
 	PullRequest as PullRequestOutput,
 } from '@repo/contracts'
 import type { PullRequest, PullRequestEvent } from '@repo/db'
+import type { UserId } from '@repo/domain'
 import type {
 	PullRequestEventReadModel,
 	PullRequestReadModel,
@@ -37,6 +38,17 @@ export function toPullRequestOutput(
 		mergedAt: pullRequest.mergedAt ?? undefined,
 		github: 'github' in pullRequest ? pullRequest.github : undefined,
 	}
+}
+
+/**
+ * Who opened the pull request, as an account. A synchronized row stores no
+ * author user, so the answer is the account the author's GitHub identity is
+ * linked to — without it, a mirrored author would pass every authorship gate.
+ */
+export function getPullRequestAuthorUserId(
+	pullRequest: PullRequestReadModel
+): UserId | null {
+	return pullRequest.authorUserId ?? pullRequest.authorActorUserId ?? null
 }
 
 export function toPullRequestEventOutput(

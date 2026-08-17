@@ -10,6 +10,8 @@ export interface GitHubPullRequestAnchorCoordinates {
 	path: string
 	side: GitHubSyncDiffSide
 	line: number
+	/** Absent unless the comment spans more than the one line it ends on. */
+	startLine?: number
 	lineExcerpt: string
 	/** Head of the comparison these coordinates are numbered against. */
 	headSha: string
@@ -37,15 +39,21 @@ export function toGitHubPullRequestAnchorCoordinates(
 	if (comment.subjectType !== 'line') return undefined
 
 	const side = comment.side ?? 'right'
+	// A range GitHub starts on the other side is two anchors, and this model holds one.
+	const startsOnSide = (comment.startSide ?? side) === side
 	const candidates = [
 		providerOutdated
 			? undefined
-			: toAnchorCandidate(comment.line, currentHeadSha, false),
-		toAnchorCandidate(
-			comment.originalLine,
-			comment.originalCommitId ?? comment.commitId,
-			true
-		),
+			: toAnchorCandidate(false, {
+					line: comment.line,
+					startLine: startsOnSide ? comment.startLine : undefined,
+					headSha: currentHeadSha,
+				}),
+		toAnchorCandidate(true, {
+			line: comment.originalLine,
+			startLine: startsOnSide ? comment.originalStartLine : undefined,
+			headSha: comment.originalCommitId ?? comment.commitId,
+		}),
 	]
 
 	for (const candidate of candidates) {
@@ -66,13 +74,22 @@ export function toGitHubPullRequestAnchorCoordinates(
 }
 
 function toAnchorCandidate(
-	line: number | undefined,
-	headSha: string | undefined,
-	outdated: boolean
-): { line: number; headSha: string; outdated: boolean } | undefined {
+	outdated: boolean,
+	placement: { line?: number; startLine?: number; headSha?: string }
+):
+	| { line: number; startLine?: number; headSha: string; outdated: boolean }
+	| undefined {
+	const { headSha, line, startLine } = placement
+
 	if (!line || line <= 0 || !headSha) return undefined
 
-	return { line, headSha, outdated }
+	return {
+		line,
+		startLine:
+			startLine && startLine > 0 && startLine < line ? startLine : undefined,
+		headSha,
+		outdated,
+	}
 }
 
 /**

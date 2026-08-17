@@ -93,7 +93,16 @@ function toPullRequestThreadAnchor(
 	)
 		return undefined
 
-	return { anchorSha, baseSha, headSha, line, lineExcerpt, path, side }
+	return {
+		anchorSha,
+		baseSha,
+		endLine: line,
+		headSha,
+		lineExcerpt,
+		path,
+		side,
+		startLine: thread.startLine ?? line,
+	}
 }
 
 /**

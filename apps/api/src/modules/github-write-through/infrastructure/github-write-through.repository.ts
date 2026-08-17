@@ -280,6 +280,15 @@ export class GitHubWriteThroughRepository {
 		comment,
 		...params
 	}: EchoReviewCommentParams): Promise<PullRequestThreadId> {
+		// GitHub may place the comment elsewhere than the client asked.
+		const side = comment.side ?? anchor.side
+		const line = comment.line ?? anchor.endLine
+		// A range GitHub starts on the other side is two anchors, and this model holds one.
+		const providerStartLine =
+			(comment.startSide ?? side) === side ? comment.startLine : undefined
+		const startLine =
+			(comment.line ? providerStartLine : anchor.startLine) ?? line
+
 		return await this.echo(params, async (transaction, syncVersion) => {
 			const [thread] = await transaction
 				.insert(pullRequestThreads)
@@ -287,11 +296,12 @@ export class GitHubWriteThroughRepository {
 					pullRequestId: params.pullRequestId,
 					provider: 'github',
 					kind: 'inline',
-					...anchor,
-					// GitHub may place the comment elsewhere than the client asked.
+					baseSha: anchor.baseSha,
+					lineExcerpt: anchor.lineExcerpt,
 					path: comment.path,
-					side: comment.side ?? anchor.side,
-					line: comment.line ?? anchor.line,
+					side,
+					line,
+					startLine: startLine < line ? startLine : null,
 					anchorSha: comment.commitId ?? anchor.anchorSha,
 					headSha: comment.commitId ?? anchor.headSha,
 					createdAt: comment.createdAt,

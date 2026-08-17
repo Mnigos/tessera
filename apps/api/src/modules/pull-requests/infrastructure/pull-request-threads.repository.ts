@@ -142,6 +142,7 @@ const THREAD_READ_COLUMNS = {
 	kind: pullRequestThreads.kind,
 	path: pullRequestThreads.path,
 	side: pullRequestThreads.side,
+	startLine: pullRequestThreads.startLine,
 	line: pullRequestThreads.line,
 	anchorSha: pullRequestThreads.anchorSha,
 	baseSha: pullRequestThreads.baseSha,
@@ -317,7 +318,12 @@ export class PullRequestThreadsRepository {
 					kind: anchor ? 'inline' : 'top_level',
 					path: anchor?.path,
 					side: anchor?.side,
-					line: anchor?.line,
+					// The column carries a range only; a single line repeats its own start.
+					startLine:
+						anchor && anchor.startLine < anchor.endLine
+							? anchor.startLine
+							: undefined,
+					line: anchor?.endLine,
 					anchorSha: anchor?.anchorSha,
 					baseSha: anchor?.baseSha,
 					headSha: anchor?.headSha,

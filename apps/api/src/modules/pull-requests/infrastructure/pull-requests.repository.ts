@@ -199,6 +199,8 @@ export interface PullRequestReadModel extends PullRequest {
 	authorUsername?: string
 	/** The author's GitHub identity, present whether or not it maps to a user. */
 	authorActorNodeId?: string
+	/** The account that identity is linked to, which a synchronized row has instead of an author. */
+	authorActorUserId?: UserId
 	github?: {
 		nodeId: string
 		htmlUrl: string
@@ -219,6 +221,7 @@ export interface PullRequestEventReadModel
 interface PullRequestReadRow extends PullRequest {
 	authorUsername: string
 	authorActorNodeId: string | null
+	authorActorUserId: UserId | null
 	githubNodeId: string | null
 	githubHtmlUrl: string | null
 	githubDraft: boolean | null
@@ -267,6 +270,7 @@ const PULL_REQUEST_READ_COLUMNS = {
 	...PULL_REQUEST_COLUMNS,
 	authorUsername: sql<string>`coalesce(${authorUser.username}, ${authorGitHubActor.login})`,
 	authorActorNodeId: authorGitHubActor.externalNodeId,
+	authorActorUserId: authorGitHubActor.userId,
 	githubNodeId: gitHubPullRequestMappings.externalNodeId,
 	githubHtmlUrl: gitHubPullRequestMappings.htmlUrl,
 	githubDraft: gitHubPullRequestMappings.draft,
@@ -1383,6 +1387,7 @@ function toPullRequestReadModel(
 		authorUserId: pullRequest.authorUserId,
 		authorUsername: pullRequest.authorUsername,
 		authorActorNodeId: pullRequest.authorActorNodeId ?? undefined,
+		authorActorUserId: pullRequest.authorActorUserId ?? undefined,
 		sourceBranch: pullRequest.sourceBranch,
 		targetBranch: pullRequest.targetBranch,
 		openingBaseSha: pullRequest.openingBaseSha,

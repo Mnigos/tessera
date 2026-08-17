@@ -19,6 +19,7 @@ import type {
 	ParsedResolvePullRequestThreadInput,
 	PullRequestComment,
 	PullRequestThread,
+	PullRequestThreadAnchor,
 	PullRequestThreadKind,
 	PullRequestThreadViewer,
 } from '@repo/contracts'
@@ -34,12 +35,10 @@ import {
 } from '@repo/domain'
 import {
 	PullRequestNotFoundError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
-import {
-	PullRequestPendingReviewConflictError,
-	PullRequestReviewAuthorForbiddenError,
-} from '../domain/pull-request-review.errors'
+import { PullRequestPendingReviewConflictError } from '../domain/pull-request-review.errors'
 import {
 	isPullRequestThreadOutdated,
 	isPullRequestThreadParticipant,
@@ -148,18 +147,28 @@ export class PullRequestThreadsService {
 			slug,
 			username,
 		})
+		const comparison = anchor
+			? await this.requireAnchoredComparison(anchor, context)
+			: undefined
 		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
 
 		// GitHub owns the review envelope, so the review marker has nothing to join.
 		if (writeThrough) {
 			const threadId = await this.gitHubWriteThroughService.createThread(
 				writeThrough,
-				{ anchor, body }
+				{
+					body,
+					inline:
+						anchor && comparison
+							? { anchor, headSha: comparison.headSha }
+							: undefined,
+				}
 			)
 
 			return await this.toThreadOutput(
 				await this.findThread(threadId, context.pullRequest.id, viewerUserId),
-				context
+				context,
+				comparison
 			)
 		}
 
@@ -182,7 +191,24 @@ export class PullRequestThreadsService {
 				userId: viewerUserId,
 			})
 
-		return await this.toThreadOutput(thread, context)
+		return await this.toThreadOutput(thread, context, comparison)
+	}
+
+	/** The comparison an anchor claims, refused once its lines number a moved head. */
+	private async requireAnchoredComparison(
+		anchor: PullRequestThreadAnchor,
+		context: PullRequestThreadContext
+	): Promise<PullRequestThreadComparison> {
+		const comparison = await this.resolveComparison(context)
+
+		if (anchor.headSha !== comparison.headSha)
+			throw new PullRequestStaleComparisonError({
+				pullRequestId: context.pullRequest.id,
+				anchorHeadSha: anchor.headSha,
+				headSha: comparison.headSha,
+			})
+
+		return comparison
 	}
 
 	async replyThread(
@@ -512,12 +538,6 @@ export class PullRequestThreadsService {
 				action: 'review',
 			})
 
-		if (pullRequest.authorUserId === viewerUserId)
-			throw new PullRequestReviewAuthorForbiddenError({
-				pullRequestId: pullRequest.id,
-				userId: viewerUserId,
-			})
-
 		const reviewId =
 			await this.pullRequestReviewsRepository.getOrCreatePendingReview({
 				pullRequestId: pullRequest.id,
@@ -572,12 +592,13 @@ export class PullRequestThreadsService {
 
 	private async toThreadOutput(
 		thread: PullRequestThreadReadModel,
-		context: PullRequestThreadContext
+		context: PullRequestThreadContext,
+		resolved?: PullRequestThreadComparison
 	): Promise<PullRequestThread> {
 		if (thread.kind !== 'inline')
 			return toPullRequestThreadOutput(thread, false)
 
-		const comparison = await this.resolveComparison(context)
+		const comparison = resolved ?? (await this.resolveComparison(context))
 
 		return toPullRequestThreadOutput(
 			thread,

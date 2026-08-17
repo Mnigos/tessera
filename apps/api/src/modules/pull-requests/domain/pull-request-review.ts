@@ -1,9 +1,11 @@
-import type {
-	PullRequestEffectiveReviewState,
-	PullRequestReviewComparisonContext,
-	PullRequestReviewerRequest as PullRequestReviewerRequestOutput,
-	PullRequestReview as PullRequestReviewOutput,
-	PullRequestReviewSummary,
+import {
+	type PullRequestEffectiveReviewState,
+	type PullRequestReviewComparisonContext,
+	type PullRequestReviewerRequest as PullRequestReviewerRequestOutput,
+	type PullRequestReviewOutcome,
+	type PullRequestReview as PullRequestReviewOutput,
+	type PullRequestReviewSummary,
+	pullRequestReviewOutcomeSchema,
 } from '@repo/contracts'
 import type { UserId } from '@repo/domain'
 import type {
@@ -192,10 +194,17 @@ export function toPullRequestReviewSummary(
 	return { requestedCount, approvedCount, changeRequestCount, staleCount }
 }
 
+// GitHub lets authors comment on their own work, never approve or block it.
+export function toAllowedPullRequestReviewOutcomes(
+	isAuthor: boolean
+): PullRequestReviewOutcome[] {
+	return isAuthor ? ['comment'] : [...pullRequestReviewOutcomeSchema.options]
+}
+
 /**
- * A pull request author cannot review their own work — including when they
- * reach it through GitHub, where the same person may be the unmapped author
- * actor rather than a Tessera account.
+ * An author's own review never counts as a verdict on their pull request —
+ * including when they reach it through GitHub, where the same person may be the
+ * unmapped author actor rather than a Tessera account.
  */
 function isPullRequestAuthor(
 	reviewer: { externalNodeId?: string; userId?: UserId },

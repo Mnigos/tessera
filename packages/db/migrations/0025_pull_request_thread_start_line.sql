@@ -1,0 +1,6 @@
+ALTER TABLE "pull_request_threads" DROP CONSTRAINT "pull_request_threads_anchor_check";--> statement-breakpoint
+ALTER TABLE "pull_request_threads" ADD COLUMN "start_line" integer;--> statement-breakpoint
+ALTER TABLE "pull_request_threads" ADD CONSTRAINT "pull_request_threads_anchor_check" CHECK ((
+				("pull_request_threads"."kind"::text = 'top_level' and "pull_request_threads"."path" is null and "pull_request_threads"."side" is null and "pull_request_threads"."start_line" is null and "pull_request_threads"."line" is null and "pull_request_threads"."anchor_sha" is null and "pull_request_threads"."base_sha" is null and "pull_request_threads"."head_sha" is null and "pull_request_threads"."line_excerpt" is null)
+				or ("pull_request_threads"."kind"::text = 'inline' and "pull_request_threads"."path" is not null and "pull_request_threads"."side" is not null and "pull_request_threads"."line" is not null and "pull_request_threads"."line" > 0 and ("pull_request_threads"."start_line" is null or ("pull_request_threads"."start_line" > 0 and "pull_request_threads"."start_line" <= "pull_request_threads"."line")) and "pull_request_threads"."anchor_sha" is not null and "pull_request_threads"."base_sha" is not null and "pull_request_threads"."head_sha" is not null and "pull_request_threads"."line_excerpt" is not null)
+			));
