@@ -4,13 +4,20 @@ import type {
 	PullRequestReviewViewer,
 } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { usePullRequestComparisonQuery } from '../hooks/use-pull-request-comparison.query'
 import { usePullRequestFileDiffQuery } from '../hooks/use-pull-request-file-diff.query'
 import { PullRequestComparison } from './pull-request-comparison'
 
 vi.mock('../hooks/use-pull-request-comparison.query', () => ({
 	usePullRequestComparisonQuery: vi.fn(),
+}))
+
+vi.mock('../hooks/use-pull-request-file-expansion', () => ({
+	usePullRequestFileExpansion: () => ({
+		lines: new Map(),
+		expand: vi.fn(),
+		retry: vi.fn(),
+	}),
 }))
 
 vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
@@ -24,6 +31,18 @@ vi.mock('../hooks/use-submit-pull-request-review.mutation', () => ({
 		mutate: vi.fn(),
 		reset: vi.fn(),
 	}),
+}))
+
+vi.mock('../hooks/use-pull-request-viewed-files.query', () => ({
+	usePullRequestViewedFilesQuery: () => ({ data: undefined }),
+}))
+
+vi.mock('../hooks/use-set-pull-request-file-viewed.mutation', () => ({
+	useSetPullRequestFileViewedMutation: () => ({ mutate: vi.fn() }),
+}))
+
+vi.mock('../hooks/use-prefetch-pull-request-file-diff', () => ({
+	usePrefetchPullRequestFileDiff: () => prefetchFileDiffMock,
 }))
 
 vi.mock('../hooks/use-pull-request-threads.query', () => ({
@@ -43,9 +62,9 @@ const COMMENT_REVIEW_VIEWER: PullRequestReviewViewer = {
 	...NO_REVIEW_VIEWER,
 	allowedOutcomes: ['comment'],
 }
+const prefetchFileDiffMock = vi.fn()
 const useComparisonQueryMock = vi.mocked(usePullRequestComparisonQuery)
 const useFileDiffQueryMock = vi.mocked(usePullRequestFileDiffQuery)
-const INDEX_FILE_BUTTON_NAME_REGEX = /src\/index\.ts/
 const BINARY_FILE_CHANGED_REGEX = /Binary file changed/
 
 const CHANGED_FILE = {
@@ -155,7 +174,7 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByTitle('1 check requires attention')).toBeTruthy()
 	})
 
-	test('fetches and renders a file diff only after expansion', async () => {
+	test('fetches and renders every ordinary file diff on load', () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
 			isLoading: false,
@@ -175,7 +194,7 @@ describe(PullRequestComparison.name, () => {
 							{
 								kind: 'addition',
 								content: 'const answer = 42',
-								darkHtml: '<span>const answer = 42</span>',
+								html: '<span>const answer = 42</span>',
 								new: {
 									sha: COMPARISON.headSha,
 									path: 'src/index.ts',
@@ -192,8 +211,6 @@ describe(PullRequestComparison.name, () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
-
 		render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -205,10 +222,6 @@ describe(PullRequestComparison.name, () => {
 			/>
 		)
 
-		expect(useFileDiffQueryMock).not.toHaveBeenCalled()
-		await user.click(
-			screen.getByRole('button', { name: INDEX_FILE_BUTTON_NAME_REGEX })
-		)
 		expect(useFileDiffQueryMock).toHaveBeenCalledWith(
 			{
 				username: 'marta',
@@ -220,11 +233,15 @@ describe(PullRequestComparison.name, () => {
 			},
 			true
 		)
-		expect(screen.getAllByText('const answer = 42')).toHaveLength(2)
+		expect(screen.getAllByText('const answer = 42')).toHaveLength(1)
 		expect(screen.getByText('@@ -1 +1 @@')).toBeTruthy()
 	})
 
 	test('shows the files-view review trigger when commenting is allowed', () => {
+		useFileDiffQueryMock.mockReturnValue({
+			isLoading: true,
+			isError: false,
+		} as never)
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
 			isLoading: false,
@@ -246,6 +263,10 @@ describe(PullRequestComparison.name, () => {
 	})
 
 	test('shows rename origins and bounded comparison notices', () => {
+		useFileDiffQueryMock.mockReturnValue({
+			isLoading: true,
+			isError: false,
+		} as never)
 		useComparisonQueryMock.mockReturnValue({
 			data: {
 				...COMPARISON,
@@ -275,7 +296,7 @@ describe(PullRequestComparison.name, () => {
 			/>
 		)
 
-		expect(screen.getByText('src/old.ts → src/new.ts')).toBeTruthy()
+		expect(screen.getByTitle('src/old.ts → src/new.ts')).toBeTruthy()
 		expect(screen.getByText('File list truncated')).toBeTruthy()
 		rerender(
 			<PullRequestComparison
@@ -290,7 +311,7 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByText('Commit list truncated')).toBeTruthy()
 	})
 
-	test('pairs removed and added lines in a split diff', async () => {
+	test('pairs removed and added lines in a split diff', () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
 			isLoading: false,
@@ -362,7 +383,6 @@ describe(PullRequestComparison.name, () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
 		const { container } = render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -372,10 +392,6 @@ describe(PullRequestComparison.name, () => {
 				tab="files"
 				username="marta"
 			/>
-		)
-
-		await user.click(
-			screen.getByRole('button', { name: INDEX_FILE_BUTTON_NAME_REGEX })
 		)
 
 		expect(
@@ -392,6 +408,10 @@ describe(PullRequestComparison.name, () => {
 		expect(container.querySelector('[data-diff-code]')?.className).toContain(
 			'[font-variant-ligatures:none]'
 		)
+		// A shared sideways scroller would spend the right half's width on the left one.
+		expect(
+			container.querySelector('[data-diff-code]')?.className
+		).not.toContain('overflow-x-auto')
 		expect(
 			container.querySelector('[data-side="left"][data-kind="context"]')
 				?.textContent
@@ -402,7 +422,7 @@ describe(PullRequestComparison.name, () => {
 		).toContain('finish()')
 	})
 
-	test('renders binary and loading fallbacks', async () => {
+	test('renders binary and loading fallbacks', () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: COMPARISON,
 			isLoading: false,
@@ -421,7 +441,6 @@ describe(PullRequestComparison.name, () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
 		const { rerender } = render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -433,9 +452,6 @@ describe(PullRequestComparison.name, () => {
 			/>
 		)
 
-		await user.click(
-			screen.getByRole('button', { name: INDEX_FILE_BUTTON_NAME_REGEX })
-		)
 		expect(screen.getByText(BINARY_FILE_CHANGED_REGEX)).toBeTruthy()
 
 		useComparisonQueryMock.mockReturnValue({

@@ -43,6 +43,18 @@ vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-viewed-files.query', () => ({
+	usePullRequestViewedFilesQuery: () => ({ data: undefined }),
+}))
+
+vi.mock('../hooks/use-set-pull-request-file-viewed.mutation', () => ({
+	useSetPullRequestFileViewedMutation: () => IDLE_MUTATION,
+}))
+
+vi.mock('../hooks/use-prefetch-pull-request-file-diff', () => ({
+	usePrefetchPullRequestFileDiff: () => prefetchFileDiffMock,
+}))
+
 vi.mock('../hooks/use-pull-request-threads.query', () => ({
 	usePullRequestThreadsQuery: vi.fn(),
 }))
@@ -70,6 +82,8 @@ vi.mock('../hooks/use-resolve-pull-request-thread.mutation', () => ({
 vi.mock('../hooks/use-unresolve-pull-request-thread.mutation', () => ({
 	useUnresolvePullRequestThreadMutation: () => IDLE_MUTATION,
 }))
+
+const prefetchFileDiffMock = vi.fn()
 
 const IDLE_MUTATION = {
 	error: undefined,
@@ -100,7 +114,6 @@ const createdAt = new Date('2026-08-06T10:00:00.000Z')
 const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
 const MOVED_HEAD_SHA = 'c'.repeat(40)
-const RENAMED_FILE_BUTTON_NAME_REGEX = /src\/old\.ts → src\/new\.ts/
 const COMMENTED_EVENT_REGEX = /Pull request commented/
 const RESOLVED_EVENT_REGEX = /Comment thread resolved by marta/
 const UNRESOLVED_EVENT_REGEX = /Comment thread unresolved by marta/
@@ -236,7 +249,7 @@ describe('pull request threads', () => {
 		vi.resetAllMocks()
 	})
 
-	test('fetches threads once for the whole pull request and keeps left-side threads on a renamed file', async () => {
+	test('fetches threads once for the whole pull request and keeps left-side threads on a renamed file', () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [
@@ -252,8 +265,6 @@ describe('pull request threads', () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
-
 		render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -270,9 +281,8 @@ describe('pull request threads', () => {
 			slug: 'notes',
 			number: '1',
 		})
-		expect(useThreadsQueryMock).toHaveBeenCalledTimes(1)
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
+		expect(useThreadsQueryMock).not.toHaveBeenCalledWith(
+			expect.objectContaining({ path: expect.anything() })
 		)
 		expect(screen.getByText('Anchored to the pre-rename path')).toBeTruthy()
 	})
@@ -317,7 +327,7 @@ describe('pull request threads', () => {
 		expect(screen.queryByText('Top level comment')).toBeNull()
 	})
 
-	test('shows a matched-file thread under its file card when the diff has no hunks', async () => {
+	test('shows a matched-file thread under its file card when the diff has no hunks', () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [
@@ -337,8 +347,6 @@ describe('pull request threads', () => {
 			...FILE_DIFF,
 			data: { ...FILE_DIFF.data, hunks: [] },
 		} as never)
-		const user = userEvent.setup()
-
 		render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -350,9 +358,6 @@ describe('pull request threads', () => {
 			/>
 		)
 		expect(screen.queryByText('Outdated discussions (1)')).toBeNull()
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
-		)
 		expect(screen.getByText('No text changes to display.')).toBeTruthy()
 		expect(screen.getByText('Comments (1)')).toBeTruthy()
 		expect(screen.getByText('Discussion with no rendered hunk')).toBeTruthy()
@@ -361,7 +366,7 @@ describe('pull request threads', () => {
 	test.each([
 		['without a session', undefined],
 		['for a GitHub-authoritative pull request', AUTHOR_USER_ID],
-	])('withholds line composers %s', async (_context, viewerUserId) => {
+	])('withholds line composers %s', (_context, viewerUserId) => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [],
@@ -375,8 +380,6 @@ describe('pull request threads', () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
-
 		render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -387,10 +390,6 @@ describe('pull request threads', () => {
 				username="marta"
 				viewerUserId={viewerUserId}
 			/>
-		)
-
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
 		)
 
 		expect(
@@ -457,9 +456,6 @@ describe('pull request threads', () => {
 				tab="files"
 				username="marta"
 			/>
-		)
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
 		)
 		await user.click(
 			screen.getByRole('button', { name: 'Comment on original line 4' })
@@ -1013,9 +1009,6 @@ describe('pull request threads', () => {
 		)
 		const { rerender } = render(comparison())
 
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
-		)
 		await user.click(
 			screen.getByRole('button', { name: 'Comment on original line 1' })
 		)

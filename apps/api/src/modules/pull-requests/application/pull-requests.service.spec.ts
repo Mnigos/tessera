@@ -5,11 +5,12 @@ import {
 import { status } from '@grpc/grpc-js'
 import { BranchProtectionService } from '@modules/branch-protection'
 import { ChecksReadService } from '@modules/checks'
+import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { MergeRequirements } from '@repo/contracts'
-import type { PullRequest, PullRequestEvent } from '@repo/db'
+import type { GitHubActorId, PullRequest, PullRequestEvent } from '@repo/db'
 import type {
 	PullRequestEventId,
 	PullRequestId,
@@ -22,11 +23,13 @@ import { mockUserId } from '~/shared/test-utils'
 import { RepositoryMergeInProgressError } from '../domain/merge-queue.errors'
 import {
 	PullRequestAlreadyOpenError,
+	PullRequestFileContentNotFoundError,
 	PullRequestInvalidBranchesError,
 	PullRequestMergeInProgressError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
 	PullRequestQueuedError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
@@ -88,6 +91,12 @@ const pullRequest: PullRequest = {
 	mergedBaseSha: null,
 	mergedHeadSha: null,
 	mergeActorUserId: null,
+	diffStatsBaseSha: null,
+	diffStatsHeadSha: null,
+	diffAdditions: null,
+	diffDeletions: null,
+	diffChangedFiles: null,
+	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
 	closedAt: null,
@@ -149,6 +158,8 @@ const reviewComparisonInput = { ...repositoryInput, number: 1, reviewId }
 const noActor = {
 	userId: null,
 	username: null,
+	displayName: null,
+	imageUrl: null,
 	externalNodeId: null,
 	externalLogin: null,
 	externalAvatarUrl: null,
@@ -196,6 +207,33 @@ const reviewComparison: GitStorageRepositoryComparison = {
 		},
 	],
 }
+const gitHubPullRequest = {
+	nodeId: 'github-pull-request-node',
+	numericId: 101n,
+	number: 77,
+	htmlUrl: 'https://github.com/marta/notes/pull/77',
+	title: 'Synchronized pull request',
+	body: '',
+	state: 'open',
+	draft: false,
+	labels: [],
+	assignees: [],
+	author: {
+		nodeId: 'github-user-node',
+		numericId: 7n,
+		login: 'marta',
+		type: 'user',
+	},
+	sourceBranch: 'feature',
+	targetBranch: 'main',
+	headRepositoryNodeId: 'repository-node',
+	baseRepositoryNodeId: 'repository-node',
+	headSha: 'b'.repeat(40),
+	baseSha: 'a'.repeat(40),
+	createdAt,
+	updatedAt: createdAt,
+} satisfies GitHubSyncPullRequest
+const gitHubActorId = '00000000-0000-4000-8000-000000000099' as GitHubActorId
 
 describe(PullRequestsService.name, () => {
 	let moduleRef: TestingModule
@@ -230,6 +268,9 @@ describe(PullRequestsService.name, () => {
 						completeMerge: vi.fn(),
 						releaseMerge: vi.fn(),
 						recordMergeBlocked: vi.fn(),
+						writeDiffStats: vi.fn(),
+						clearDiffStats: vi.fn(),
+						reconcileGitHubPullRequest: vi.fn(),
 					},
 				},
 				{
@@ -400,6 +441,127 @@ describe(PullRequestsService.name, () => {
 			title: 'Add feature',
 			body: '',
 		})
+	})
+
+	test.each([
+		false,
+		true,
+	])('clears reconciled GitHub stats only when comparisonChanged is %s', async comparisonChanged => {
+		vi.spyOn(repository, 'reconcileGitHubPullRequest').mockResolvedValue({
+			id: pullRequestId,
+			comparisonChanged,
+		})
+
+		await service.reconcileGitHubPullRequests({
+			actorIds: new Map([[gitHubPullRequest.author.nodeId, gitHubActorId]]),
+			pendingEvents: [],
+			pullRequests: [gitHubPullRequest],
+			repositoryId,
+		})
+
+		expect(repository.clearDiffStats).toHaveBeenCalledTimes(
+			comparisonChanged ? 1 : 0
+		)
+		if (comparisonChanged)
+			expect(repository.clearDiffStats).toHaveBeenCalledWith(pullRequestId)
+	})
+
+	test('stores the diff totals GitHub reported instead of clearing them', async () => {
+		vi.spyOn(repository, 'reconcileGitHubPullRequest').mockResolvedValue({
+			id: pullRequestId,
+			comparisonChanged: true,
+		})
+
+		await service.reconcileGitHubPullRequests({
+			actorIds: new Map([[gitHubPullRequest.author.nodeId, gitHubActorId]]),
+			pendingEvents: [],
+			pullRequests: [
+				{
+					...gitHubPullRequest,
+					additions: 12,
+					deletions: 4,
+					changedFiles: 2,
+				},
+			],
+			repositoryId,
+		})
+
+		expect(repository.writeDiffStats).toHaveBeenCalledWith({
+			pullRequestId,
+			baseSha: gitHubPullRequest.baseSha,
+			headSha: gitHubPullRequest.headSha,
+			additions: 12,
+			deletions: 4,
+			changedFiles: 2,
+			computedAt: expect.any(Date),
+		})
+		expect(repository.clearDiffStats).not.toHaveBeenCalled()
+	})
+
+	test('computes, caches, and returns diff stats when creating', async () => {
+		vi.spyOn(repository, 'create').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
+			...canonicalComparison,
+			headSha: 'head-sha',
+			mergeBaseSha: 'merge-base-sha',
+			files: [
+				{
+					status: 'modified',
+					oldPath: 'src/index.ts',
+					newPath: 'src/index.ts',
+					baseBlobId: 'base-blob',
+					headBlobId: 'head-blob',
+					additions: 12,
+					deletions: 4,
+					isBinary: false,
+				},
+			],
+		})
+		const writeDiffStatsSpy = vi.spyOn(repository, 'writeDiffStats')
+
+		expect(
+			await service.create(mockUserId, {
+				...repositoryInput,
+				sourceBranch: 'feature',
+				targetBranch: 'main',
+				title: 'Add feature',
+				body: undefined,
+			})
+		).toMatchObject({
+			diffStats: { additions: 12, deletions: 4, changedFiles: 1 },
+		})
+		expect(writeDiffStatsSpy).toHaveBeenCalledWith({
+			pullRequestId,
+			baseSha: 'merge-base-sha',
+			headSha: 'head-sha',
+			additions: 12,
+			deletions: 4,
+			changedFiles: 1,
+			computedAt: expect.any(Date),
+		})
+	})
+
+	test('returns no create stats and warns when comparison fails', async () => {
+		vi.spyOn(repository, 'create').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockRejectedValue(
+			new Error('comparison unavailable')
+		)
+		const warnSpy = vi.spyOn(service['logger'], 'warn')
+
+		expect(
+			await service.create(mockUserId, {
+				...repositoryInput,
+				sourceBranch: 'feature',
+				targetBranch: 'main',
+				title: 'Add feature',
+				body: undefined,
+			})
+		).toMatchObject({ diffStats: undefined })
+		expect(warnSpy).toHaveBeenCalledWith(
+			`Diff stats for pull request ${pullRequestId} could not be computed`,
+			expect.any(Error)
+		)
+		expect(repository.writeDiffStats).not.toHaveBeenCalled()
 	})
 
 	test('rejects missing branches', async () => {
@@ -783,6 +945,47 @@ describe(PullRequestsService.name, () => {
 			).toHaveBeenCalled()
 		})
 
+		test('clears stale stats before computing and returning the retargeted pair', async () => {
+			vi.spyOn(repository, 'retarget').mockResolvedValue({
+				status: 'retargeted',
+				pullRequest: retargeted,
+			})
+			const clearDiffStatsSpy = vi.spyOn(repository, 'clearDiffStats')
+			const compareSpy = vi
+				.spyOn(gitStorageClient, 'compareRepositoryRefs')
+				.mockResolvedValue({
+					...canonicalComparison,
+					headSha: 'head-sha',
+					mergeBaseSha: 'release-merge-base',
+					files: [
+						{
+							status: 'modified',
+							oldPath: 'src/index.ts',
+							newPath: 'src/index.ts',
+							baseBlobId: 'base-blob',
+							headBlobId: 'head-blob',
+							additions: 5,
+							deletions: 2,
+							isBinary: false,
+						},
+					],
+				})
+
+			expect(await service.retarget(mockUserId, retargetInput)).toMatchObject({
+				targetBranch: 'release',
+				diffStats: { additions: 5, deletions: 2, changedFiles: 1 },
+			})
+			expect(clearDiffStatsSpy).toHaveBeenCalledWith(pullRequestId)
+			expect(compareSpy).toHaveBeenCalledWith({
+				...repositoryContext,
+				baseRef: 'release',
+				headRef: 'feature',
+			})
+			expect(clearDiffStatsSpy.mock.invocationCallOrder[0]).toBeLessThan(
+				compareSpy.mock.invocationCallOrder[0] ?? 0
+			)
+		})
+
 		// The write is fenced on the same lease the service took, so the transaction
 		// can prove the hold still exists rather than trusting that it once did.
 		test('hands the lease it acquired to the write that is fenced on it', async () => {
@@ -1072,6 +1275,97 @@ describe(PullRequestsService.name, () => {
 		})
 	})
 
+	test('skips comparison repair when the cached pair already matches', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			diffStatsBaseSha: canonicalComparison.mergeBaseSha,
+			diffStatsHeadSha: canonicalComparison.headSha,
+		})
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue(
+			canonicalComparison
+		)
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(repository.writeDiffStats).not.toHaveBeenCalled()
+	})
+
+	// Synchronized stats are dated by the mapped base, which the merge base only
+	// equals when the target branch has not moved since.
+	test('keeps synchronized stats dated by the mapped GitHub base', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			diffStatsBaseSha: 'github-base-sha',
+			diffStatsHeadSha: canonicalComparison.headSha,
+			github: {
+				nodeId: 'github-pull-request-node',
+				htmlUrl: 'https://github.com/marta/notes/pull/77',
+				draft: false,
+				headSha: canonicalComparison.headSha,
+				baseSha: 'github-base-sha',
+			},
+		})
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue(
+			canonicalComparison
+		)
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(repository.writeDiffStats).not.toHaveBeenCalled()
+	})
+
+	test('repairs comparison stats when the cached pair differs', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
+			...canonicalComparison,
+			files: [
+				{
+					status: 'modified',
+					oldPath: 'src/index.ts',
+					newPath: 'src/index.ts',
+					baseBlobId: 'base-blob',
+					headBlobId: 'head-blob',
+					additions: 9,
+					deletions: 3,
+					isBinary: false,
+				},
+			],
+		})
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(repository.writeDiffStats).toHaveBeenCalledWith({
+			pullRequestId,
+			baseSha: canonicalComparison.mergeBaseSha,
+			headSha: canonicalComparison.headSha,
+			additions: 9,
+			deletions: 3,
+			changedFiles: 1,
+			computedAt: expect.any(Date),
+		})
+	})
+
+	test('clears stale stats instead of caching a truncated comparison', async () => {
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			diffStatsBaseSha: 'old-base',
+			diffStatsHeadSha: 'old-head',
+			diffAdditions: 20,
+			diffDeletions: 5,
+			diffChangedFiles: 3,
+			diffStatsUpdatedAt: createdAt,
+		})
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
+			...canonicalComparison,
+			isTruncated: true,
+		})
+
+		await service.comparison(undefined, { ...repositoryInput, number: 1 })
+
+		expect(repository.clearDiffStats).toHaveBeenCalledWith(pullRequestId)
+		expect(repository.writeDiffStats).not.toHaveBeenCalled()
+	})
+
 	test('uses the persisted merge commit parents for merged comparisons', async () => {
 		vi.spyOn(repository, 'find').mockResolvedValue({
 			...pullRequest,
@@ -1184,6 +1478,15 @@ describe(PullRequestsService.name, () => {
 				{ key: 'f'.repeat(40), sha: 'f'.repeat(40), isCurrent: false },
 			],
 			repositoryId,
+		})
+		expect(repository.writeDiffStats).toHaveBeenCalledWith({
+			pullRequestId,
+			baseSha: canonicalComparison.mergeBaseSha,
+			headSha: canonicalComparison.headSha,
+			additions: 0,
+			deletions: 0,
+			changedFiles: 0,
+			computedAt: expect.any(Date),
 		})
 	})
 
@@ -1319,6 +1622,97 @@ describe(PullRequestsService.name, () => {
 			baseRef: 'a'.repeat(40),
 			headRef: 'b'.repeat(40),
 			path: 'src/index.ts',
+		})
+	})
+
+	describe('expanding context lines', () => {
+		const fileLinesInput = {
+			...repositoryInput,
+			number: 1,
+			path: 'src/index.ts',
+			side: 'right' as const,
+			startLine: 1,
+			endLine: 2,
+			expectedBaseSha: 'a'.repeat(40),
+			expectedHeadSha: 'b'.repeat(40),
+		}
+		const expandableDiff = {
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+			mergeBaseSha: 'a'.repeat(40),
+			file: {
+				status: 'modified' as const,
+				oldPath: 'src/index.ts',
+				newPath: 'src/index.ts',
+				baseBlobId: 'base-blob',
+				headBlobId: 'head-blob',
+				additions: 1,
+				deletions: 0,
+				isBinary: false,
+			},
+			hunks: [],
+			isTruncated: false,
+			patchLimitBytes: 2_097_152,
+		}
+
+		test('slices the head blob into context lines anchored on the requested side', async () => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockResolvedValue(
+				expandableDiff
+			)
+			const blobSpy = vi
+				.spyOn(gitStorageClient, 'getRepositoryBlob')
+				.mockResolvedValue({
+					objectId: 'head-blob',
+					sizeBytes: 28,
+					preview: { type: 'text', content: 'const a = 1\nconst b = 2\n' },
+				})
+
+			await expect(
+				service.fileLines(undefined, fileLinesInput)
+			).resolves.toMatchObject({
+				totalLines: 2,
+				lines: [
+					{ kind: 'context', content: 'const a = 1' },
+					{
+						kind: 'context',
+						new: { line: 2, path: 'src/index.ts', sha: 'b'.repeat(40) },
+					},
+				],
+			})
+			expect(blobSpy).toHaveBeenCalledWith({
+				...repositoryContext,
+				objectId: 'head-blob',
+			})
+		})
+
+		test('reports commits git storage no longer holds as a stale comparison', async () => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockRejectedValue(
+				new ExternalServiceError('git storage', {
+					grpcCode: status.NOT_FOUND,
+				})
+			)
+
+			await expect(
+				service.fileLines(undefined, fileLinesInput)
+			).rejects.toBeInstanceOf(PullRequestStaleComparisonError)
+		})
+
+		test('refuses to expand a side with no readable text', async () => {
+			vi.spyOn(repository, 'find').mockResolvedValue(pullRequest)
+			vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockResolvedValue(
+				expandableDiff
+			)
+			vi.spyOn(gitStorageClient, 'getRepositoryBlob').mockResolvedValue({
+				objectId: 'head-blob',
+				sizeBytes: 2_097_152,
+				preview: { type: 'tooLarge', previewLimitBytes: 1_048_576 },
+			})
+
+			await expect(
+				service.fileLines(undefined, fileLinesInput)
+			).rejects.toBeInstanceOf(PullRequestFileContentNotFoundError)
 		})
 	})
 

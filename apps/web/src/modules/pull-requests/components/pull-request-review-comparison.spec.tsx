@@ -29,6 +29,18 @@ vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-viewed-files.query', () => ({
+	usePullRequestViewedFilesQuery: () => ({ data: undefined }),
+}))
+
+vi.mock('../hooks/use-set-pull-request-file-viewed.mutation', () => ({
+	useSetPullRequestFileViewedMutation: () => IDLE_MUTATION,
+}))
+
+vi.mock('../hooks/use-prefetch-pull-request-file-diff', () => ({
+	usePrefetchPullRequestFileDiff: () => prefetchFileDiffMock,
+}))
+
 vi.mock('../hooks/use-pull-request-threads.query', () => ({
 	usePullRequestThreadsQuery: vi.fn(),
 }))
@@ -65,6 +77,8 @@ vi.mock('../hooks/use-resolve-pull-request-thread.mutation', () => ({
 vi.mock('../hooks/use-unresolve-pull-request-thread.mutation', () => ({
 	useUnresolvePullRequestThreadMutation: () => IDLE_MUTATION,
 }))
+
+const prefetchFileDiffMock = vi.fn()
 
 const IDLE_MUTATION = {
 	error: undefined,
@@ -554,7 +568,7 @@ describe('pull request review comparison', () => {
 		).toBeTruthy()
 	})
 
-	test('collapses expanded files when the selected comparison pair changes', async () => {
+	test('forgets collapsed files when the selected comparison pair changes', async () => {
 		const user = userEvent.setup()
 		const rendered = renderComparison({ selectedReviewId: VIEWER_REVIEW.id })
 
@@ -565,7 +579,7 @@ describe('pull request review comparison', () => {
 			screen
 				.getByRole('button', { name: CHANGED_FILE_BUTTON_NAME_REGEX })
 				.getAttribute('aria-expanded')
-		).toBe('true')
+		).toBe('false')
 		const nextReviewHeadSha = 'e'.repeat(40)
 		const nextCurrentHeadSha = 'f'.repeat(40)
 		useReviewComparisonQueryMock.mockReturnValue({
@@ -607,7 +621,7 @@ describe('pull request review comparison', () => {
 			screen
 				.getByRole('button', { name: CHANGED_FILE_BUTTON_NAME_REGEX })
 				.getAttribute('aria-expanded')
-		).toBe('false')
+		).toBe('true')
 	})
 
 	test('says the reviewed history diverged instead of implying a clean interval', () => {

@@ -91,6 +91,8 @@ const gitHubPullRequest: GitHubSyncPullRequest = {
 	body: '',
 	state: 'open',
 	draft: false,
+	labels: [],
+	assignees: [],
 	author: {
 		nodeId: 'actor-node',
 		numericId: 9n,
@@ -247,6 +249,7 @@ describe(PullRequestsRepository.name, () => {
 						delete: deleteMock,
 						transaction: transactionMock,
 						select: selectMock,
+						update: updateMock,
 					},
 				},
 			],
@@ -391,6 +394,26 @@ describe(PullRequestsRepository.name, () => {
 		expect(cursor.params).toContain('moved-head')
 	})
 
+	test('stores the labels and assignees GitHub reports on the mapping', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([{ pullRequestId, repositoryId }])
+		const labels = [{ name: 'bug', color: 'd73a4a' }]
+		const assignees = [{ login: 'ines' }]
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: { ...gitHubPullRequest, labels, assignees },
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		const [values] = mappingValuesMock.mock.calls.at(0) ?? []
+		const [upsert] = mappingConflictMock.mock.calls.at(0) ?? []
+
+		expect(values).toMatchObject({ labels, assignees })
+		expect(upsert.set).toMatchObject({ labels, assignees })
+	})
+
 	test('does not regress a pull request from a provider snapshot older than its mapping', async () => {
 		selectLimitMock.mockReturnValue({ for: selectForMock })
 		selectForMock.mockResolvedValue([
@@ -414,6 +437,115 @@ describe(PullRequestsRepository.name, () => {
 
 		expect(pullRequestUpdateSetMock).not.toHaveBeenCalled()
 		expect(mappingValuesMock).not.toHaveBeenCalled()
+	})
+
+	test.each([
+		['a new mapping', undefined, true],
+		[
+			'a head move',
+			{
+				pullRequestId,
+				repositoryId,
+				headSha: 'old-head',
+				baseSha: gitHubPullRequest.baseSha,
+			},
+			true,
+		],
+		[
+			'a base move',
+			{
+				pullRequestId,
+				repositoryId,
+				headSha: gitHubPullRequest.headSha,
+				baseSha: 'old-base',
+			},
+			true,
+		],
+		[
+			'an unchanged pair',
+			{
+				pullRequestId,
+				repositoryId,
+				headSha: gitHubPullRequest.headSha,
+				baseSha: gitHubPullRequest.baseSha,
+			},
+			false,
+		],
+	] as const)('reports comparisonChanged for %s', async (_context, existingMapping, comparisonChanged) => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue(existingMapping ? [existingMapping] : [])
+
+		expect(
+			await repository.reconcileGitHubPullRequest({
+				repositoryId,
+				pullRequest: gitHubPullRequest,
+				authorActorId: gitHubActorId,
+				pendingEvents: [],
+			})
+		).toEqual({ id: pullRequestId, comparisonChanged })
+	})
+
+	test('guards diff-stat writes against a newer computed value', async () => {
+		const computedAt = new Date('2026-08-17T10:00:00Z')
+
+		await repository.writeDiffStats({
+			pullRequestId,
+			baseSha: 'a'.repeat(40),
+			headSha: 'b'.repeat(40),
+			additions: 12,
+			deletions: 4,
+			changedFiles: 3,
+			computedAt,
+		})
+
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				diffStatsBaseSha: 'a'.repeat(40),
+				diffStatsHeadSha: 'b'.repeat(40),
+				diffAdditions: 12,
+				diffDeletions: 4,
+				diffChangedFiles: 3,
+				diffStatsUpdatedAt: computedAt,
+			})
+		)
+		const [condition] = pullRequestUpdateWhereMock.mock.calls.at(-1) ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).toContain('"diff_stats_updated_at" is null')
+		expect(query.sql).toContain('"diff_stats_updated_at" <= $')
+		expect(query.params).toContain(computedAt.toISOString())
+	})
+
+	test('clears diff stats when a pushed branch is the source or target', async () => {
+		await repository.clearBranchDiffStats({
+			repositoryId,
+			branches: ['feature', 'main'],
+		})
+
+		expect(pullRequestUpdateSetMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				diffStatsBaseSha: null,
+				diffStatsHeadSha: null,
+				diffAdditions: null,
+				diffDeletions: null,
+				diffChangedFiles: null,
+				diffStatsUpdatedAt: null,
+			})
+		)
+		const [condition] = pullRequestUpdateWhereMock.mock.calls.at(-1) ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).toContain('"source_branch" in')
+		expect(query.sql).toContain('"target_branch" in')
+		expect(query.params).toEqual(
+			expect.arrayContaining([
+				repositoryId,
+				'tessera',
+				'open',
+				'feature',
+				'main',
+			])
+		)
 	})
 
 	test('edits a pull request and records an edited event', async () => {
