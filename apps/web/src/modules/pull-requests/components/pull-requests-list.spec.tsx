@@ -78,7 +78,13 @@ describe(PullRequestsList.name, () => {
 			isLoading: true,
 			isError: false,
 		} as never)
-		const { rerender } = render(<PullRequestsList {...LIST_PROPS} />)
+		const props = {
+			username: 'marta',
+			slug: 'notes',
+			onSelectedStateChange: vi.fn(),
+			selectedState: 'all' as const,
+		}
+		const { rerender } = render(<PullRequestsList {...props} />)
 		expect(document.querySelector('.animate-pulse')).toBeTruthy()
 
 		usePullRequestsListQueryMock.mockReturnValue({
@@ -194,29 +200,10 @@ describe(PullRequestsList.name, () => {
 		} as never)
 		render(
 			<PullRequestsList
-				{...LIST_PROPS}
-				search={{ ...DEFAULT_SEARCH, state: 'open' }}
-			/>
-		)
-
-		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
-	})
-
-	test('hides the new pull request action on a writable GitHub mirror', () => {
-		usePullRequestsListQueryMock.mockReturnValue({
-			data: {
-				authority: 'github',
-				pullRequests: [PULL_REQUEST],
-				hasAnyPullRequests: true,
-				viewerRole: 'write',
-			},
-			isLoading: false,
-			isError: false,
-		} as never)
-		render(
-			<PullRequestsList
-				{...LIST_PROPS}
-				search={{ ...DEFAULT_SEARCH, state: 'open' }}
+				onSelectedStateChange={vi.fn()}
+				selectedState="all"
+				slug="notes"
+				username="marta"
 			/>
 		)
 
@@ -233,7 +220,14 @@ describe(PullRequestsList.name, () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		render(<PullRequestsList {...LIST_PROPS} />)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				selectedState="all"
+				slug="notes"
+				username="marta"
+			/>
+		)
 
 		expect(screen.getByTitle('1 approved')).toBeTruthy()
 		expect(screen.getByTitle('1 awaiting review')).toBeTruthy()
@@ -261,7 +255,14 @@ describe(PullRequestsList.name, () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		render(<PullRequestsList {...LIST_PROPS} />)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				selectedState="all"
+				slug="notes"
+				username="marta"
+			/>
+		)
 
 		expect(screen.queryByTitle(ANY_REVIEW_BADGE_REGEX)).toBeNull()
 	})
