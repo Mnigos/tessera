@@ -1,6 +1,8 @@
 import { Button } from '@repo/ui/components/button'
 import type { PullRequestStateFilterValue } from '../helpers/pull-requests-list-search'
 
+export type PullRequestStateFilterValue = PullRequestState | 'all'
+
 interface PullRequestStateFilterOption {
 	label: string
 	value: PullRequestStateFilterValue
