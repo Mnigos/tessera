@@ -1,5 +1,5 @@
 {
-  "id": "b50a277e-8b5a-48b6-aef6-49c295b892e3",
+  "id": "aed8fe71-7361-409f-b492-ccfe0613aecc",
   "prevId": "681249fb-adfa-4a5a-b1ee-0cbbdb1fe4ea",
   "version": "7",
   "dialect": "postgresql",
@@ -3491,6 +3491,18 @@
           "notNull": true,
           "default": false
         },
+        "labels": {
+          "name": "labels",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "assignees": {
+          "name": "assignees",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": false
+        },
         "provider_created_at": {
           "name": "provider_created_at",
           "type": "timestamp",
@@ -5039,6 +5051,289 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.pull_request_file_views": {
+      "name": "pull_request_file_views",
+      "schema": "",
+      "columns": {
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "pull_request_id": {
+          "name": "pull_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "path": {
+          "name": "path",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "base_blob_id": {
+          "name": "base_blob_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_blob_id": {
+          "name": "head_blob_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_sha": {
+          "name": "head_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "viewed_at": {
+          "name": "viewed_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "pull_request_file_views_pull_request_user_idx": {
+          "name": "pull_request_file_views_pull_request_user_idx",
+          "columns": [
+            {
+              "expression": "pull_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pull_request_file_views_user_id_user_id_fk": {
+          "name": "pull_request_file_views_user_id_user_id_fk",
+          "tableFrom": "pull_request_file_views",
+          "tableTo": "user",
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "pull_request_file_views_pull_request_id_pull_requests_id_fk": {
+          "name": "pull_request_file_views_pull_request_id_pull_requests_id_fk",
+          "tableFrom": "pull_request_file_views",
+          "tableTo": "pull_requests",
+          "columnsFrom": ["pull_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {
+        "pull_request_file_views_pkey": {
+          "name": "pull_request_file_views_pkey",
+          "columns": ["user_id", "pull_request_id", "path"]
+        }
+      },
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
+    "public.pull_request_review_submissions": {
+      "name": "pull_request_review_submissions",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "pull_request_id": {
+          "name": "pull_request_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "review_id": {
+          "name": "review_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "actor_user_id": {
+          "name": "actor_user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "idempotency_key": {
+          "name": "idempotency_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "state": {
+          "name": "state",
+          "type": "pull_request_review_submission_state",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'preparing'"
+        },
+        "expected_head_sha": {
+          "name": "expected_head_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "comment_count": {
+          "name": "comment_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "external_review_node_id": {
+          "name": "external_review_node_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "external_review_numeric_id": {
+          "name": "external_review_numeric_id",
+          "type": "bigint",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempts": {
+          "name": "attempts",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 1
+        },
+        "last_error_code": {
+          "name": "last_error_code",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "pull_request_review_submissions_pull_request_actor_idx": {
+          "name": "pull_request_review_submissions_pull_request_actor_idx",
+          "columns": [
+            {
+              "expression": "pull_request_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "actor_user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "pull_request_review_submissions_review_idx": {
+          "name": "pull_request_review_submissions_review_idx",
+          "columns": [
+            {
+              "expression": "review_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "pull_request_review_submissions_pull_request_id_pull_requests_id_fk": {
+          "name": "pull_request_review_submissions_pull_request_id_pull_requests_id_fk",
+          "tableFrom": "pull_request_review_submissions",
+          "tableTo": "pull_requests",
+          "columnsFrom": ["pull_request_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "pull_request_review_submissions_review_id_pull_request_reviews_id_fk": {
+          "name": "pull_request_review_submissions_review_id_pull_request_reviews_id_fk",
+          "tableFrom": "pull_request_review_submissions",
+          "tableTo": "pull_request_reviews",
+          "columnsFrom": ["review_id"],
+          "columnsTo": ["id"],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "pull_request_review_submissions_actor_user_id_user_id_fk": {
+          "name": "pull_request_review_submissions_actor_user_id_user_id_fk",
+          "tableFrom": "pull_request_review_submissions",
+          "tableTo": "user",
+          "columnsFrom": ["actor_user_id"],
+          "columnsTo": ["id"],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "pull_request_review_submissions_idempotency_key_unique": {
+          "name": "pull_request_review_submissions_idempotency_key_unique",
+          "nullsNotDistinct": false,
+          "columns": ["idempotency_key"]
+        }
+      },
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.pull_request_reviewer_requests": {
       "name": "pull_request_reviewer_requests",
       "schema": "",
@@ -5650,6 +5945,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "base_blob_id": {
+          "name": "base_blob_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "head_blob_id": {
+          "name": "head_blob_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
         "line_excerpt": {
           "name": "line_excerpt",
           "type": "text",
@@ -6145,6 +6452,42 @@
           "primaryKey": false,
           "notNull": false
         },
+        "diff_stats_base_sha": {
+          "name": "diff_stats_base_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diff_stats_head_sha": {
+          "name": "diff_stats_head_sha",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diff_additions": {
+          "name": "diff_additions",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diff_deletions": {
+          "name": "diff_deletions",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diff_changed_files": {
+          "name": "diff_changed_files",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "diff_stats_updated_at": {
+          "name": "diff_stats_updated_at",
+          "type": "timestamp",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp",
@@ -6320,6 +6663,10 @@
         "pull_requests_author_check": {
           "name": "pull_requests_author_check",
           "value": "\"pull_requests\".\"provider\"::text = 'github' or \"pull_requests\".\"author_user_id\" is not null"
+        },
+        "pull_requests_diff_stats_check": {
+          "name": "pull_requests_diff_stats_check",
+          "value": "num_nulls(\"pull_requests\".\"diff_stats_base_sha\", \"pull_requests\".\"diff_stats_head_sha\", \"pull_requests\".\"diff_additions\", \"pull_requests\".\"diff_deletions\", \"pull_requests\".\"diff_changed_files\", \"pull_requests\".\"diff_stats_updated_at\") in (0, 6)"
         },
         "pull_requests_merged_comparison_check": {
           "name": "pull_requests_merged_comparison_check",
@@ -7711,6 +8058,11 @@
       "name": "organization_member_role",
       "schema": "public",
       "values": ["owner", "admin", "member"]
+    },
+    "public.pull_request_review_submission_state": {
+      "name": "pull_request_review_submission_state",
+      "schema": "public",
+      "values": ["preparing", "sent", "reconciled", "adopted", "failed"]
     },
     "public.pull_request_review_outcome": {
       "name": "pull_request_review_outcome",

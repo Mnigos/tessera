@@ -98,6 +98,7 @@
         "better-auth": "^1.6.9",
         "class-variance-authority": "^0.7.1",
         "lucide-react": "catalog:",
+        "motion": "catalog:",
         "nitro": "catalog:",
         "react": "catalog:",
         "react-dom": "catalog:",

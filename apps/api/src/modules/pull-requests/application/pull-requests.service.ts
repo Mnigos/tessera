@@ -27,6 +27,7 @@ import type {
 	ParsedCreatePullRequestInput,
 	ParsedEditPullRequestInput,
 	ParsedGetPullRequestFileDiffInput,
+	ParsedGetPullRequestFileLinesInput,
 	ParsedGetPullRequestInput,
 	ParsedGetPullRequestReviewComparisonInput,
 	ParsedListPullRequestChecksInput,
@@ -36,7 +37,9 @@ import type {
 	PullRequest,
 	PullRequestAuthority,
 	PullRequestComparison,
+	PullRequestDiffStats,
 	PullRequestFileDiff,
+	PullRequestFileLines,
 	PullRequestListItem,
 	PullRequestReviewComparison,
 	PullRequestReviewComparisonContext,
@@ -65,11 +68,13 @@ import {
 } from '../domain/pull-request'
 import {
 	PullRequestAlreadyOpenError,
+	PullRequestFileContentNotFoundError,
 	PullRequestInvalidBranchesError,
 	PullRequestMergeInProgressError,
 	PullRequestNoChangesError,
 	PullRequestNotFoundError,
 	PullRequestQueuedError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { toPullRequestReviewComparisonContext } from '../domain/pull-request-review'
@@ -81,7 +86,10 @@ import {
 import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
-import { highlightPullRequestDiff } from '../helpers/pull-request-diff-highlighting'
+import {
+	highlightPullRequestDiff,
+	highlightPullRequestFileLines,
+} from '../helpers/pull-request-diff-highlighting'
 import { toPullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { isMissingGitObjectError } from '../helpers/pull-request-storage-error'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
@@ -167,6 +175,8 @@ export class PullRequestsService {
 		pullRequests: GitHubSyncPullRequest[]
 		repositoryId: RepositoryId
 	}): Promise<void> {
+		const computedAt = new Date()
+
 		for (const pullRequest of pullRequests) {
 			const authorActorId = actorIds.get(pullRequest.author.nodeId)
 			const mergedByActorId = pullRequest.mergedBy
@@ -176,15 +186,36 @@ export class PullRequestsService {
 			if (!authorActorId)
 				throw new Error('synchronized pull request author mapping is missing')
 
-			await this.pullRequestsRepository.reconcileGitHubPullRequest({
-				repositoryId,
-				pullRequest,
-				authorActorId,
-				mergedByActorId,
-				pendingEvents: pendingEvents.filter(
-					event => event.subjectNumber === pullRequest.number
-				),
-			})
+			const reconciled =
+				await this.pullRequestsRepository.reconcileGitHubPullRequest({
+					repositoryId,
+					pullRequest,
+					authorActorId,
+					mergedByActorId,
+					pendingEvents: pendingEvents.filter(
+						event => event.subjectNumber === pullRequest.number
+					),
+				})
+
+			const { additions, changedFiles, deletions } = pullRequest
+
+			// GitHub reported the totals, so the list shows a diff before anyone opens it.
+			if (
+				additions !== undefined &&
+				deletions !== undefined &&
+				changedFiles !== undefined
+			)
+				await this.pullRequestsRepository.writeDiffStats({
+					pullRequestId: reconciled.id,
+					baseSha: pullRequest.baseSha,
+					headSha: pullRequest.headSha,
+					additions,
+					deletions,
+					changedFiles,
+					computedAt,
+				})
+			else if (reconciled.comparisonChanged)
+				await this.pullRequestsRepository.clearDiffStats(reconciled.id)
 		}
 	}
 
@@ -245,7 +276,15 @@ export class PullRequestsService {
 					repositoryId,
 				})
 
-			return toPullRequestOutput(pullRequest, username)
+			const diffStats = await this.refreshDiffStats({
+				baseRef: targetBranch,
+				headRef: sourceBranch,
+				pullRequestId: pullRequest.id,
+				repositoryId,
+				storagePath,
+			})
+
+			return { ...toPullRequestOutput(pullRequest, username), diffStats }
 		} catch (error) {
 			if (isUniqueViolation(error, OPEN_BRANCH_PAIR_UNIQUE_CONSTRAINT))
 				throw new PullRequestAlreadyOpenError({
@@ -406,6 +445,7 @@ export class PullRequestsService {
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
+		const computedAt = new Date()
 
 		const comparison = await this.gitStorageClient.compareRepositoryRefs({
 			repositoryId,
@@ -413,6 +453,8 @@ export class PullRequestsService {
 			baseRef,
 			headRef,
 		})
+
+		await this.repairDiffStats(pullRequest, comparison, computedAt)
 
 		return await this.toComparisonOutput(repositoryId, comparison)
 	}
@@ -443,6 +485,7 @@ export class PullRequestsService {
 			reviewId
 		)
 		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
+		const computedAt = new Date()
 		const canonical = await this.gitStorageClient.compareRepositoryRefs({
 			repositoryId,
 			storagePath,
@@ -454,6 +497,8 @@ export class PullRequestsService {
 			canonicalBaseSha: canonical.baseSha,
 			currentHeadSha: canonical.headSha,
 		}
+
+		await this.repairDiffStats(pullRequest, canonical, computedAt)
 
 		if (review.headSha === canonical.headSha)
 			return { status: 'nothing_new', ...context }
@@ -507,6 +552,100 @@ export class PullRequestsService {
 		])
 
 		return await highlightPullRequestDiff({ diff, baseBlob, headBlob })
+	}
+
+	/**
+	 * The lines around a hunk, taken from the blob the diff already resolved.
+	 *
+	 * One side is served at a time: within an unchanged gap the two sides are the
+	 * same text, and expanding across a region where they are not aligned is the
+	 * caller's own arithmetic, not something the file can answer.
+	 */
+	async fileLines(
+		viewerUserId: UserId | undefined,
+		{
+			endLine,
+			expectedBaseSha,
+			expectedHeadSha,
+			number,
+			path,
+			side,
+			slug,
+			startLine,
+			username,
+		}: ParsedGetPullRequestFileLinesInput
+	): Promise<PullRequestFileLines> {
+		const { repositoryId, storagePath } =
+			await this.repositoriesService.getReadableRepositoryContext(
+				viewerUserId,
+				{ username, slug }
+			)
+		await this.findPullRequest(repositoryId, number)
+		const diff = await this.getExpandableFileDiff({
+			expectedBaseSha,
+			expectedHeadSha,
+			number,
+			path,
+			repositoryId,
+			storagePath,
+		})
+		const blobId = side === 'left' ? diff.file.baseBlobId : diff.file.headBlobId
+		const blob = await this.getDiffBlob(repositoryId, storagePath, blobId)
+
+		if (blob?.preview.type !== 'text')
+			throw new PullRequestFileContentNotFoundError({
+				number,
+				path,
+				preview: blob?.preview.type,
+				repositoryId,
+				side,
+			})
+
+		return await highlightPullRequestFileLines({
+			content: blob.preview.content,
+			endLine,
+			objectId: blob.objectId,
+			path: side === 'left' ? diff.file.oldPath : diff.file.newPath,
+			sha: side === 'left' ? diff.mergeBaseSha : diff.headSha,
+			side,
+			startLine,
+		})
+	}
+
+	/** The commits the caller is looking at are what the expansion is resolved against; once they are gone there is nothing to expand. */
+	private async getExpandableFileDiff({
+		expectedBaseSha,
+		expectedHeadSha,
+		number,
+		path,
+		repositoryId,
+		storagePath,
+	}: {
+		expectedBaseSha: string
+		expectedHeadSha: string
+		number: number
+		path: string
+		repositoryId: RepositoryId
+		storagePath: string
+	}) {
+		try {
+			return await this.gitStorageClient.getRepositoryFileDiff({
+				repositoryId,
+				storagePath,
+				baseRef: expectedBaseSha,
+				headRef: expectedHeadSha,
+				path,
+			})
+		} catch (error) {
+			if (isMissingGitObjectError(error))
+				throw new PullRequestStaleComparisonError({
+					number,
+					path,
+					repositoryId,
+				})
+
+			throw error
+		}
 	}
 
 	async edit(
@@ -649,7 +788,17 @@ export class PullRequestsService {
 				}),
 		})
 
-		return toPullRequestOutput(retargeted, username)
+		await this.pullRequestsRepository.clearDiffStats(retargeted.id)
+
+		const diffStats = await this.refreshDiffStats({
+			baseRef: retargeted.targetBranch,
+			headRef: retargeted.sourceBranch,
+			pullRequestId: retargeted.id,
+			repositoryId,
+			storagePath,
+		})
+
+		return { ...toPullRequestOutput(retargeted, username), diffStats }
 	}
 
 	/**
@@ -1569,6 +1718,99 @@ export class PullRequestsService {
 				username
 			),
 		}
+	}
+
+	private async refreshDiffStats({
+		baseRef,
+		headRef,
+		pullRequestId,
+		repositoryId,
+		storagePath,
+	}: {
+		baseRef: string
+		headRef: string
+		pullRequestId: PullRequestId
+		repositoryId: RepositoryId
+		storagePath: string
+	}): Promise<PullRequestDiffStats | undefined> {
+		const computedAt = new Date()
+
+		try {
+			const comparison = await this.gitStorageClient.compareRepositoryRefs({
+				repositoryId,
+				storagePath,
+				baseRef,
+				headRef,
+			})
+
+			return await this.cacheDiffStats(pullRequestId, comparison, computedAt)
+		} catch (error) {
+			this.logger.warn(
+				`Diff stats for pull request ${pullRequestId} could not be computed`,
+				error
+			)
+
+			return undefined
+		}
+	}
+
+	private async repairDiffStats(
+		pullRequest: PullRequestReadModel,
+		comparison: GitStorageRepositoryComparison,
+		computedAt: Date
+	): Promise<void> {
+		// Synchronized totals are dated by the mapped base, not the merge base.
+		const baseIsConfirmed =
+			pullRequest.diffStatsBaseSha === comparison.mergeBaseSha ||
+			pullRequest.diffStatsBaseSha === pullRequest.github?.baseSha
+
+		if (baseIsConfirmed && pullRequest.diffStatsHeadSha === comparison.headSha)
+			return
+
+		try {
+			await this.cacheDiffStats(pullRequest.id, comparison, computedAt)
+		} catch (error) {
+			this.logger.warn(
+				`Diff stats for pull request ${pullRequest.id} could not be cached`,
+				error
+			)
+		}
+	}
+
+	private async cacheDiffStats(
+		pullRequestId: PullRequestId,
+		comparison: GitStorageRepositoryComparison,
+		computedAt: Date
+	): Promise<PullRequestDiffStats | undefined> {
+		// A truncated comparison cannot confirm the stored pair, so it retires it.
+		if (comparison.isTruncated) {
+			await this.pullRequestsRepository.clearDiffStats(pullRequestId)
+
+			return undefined
+		}
+
+		const diffStats = {
+			additions: comparison.files.reduce(
+				(total, file) => total + file.additions,
+				0
+			),
+			deletions: comparison.files.reduce(
+				(total, file) => total + file.deletions,
+				0
+			),
+			changedFiles: comparison.files.length,
+		}
+
+		await this.pullRequestsRepository.writeDiffStats({
+			pullRequestId,
+			...diffStats,
+			computedAt,
+			// The files are diffed from the merge base, so that is what dates them.
+			baseSha: comparison.mergeBaseSha,
+			headSha: comparison.headSha,
+		})
+
+		return diffStats
 	}
 
 	private async findChecksSummary({

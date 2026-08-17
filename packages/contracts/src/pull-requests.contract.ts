@@ -245,6 +245,13 @@ export type PullRequestReviewerTargetKind = z.infer<
 	typeof pullRequestReviewerTargetKindSchema
 >
 
+export const pullRequestDiffStatsSchema = z.object({
+	additions: z.number().int().nonnegative(),
+	deletions: z.number().int().nonnegative(),
+	changedFiles: z.number().int().nonnegative(),
+})
+export type PullRequestDiffStats = z.infer<typeof pullRequestDiffStatsSchema>
+
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
 	repositoryId: z.uuid().brand<'repository_id'>(),
@@ -272,6 +279,8 @@ export const pullRequestSchema = z.object({
 	updatedAt: z.coerce.date(),
 	closedAt: z.coerce.date().optional(),
 	mergedAt: z.coerce.date().optional(),
+	/** Absent until a comparison of the pull request's current pair has been cached. */
+	diffStats: pullRequestDiffStatsSchema.optional(),
 	github: z
 		.object({
 			nodeId: z.string().min(1),
@@ -280,6 +289,8 @@ export const pullRequestSchema = z.object({
 			headSha: z.string().min(1),
 			baseSha: z.string().min(1),
 			mergedByUsername: z.string().min(1).optional(),
+			/** The number the pull request carries on GitHub, which routing never uses. */
+			externalNumber: z.number().int().positive().optional(),
 		})
 		.optional(),
 })
@@ -1148,6 +1159,59 @@ export type ParsedSubmitPullRequestReviewInput = z.infer<
 	typeof submitPullRequestReviewInputSchema
 >
 
+export const listPullRequestViewedFilesInputSchema =
+	getPullRequestInputSchema.extend({
+		expectedHeadSha: pullRequestShaSchema,
+	})
+export type ListPullRequestViewedFilesInput = z.input<
+	typeof listPullRequestViewedFilesInputSchema
+>
+export type ParsedListPullRequestViewedFilesInput = z.infer<
+	typeof listPullRequestViewedFilesInputSchema
+>
+
+// A git path may carry surrounding spaces, so the identity stored against a
+// composite key is the path verbatim.
+const pullRequestFileViewPathSchema = z
+	.string()
+	.min(1)
+	.refine(
+		path => !path.includes('\0'),
+		'A file path cannot contain a null byte.'
+	)
+	.refine(
+		path => new TextEncoder().encode(path).byteLength <= 2048,
+		'A file path cannot exceed 2048 bytes.'
+	)
+
+export const setPullRequestFileViewedInputSchema =
+	getPullRequestInputSchema.extend({
+		expectedHeadSha: pullRequestShaSchema,
+		path: pullRequestFileViewPathSchema,
+		viewed: z.boolean(),
+	})
+export type SetPullRequestFileViewedInput = z.input<
+	typeof setPullRequestFileViewedInputSchema
+>
+export type ParsedSetPullRequestFileViewedInput = z.infer<
+	typeof setPullRequestFileViewedInputSchema
+>
+
+export const pullRequestViewedFilesSchema = z.object({
+	headSha: pullRequestShaSchema,
+	paths: z.array(z.string()),
+})
+export type PullRequestViewedFiles = z.infer<
+	typeof pullRequestViewedFilesSchema
+>
+
+export const pullRequestFileViewSchema = z.object({
+	path: z.string(),
+	headSha: pullRequestShaSchema,
+	viewed: z.boolean(),
+})
+export type PullRequestFileView = z.infer<typeof pullRequestFileViewSchema>
+
 export const pullRequestsContract = {
 	create: oc
 		.route({
@@ -1368,4 +1432,18 @@ export const pullRequestsContract = {
 		})
 		.input(getPullRequestInputSchema)
 		.output(z.object({ discarded: z.boolean() })),
+	listViewedFiles: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/files/viewed',
+		})
+		.input(listPullRequestViewedFilesInputSchema)
+		.output(pullRequestViewedFilesSchema),
+	setFileViewed: oc
+		.route({
+			method: 'PUT',
+			path: '/repositories/{username}/{slug}/pulls/{number}/files/viewed',
+		})
+		.input(setPullRequestFileViewedInputSchema)
+		.output(pullRequestFileViewSchema),
 }

@@ -36,6 +36,16 @@ export function toPullRequestOutput(
 		mergeActorUserId: pullRequest.mergeActorUserId ?? undefined,
 		closedAt: pullRequest.closedAt ?? undefined,
 		mergedAt: pullRequest.mergedAt ?? undefined,
+		diffStats:
+			pullRequest.diffAdditions === null ||
+			pullRequest.diffDeletions === null ||
+			pullRequest.diffChangedFiles === null
+				? undefined
+				: {
+						additions: pullRequest.diffAdditions,
+						deletions: pullRequest.diffDeletions,
+						changedFiles: pullRequest.diffChangedFiles,
+					},
 		github: 'github' in pullRequest ? pullRequest.github : undefined,
 	}
 }
