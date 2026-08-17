@@ -42,6 +42,10 @@ export interface GitHubSyncPullRequest {
 	updatedAt: Date
 	closedAt?: Date
 	mergedAt?: Date
+	/** GitHub's own diff totals, absent when the stats query could not be read. */
+	additions?: number
+	deletions?: number
+	changedFiles?: number
 }
 
 /**

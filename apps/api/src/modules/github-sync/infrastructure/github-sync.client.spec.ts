@@ -122,6 +122,7 @@ describe(GitHubSyncClient.name, () => {
 	})
 
 	test('stops pagination after the persisted update cursor', async () => {
+		graphql.mockResolvedValue({ repository: {} })
 		paginate.mockImplementation((_endpoint, _options, mapPage) => {
 			const done = vi.fn()
 			const pullRequests = mapPage(
@@ -161,6 +162,7 @@ describe(GitHubSyncClient.name, () => {
 	})
 
 	test('includes updates from the same provider-clock second', async () => {
+		graphql.mockResolvedValue({ repository: {} })
 		paginate.mockImplementation((_endpoint, _options, mapPage) =>
 			mapPage(
 				{
@@ -180,6 +182,51 @@ describe(GitHubSyncClient.name, () => {
 		expect(reconciliation.pullRequests).toEqual([
 			expect.objectContaining({ number: 3 }),
 		])
+	})
+
+	test('attaches the diff totals GitHub reports for the reconciled pull requests', async () => {
+		paginate.mockResolvedValue([
+			createPullRequest(2, '2026-07-29T11:00:00Z'),
+			createPullRequest(3, '2026-07-29T11:30:00Z'),
+		])
+		graphql.mockResolvedValue({
+			repository: {
+				pr2: { additions: 12, deletions: 3, changedFiles: 2 },
+				pr3: null,
+			},
+		})
+
+		const { pullRequests } =
+			await new GitHubSyncClient().getRepositoryReconciliation({
+				accessToken: 'installation-token',
+				externalRepositoryId: 456n,
+			})
+
+		expect(pullRequests).toMatchObject([
+			{ number: 2, additions: 12, deletions: 3, changedFiles: 2 },
+			{ number: 3 },
+		])
+		expect(pullRequests[1]?.additions).toBeUndefined()
+		// One query covers the whole page rather than one request per pull request.
+		expect(graphql).toHaveBeenCalledOnce()
+		expect(graphql).toHaveBeenCalledWith(
+			expect.stringContaining('pr2: pullRequest(number: 2)'),
+			{ owner: 'tessera-org', name: 'notes' }
+		)
+	})
+
+	test('reconciles without diff totals when the stats query fails', async () => {
+		paginate.mockResolvedValue([createPullRequest(2, '2026-07-29T11:00:00Z')])
+		graphql.mockRejectedValue(new Error('graphql unavailable'))
+
+		const { pullRequests } =
+			await new GitHubSyncClient().getRepositoryReconciliation({
+				accessToken: 'installation-token',
+				externalRepositoryId: 456n,
+			})
+
+		expect(pullRequests).toMatchObject([{ number: 2 }])
+		expect(pullRequests[0]?.additions).toBeUndefined()
 	})
 
 	test('paginates and maps the complete pull request conversation', async () => {
