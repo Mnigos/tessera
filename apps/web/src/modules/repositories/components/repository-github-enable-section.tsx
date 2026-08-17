@@ -28,7 +28,7 @@ export function RepositoryGitHubEnableSection({
 
 		enableMutation.mutate({
 			slug: repository.slug,
-			username: owner.username,
+			username: owner.handle,
 		})
 	}
 

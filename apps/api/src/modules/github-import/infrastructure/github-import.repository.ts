@@ -12,7 +12,6 @@ import {
 	type RepositoryImportId,
 	repositories,
 	repositoryImports,
-	user,
 } from '@repo/db'
 import type { RepositoryId, RepositorySlug, UserId } from '@repo/domain'
 
@@ -93,15 +92,6 @@ export class GitHubImportRepository {
 				eq(repositoryImports.ownerUserId, userId)
 			),
 		})
-	}
-
-	async findOwnerUsername({ userId }: UserParams): Promise<string | undefined> {
-		const row = await this.db.query.user.findFirst({
-			where: eq(user.id, userId),
-			columns: { username: true },
-		})
-
-		return row?.username ?? undefined
 	}
 
 	async hasActiveSource({ githubId, userId }: SourceParams): Promise<boolean> {

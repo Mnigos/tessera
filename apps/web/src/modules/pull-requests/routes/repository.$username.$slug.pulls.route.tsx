@@ -7,13 +7,17 @@ import { getPullRequestsListQueryOptions } from '../hooks/use-pull-requests-list
 
 export const Route = createFileRoute('/$username/$slug/pulls')({
 	validateSearch: z.object({
-		state: pullRequestStateSchema.optional(),
+		state: pullRequestStateSchema.or(z.literal('all')).default('open'),
 	}),
 	loaderDeps: ({ search: { state } }) => ({ state }),
 	loader: async ({ context, deps: { state }, params: { username, slug } }) => {
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
-				getPullRequestsListQueryOptions({ username, slug, state })
+				getPullRequestsListQueryOptions({
+					username,
+					slug,
+					state: state === 'all' ? undefined : state,
+				})
 			)
 		)
 
@@ -36,7 +40,7 @@ function RepositoryPullRequestsRoute() {
 	const { state } = Route.useSearch()
 	const navigate = Route.useNavigate()
 
-	function handleSelectedStateChange(selectedState?: PullRequestState) {
+	function handleSelectedStateChange(selectedState: PullRequestState | 'all') {
 		navigate({
 			search: previousSearch => ({ ...previousSearch, state: selectedState }),
 		})

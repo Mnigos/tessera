@@ -6,6 +6,16 @@ import {
 	resolveGitHubUsername,
 } from './github-username'
 
+const RESERVED_HANDLE_FIXTURES = [
+	'organizations',
+	'profile',
+	'import',
+	'invitations',
+	'api',
+	'login',
+	'settings',
+] as const
+
 describe(normalizeUsername.name, () => {
 	test.each([
 		['GitHub-User', 'github-user'],
@@ -70,6 +80,23 @@ describe(resolveGitHubUsername.name, () => {
 				async candidate => takenUsernames.has(candidate)
 			)
 		).toBe(createSuffixedUsername('github-user', suffix))
+	})
+
+	test.each(
+		RESERVED_HANDLE_FIXTURES
+	)('adds a suffix when the normalized %s GitHub login is reserved', async reservedHandle => {
+		const isUsernameTaken = vi.fn().mockResolvedValue(false)
+		const suffix = createUsernameSuffix('123456')
+
+		expect(
+			await resolveGitHubUsername(
+				{ id: '123456', login: ` ${reservedHandle.toUpperCase()} ` },
+				isUsernameTaken
+			)
+		).toBe(createSuffixedUsername(reservedHandle, suffix))
+		expect(isUsernameTaken).toHaveBeenCalledExactlyOnceWith(
+			createSuffixedUsername(reservedHandle, suffix)
+		)
 	})
 
 	test('continues deterministically when the first fallback is also taken', async () => {

@@ -1,4 +1,3 @@
-import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
 import {
 	type RepositoryWithOwner,
@@ -14,7 +13,6 @@ import { createMockSession, mockUserId } from '~/shared/test-utils'
 import { RepositoriesService } from '../application/repositories.service'
 import { RepositoriesController } from './repositories.controller'
 import { RepositoryBrowserController } from './repository-browser.controller'
-import { RepositoryOwnerGuard } from './repository-owner.guard'
 
 const repository: RepositoryWithOwner = {
 	repository: {
@@ -34,6 +32,8 @@ const repository: RepositoryWithOwner = {
 		updatedAt: new Date('2026-05-12T00:00:00Z'),
 	},
 	owner: {
+		kind: 'user',
+		handle: 'marta',
 		username: 'marta',
 	},
 }
@@ -66,18 +66,6 @@ describe(RepositoriesController.name, () => {
 						getBlob: vi.fn(),
 						getRawBlob: vi.fn(),
 						getCommitHistory: vi.fn(),
-					},
-				},
-				{
-					provide: RepositoryOwnerGuard,
-					useValue: {
-						canActivate: vi.fn(),
-					},
-				},
-				{
-					provide: UserService,
-					useValue: {
-						findUserId: vi.fn(),
 					},
 				},
 			],
@@ -113,44 +101,22 @@ describe(RepositoriesController.name, () => {
 		})
 	})
 
-	test('delegates create requests with undefined when the session has no username', async () => {
-		const createSpy = vi
-			.spyOn(repositoriesService, 'create')
-			.mockResolvedValue(repository)
-		const sessionWithoutUsername = createMockSession({ username: null })
-
-		await repositoriesController
-			.create(sessionWithoutUsername)
-			['~orpc'].handler({
-				input: { name: 'Notes' },
-				context: {},
-				path: ['repositories', 'create'],
-				procedure: repositoriesController.create(sessionWithoutUsername),
-				lastEventId: undefined,
-				errors: {},
-			})
-
-		expect(createSpy).toHaveBeenCalledWith(mockUserId, undefined, {
-			name: 'Notes',
-		})
-	})
-
 	test('delegates list requests to the repositories service', async () => {
 		const listSpy = vi
 			.spyOn(repositoriesService, 'list')
 			.mockResolvedValue([repository])
 
 		expect(
-			await repositoriesController.list(mockUserId)['~orpc'].handler({
+			await repositoriesController.list(session)['~orpc'].handler({
 				input: { username: 'marta' },
 				context: {},
 				path: ['repositories', 'list'],
-				procedure: repositoriesController.list(mockUserId),
+				procedure: repositoriesController.list(session),
 				lastEventId: undefined,
 				errors: {},
 			})
 		).toEqual({ repositories: [repository] })
-		expect(listSpy).toHaveBeenCalledWith(mockUserId)
+		expect(listSpy).toHaveBeenCalledWith(mockUserId, { username: 'marta' })
 	})
 
 	test('delegates get requests to the repositories service', async () => {
@@ -159,11 +125,11 @@ describe(RepositoriesController.name, () => {
 			.mockResolvedValue(repository)
 
 		expect(
-			await repositoriesController.get(mockUserId)['~orpc'].handler({
+			await repositoriesController.get(session)['~orpc'].handler({
 				input: { username: 'marta', slug: repository.repository.slug },
 				context: {},
 				path: ['repositories', 'get'],
-				procedure: repositoriesController.get(mockUserId),
+				procedure: repositoriesController.get(session),
 				lastEventId: undefined,
 				errors: {},
 			})
@@ -181,12 +147,12 @@ describe(RepositoriesController.name, () => {
 
 		expect(
 			await repositoriesController
-				.enableGitHubMirror(mockUserId)
+				.enableGitHubMirror(session)
 				['~orpc'].handler({
 					input: { username: 'marta', slug: repository.repository.slug },
 					context: {},
 					path: ['repositories', 'enableGitHubMirror'],
-					procedure: repositoriesController.enableGitHubMirror(mockUserId),
+					procedure: repositoriesController.enableGitHubMirror(session),
 					lastEventId: undefined,
 					errors: {},
 				})
@@ -204,27 +170,20 @@ describe(RepositoriesController.name, () => {
 
 		expect(
 			await repositoriesController
-				.cutoverGitHubMirror(session, mockUserId)
+				.cutoverGitHubMirror(session)
 				['~orpc'].handler({
 					input: { username: 'marta', slug: repository.repository.slug },
 					context: {},
 					path: ['repositories', 'cutoverGitHubMirror'],
-					procedure: repositoriesController.cutoverGitHubMirror(
-						session,
-						mockUserId
-					),
+					procedure: repositoriesController.cutoverGitHubMirror(session),
 					lastEventId: undefined,
 					errors: {},
 				})
 		).toEqual(repository)
-		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith(
-			mockUserId,
-			mockUserId,
-			{
-				username: 'marta',
-				slug: repository.repository.slug,
-			}
-		)
+		expect(cutoverGitHubMirrorSpy).toHaveBeenCalledWith(mockUserId, {
+			username: 'marta',
+			slug: repository.repository.slug,
+		})
 	})
 
 	test('delegates GitHub sync health requests to the repositories service', async () => {
@@ -242,12 +201,12 @@ describe(RepositoriesController.name, () => {
 
 		expect(
 			await repositoriesController
-				.getGitHubSyncHealth(mockUserId)
+				.getGitHubSyncHealth(session)
 				['~orpc'].handler({
 					input: { username: 'marta', slug: repository.repository.slug },
 					context: {},
 					path: ['repositories', 'getGitHubSyncHealth'],
-					procedure: repositoriesController.getGitHubSyncHealth(mockUserId),
+					procedure: repositoriesController.getGitHubSyncHealth(session),
 					lastEventId: undefined,
 					errors: {},
 				})
@@ -270,13 +229,12 @@ describe(RepositoriesController.name, () => {
 
 		expect(
 			await repositoriesController
-				.getGitHubReauthorization(mockUserId)
+				.getGitHubReauthorization(session)
 				['~orpc'].handler({
 					input: { username: 'marta', slug: repository.repository.slug },
 					context: {},
 					path: ['repositories', 'getGitHubReauthorization'],
-					procedure:
-						repositoriesController.getGitHubReauthorization(mockUserId),
+					procedure: repositoriesController.getGitHubReauthorization(session),
 					lastEventId: undefined,
 					errors: {},
 				})

@@ -58,7 +58,7 @@ const refsQueryMock = vi.mocked(useRepositoryRefsQuery)
 const TAG_V1_OPTION_NAME_REGEX = /v1\.0\.0/
 
 const baseTree = {
-	owner: { username: 'mnigos' },
+	owner: { kind: 'user', handle: 'mnigos', username: 'mnigos' },
 	repository: repositorySchema.parse({
 		id: '8d6ced61-1733-4aca-abba-ccbb9991cd08',
 		slug: 'tessera-notes',
@@ -114,7 +114,7 @@ const baseTree = {
 } satisfies RepositoryTree
 
 const baseBlob = {
-	owner: { username: 'mnigos' },
+	owner: { kind: 'user', handle: 'mnigos', username: 'mnigos' },
 	repository: repositorySchema.parse({
 		id: '8d6ced61-1733-4aca-abba-ccbb9991cd08',
 		slug: 'tessera-notes',
@@ -142,7 +142,7 @@ const baseBlob = {
 } satisfies RepositoryBlob
 
 const baseCommits = {
-	owner: { username: 'mnigos' },
+	owner: { kind: 'user', handle: 'mnigos', username: 'mnigos' },
 	repository: repositorySchema.parse({
 		id: '8d6ced61-1733-4aca-abba-ccbb9991cd08',
 		slug: 'tessera-notes',

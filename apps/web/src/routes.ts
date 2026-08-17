@@ -17,6 +17,19 @@ export const routes = rootRoute('routes/__root.tsx', [
 		'/organizations/$slug/settings',
 		'modules/organizations/routes/organizations.$slug.settings.route.tsx'
 	),
+	route('/$handle', 'modules/profile/routes/$handle.route.tsx'),
+	route(
+		'/organizations/$slug/settings/members',
+		'modules/organizations/routes/organizations.$slug.settings.members.route.tsx'
+	),
+	route(
+		'/organizations/$slug/settings/invitations',
+		'modules/organizations/routes/organizations.$slug.settings.invitations.route.tsx'
+	),
+	route(
+		'/invitations/$invitationId',
+		'modules/organizations/routes/invitations.$invitationId.route.tsx'
+	),
 	route(
 		'/$username/$slug',
 		'modules/repositories/routes/repository.$username.$slug.route.tsx'

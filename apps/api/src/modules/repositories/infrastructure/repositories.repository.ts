@@ -1,19 +1,17 @@
 import { Database } from '@config/database'
+import type { GitHubSyncRequest } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { Injectable } from '@nestjs/common'
 import {
-	account,
 	and,
 	asc,
 	type DrizzleTransaction,
 	eq,
+	exists,
 	inArray,
 	isNotNull,
 	isNull,
-	lt,
-	lte,
 	type Member,
 	member,
-	ne,
 	or,
 	organization,
 	repositories,
@@ -32,36 +30,28 @@ import type {
 	UserId,
 } from '@repo/domain'
 import {
+	type RepositoryOwnerIdentity,
 	type RepositoryOwnerRow,
 	type RepositoryWithOwner,
 	toRepositoryWithOwner,
 } from '../domain/repository'
 import { RepositoryCreateFailedError } from '../domain/repository.errors'
 
-interface UserParams {
-	userId: UserId
+interface HandleParams {
+	handle: string
 }
 
-interface CreateParams extends UserParams {
+interface CreateParams {
 	name: RepositoryName
 	slug: RepositorySlug
-	username: string
+	owner: RepositoryOwnerIdentity
 	description?: string
 	visibility?: RepositoryVisibility
 }
 
-interface FindByOwnerUserIdParams extends UserParams {
+interface FindParams extends HandleParams {
 	slug: RepositorySlug
-	username?: never
 }
-
-interface FindByOwnerUsernameParams {
-	slug: RepositorySlug
-	username: string
-	userId?: never
-}
-
-type FindParams = FindByOwnerUserIdParams | FindByOwnerUsernameParams
 
 interface RepositoryIdParams {
 	repositoryId: RepositoryId
@@ -76,52 +66,21 @@ export interface GitHubMirrorEnablement {
 	mirrorMode: 'imported' | 'github_to_tessera' | 'tessera_source'
 }
 
-interface CutoverGitHubMirrorParams extends RepositoryIdWithUserParams {
+interface CutoverGitHubMirrorParams extends RepositoryIdParams {
 	actorUserId: UserId
 	cutoverAt: Date
 }
 
-interface MarkGitHubPushBackRunningParams extends RepositoryIdWithUserParams {
-	startedAt: Date
-}
-
-interface MarkGitHubPushBackFailedParams extends RepositoryIdParams {
-	failedAt: Date
-	failureReason: string
-}
-
-interface MarkGitHubPushBackSucceededParams extends RepositoryIdParams {
-	succeededAt: Date
-}
-
-interface MarkGitHubMirrorSyncFailedParams extends RepositoryIdParams {
-	failedAt: Date
-	failureReason: string
-	nextSyncAt?: Date | null
-	syncFailureCount?: number
-}
-
-interface ClaimDueGitHubMirrorSyncRepositoriesParams {
-	limit: number
-	now: Date
-}
-
 interface UpdateStoragePathParams extends RepositoryIdParams {
 	storagePath: string
-	username: string
 }
 
 interface UpdateImportStorageParams extends RepositoryIdParams {
 	defaultBranch: string
 	storagePath: string
-	username: string
 }
 
 export interface CompleteImportedGitHubRepositoryParams
-	extends UpdateImportStorageParams,
-		UpsertGitHubExternalSourceParams {}
-
-interface MarkGitHubMirrorSyncSucceededParams
 	extends UpdateImportStorageParams,
 		UpsertGitHubExternalSourceParams {}
 
@@ -151,19 +110,29 @@ export interface PrivilegedUserRow {
 	username: string | null
 }
 
-export interface GitHubAccountCredentials {
-	accessToken: string | null
+interface ViewerParams {
+	viewerUserId?: UserId
 }
 
-export interface MarkGitHubMirrorSyncPendingResult {
-	didMarkPending: boolean
-	repository: RepositoryWithOwner
-}
-
-export interface GitHubMirrorSyncRepository extends RepositoryWithOwner {
-	externalSource: NonNullable<RepositoryWithOwner['externalSource']>
+interface ListVisibleByUserParams extends ViewerParams {
 	ownerUserId: UserId
-	storagePath: string
+	ownerOrganizationId?: never
+}
+
+interface ListVisibleByOrganizationParams extends ViewerParams {
+	ownerOrganizationId: OrganizationId
+	ownerUserId?: never
+}
+
+export type ListVisibleByOwnerParams =
+	| ListVisibleByUserParams
+	| ListVisibleByOrganizationParams
+
+export interface OwnedRepositoryListItem {
+	id: RepositoryId
+	name: RepositoryName
+	slug: RepositorySlug
+	visibility: RepositoryVisibility
 }
 
 type RepositoryDatabase = Database | DrizzleTransaction
@@ -200,8 +169,6 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	createdAt: repositoryExternalSources.createdAt,
 	updatedAt: repositoryExternalSources.updatedAt,
 }
-const GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES = 30
-
 const REPOSITORY_WITH_OWNER_COLUMNS = {
 	id: repositories.id,
 	name: repositories.name,
@@ -214,36 +181,19 @@ const REPOSITORY_WITH_OWNER_COLUMNS = {
 	storagePath: repositories.storagePath,
 	createdAt: repositories.createdAt,
 	updatedAt: repositories.updatedAt,
-	ownerUsername: user.username,
-	externalSource: REPOSITORY_EXTERNAL_SOURCE_COLUMNS,
-}
-
-const REPOSITORY_WITH_OWNER_HANDLE_COLUMNS = {
-	...REPOSITORY_WITH_OWNER_COLUMNS,
-	ownerUsername: sql<
+	ownerHandle: sql<
 		string | null
 	>`coalesce(${user.username}, ${organization.slug})`,
+	externalSource: REPOSITORY_EXTERNAL_SOURCE_COLUMNS,
 }
 
 @Injectable()
 export class RepositoriesRepository {
 	constructor(private readonly db: Database) {}
 
-	async list({ userId }: UserParams): Promise<RepositoryWithOwner[]> {
-		const rows = await this.db
-			.select(REPOSITORY_WITH_OWNER_COLUMNS)
-			.from(repositories)
-			.innerJoin(user, eq(repositories.ownerUserId, user.id))
-			.leftJoin(
-				repositoryExternalSources,
-				eq(repositoryExternalSources.repositoryId, repositories.id)
-			)
-			.where(
-				and(
-					eq(repositories.ownerUserId, userId),
-					isNotNull(repositories.storagePath)
-				)
-			)
+	async list(owner: RepositoryOwnerIdentity): Promise<RepositoryWithOwner[]> {
+		const rows = await this.selectRepositories()
+			.where(and(isOwnedBy(owner), isNotNull(repositories.storagePath)))
 			.orderBy(asc(repositories.createdAt))
 
 		return rows.flatMap(
@@ -251,80 +201,49 @@ export class RepositoriesRepository {
 		)
 	}
 
-	async find(params: FindParams): Promise<RepositoryWithOwner | undefined> {
-		if ('userId' in params && params.userId !== undefined) {
-			const [row] = await this.db
-				.select(REPOSITORY_WITH_OWNER_COLUMNS)
-				.from(repositories)
-				.innerJoin(user, eq(repositories.ownerUserId, user.id))
-				.leftJoin(
-					repositoryExternalSources,
-					eq(repositoryExternalSources.repositoryId, repositories.id)
-				)
-				.where(
-					and(
-						eq(repositories.ownerUserId, params.userId),
-						eq(repositories.slug, params.slug)
-					)
-				)
-				.limit(1)
-
-			return toRepositoryWithOwner(toRepositoryRow(row))
-		}
-
-		const [row] = await this.db
-			.select(REPOSITORY_WITH_OWNER_HANDLE_COLUMNS)
-			.from(repositories)
-			.leftJoin(user, eq(repositories.ownerUserId, user.id))
-			.leftJoin(
-				organization,
-				eq(repositories.ownerOrganizationId, organization.id)
-			)
-			.leftJoin(
-				repositoryExternalSources,
-				eq(repositoryExternalSources.repositoryId, repositories.id)
-			)
-			.where(
-				and(
-					eq(repositories.slug, params.slug),
-					or(
-						eq(user.username, params.username),
-						eq(organization.slug, params.username)
-					)
-				)
-			)
-			.orderBy(
-				sql`case when ${user.username} = ${params.username} then 0 else 1 end`
-			)
+	async find({
+		handle,
+		slug,
+	}: FindParams): Promise<RepositoryWithOwner | undefined> {
+		const [row] = await this.selectRepositories()
+			.where(and(eq(repositories.slug, slug), isOwnerHandle(handle)))
+			// A user handle wins a collision until one namespace holds both.
+			.orderBy(sql`case when ${user.username} = ${handle} then 0 else 1 end`)
 			.limit(1)
 
 		return toRepositoryWithOwner(toRepositoryRow(row))
 	}
 
-	/**
-	 * The repository as background work knows it: by identity, with no handle to
-	 * resolve it through. The owner join stays outer because an organization
-	 * repository has no owning user row.
-	 */
 	async findById({
 		repositoryId,
 	}: RepositoryIdParams): Promise<RepositoryWithOwner | undefined> {
-		const [row] = await this.db
-			.select(REPOSITORY_WITH_OWNER_HANDLE_COLUMNS)
-			.from(repositories)
-			.leftJoin(user, eq(repositories.ownerUserId, user.id))
-			.leftJoin(
-				organization,
-				eq(repositories.ownerOrganizationId, organization.id)
-			)
-			.leftJoin(
-				repositoryExternalSources,
-				eq(repositoryExternalSources.repositoryId, repositories.id)
-			)
-			.where(eq(repositories.id, repositoryId))
+		return await this.findByIdWithClient(this.db, repositoryId)
+	}
+
+	async findOwner({
+		handle,
+	}: HandleParams): Promise<RepositoryOwnerIdentity | undefined> {
+		const [userOwner] = await this.db
+			.select({ id: user.id })
+			.from(user)
+			.where(eq(user.username, handle))
 			.limit(1)
 
-		return toRepositoryWithOwner(toRepositoryRow(row))
+		if (userOwner)
+			return { ownerUserId: userOwner.id, ownerOrganizationId: null }
+
+		const [organizationOwner] = await this.db
+			.select({ id: organization.id })
+			.from(organization)
+			.where(eq(organization.slug, handle))
+			.limit(1)
+
+		if (!organizationOwner) return undefined
+
+		return {
+			ownerUserId: null,
+			ownerOrganizationId: organizationOwner.id,
+		}
 	}
 
 	async findCollaboratorRole({
@@ -413,85 +332,46 @@ export class RepositoriesRepository {
 	async create({
 		description,
 		name,
+		owner,
 		slug,
-		userId,
-		username,
 		visibility,
 	}: CreateParams): Promise<RepositoryWithOwner> {
-		const [repository] = await this.db
-			.insert(repositories)
-			.values({
-				ownerUserId: userId,
-				name,
-				slug,
-				description,
-				visibility,
-			})
-			.returning({
-				id: repositories.id,
-				name: repositories.name,
-				slug: repositories.slug,
-				description: repositories.description,
-				visibility: repositories.visibility,
-				ownerUserId: repositories.ownerUserId,
-				ownerOrganizationId: repositories.ownerOrganizationId,
-				defaultBranch: repositories.defaultBranch,
-				storagePath: repositories.storagePath,
-				createdAt: repositories.createdAt,
-				updatedAt: repositories.updatedAt,
-			})
+		return await this.db.transaction(async transaction => {
+			const [inserted] = await transaction
+				.insert(repositories)
+				.values({
+					ownerUserId: owner.ownerUserId,
+					ownerOrganizationId: owner.ownerOrganizationId,
+					name,
+					slug,
+					description,
+					visibility,
+				})
+				.returning({ id: repositories.id })
 
-		if (!repository) throw new RepositoryCreateFailedError()
+			if (!inserted) throw new RepositoryCreateFailedError()
 
-		return {
-			...repository,
-			ownerUser: { username },
-		}
+			const repository = await this.findByIdWithClient(transaction, inserted.id)
+
+			if (!repository) throw new RepositoryCreateFailedError()
+
+			return repository
+		})
 	}
 
 	async updateStoragePath({
 		repositoryId,
 		storagePath,
-		username,
 	}: UpdateStoragePathParams): Promise<RepositoryWithOwner | undefined> {
-		const [repository] = await this.db
+		const [updated] = await this.db
 			.update(repositories)
 			.set({ storagePath })
 			.where(eq(repositories.id, repositoryId))
-			.returning({
-				id: repositories.id,
-				name: repositories.name,
-				slug: repositories.slug,
-				description: repositories.description,
-				visibility: repositories.visibility,
-				ownerUserId: repositories.ownerUserId,
-				ownerOrganizationId: repositories.ownerOrganizationId,
-				defaultBranch: repositories.defaultBranch,
-				storagePath: repositories.storagePath,
-				createdAt: repositories.createdAt,
-				updatedAt: repositories.updatedAt,
-			})
+			.returning({ id: repositories.id })
 
-		if (!repository) return undefined
+		if (!updated) return undefined
 
-		return {
-			...repository,
-			ownerUser: { username },
-		}
-	}
-
-	async updateImportStorage({
-		defaultBranch,
-		repositoryId,
-		storagePath,
-		username,
-	}: UpdateImportStorageParams): Promise<RepositoryWithOwner | undefined> {
-		return await this.updateImportStorageWithClient(this.db, {
-			repositoryId,
-			storagePath,
-			defaultBranch,
-			username,
-		})
+		return await this.findByIdWithClient(this.db, repositoryId)
 	}
 
 	async completeImportedGitHubRepository(
@@ -513,37 +393,6 @@ export class RepositoriesRepository {
 
 	async delete({ repositoryId }: RepositoryIdParams): Promise<void> {
 		await this.db.delete(repositories).where(eq(repositories.id, repositoryId))
-	}
-
-	async findGitHubAccount({
-		userId,
-	}: UserParams): Promise<GitHubAccountCredentials | undefined> {
-		return await this.db.query.account.findFirst({
-			where: and(eq(account.userId, userId), eq(account.providerId, 'github')),
-			columns: { accessToken: true },
-		})
-	}
-
-	async findGitHubMirrorSyncRepository({
-		repositoryId,
-	}: RepositoryIdParams): Promise<GitHubMirrorSyncRepository | undefined> {
-		const [row] = await this.db
-			.select(REPOSITORY_WITH_OWNER_COLUMNS)
-			.from(repositories)
-			.innerJoin(user, eq(repositories.ownerUserId, user.id))
-			.innerJoin(
-				repositoryExternalSources,
-				eq(repositoryExternalSources.repositoryId, repositories.id)
-			)
-			.where(
-				and(
-					eq(repositories.id, repositoryId),
-					eq(repositoryExternalSources.provider, 'github')
-				)
-			)
-			.limit(1)
-
-		return toGitHubMirrorSyncRepository(row)
 	}
 
 	async findGitHubMirrorEnablement({
@@ -573,8 +422,7 @@ export class RepositoriesRepository {
 
 	async enableGitHubMirror({
 		repositoryId,
-		userId,
-	}: RepositoryIdWithUserParams): Promise<boolean> {
+	}: RepositoryIdParams): Promise<GitHubSyncRequest | undefined> {
 		const [source] = await this.db
 			.update(repositoryExternalSources)
 			.set({
@@ -591,264 +439,22 @@ export class RepositoriesRepository {
 					eq(repositoryExternalSources.repositoryId, repositoryId),
 					eq(repositoryExternalSources.provider, 'github'),
 					eq(repositoryExternalSources.mirrorMode, 'imported'),
-					isNotNull(repositoryExternalSources.installationId),
-					sql`exists (
-						select 1
-						from ${repositories}
-						where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-							and ${repositories.ownerUserId} = ${userId}
-					)`
+					isNotNull(repositoryExternalSources.installationId)
 				)
 			)
-			.returning({ id: repositoryExternalSources.id })
-
-		return Boolean(source)
-	}
-
-	async markGitHubMirrorSyncPending({
-		repositoryId,
-		userId,
-	}: RepositoryIdWithUserParams): Promise<
-		MarkGitHubMirrorSyncPendingResult | undefined
-	> {
-		return await this.db.transaction(async transaction => {
-			const [updatedExternalSource] = await transaction
-				.update(repositoryExternalSources)
-				.set({
-					mirrorMode: 'github_to_tessera',
-					syncStatus: 'pending',
-					lastSyncStartedAt: null,
-					lastSyncFailedAt: null,
-					nextSyncAt: null,
-					syncFailureCount: 0,
-					syncFailureReason: null,
-				})
-				.where(
-					and(
-						eq(repositoryExternalSources.repositoryId, repositoryId),
-						eq(repositoryExternalSources.provider, 'github'),
-						inArray(repositoryExternalSources.mirrorMode, [
-							'imported',
-							'github_to_tessera',
-						]),
-						sql`exists (
-								select 1
-								from ${repositories}
-								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-									and ${repositories.ownerUserId} = ${userId}
-							)`,
-						sql`(
-								${repositoryExternalSources.syncStatus} not in (${'pending'}, ${'running'})
-								or (
-									${repositoryExternalSources.syncStatus} = ${'pending'}
-									and ${repositoryExternalSources.updatedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute')
-								)
-								or (
-									${repositoryExternalSources.syncStatus} = ${'running'}
-									and (
-										${repositoryExternalSources.lastSyncStartedAt} is null
-										or ${repositoryExternalSources.lastSyncStartedAt} < now() - (${GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES} * interval '1 minute')
-									)
-								)
-							)`
-					)
-				)
-				.returning({ id: repositoryExternalSources.id })
-			const repository = await this.findWithClient(transaction, {
-				userId,
-				repositoryId,
+			.returning({
+				repositoryId: repositoryExternalSources.repositoryId,
+				authorityGeneration: repositoryExternalSources.authorityGeneration,
+				requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
 			})
 
-			if (!repository) return undefined
-
-			return {
-				didMarkPending: Boolean(updatedExternalSource),
-				repository,
-			}
-		})
-	}
-
-	async markGitHubMirrorSyncRunning({
-		repositoryId,
-	}: RepositoryIdParams): Promise<GitHubMirrorSyncRepository | undefined> {
-		const [updatedExternalSource] = await this.db
-			.update(repositoryExternalSources)
-			.set({
-				syncStatus: 'running',
-				lastSyncStartedAt: new Date(),
-				lastSyncFailedAt: null,
-				syncFailureReason: null,
-			})
-			.where(
-				and(
-					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(repositoryExternalSources.provider, 'github'),
-					eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
-					inArray(repositoryExternalSources.syncStatus, ['pending', 'running'])
-				)
-			)
-			.returning({ id: repositoryExternalSources.id })
-
-		if (!updatedExternalSource) return undefined
-
-		return await this.findGitHubMirrorSyncRepository({ repositoryId })
-	}
-
-	async claimDueGitHubMirrorSyncRepositories({
-		limit,
-		now,
-	}: ClaimDueGitHubMirrorSyncRepositoriesParams): Promise<
-		GitHubMirrorSyncRepository[]
-	> {
-		return await this.db.transaction(async transaction => {
-			const staleBefore = new Date(
-				now.getTime() - GITHUB_MIRROR_SYNC_STALE_RUNNING_MINUTES * 60_000
-			)
-			const dueSources = transaction.$with('due_sources').as(
-				transaction
-					.select({ id: repositoryExternalSources.id })
-					.from(repositoryExternalSources)
-					.innerJoin(
-						repositories,
-						eq(repositories.id, repositoryExternalSources.repositoryId)
-					)
-					.innerJoin(user, eq(user.id, repositories.ownerUserId))
-					.where(
-						and(
-							eq(repositoryExternalSources.provider, 'github'),
-							eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
-							lte(repositoryExternalSources.nextSyncAt, now),
-							isNotNull(repositories.storagePath),
-							isNotNull(repositories.ownerUserId),
-							or(
-								inArray(repositoryExternalSources.syncStatus, [
-									'succeeded',
-									'failed',
-								]),
-								and(
-									eq(repositoryExternalSources.syncStatus, 'pending'),
-									lt(repositoryExternalSources.updatedAt, staleBefore)
-								),
-								and(
-									eq(repositoryExternalSources.syncStatus, 'running'),
-									or(
-										isNull(repositoryExternalSources.lastSyncStartedAt),
-										lt(repositoryExternalSources.lastSyncStartedAt, staleBefore)
-									)
-								)
-							)
-						)
-					)
-					.orderBy(asc(repositoryExternalSources.nextSyncAt))
-					.limit(limit)
-					.for('update', {
-						of: repositoryExternalSources,
-						skipLocked: true,
-					})
-			)
-			const claimedSources = await transaction
-				.with(dueSources)
-				.update(repositoryExternalSources)
-				.set({
-					syncStatus: 'pending',
-					lastSyncFailedAt: null,
-					syncFailureReason: null,
-					updatedAt: now,
-				})
-				.from(dueSources)
-				.where(eq(repositoryExternalSources.id, dueSources.id))
-				.returning({ repositoryId: repositoryExternalSources.repositoryId })
-			const claimedRepositoryIds = claimedSources.map(
-				({ repositoryId }) => repositoryId
-			)
-
-			if (claimedRepositoryIds.length === 0) return []
-
-			const rows = await transaction
-				.select(REPOSITORY_WITH_OWNER_COLUMNS)
-				.from(repositories)
-				.innerJoin(user, eq(repositories.ownerUserId, user.id))
-				.innerJoin(
-					repositoryExternalSources,
-					eq(repositoryExternalSources.repositoryId, repositories.id)
-				)
-				.where(inArray(repositories.id, claimedRepositoryIds))
-				.orderBy(asc(repositoryExternalSources.nextSyncAt))
-
-			return rows.flatMap(row => toGitHubMirrorSyncRepository(row) ?? [])
-		})
-	}
-
-	async markGitHubMirrorSyncSucceeded({
-		defaultBranch,
-		repositoryId,
-		storagePath,
-		username,
-		...externalSourceParams
-	}: MarkGitHubMirrorSyncSucceededParams): Promise<
-		RepositoryWithOwner | undefined
-	> {
-		return await this.db.transaction(async transaction => {
-			const [updatedExternalSource] = await transaction
-				.update(repositoryExternalSources)
-				.set({
-					...externalSourceParams,
-					nextSyncAt: externalSourceParams.nextSyncAt,
-				})
-				.where(
-					and(
-						eq(repositoryExternalSources.repositoryId, repositoryId),
-						eq(repositoryExternalSources.provider, 'github'),
-						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
-					)
-				)
-				.returning({ id: repositoryExternalSources.id })
-
-			if (!updatedExternalSource) return undefined
-
-			const repository = await this.updateImportStorageWithClient(transaction, {
-				repositoryId,
-				storagePath,
-				defaultBranch,
-				username,
-			})
-
-			if (!repository) return undefined
-
-			return repository
-		})
-	}
-
-	async markGitHubMirrorSyncFailed({
-		failedAt,
-		failureReason,
-		nextSyncAt,
-		repositoryId,
-		syncFailureCount,
-	}: MarkGitHubMirrorSyncFailedParams): Promise<void> {
-		await this.db
-			.update(repositoryExternalSources)
-			.set({
-				syncStatus: 'failed',
-				lastSyncFailedAt: failedAt,
-				nextSyncAt,
-				syncFailureCount,
-				syncFailureReason: failureReason,
-			})
-			.where(
-				and(
-					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(repositoryExternalSources.provider, 'github'),
-					eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
-				)
-			)
+		return source
 	}
 
 	async cutoverGitHubMirror({
 		actorUserId,
 		cutoverAt,
 		repositoryId,
-		userId,
 	}: CutoverGitHubMirrorParams): Promise<RepositoryWithOwner | undefined> {
 		return await this.db.transaction(async transaction => {
 			const [updatedExternalSource] = await transaction
@@ -869,185 +475,15 @@ export class RepositoriesRepository {
 						eq(repositoryExternalSources.repositoryId, repositoryId),
 						eq(repositoryExternalSources.provider, 'github'),
 						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
-						eq(repositoryExternalSources.syncStatus, 'succeeded'),
-						sql`exists (
-								select 1
-								from ${repositories}
-								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-									and ${repositories.ownerUserId} = ${userId}
-							)`
+						eq(repositoryExternalSources.syncStatus, 'succeeded')
 					)
 				)
 				.returning({ id: repositoryExternalSources.id })
 
 			if (!updatedExternalSource) return undefined
 
-			return await this.findWithClient(transaction, {
-				userId,
-				repositoryId,
-			})
+			return await this.findByIdWithClient(transaction, repositoryId)
 		})
-	}
-
-	async enableGitHubPushBack({
-		repositoryId,
-		userId,
-	}: RepositoryIdWithUserParams): Promise<RepositoryWithOwner | undefined> {
-		return await this.db.transaction(async transaction => {
-			const [updatedExternalSource] = await transaction
-				.update(repositoryExternalSources)
-				.set({
-					githubPushBackEnabled: true,
-					githubPushBackStatus: 'idle',
-					githubPushBackFailedAt: null,
-					githubPushBackFailureReason: null,
-				})
-				.where(
-					and(
-						eq(repositoryExternalSources.repositoryId, repositoryId),
-						eq(repositoryExternalSources.provider, 'github'),
-						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
-						or(
-							isNull(repositoryExternalSources.githubPushBackStatus),
-							ne(repositoryExternalSources.githubPushBackStatus, 'running')
-						),
-						sql`exists (
-									select 1
-									from ${repositories}
-								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-									and ${repositories.ownerUserId} = ${userId}
-							)`
-					)
-				)
-				.returning({ id: repositoryExternalSources.id })
-
-			if (!updatedExternalSource) return undefined
-
-			return await this.findWithClient(transaction, { userId, repositoryId })
-		})
-	}
-
-	async disableGitHubPushBack({
-		repositoryId,
-		userId,
-	}: RepositoryIdWithUserParams): Promise<RepositoryWithOwner | undefined> {
-		return await this.db.transaction(async transaction => {
-			const [updatedExternalSource] = await transaction
-				.update(repositoryExternalSources)
-				.set({
-					githubPushBackEnabled: false,
-					githubPushBackStatus: 'idle',
-					githubPushBackStartedAt: null,
-					githubPushBackFailedAt: null,
-					githubPushBackFailureReason: null,
-				})
-				.where(
-					and(
-						eq(repositoryExternalSources.repositoryId, repositoryId),
-						eq(repositoryExternalSources.provider, 'github'),
-						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
-						or(
-							isNull(repositoryExternalSources.githubPushBackStatus),
-							ne(repositoryExternalSources.githubPushBackStatus, 'running')
-						),
-						sql`exists (
-									select 1
-									from ${repositories}
-								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-									and ${repositories.ownerUserId} = ${userId}
-							)`
-					)
-				)
-				.returning({ id: repositoryExternalSources.id })
-
-			if (!updatedExternalSource) return undefined
-
-			return await this.findWithClient(transaction, { userId, repositoryId })
-		})
-	}
-
-	async markGitHubPushBackRunning({
-		repositoryId,
-		startedAt,
-		userId,
-	}: MarkGitHubPushBackRunningParams): Promise<
-		RepositoryWithOwner | undefined
-	> {
-		return await this.db.transaction(async transaction => {
-			const [updatedExternalSource] = await transaction
-				.update(repositoryExternalSources)
-				.set({
-					githubPushBackStatus: 'running',
-					githubPushBackStartedAt: startedAt,
-					githubPushBackFailedAt: null,
-					githubPushBackFailureReason: null,
-				})
-				.where(
-					and(
-						eq(repositoryExternalSources.repositoryId, repositoryId),
-						eq(repositoryExternalSources.provider, 'github'),
-						eq(repositoryExternalSources.mirrorMode, 'tessera_source'),
-						eq(repositoryExternalSources.githubPushBackEnabled, true),
-						or(
-							isNull(repositoryExternalSources.githubPushBackStatus),
-							ne(repositoryExternalSources.githubPushBackStatus, 'running')
-						),
-						sql`exists (
-									select 1
-									from ${repositories}
-								where ${repositories.id} = ${repositoryExternalSources.repositoryId}
-									and ${repositories.ownerUserId} = ${userId}
-							)`
-					)
-				)
-				.returning({ id: repositoryExternalSources.id })
-
-			if (!updatedExternalSource) return undefined
-
-			return await this.findWithClient(transaction, { userId, repositoryId })
-		})
-	}
-
-	async markGitHubPushBackSucceeded({
-		repositoryId,
-		succeededAt,
-	}: MarkGitHubPushBackSucceededParams): Promise<void> {
-		await this.db
-			.update(repositoryExternalSources)
-			.set({
-				githubPushBackStatus: 'succeeded',
-				githubPushBackSucceededAt: succeededAt,
-				githubPushBackFailedAt: null,
-				githubPushBackFailureReason: null,
-			})
-			.where(
-				and(
-					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(repositoryExternalSources.provider, 'github'),
-					eq(repositoryExternalSources.mirrorMode, 'tessera_source')
-				)
-			)
-	}
-
-	async markGitHubPushBackFailed({
-		failedAt,
-		failureReason,
-		repositoryId,
-	}: MarkGitHubPushBackFailedParams): Promise<void> {
-		await this.db
-			.update(repositoryExternalSources)
-			.set({
-				githubPushBackStatus: 'failed',
-				githubPushBackFailedAt: failedAt,
-				githubPushBackFailureReason: failureReason,
-			})
-			.where(
-				and(
-					eq(repositoryExternalSources.repositoryId, repositoryId),
-					eq(repositoryExternalSources.provider, 'github'),
-					eq(repositoryExternalSources.mirrorMode, 'tessera_source')
-				)
-			)
 	}
 
 	async upsertGitHubExternalSource({
@@ -1088,57 +524,40 @@ export class RepositoriesRepository {
 
 	private async updateImportStorageWithClient(
 		database: RepositoryDatabase,
-		{
-			defaultBranch,
-			repositoryId,
-			storagePath,
-			username,
-		}: UpdateImportStorageParams
+		{ defaultBranch, repositoryId, storagePath }: UpdateImportStorageParams
 	): Promise<RepositoryWithOwner | undefined> {
-		const [repository] = await database
+		const [updated] = await database
 			.update(repositories)
 			.set({ defaultBranch, storagePath })
 			.where(eq(repositories.id, repositoryId))
-			.returning({
-				id: repositories.id,
-				name: repositories.name,
-				slug: repositories.slug,
-				description: repositories.description,
-				visibility: repositories.visibility,
-				ownerUserId: repositories.ownerUserId,
-				ownerOrganizationId: repositories.ownerOrganizationId,
-				defaultBranch: repositories.defaultBranch,
-				storagePath: repositories.storagePath,
-				createdAt: repositories.createdAt,
-				updatedAt: repositories.updatedAt,
-			})
+			.returning({ id: repositories.id })
 
-		if (!repository) return undefined
+		if (!updated) return undefined
 
-		return {
-			...repository,
-			ownerUser: { username },
-		}
+		return await this.findByIdWithClient(database, repositoryId)
 	}
 
-	private async findWithClient(
-		database: RepositoryDatabase,
-		{ repositoryId, userId }: RepositoryIdWithUserParams
-	): Promise<RepositoryWithOwner | undefined> {
-		const [row] = await database
+	private selectRepositories(database: RepositoryDatabase = this.db) {
+		return database
 			.select(REPOSITORY_WITH_OWNER_COLUMNS)
 			.from(repositories)
-			.innerJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(user, eq(repositories.ownerUserId, user.id))
+			.leftJoin(
+				organization,
+				eq(repositories.ownerOrganizationId, organization.id)
+			)
 			.leftJoin(
 				repositoryExternalSources,
 				eq(repositoryExternalSources.repositoryId, repositories.id)
 			)
-			.where(
-				and(
-					eq(repositories.id, repositoryId),
-					eq(repositories.ownerUserId, userId)
-				)
-			)
+	}
+
+	private async findByIdWithClient(
+		database: RepositoryDatabase,
+		repositoryId: RepositoryId
+	): Promise<RepositoryWithOwner | undefined> {
+		const [row] = await this.selectRepositories(database)
+			.where(eq(repositories.id, repositoryId))
 			.limit(1)
 
 		return toRepositoryWithOwner(toRepositoryRow(row))
@@ -1204,6 +623,64 @@ export class RepositoriesRepository {
 				},
 			})
 	}
+
+	async listVisibleByOwner(
+		params: ListVisibleByOwnerParams
+	): Promise<OwnedRepositoryListItem[]> {
+		const { viewerUserId } = params
+		const isOwnedByHandle =
+			params.ownerUserId === undefined
+				? eq(repositories.ownerOrganizationId, params.ownerOrganizationId)
+				: eq(repositories.ownerUserId, params.ownerUserId)
+		const isPublic = eq(repositories.visibility, 'public')
+		// An organization `member` is absent on purpose: TES-54 grants no implicit read.
+		const isVisibleToViewer = viewerUserId
+			? or(
+					isPublic,
+					eq(repositories.ownerUserId, viewerUserId),
+					exists(
+						this.db
+							.select({ id: member.id })
+							.from(member)
+							.where(
+								and(
+									eq(member.organizationId, repositories.ownerOrganizationId),
+									eq(member.userId, viewerUserId),
+									inArray(member.role, ['owner', 'admin'])
+								)
+							)
+					),
+					exists(
+						this.db
+							.select({ id: repositoryCollaborators.id })
+							.from(repositoryCollaborators)
+							.where(
+								and(
+									eq(repositoryCollaborators.repositoryId, repositories.id),
+									eq(repositoryCollaborators.userId, viewerUserId)
+								)
+							)
+					)
+				)
+			: isPublic
+
+		return await this.db
+			.select({
+				id: repositories.id,
+				name: repositories.name,
+				slug: repositories.slug,
+				visibility: repositories.visibility,
+			})
+			.from(repositories)
+			.where(
+				and(
+					isOwnedByHandle,
+					isNotNull(repositories.storagePath),
+					isVisibleToViewer
+				)
+			)
+			.orderBy(asc(repositories.createdAt))
+	}
 }
 
 interface SelectedRepositoryRow {
@@ -1218,7 +695,7 @@ interface SelectedRepositoryRow {
 	storagePath: string | null
 	createdAt: Date
 	updatedAt: Date
-	ownerUsername: string | null
+	ownerHandle: string | null
 	externalSource: RepositoryOwnerRow['externalSource'] | null
 }
 
@@ -1239,30 +716,25 @@ function toRepositoryRow(
 		storagePath: row.storagePath,
 		createdAt: row.createdAt,
 		updatedAt: row.updatedAt,
-		ownerUser: { username: row.ownerUsername },
+		ownerHandle: row.ownerHandle,
 		externalSource: row.externalSource?.id ? row.externalSource : undefined,
 	}
 }
 
-function toGitHubMirrorSyncRepository(
-	row: SelectedRepositoryRow | undefined
-): GitHubMirrorSyncRepository | undefined {
-	const repository = toRepositoryWithOwner(toRepositoryRow(row))
+function isOwnerHandle(handle: string) {
+	return or(eq(user.username, handle), eq(organization.slug, handle))
+}
 
-	if (
-		!(
-			repository?.ownerUserId &&
-			repository.storagePath &&
-			repository.externalSource
-		)
+function isOwnedBy({
+	ownerOrganizationId,
+	ownerUserId,
+}: RepositoryOwnerIdentity) {
+	return and(
+		ownerUserId
+			? eq(repositories.ownerUserId, ownerUserId)
+			: isNull(repositories.ownerUserId),
+		ownerOrganizationId
+			? eq(repositories.ownerOrganizationId, ownerOrganizationId)
+			: isNull(repositories.ownerOrganizationId)
 	)
-		return undefined
-	const ownerUserId = repository.ownerUserId
-
-	return {
-		...repository,
-		ownerUserId,
-		storagePath: repository.storagePath,
-		externalSource: repository.externalSource,
-	}
 }

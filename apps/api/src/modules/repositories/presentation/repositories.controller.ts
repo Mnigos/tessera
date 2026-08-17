@@ -1,11 +1,9 @@
 import { contract } from '@config/rpc'
 import { RequireAuth, Session, type UserSession } from '@modules/auth'
-import { TargetUserId } from '@modules/user'
 import { Controller, UseGuards } from '@nestjs/common'
 import { Implement, implement } from '@orpc/nest'
-import type { UserId } from '@repo/domain'
 import { RepositoriesService } from '../application/repositories.service'
-import { RepositoryOwnerGuard } from './repository-owner.guard'
+import { RepositoryAdminGuard } from './repository-admin.guard'
 
 @Controller()
 @RequireAuth()
@@ -23,62 +21,57 @@ export class RepositoriesController {
 		)
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
 	@Implement(contract.repositories.list)
-	list(@TargetUserId() targetUserId: UserId) {
-		return implement(contract.repositories.list).handler(async () => ({
-			repositories: await this.repositoriesService.list(targetUserId),
+	list(@Session() session: UserSession) {
+		return implement(contract.repositories.list).handler(async ({ input }) => ({
+			repositories: await this.repositoriesService.list(session.user.id, input),
 		}))
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
+	@UseGuards(RepositoryAdminGuard)
 	@Implement(contract.repositories.get)
-	get(@TargetUserId() targetUserId: UserId) {
+	get(@Session() session: UserSession) {
 		return implement(contract.repositories.get).handler(({ input }) =>
-			this.repositoriesService.get(targetUserId, input)
+			this.repositoriesService.get(session.user.id, input)
 		)
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
+	@UseGuards(RepositoryAdminGuard)
 	@Implement(contract.repositories.enableGitHubMirror)
-	enableGitHubMirror(@TargetUserId() targetUserId: UserId) {
+	enableGitHubMirror(@Session() session: UserSession) {
 		return implement(contract.repositories.enableGitHubMirror).handler(
 			({ input }) =>
-				this.repositoriesService.enableGitHubMirror(targetUserId, input)
+				this.repositoriesService.enableGitHubMirror(session.user.id, input)
 		)
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
+	@UseGuards(RepositoryAdminGuard)
 	@Implement(contract.repositories.getGitHubSyncHealth)
-	getGitHubSyncHealth(@TargetUserId() targetUserId: UserId) {
+	getGitHubSyncHealth(@Session() session: UserSession) {
 		return implement(contract.repositories.getGitHubSyncHealth).handler(
 			({ input }) =>
-				this.repositoriesService.getGitHubSyncHealth(targetUserId, input)
+				this.repositoriesService.getGitHubSyncHealth(session.user.id, input)
 		)
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
+	@UseGuards(RepositoryAdminGuard)
 	@Implement(contract.repositories.getGitHubReauthorization)
-	getGitHubReauthorization(@TargetUserId() targetUserId: UserId) {
+	getGitHubReauthorization(@Session() session: UserSession) {
 		return implement(contract.repositories.getGitHubReauthorization).handler(
 			({ input }) =>
-				this.repositoriesService.getGitHubReauthorization(targetUserId, input)
+				this.repositoriesService.getGitHubReauthorization(
+					session.user.id,
+					input
+				)
 		)
 	}
 
-	@UseGuards(RepositoryOwnerGuard)
+	@UseGuards(RepositoryAdminGuard)
 	@Implement(contract.repositories.cutoverGitHubMirror)
-	cutoverGitHubMirror(
-		@Session() session: UserSession,
-		@TargetUserId() targetUserId: UserId
-	) {
+	cutoverGitHubMirror(@Session() session: UserSession) {
 		return implement(contract.repositories.cutoverGitHubMirror).handler(
 			({ input }) =>
-				this.repositoriesService.cutoverGitHubMirror(
-					session.user.id,
-					targetUserId,
-					input
-				)
+				this.repositoriesService.cutoverGitHubMirror(session.user.id, input)
 		)
 	}
 }

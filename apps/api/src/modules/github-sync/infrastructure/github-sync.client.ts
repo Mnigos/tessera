@@ -1090,7 +1090,10 @@ function toGitHubSyncPullRequest(
 		mergedBy: pullRequest.merged_by
 			? toGitHubSyncActor(pullRequest.merged_by)
 			: undefined,
-		mergeCommitSha: pullRequest.merge_commit_sha ?? undefined,
+		// GitHub reports a test-merge sha on open pull requests; only a merge counts.
+		mergeCommitSha: mergedAt
+			? (pullRequest.merge_commit_sha ?? undefined)
+			: undefined,
 		sourceBranch: pullRequest.head.ref,
 		targetBranch: pullRequest.base.ref,
 		headRepositoryNodeId: pullRequest.head.repo?.node_id,

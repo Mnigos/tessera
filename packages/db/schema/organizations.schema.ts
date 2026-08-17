@@ -1,5 +1,10 @@
-import type { OrganizationId, UserId } from '@repo/domain'
-import { relations } from 'drizzle-orm'
+import type {
+	OrganizationId,
+	OrganizationInvitationId,
+	OrganizationMemberId,
+	UserId,
+} from '@repo/domain'
+import { relations, sql } from 'drizzle-orm'
 import {
 	index,
 	pgEnum,
@@ -7,6 +12,7 @@ import {
 	text,
 	timestamp,
 	unique,
+	uniqueIndex,
 	uuid,
 } from 'drizzle-orm/pg-core'
 import { user } from './auth.schema'
@@ -44,7 +50,7 @@ export type NewOrganization = typeof organization.$inferInsert
 export const member = pgTable(
 	'member',
 	{
-		id: uuid('id').primaryKey().defaultRandom(),
+		id: uuid('id').primaryKey().defaultRandom().$type<OrganizationMemberId>(),
 		organizationId: uuid('organization_id')
 			.notNull()
 			.$type<OrganizationId>()
@@ -76,7 +82,10 @@ export type NewMember = typeof member.$inferInsert
 export const invitation = pgTable(
 	'invitation',
 	{
-		id: uuid('id').primaryKey().defaultRandom(),
+		id: uuid('id')
+			.primaryKey()
+			.defaultRandom()
+			.$type<OrganizationInvitationId>(),
 		email: text('email').notNull(),
 		inviterId: uuid('inviter_id')
 			.notNull()
@@ -92,6 +101,11 @@ export const invitation = pgTable(
 		expiresAt: timestamp('expires_at').notNull(),
 	},
 	table => [
+		// One open invitation per address: expired-but-pending rows match too, so
+		// a resend must retire the old row before it creates the new one.
+		uniqueIndex('invitation_pending_email_unique')
+			.on(table.organizationId, sql`lower(${table.email})`)
+			.where(sql`${table.status} = 'pending'`),
 		index('invitation_email_idx').on(table.email),
 		index('invitation_organization_id_idx').on(table.organizationId),
 		index('invitation_inviter_id_idx').on(table.inviterId),

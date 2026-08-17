@@ -1,6 +1,12 @@
-import type { CreateRepositoryInput } from '@repo/contracts'
+import type {
+	CreateRepositoryInput,
+	CreateRepositoryOwner,
+} from '@repo/contracts'
 
-export function getCreateRepositoryInput(formData: FormData) {
+export function getCreateRepositoryInput(
+	formData: FormData,
+	owner: CreateRepositoryOwner
+) {
 	const name = String(formData.get('name') ?? '').trim()
 	const slug = String(formData.get('slug') ?? '').trim()
 	const description = String(formData.get('description') ?? '').trim()
@@ -12,5 +18,6 @@ export function getCreateRepositoryInput(formData: FormData) {
 		slug: slug || undefined,
 		description: description || undefined,
 		visibility,
+		owner,
 	} satisfies CreateRepositoryInput
 }

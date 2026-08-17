@@ -11,6 +11,7 @@ import { LogOut } from 'lucide-react'
 import type { PropsWithChildren } from 'react'
 import { FaGithub } from 'react-icons/fa'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
+import { PendingInvitationsMenu } from '@/modules/organizations/components/pending-invitations-menu'
 import { DetentMark } from '@/shared/components/detent-mark'
 import type { RouterContext } from '../router'
 import appCss from '../styles.css?url'
@@ -98,12 +99,13 @@ function Navbar() {
 						<Link
 							activeProps={{ className: 'text-foreground' }}
 							className="text-muted-foreground text-sm hover:text-foreground"
-							params={{ username: user?.username ?? '' }}
-							to={user?.username ? '/profile/$username' : '/profile'}
+							params={{ handle: user?.username ?? '' }}
+							to={user?.username ? '/$handle' : '/profile'}
 						>
 							Profile
 						</Link>
 					)}
+					<PendingInvitationsMenu enabled={isAuthenticated} />
 					{isAuthenticated ? (
 						<div className="flex items-center gap-3">
 							{user && (
@@ -130,7 +132,7 @@ function Navbar() {
 							</Button>
 						</div>
 					) : (
-						<Button disabled={isLoading} onClick={signIn} size="sm">
+						<Button disabled={isLoading} onClick={() => signIn()} size="sm">
 							<FaGithub className="size-4" />
 							Sign in
 						</Button>

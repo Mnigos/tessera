@@ -110,8 +110,6 @@ describe(RepositoryCollaboratorsService.name, () => {
 			role: 'write',
 		})
 		expect(resolveImplicitRoleSpy).toHaveBeenCalledWith(collaboratorUserId, {
-			id: repositoryId,
-			visibility: 'private',
 			ownerUserId,
 			ownerOrganizationId: null,
 		})

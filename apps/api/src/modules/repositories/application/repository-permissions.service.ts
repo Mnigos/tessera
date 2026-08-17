@@ -1,19 +1,17 @@
 import { Injectable } from '@nestjs/common'
 import type { Member } from '@repo/db'
 import type {
-	OrganizationId,
 	RepositoryId,
 	RepositoryRole,
 	RepositoryVisibility,
 	UserId,
 } from '@repo/domain'
+import type { RepositoryOwnerIdentity } from '../domain/repository'
 import { RepositoriesRepository } from '../infrastructure/repositories.repository'
 
-export interface RepositoryRoleTarget {
+export interface RepositoryRoleTarget extends RepositoryOwnerIdentity {
 	id: RepositoryId
 	visibility: RepositoryVisibility
-	ownerUserId: UserId | null
-	ownerOrganizationId: OrganizationId | null
 }
 
 @Injectable()
@@ -50,17 +48,17 @@ export class RepositoryPermissionsService {
 
 	async resolveImplicitRole(
 		viewerUserId: UserId | null,
-		repository: RepositoryRoleTarget
+		owner: RepositoryOwnerIdentity
 	): Promise<RepositoryRole | null> {
 		if (!viewerUserId) return null
 
-		if (repository.ownerUserId)
-			return repository.ownerUserId === viewerUserId ? 'owner' : null
+		if (owner.ownerUserId)
+			return owner.ownerUserId === viewerUserId ? 'owner' : null
 
-		if (repository.ownerOrganizationId) {
+		if (owner.ownerOrganizationId) {
 			const organizationRole =
 				await this.repositoriesRepository.findOrganizationMemberRole({
-					organizationId: repository.ownerOrganizationId,
+					organizationId: owner.ownerOrganizationId,
 					userId: viewerUserId,
 				})
 

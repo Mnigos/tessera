@@ -129,7 +129,8 @@ function GitHubImportRoute() {
 				</h1>
 				<p className="text-muted-foreground">
 					Select one or more GitHub repositories. detent will queue each import
-					when you continue.
+					when you continue, under your own handle — organizations cannot own an
+					imported repository yet.
 				</p>
 			</div>
 			{isAuthLoading ? (
@@ -159,7 +160,7 @@ function GitHubImportRoute() {
 			) : (
 				<GitHubImportMessage
 					action={
-						<Button onClick={signIn} size="sm">
+						<Button onClick={() => signIn()} size="sm">
 							<FaGithub className="size-4" />
 							Sign in with GitHub
 						</Button>

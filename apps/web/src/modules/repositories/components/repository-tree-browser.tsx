@@ -83,7 +83,7 @@ export function RepositoryTreeBrowser({
 			path={treeQuery.data.path}
 			refName={treeQuery.data.ref}
 			slug={treeQuery.data.repository.slug}
-			username={treeQuery.data.owner.username}
+			username={treeQuery.data.owner.handle}
 		>
 			<TreeEntries tree={treeQuery.data} />
 		</RepositoryBrowserShell>
@@ -202,7 +202,7 @@ interface GetTreeEntryHrefInput {
 function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {
 	if (entry.kind === 'directory')
 		return getTreeHref(
-			tree.owner.username,
+			tree.owner.handle,
 			tree.repository.slug,
 			tree.ref,
 			entry.path
@@ -210,7 +210,7 @@ function getTreeEntryHref({ entry, tree }: GetTreeEntryHrefInput) {
 
 	if (entry.kind === 'file')
 		return getBlobHref(
-			tree.owner.username,
+			tree.owner.handle,
 			tree.repository.slug,
 			tree.ref,
 			entry.path

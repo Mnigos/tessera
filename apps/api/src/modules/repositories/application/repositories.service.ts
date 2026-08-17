@@ -16,11 +16,13 @@ import {
 } from '@config/git-storage'
 import { ChecksReadService } from '@modules/checks'
 import { GitAccessTokensService } from '@modules/git-access-tokens'
+import { GitHubSyncQueue } from '@modules/github-sync/infrastructure/github-sync.queue'
 import { GpgPublicKeysService } from '@modules/gpg-public-keys'
 import { SshPublicKeysService } from '@modules/ssh-public-keys'
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	CreateRepositoryInput,
+	ParsedCreateRepositoryInput,
 	ParsedCutoverGitHubMirrorInput,
 	ParsedEnableGitHubMirrorInput,
 	ParsedGetGitHubReauthorizationInput,
@@ -31,6 +33,7 @@ import type {
 	ParsedGetRepositoryInput,
 	ParsedGetRepositoryRefsInput,
 	ParsedGetRepositoryTreeInput,
+	ParsedListRepositoriesInput,
 	RepositoryBlob,
 	RepositoryBlobPreview,
 	RepositoryBrowserSummary,
@@ -54,6 +57,7 @@ import {
 } from '@repo/domain'
 import { isUniqueViolation } from '~/shared/helpers/database-errors.helper'
 import {
+	type RepositoryOwnerIdentity,
 	type RepositoryWithOwner as RepositoryWithOwnerEntity,
 	toRepositoryOutput,
 } from '../domain/repository'
@@ -106,8 +110,7 @@ interface CreateRepositoryMetadataParams {
 	description: string | undefined
 	name: RepositoryName
 	slug: RepositorySlug
-	userId: UserId
-	username: string
+	owner: RepositoryOwnerIdentity
 	visibility: CreateRepositoryInput['visibility']
 }
 
@@ -115,7 +118,6 @@ export interface UpdateImportedRepositoryStorageParams {
 	defaultBranch: string
 	repositoryId: RepositoryId
 	storagePath: string
-	username: string
 }
 
 export interface InitializeGitHubExternalSourceInput {
@@ -212,7 +214,6 @@ export interface CreateImportedRepositoryMetadataInput {
 	name: RepositoryName
 	slug: RepositorySlug
 	userId: UserId
-	username: string
 	visibility: CreateRepositoryInput['visibility']
 }
 
@@ -229,7 +230,8 @@ export class RepositoriesService {
 		private readonly repositoryPermissionsService: RepositoryPermissionsService,
 		private readonly gitAccessTokensService: GitAccessTokensService,
 		private readonly checksReadService: ChecksReadService,
-		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository
+		private readonly repositorySyncHealthRepository: RepositorySyncHealthRepository,
+		private readonly gitHubSyncQueue: GitHubSyncQueue
 	) {}
 
 	private get cloneBaseUrls(): RepositoryCloneBaseUrls {
@@ -242,20 +244,17 @@ export class RepositoriesService {
 	async create(
 		userId: UserId,
 		currentUsername: string | undefined,
-		{ description, visibility, ...input }: CreateRepositoryInput
+		{ description, owner, visibility, ...input }: ParsedCreateRepositoryInput
 	): Promise<RepositoryWithOwner> {
-		if (!currentUsername) throw new RepositoryCreatorUsernameRequiredError()
-
 		const name = normalizeRepositoryName(input.name)
 		const slug = input.slug
 			? normalizeRepositorySlug(input.slug)
 			: normalizeGeneratedRepositorySlug(input.name)
 
 		const repository = await this.createRepositoryMetadata({
-			userId,
+			owner: await this.resolveCreateOwner(userId, currentUsername, owner),
 			name,
 			slug,
-			username: currentUsername,
 			description,
 			visibility,
 		})
@@ -268,7 +267,6 @@ export class RepositoriesService {
 				await this.repositoriesRepository.updateStoragePath({
 					repositoryId: repository.id,
 					storagePath,
-					username: currentUsername,
 				})
 
 			if (!repositoryWithStorage) throw new RepositoryCreateFailedError()
@@ -281,8 +279,25 @@ export class RepositoriesService {
 		}
 	}
 
-	async list(userId: UserId): Promise<RepositoryWithOwner[]> {
-		const repositories = await this.repositoriesRepository.list({ userId })
+	async list(
+		viewerUserId: UserId,
+		{ username }: ParsedListRepositoriesInput
+	): Promise<RepositoryWithOwner[]> {
+		const owner = await this.repositoriesRepository.findOwner({
+			handle: username,
+		})
+
+		if (!owner) throw new RepositoryNotFoundError({ username })
+
+		const role = await this.repositoryPermissionsService.resolveImplicitRole(
+			viewerUserId,
+			owner
+		)
+
+		if (!canAdministerRepository(role))
+			throw new RepositoryNotFoundError({ username })
+
+		const repositories = await this.repositoriesRepository.list(owner)
 		// Read once for the page rather than once per row.
 		const cloneBaseUrls = this.cloneBaseUrls
 
@@ -447,34 +462,17 @@ export class RepositoriesService {
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<void> {
-		const { role } = await this.resolveReadableRepositoryRole(
-			viewerUserId,
-			input
-		)
-
-		if (!canAdministerRepository(role))
-			throw new RepositoryAdminForbiddenError({
-				username: input.username,
-				slug: input.slug,
-				userId: viewerUserId,
-			})
+		await this.findAdministrableRepository(viewerUserId, input)
 	}
 
 	async getManageableRepositoryContext(
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryManagementContext> {
-		const { repository, role } = await this.resolveReadableRepositoryRole(
+		const repository = await this.findAdministrableRepository(
 			viewerUserId,
 			input
 		)
-
-		if (!canAdministerRepository(role))
-			throw new RepositoryAdminForbiddenError({
-				username: input.username,
-				slug: input.slug,
-				userId: viewerUserId,
-			})
 
 		return {
 			repositoryId: repository.id,
@@ -504,7 +502,7 @@ export class RepositoriesService {
 		username,
 	}: ParsedGetRepositoryInput): Promise<RepositoryTarget | undefined> {
 		const repository = await this.repositoriesRepository.find({
-			username,
+			handle: username,
 			slug,
 		})
 
@@ -520,32 +518,14 @@ export class RepositoriesService {
 		name,
 		slug,
 		userId,
-		username,
 		visibility,
 	}: CreateImportedRepositoryMetadataInput): Promise<RepositoryWithOwnerEntity> {
 		return await this.createRepositoryMetadata({
-			userId,
+			owner: { ownerUserId: userId, ownerOrganizationId: null },
 			name,
 			slug,
-			username,
 			description: undefined,
 			visibility,
-		})
-	}
-
-	async updateImportedRepositoryStorage({
-		defaultBranch,
-		repositoryId,
-		storagePath,
-		username,
-	}: UpdateImportedRepositoryStorageParams): Promise<
-		RepositoryWithOwnerEntity | undefined
-	> {
-		return await this.repositoriesRepository.updateImportStorage({
-			repositoryId,
-			storagePath,
-			defaultBranch,
-			username,
 		})
 	}
 
@@ -589,7 +569,6 @@ export class RepositoriesService {
 		sourceUrl,
 		startedAt,
 		storagePath,
-		username,
 	}: CompleteImportedGitHubRepositoryInput): Promise<
 		RepositoryWithOwnerEntity | undefined
 	> {
@@ -597,7 +576,6 @@ export class RepositoriesService {
 			repositoryId,
 			storagePath,
 			defaultBranch,
-			username,
 			externalRepositoryId,
 			ownerLogin,
 			name,
@@ -618,29 +596,26 @@ export class RepositoriesService {
 	}
 
 	async get(
-		userId: UserId,
-		{ slug, username }: ParsedGetRepositoryInput
+		viewerUserId: UserId,
+		input: ParsedGetRepositoryInput
 	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.find({
-			userId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+		const repository = await this.findAdministrableRepository(
+			viewerUserId,
+			input
+		)
 
 		return toRepositoryOutput(repository, this.cloneBaseUrls)
 	}
 
 	async enableGitHubMirror(
-		targetUserId: UserId,
-		{ slug, username }: ParsedEnableGitHubMirrorInput
+		viewerUserId: UserId,
+		input: ParsedEnableGitHubMirrorInput
 	) {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
+		const repository = await this.findAdministrableRepository(
+			viewerUserId,
+			input
+		)
 
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 		if (
 			repository.externalSource?.provider !== 'github' ||
 			repository.externalSource.mirrorMode !== 'imported'
@@ -667,30 +642,29 @@ export class RepositoriesService {
 			return { status: 'installation_required' as const, installUrl }
 		}
 
-		const didEnable = await this.repositoriesRepository.enableGitHubMirror({
+		const syncRequest = await this.repositoriesRepository.enableGitHubMirror({
 			repositoryId: repository.id,
-			userId: targetUserId,
 		})
 
-		if (!didEnable)
+		if (!syncRequest)
 			throw new RepositoryGitHubMirrorSyncUnavailableError({
 				repositoryId: repository.id,
 			})
+
+		await this.gitHubSyncQueue.enqueue(syncRequest)
 
 		return { status: 'enabled' as const }
 	}
 
 	async cutoverGitHubMirror(
 		actorUserId: UserId,
-		targetUserId: UserId,
-		{ slug, username }: ParsedCutoverGitHubMirrorInput
+		input: ParsedCutoverGitHubMirrorInput
 	): Promise<RepositoryWithOwner> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
+		const repository = await this.findAdministrableRepository(
+			actorUserId,
+			input
+		)
 
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
 		if (
 			repository.externalSource?.provider !== 'github' ||
 			repository.externalSource.mirrorMode !== 'github_to_tessera'
@@ -733,7 +707,6 @@ export class RepositoriesService {
 		const cutoverRepository =
 			await this.repositoriesRepository.cutoverGitHubMirror({
 				repositoryId: repository.id,
-				userId: targetUserId,
 				actorUserId,
 				cutoverAt: new Date(),
 			})
@@ -750,15 +723,13 @@ export class RepositoriesService {
 	}
 
 	async getGitHubSyncHealth(
-		targetUserId: UserId,
-		{ slug, username }: ParsedGetGitHubSyncHealthInput
+		viewerUserId: UserId,
+		input: ParsedGetGitHubSyncHealthInput
 	): Promise<{ syncHealth?: RepositorySyncHealth }> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
+		const repository = await this.findAdministrableRepository(
+			viewerUserId,
+			input
+		)
 
 		return { syncHealth: await this.findGitHubSyncHealth(repository.id) }
 	}
@@ -772,16 +743,13 @@ export class RepositoriesService {
 	 * for it never starts a synchronization.
 	 */
 	async getGitHubReauthorization(
-		targetUserId: UserId,
-		{ slug, username }: ParsedGetGitHubReauthorizationInput
+		viewerUserId: UserId,
+		input: ParsedGetGitHubReauthorizationInput
 	): Promise<{ reauthorizationRequired: boolean; installUrl?: string }> {
-		const repository = await this.repositoriesRepository.find({
-			userId: targetUserId,
-			slug,
-		})
-
-		if (!repository) throw new RepositoryNotFoundError({ slug, username })
-
+		const repository = await this.findAdministrableRepository(
+			viewerUserId,
+			input
+		)
 		const syncHealth = await this.findGitHubSyncHealth(repository.id)
 
 		if (!syncHealth?.reauthorizationRequired)
@@ -1123,7 +1091,7 @@ export class RepositoriesService {
 		trustedUser: string
 	): Promise<GitRepositoryAuthorization> {
 		const repository = await this.repositoriesRepository.find({
-			username,
+			handle: username,
 			slug,
 		})
 
@@ -1151,7 +1119,7 @@ export class RepositoriesService {
 		trustedUserId: UserId
 	): Promise<GitRepositoryAuthorization> {
 		const repository = await this.repositoriesRepository.find({
-			username,
+			handle: username,
 			slug,
 		})
 
@@ -1191,20 +1159,43 @@ export class RepositoriesService {
 		return { trustedUser: keyOwnerUserId }
 	}
 
+	private async resolveCreateOwner(
+		userId: UserId,
+		currentUsername: string | undefined,
+		owner: ParsedCreateRepositoryInput['owner']
+	): Promise<RepositoryOwnerIdentity> {
+		if (owner.kind === 'user') {
+			if (!currentUsername) throw new RepositoryCreatorUsernameRequiredError()
+
+			return { ownerUserId: userId, ownerOrganizationId: null }
+		}
+
+		const role = await this.repositoryPermissionsService.resolveImplicitRole(
+			userId,
+			{ ownerUserId: null, ownerOrganizationId: owner.organizationId }
+		)
+
+		if (!canAdministerRepository(role))
+			throw new RepositoryAdminForbiddenError({
+				organizationId: owner.organizationId,
+				userId,
+			})
+
+		return { ownerUserId: null, ownerOrganizationId: owner.organizationId }
+	}
+
 	private async createRepositoryMetadata({
 		description,
 		name,
+		owner,
 		slug,
-		userId,
-		username,
 		visibility,
 	}: CreateRepositoryMetadataParams): Promise<RepositoryWithOwnerEntity> {
 		try {
 			return await this.repositoriesRepository.create({
-				userId,
+				owner,
 				name,
 				slug,
-				username,
 				description,
 				visibility,
 			})
@@ -1375,12 +1366,32 @@ export class RepositoriesService {
 		return { repository, role }
 	}
 
+	// The guard only sees path parameters; the handler acts on the input.
+	private async findAdministrableRepository(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryWithOwnerEntity> {
+		const { repository, role } = await this.resolveReadableRepositoryRole(
+			viewerUserId,
+			input
+		)
+
+		if (!canAdministerRepository(role))
+			throw new RepositoryAdminForbiddenError({
+				username: input.username,
+				slug: input.slug,
+				userId: viewerUserId,
+			})
+
+		return repository
+	}
+
 	private async findRepository({
 		slug,
 		username,
 	}: ParsedGetRepositoryInput): Promise<RepositoryWithOwnerEntity> {
 		const repository = await this.repositoriesRepository.find({
-			username,
+			handle: username,
 			slug,
 		})
 
@@ -1389,6 +1400,7 @@ export class RepositoriesService {
 		return repository
 	}
 
+	// An organization owns no keys, so its repositories trust only authorship.
 	private async listRepositoryOwnerTrustedGpgKeys(
 		ownerUserId: UserId | null
 	): Promise<GitStorageTrustedGpgKey[]> {
