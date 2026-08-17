@@ -1,6 +1,6 @@
 import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight } from 'lucide-react'
+import { ArrowLeft } from 'lucide-react'
 import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import {
 	formatPullRequestDate,
@@ -41,16 +41,16 @@ export function PullRequestListItem({
 					<span className="inline-flex min-w-0 max-w-full items-center gap-1">
 						<span
 							className="max-w-32 truncate rounded bg-muted px-1.5 py-0.5 font-mono sm:max-w-48"
-							title={pullRequest.sourceBranch}
-						>
-							{pullRequest.sourceBranch}
-						</span>
-						<ArrowRight aria-hidden className="size-3" />
-						<span
-							className="max-w-32 truncate rounded bg-muted px-1.5 py-0.5 font-mono sm:max-w-48"
 							title={pullRequest.targetBranch}
 						>
 							{pullRequest.targetBranch}
+						</span>
+						<ArrowLeft aria-hidden className="size-3" />
+						<span
+							className="max-w-32 truncate rounded bg-muted px-1.5 py-0.5 font-mono sm:max-w-48"
+							title={pullRequest.sourceBranch}
+						>
+							{pullRequest.sourceBranch}
 						</span>
 					</span>
 					<span>

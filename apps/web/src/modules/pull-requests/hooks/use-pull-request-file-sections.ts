@@ -89,9 +89,9 @@ export function usePullRequestFileSections() {
 		)
 	}
 
+	// Mounted sections stay mounted, so a comment being written survives the reset.
 	function reset() {
 		setExpansionOverrides({})
-		setNearViewportPaths([])
 		setActivePath(undefined)
 	}
 
