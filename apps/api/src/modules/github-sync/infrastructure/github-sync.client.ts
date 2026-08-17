@@ -43,6 +43,7 @@ import type {
 
 const GITHUB_PAGE_SIZE = 100
 const MERGED_PULL_REQUEST_DETAIL_BATCH_SIZE = 10
+const DIFF_STATS_ALIAS_PREFIX = 'pr'
 const GITHUB_CURSOR_FALLBACK_OVERLAP_MS = 60_000
 
 const gitHubRepositorySchema = z.object({
@@ -215,25 +216,11 @@ const REVIEW_THREADS_QUERY = `
 						diffSide
 						resolvedBy {
 							__typename
+							id
+							databaseId
 							login
 							avatarUrl
 							url
-							... on User {
-								id
-								databaseId
-							}
-							... on Bot {
-								id
-								databaseId
-							}
-							... on Organization {
-								id
-								databaseId
-							}
-							... on Mannequin {
-								id
-								databaseId
-							}
 						}
 						comments(first: ${GITHUB_PAGE_SIZE}) {
 							nodes {
@@ -252,6 +239,36 @@ const REVIEW_THREADS_QUERY = `
 		}
 	}
 `
+
+const gitHubGraphQlDiffStatsSchema = z.object({
+	additions: z.number().int().nonnegative(),
+	deletions: z.number().int().nonnegative(),
+	changedFiles: z.number().int().nonnegative(),
+})
+
+const gitHubDiffStatsResponseSchema = z.object({
+	repository: z
+		.record(z.string(), gitHubGraphQlDiffStatsSchema.nullish())
+		.nullish(),
+})
+
+/** `pulls.list` omits the totals, so one aliased query stands in for a read per pull request. */
+function buildDiffStatsQuery(numbers: number[]): string {
+	const fields = numbers
+		.map(
+			number =>
+				`${DIFF_STATS_ALIAS_PREFIX}${number}: pullRequest(number: ${number}) { additions deletions changedFiles }`
+		)
+		.join('\n\t\t\t')
+
+	return `
+	query PullRequestDiffStats($owner: String!, $name: String!) {
+		repository(owner: $owner, name: $name) {
+			${fields}
+		}
+	}
+`
+}
 
 @Injectable()
 export class GitHubSyncClient {
@@ -345,6 +362,14 @@ export class GitHubSyncClient {
 				pullRequests: parsedPullRequests,
 			})
 
+			const syncPullRequests = detailedPullRequests.map(toGitHubSyncPullRequest)
+			const diffStats = await this.loadPullRequestDiffStats({
+				octokit,
+				owner: repository.owner.login,
+				repo: repository.name,
+				numbers: syncPullRequests.map(pullRequest => pullRequest.number),
+			})
+
 			return {
 				repository: {
 					nodeId: repository.node_id,
@@ -356,7 +381,10 @@ export class GitHubSyncClient {
 					cloneUrl: repository.clone_url,
 					defaultBranch: repository.default_branch,
 				},
-				pullRequests: detailedPullRequests.map(toGitHubSyncPullRequest),
+				pullRequests: syncPullRequests.map(pullRequest => ({
+					...pullRequest,
+					...diffStats.get(pullRequest.number),
+				})),
 				pullRequestCursorAt,
 				rateLimit: readRateLimit(),
 			}
@@ -752,6 +780,49 @@ export class GitHubSyncClient {
 		} while (cursor)
 
 		return threads
+	}
+
+	/** Totals are a nicety, so a page that fails is dropped rather than failing the sync. */
+	private async loadPullRequestDiffStats({
+		numbers,
+		octokit,
+		owner,
+		repo,
+	}: {
+		numbers: number[]
+		octokit: Octokit
+		owner: string
+		repo: string
+	}): Promise<Map<number, z.infer<typeof gitHubGraphQlDiffStatsSchema>>> {
+		const diffStats = new Map<
+			number,
+			z.infer<typeof gitHubGraphQlDiffStatsSchema>
+		>()
+
+		for (let start = 0; start < numbers.length; start += GITHUB_PAGE_SIZE) {
+			const batch = numbers.slice(start, start + GITHUB_PAGE_SIZE)
+
+			try {
+				const response = await octokit.graphql<unknown>(
+					buildDiffStatsQuery(batch),
+					{ owner, name: repo }
+				)
+				const { repository } = gitHubDiffStatsResponseSchema.parse(response)
+
+				for (const number of batch) {
+					const stats = repository?.[`${DIFF_STATS_ALIAS_PREFIX}${number}`]
+
+					if (stats) diffStats.set(number, stats)
+				}
+			} catch (error) {
+				this.logger.warn(
+					`GitHub diff stats for ${owner}/${repo} could not be read`,
+					error
+				)
+			}
+		}
+
+		return diffStats
 	}
 
 	private async loadMergedPullRequestDetails({
