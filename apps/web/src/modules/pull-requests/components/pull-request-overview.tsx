@@ -106,15 +106,6 @@ export function PullRequestOverview({
 					slug={slug}
 					username={username}
 				/>
-				{canWrite && (
-					<PullRequestMergePanel
-						isGitHubAuthoritative={isGitHubAuthoritative}
-						mergeQueue={mergeQueue}
-						pullRequest={pullRequest}
-						slug={slug}
-						username={username}
-					/>
-				)}
 				{viewerPendingReview && !isGitHubAuthoritative && (
 					<PullRequestPendingReviewBanner
 						allowedOutcomes={reviewViewer.allowedOutcomes}
@@ -138,6 +129,15 @@ export function PullRequestOverview({
 					username={username}
 					viewerUserId={viewerUserId}
 				/>
+				{canWrite && (
+					<PullRequestMergePanel
+						isGitHubAuthoritative={isGitHubAuthoritative}
+						mergeQueue={mergeQueue}
+						pullRequest={pullRequest}
+						slug={slug}
+						username={username}
+					/>
+				)}
 			</div>
 			{hasReviewers && (
 				<aside className="flex flex-col gap-4 lg:sticky lg:top-6">

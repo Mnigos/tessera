@@ -40,6 +40,12 @@ vi.mock('motion/react', () => ({
 				{children}
 			</div>
 		),
+		span: ({
+			children,
+			...props
+		}: HTMLAttributes<HTMLSpanElement> & { children?: ReactNode }) => (
+			<span {...props}>{children}</span>
+		),
 	},
 	useReducedMotion: vi.fn(),
 }))

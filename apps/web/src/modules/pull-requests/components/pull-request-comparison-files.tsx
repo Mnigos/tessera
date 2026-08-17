@@ -4,9 +4,8 @@ import type {
 	PullRequestThreadSide,
 	SessionUser,
 } from '@repo/contracts'
-import { Card } from '@repo/ui/components/card'
 import { useReducedMotion } from 'motion/react'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { isPullRequestStaleComparisonError } from '../helpers/get-pull-request-error-message'
 import {
 	getChangedFilePath,
@@ -53,6 +52,8 @@ interface PullRequestComparisonFilesProps {
 	review?: PullRequestReviewContext
 	viewerUserId?: SessionUser['id']
 	isGitHubAuthoritative: boolean
+	/** The review trigger, which shares the toolbar row with the viewed counter. */
+	toolbarAction?: ReactNode
 }
 
 export function PullRequestComparisonFiles({
@@ -65,6 +66,7 @@ export function PullRequestComparisonFiles({
 	review,
 	viewerUserId,
 	isGitHubAuthoritative,
+	toolbarAction,
 }: Readonly<PullRequestComparisonFilesProps>) {
 	const prefetchFileDiff = usePrefetchPullRequestFileDiff()
 	const shouldReduceMotion = useReducedMotion()
@@ -159,7 +161,7 @@ export function PullRequestComparisonFiles({
 	}
 
 	const outdatedThreads = unanchoredThreads.length > 0 && (
-		<Card className="gap-0 overflow-hidden p-0">
+		<div className="overflow-hidden rounded-md border border-border">
 			<PullRequestOutdatedThreads
 				number={number}
 				permissions={permissions}
@@ -172,7 +174,17 @@ export function PullRequestComparisonFiles({
 				}
 				username={username}
 			/>
-		</Card>
+		</div>
+	)
+	const toolbar = (
+		<div className="flex min-h-9 items-center justify-between gap-3">
+			<p className="font-medium text-sm">
+				{viewedPaths
+					? `${viewedCount} / ${comparison.files.length} files viewed`
+					: `${comparison.files.length} changed files`}
+			</p>
+			{toolbarAction}
+		</div>
 	)
 	const fileTree = (
 		<PullRequestFileTree
@@ -189,6 +201,9 @@ export function PullRequestComparisonFiles({
 	if (comparison.files.length === 0)
 		return (
 			<div className="flex flex-col gap-3">
+				{toolbarAction && (
+					<div className="flex justify-end">{toolbarAction}</div>
+				)}
 				<PullRequestsMessage
 					description={
 						isSinceReview
@@ -209,42 +224,27 @@ export function PullRequestComparisonFiles({
 					title="File list truncated"
 				/>
 			)}
-			{threadsQuery.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					The comments for these files could not be loaded.
-				</p>
-			)}
-			{viewedFilesQuery.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					Which files you have already viewed could not be loaded.
-				</p>
-			)}
-			{setFileViewedMutation.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					{isPullRequestStaleComparisonError(setFileViewedMutation.error)
-						? 'The diff changed and was reloaded.'
-						: 'The viewed state could not be saved.'}
-				</p>
-			)}
+			<PullRequestFileNotices
+				hasThreadsError={threadsQuery.isError}
+				hasViewedError={viewedFilesQuery.isError}
+				hasViewedSaveError={setFileViewedMutation.isError}
+				viewedSaveError={setFileViewedMutation.error}
+			/>
 			{permissions.canComment && isSinceReview && (
 				<p className="text-muted-foreground text-sm">
 					Comments on already-reviewed lines are available in the full diff.
 				</p>
 			)}
-			<p className="font-medium text-sm">
-				{viewedPaths
-					? `${viewedCount} / ${comparison.files.length} files viewed`
-					: `${comparison.files.length} changed files`}
-			</p>
+			{toolbar}
 			<details className="lg:hidden">
 				<summary className="cursor-pointer text-muted-foreground text-sm">
 					Files ({comparison.files.length})
 				</summary>
 				<div className="mt-2">{fileTree}</div>
 			</details>
-			<div className="lg:grid lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start lg:gap-6">
-				<aside className="hidden lg:sticky lg:top-6 lg:block">{fileTree}</aside>
-				<div className="flex min-w-0 flex-col gap-3">
+			<div className="lg:grid lg:grid-cols-[17.5rem_minmax(0,1fr)] lg:items-start lg:gap-4">
+				<aside className="hidden lg:sticky lg:top-2 lg:block">{fileTree}</aside>
+				<div className="flex min-w-0 flex-col gap-4">
 					{comparison.files.map(file => {
 						const path = getChangedFilePath(file)
 						const isViewed = viewedPaths?.has(path) ?? false
@@ -297,5 +297,41 @@ export function PullRequestComparisonFiles({
 				</div>
 			</div>
 		</div>
+	)
+}
+
+interface PullRequestFileNoticesProps {
+	hasThreadsError: boolean
+	hasViewedError: boolean
+	hasViewedSaveError: boolean
+	viewedSaveError: unknown
+}
+
+function PullRequestFileNotices({
+	hasThreadsError,
+	hasViewedError,
+	hasViewedSaveError,
+	viewedSaveError,
+}: Readonly<PullRequestFileNoticesProps>) {
+	return (
+		<>
+			{hasThreadsError && (
+				<p className="text-destructive text-sm" role="alert">
+					The comments for these files could not be loaded.
+				</p>
+			)}
+			{hasViewedError && (
+				<p className="text-destructive text-sm" role="alert">
+					Which files you have already viewed could not be loaded.
+				</p>
+			)}
+			{hasViewedSaveError && (
+				<p className="text-destructive text-sm" role="alert">
+					{isPullRequestStaleComparisonError(viewedSaveError)
+						? 'The diff changed and was reloaded.'
+						: 'The viewed state could not be saved.'}
+				</p>
+			)}
+		</>
 	)
 }

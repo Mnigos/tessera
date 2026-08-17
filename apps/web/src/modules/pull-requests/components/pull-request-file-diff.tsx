@@ -6,6 +6,7 @@ import type {
 } from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 import { Plus } from 'lucide-react'
+import type { CSSProperties } from 'react'
 import {
 	type DiffLineHunkRange,
 	type DiffLineSelection,
@@ -72,14 +73,12 @@ export function PullRequestFileDiffView({
 	)
 
 	if (diffQuery.isLoading)
-		return (
-			<div className="h-24 animate-pulse border-border border-t bg-muted/40" />
-		)
+		return <div className="h-24 animate-pulse bg-muted/40" />
 
 	if (diffQuery.isError)
 		return (
-			<div className="border-border border-t">
-				<p className="p-4 text-destructive text-sm">
+			<div>
+				<p className="p-3 text-destructive text-sm">
 					The file diff could not be loaded.
 				</p>
 				{threads.length > 0 && (
@@ -146,15 +145,15 @@ function FileDiff({
 
 	if (diff.file.isBinary)
 		return (
-			<p className="border-border border-t p-4 text-muted-foreground text-sm">
+			<p className="p-3 text-muted-foreground text-sm">
 				Binary file changed. A text diff is unavailable.
 			</p>
 		)
 
 	if (diff.hunks.length === 0)
 		return (
-			<div className="border-border border-t">
-				<p className="p-4 text-muted-foreground text-sm">
+			<div>
+				<p className="p-3 text-muted-foreground text-sm">
 					No text changes to display.
 				</p>
 				{threads.length > 0 && (
@@ -194,19 +193,20 @@ function FileDiff({
 	return (
 		// biome-ignore lint/a11y: Escape only shortcuts the composer's own Cancel button
 		<div
-			className="overflow-x-auto border-border border-t bg-background"
+			className="bg-background"
 			onKeyDown={event => {
 				if (event.key === 'Escape') dispatchSelection({ type: 'clear' })
 			}}
 		>
 			{diff.isTruncated && (
-				<p className="border-border border-b px-4 py-2 text-amber-300 text-xs">
+				<p className="border-border border-b px-2 py-1 text-amber-300 text-xs">
 					Diff truncated at {diff.patchLimitBytes.toLocaleString()} bytes.
 				</p>
 			)}
 			<div
-				className="min-w-[80rem] font-mono text-xs leading-5 [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none]"
+				className="font-mono text-xs leading-5 [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none]"
 				data-diff-code
+				style={{ '--diff-gutter': toGutterWidth(diff) } as CSSProperties}
 			>
 				{diff.hunks.map(hunk => {
 					const hunkRanges = {
@@ -216,7 +216,7 @@ function FileDiff({
 
 					return (
 						<div key={hunk.header}>
-							<div className="bg-secondary px-4 py-2 text-muted-foreground">
+							<div className="bg-secondary/60 px-2 py-1 text-muted-foreground">
 								{hunk.header}
 							</div>
 							{getSplitDiffRows(hunk.lines).map((row, index) => (
@@ -287,6 +287,25 @@ function toSelectionAnchor(
 	}
 }
 
+/** Room for the widest number this diff prints, plus the comment button's lane. */
+function toGutterWidth(diff: PullRequestFileDiff): string {
+	const widest = diff.hunks.reduce(
+		(digits, hunk) =>
+			hunk.lines.reduce(
+				(hunkDigits, line) =>
+					Math.max(
+						hunkDigits,
+						String(line.old?.line ?? '').length,
+						String(line.new?.line ?? '').length
+					),
+				digits
+			),
+		1
+	)
+
+	return `calc(${widest}ch + 2rem)`
+}
+
 /** The line numbers a hunk renders on one side, absent when it renders none. */
 function toHunkRange(
 	lines: PullRequestDiffLine[],
@@ -333,7 +352,7 @@ function DiffRow({ hunkRanges, row, threading }: Readonly<DiffRowProps>) {
 
 	return (
 		<>
-			<div className="group/diff-row grid grid-cols-[3.5rem_2rem_minmax(32rem,1fr)_3.5rem_2rem_minmax(32rem,1fr)]">
+			<div className="group/diff-row grid grid-cols-[var(--diff-gutter)_1.25rem_minmax(0,1fr)_var(--diff-gutter)_1.25rem_minmax(0,1fr)]">
 				<DiffSide
 					hunkRange={hunkRanges.left}
 					line={row.left}
@@ -482,33 +501,32 @@ function DiffSide({
 			data-selected={isSelected || undefined}
 			data-side={side}
 		>
+			{/* The whole gutter widens a drag, so the range does not stop at the button. */}
 			<span
 				className={cn(
-					'relative select-none border-border border-r px-2 text-right text-muted-foreground',
+					'relative select-none border-border border-r py-0 pr-2 pl-6 text-right text-muted-foreground',
 					DIFF_GUTTER_TONE_CLASSES[tone],
 					isCommented && DIFF_COMMENTED_CLASSES,
 					isSelected && DIFF_SELECTED_CLASSES
 				)}
+				onPointerEnter={event => {
+					if (event.buttons === PRIMARY_BUTTON_HELD && target)
+						onSelect?.({ type: 'extend', target })
+				}}
 			>
 				{onSelect && line && anchor && target && (
 					<button
 						aria-label={`Comment on ${side === 'left' ? 'original' : 'updated'} line ${anchor.line}`}
-						className="absolute inset-y-0 left-1 flex w-4 items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/diff-row:opacity-100"
+						className="absolute top-1/2 left-0.5 flex size-[18px] -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/diff-row:opacity-100"
 						onClick={event =>
 							onSelect({
 								type: event.shiftKey ? 'extend' : 'select',
 								target,
 							})
 						}
-						onPointerDown={event =>
-							onSelect({
-								type: event.shiftKey ? 'extend' : 'begin',
-								target,
-							})
-						}
-						onPointerEnter={event => {
-							if (event.buttons === PRIMARY_BUTTON_HELD)
-								onSelect({ type: 'extend', target })
+						// Shift only ever extends from the click, so a press cannot drop the range first.
+						onPointerDown={event => {
+							if (!event.shiftKey) onSelect({ type: 'begin', target })
 						}}
 						type="button"
 					>
@@ -519,7 +537,7 @@ function DiffSide({
 			</span>
 			<span
 				className={cn(
-					'select-none text-center text-muted-foreground',
+					'select-none py-0 text-center text-muted-foreground',
 					DIFF_CELL_TONE_CLASSES[tone],
 					isSelected && DIFF_SELECTED_CLASSES
 				)}
@@ -528,7 +546,7 @@ function DiffSide({
 			</span>
 			<span
 				className={cn(
-					'whitespace-pre-wrap pr-4 [overflow-wrap:anywhere]',
+					'whitespace-pre-wrap py-0 pr-3 [overflow-wrap:anywhere]',
 					side === 'left' && 'border-border border-r',
 					DIFF_CELL_TONE_CLASSES[tone],
 					isSelected && DIFF_SELECTED_CLASSES
