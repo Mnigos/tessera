@@ -1,8 +1,13 @@
+import { ORPCError } from '@orpc/client'
 import type {
 	MergePullRequestResult,
 	MergeQueueStatus,
 	MergeRequirements,
 	PullRequest,
+} from '@repo/contracts'
+import {
+	GITHUB_RECONNECT_REQUIRED_MESSAGE,
+	GITHUB_WRITE_REJECTED_MESSAGES,
 } from '@repo/contracts'
 import { render, screen, within } from '@testing-library/react'
 import userEvent, { type UserEvent } from '@testing-library/user-event'
@@ -108,10 +113,12 @@ const MERGE_SUBMITTED_AT = 2000
 function mockMergeMutation({
 	answer,
 	data,
+	error,
 	submittedAt = MERGE_SUBMITTED_AT,
 }: {
 	answer?: MergePullRequestResult
 	data?: MergePullRequestResult
+	error?: unknown
 	submittedAt?: number
 } = {}) {
 	const mutate = vi.fn((_input: unknown, options?: MergeMutateOptions) => {
@@ -123,8 +130,8 @@ function mockMergeMutation({
 		data,
 		submittedAt,
 		isPending: false,
-		isError: false,
-		error: null,
+		isError: Boolean(error),
+		error,
 	} as unknown as ReturnType<typeof useMergePullRequestMutation>)
 
 	return mutate
@@ -179,9 +186,13 @@ function mockQueueMutations() {
 	return { join, leave, retry }
 }
 
-function panelElement(mergeQueue: MergeQueueStatus) {
+function panelElement(
+	mergeQueue: MergeQueueStatus,
+	isGitHubAuthoritative = false
+) {
 	return (
 		<PullRequestMergePanel
+			isGitHubAuthoritative={isGitHubAuthoritative}
 			mergeQueue={mergeQueue}
 			pullRequest={pullRequest}
 			slug="notes"
@@ -195,16 +206,24 @@ function panelElement(mergeQueue: MergeQueueStatus) {
  * answer changes under a selection the reader already made.
  */
 function renderPanelForRerender(
-	mergeQueue: MergeQueueStatus = { runnableCount: 0 }
+	mergeQueue: MergeQueueStatus = { runnableCount: 0 },
+	isGitHubAuthoritative = false
 ) {
-	const view = render(panelElement(mergeQueue))
+	const view = render(panelElement(mergeQueue, isGitHubAuthoritative))
 
-	return { rerender: () => view.rerender(panelElement(mergeQueue)) }
+	return {
+		rerender: (nextIsGitHubAuthoritative = isGitHubAuthoritative) =>
+			view.rerender(panelElement(mergeQueue, nextIsGitHubAuthoritative)),
+	}
 }
 
-function renderPanel(mergeQueue: MergeQueueStatus = { runnableCount: 0 }) {
+function renderPanel(
+	mergeQueue: MergeQueueStatus = { runnableCount: 0 },
+	isGitHubAuthoritative = false
+) {
 	render(
 		<PullRequestMergePanel
+			isGitHubAuthoritative={isGitHubAuthoritative}
 			mergeQueue={mergeQueue}
 			pullRequest={pullRequest}
 			slug="notes"
@@ -212,6 +231,144 @@ function renderPanel(mergeQueue: MergeQueueStatus = { runnableCount: 0 }) {
 		/>
 	)
 }
+
+describe('GitHub-authoritative merge panel', () => {
+	beforeEach(() => {
+		mockQueueMutations()
+	})
+
+	afterEach(() => vi.resetAllMocks())
+
+	test('offers only direct GitHub merge methods and ownership copy', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements({
+			...eligibleRequirements,
+			strategyAvailability: undefined,
+		})
+		renderPanel({ runnableCount: 2 }, true)
+
+		await user.click(screen.getByRole('combobox', { name: 'Merge method' }))
+		const options = screen.getAllByRole('option')
+
+		expect(options).toHaveLength(3)
+		expect(within(options[0]).getByText('Merge commit')).toBeTruthy()
+		expect(within(options[1]).getByText('Squash and merge')).toBeTruthy()
+		expect(within(options[2]).getByText('Rebase and merge')).toBeTruthy()
+		expect(screen.queryByText(FAST_FORWARD_OPTION_REGEX)).toBeNull()
+		expect(screen.queryByRole('heading', { name: 'Merge queue' })).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Join merge queue' })
+		).toBeNull()
+		expect(screen.queryByRole('button', { name: 'Merge anyway' })).toBeNull()
+		expect(
+			screen.queryByText('Everything this branch requires is satisfied.')
+		).toBeNull()
+		expect(
+			screen.getByText(
+				'GitHub performs the merge and applies its own branch protection.'
+			)
+		).toBeTruthy()
+	})
+
+	test('merges by squash without collecting a Tessera commit message', async () => {
+		const user = userEvent.setup()
+		const mutate = mockMergeMutation()
+		mockRequirements({
+			...eligibleRequirements,
+			strategyAvailability: undefined,
+		})
+		renderPanel({ runnableCount: 0 }, true)
+
+		await chooseStrategy(user, 'Squash and merge')
+		await user.click(screen.getByRole('button', { name: 'Squash and merge' }))
+
+		expect(screen.queryByRole('dialog')).toBeNull()
+		expect(mutate).toHaveBeenCalledWith(
+			expect.objectContaining({ strategy: 'squash' }),
+			expect.anything()
+		)
+	})
+
+	test('explains a mirrored pull request that has no GitHub mapping', () => {
+		mockMergeMutation()
+		mockRequirements({
+			eligible: true,
+			canBypass: false,
+			reasons: [],
+		})
+		renderPanel({ runnableCount: 0 }, true)
+
+		expect(
+			screen.getByText(GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping)
+		).toBeTruthy()
+		expect(screen.queryByRole('button', MERGE_BUTTON)).toBeNull()
+	})
+
+	test('renders GitHub blocking reasons without a bypass action', () => {
+		mockMergeMutation()
+		mockRequirements({
+			eligible: false,
+			canBypass: true,
+			reasons: [
+				{
+					code: 'insufficient_permission',
+					requiredRole: 'write',
+					actualRole: 'read',
+				},
+				{ code: 'pull_request_not_open', state: 'closed' },
+			],
+		})
+		renderPanel({ runnableCount: 0 }, true)
+
+		expect(
+			screen.getByText('You need write access to this repository to merge.')
+		).toBeTruthy()
+		expect(screen.getByText('This pull request is closed.')).toBeTruthy()
+		expect(screen.queryByRole('button', { name: 'Merge anyway' })).toBeNull()
+	})
+
+	test('drops a native fast-forward selection when authority changes', async () => {
+		const user = userEvent.setup()
+		mockMergeMutation()
+		mockRequirements()
+		const { rerender } = renderPanelForRerender()
+
+		await chooseStrategy(user, 'Fast-forward')
+		expect(screen.getByRole('button', { name: 'Fast-forward' })).toBeTruthy()
+
+		rerender(true)
+
+		expect(screen.getByRole('button', { name: 'Merge commit' })).toBeTruthy()
+	})
+
+	test('surfaces reconnect recovery and the merge fallback', () => {
+		mockRequirements()
+		mockMergeMutation({
+			error: new ORPCError('UNAUTHORIZED', {
+				status: 401,
+				message: GITHUB_RECONNECT_REQUIRED_MESSAGE,
+			}),
+		})
+		const { rerender } = renderPanelForRerender({ runnableCount: 0 }, true)
+
+		expect(
+			screen.getByRole('button', { name: 'Reconnect GitHub' })
+		).toBeTruthy()
+
+		mockMergeMutation({
+			error: new ORPCError('INTERNAL_SERVER_ERROR', {
+				status: 500,
+				message: 'Internal detail',
+			}),
+		})
+		rerender()
+
+		expect(
+			screen.getByText('The pull request could not be merged.')
+		).toBeTruthy()
+	})
+})
 
 /** Picks a merge method through the select the panel renders. */
 async function chooseStrategy(user: UserEvent, name: string) {
@@ -525,6 +682,7 @@ describe(PullRequestMergePanel.name, () => {
 		mockRequirements()
 		const { container } = render(
 			<PullRequestMergePanel
+				isGitHubAuthoritative={false}
 				mergeQueue={{ runnableCount: 0 }}
 				pullRequest={{ ...pullRequest, state: 'merged' }}
 				slug="notes"

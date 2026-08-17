@@ -13,11 +13,9 @@ import type {
 	RepositoryExternalSourceId,
 } from '@repo/db'
 import {
-	account,
 	and,
 	asc,
 	eq,
-	gitHubActors,
 	gitHubInstallations,
 	gitHubPullRequestMappings,
 	gitHubSyncAttempts,
@@ -44,6 +42,7 @@ import {
 	type GitHubWebhookTargetResourceKind,
 	isSupportedGitHubWebhookEvent,
 } from '../domain/github-webhook.schema'
+import { upsertGitHubActor } from './github-actor.upsert'
 import type { GitHubSyncActor } from './github-sync.client.types'
 
 interface GitHubInstallationReferenceInput {
@@ -328,7 +327,7 @@ export class GitHubSyncRepository {
 			const actorIds = new Map<string, GitHubActorId>()
 
 			for (const actor of actors)
-				actorIds.set(actor.nodeId, await this.upsertActor(transaction, actor))
+				actorIds.set(actor.nodeId, await upsertGitHubActor(transaction, actor))
 
 			return actorIds
 		})
@@ -768,8 +767,8 @@ export class GitHubSyncRepository {
 		}
 	): Promise<boolean> {
 		const [senderActorId, targetActorId] = await Promise.all([
-			sender ? this.upsertActor(transaction, sender) : undefined,
-			targetActor ? this.upsertActor(transaction, targetActor) : undefined,
+			sender ? upsertGitHubActor(transaction, sender) : undefined,
+			targetActor ? upsertGitHubActor(transaction, targetActor) : undefined,
 		])
 		const [insertedDelivery] = await transaction
 			.insert(gitHubWebhookDeliveries)
@@ -2060,61 +2059,5 @@ export class GitHubSyncRepository {
 			id: existingInstallation.id,
 			suspendedAt: existingInstallation.suspendedAt ?? undefined,
 		}
-	}
-
-	private async upsertActor(
-		db: DrizzleTransaction,
-		actor: GitHubSyncActor
-	): Promise<GitHubActorId> {
-		const [linkedAccount] = await db
-			.select({ userId: account.userId })
-			.from(account)
-			.where(
-				and(
-					eq(account.providerId, 'github'),
-					eq(account.accountId, actor.numericId.toString())
-				)
-			)
-			.limit(1)
-		const actorValues = {
-			externalNodeId: actor.nodeId,
-			externalNumericId: actor.numericId,
-			login: actor.login,
-			type: actor.type,
-			avatarUrl: actor.avatarUrl,
-			htmlUrl: actor.htmlUrl,
-			userId: linkedAccount?.userId,
-		}
-
-		const [insertedActor] = await db
-			.insert(gitHubActors)
-			.values(actorValues)
-			.onConflictDoNothing()
-			.returning({ id: gitHubActors.id })
-
-		if (insertedActor) return insertedActor.id
-
-		const [existingActor] = await db
-			.select({ id: gitHubActors.id })
-			.from(gitHubActors)
-			.where(
-				or(
-					eq(gitHubActors.externalNodeId, actor.nodeId),
-					eq(gitHubActors.externalNumericId, actor.numericId)
-				)
-			)
-			.limit(1)
-
-		if (!existingActor) throw new Error('failed to resolve GitHub actor')
-
-		const [storedActor] = await db
-			.update(gitHubActors)
-			.set(actorValues)
-			.where(eq(gitHubActors.id, existingActor.id))
-			.returning({ id: gitHubActors.id })
-
-		if (!storedActor) throw new Error('failed to persist GitHub actor')
-
-		return storedActor.id
 	}
 }

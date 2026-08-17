@@ -3,7 +3,7 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
 import { FaGithub } from 'react-icons/fa'
 import { z } from 'zod'
-import { authClient } from '@/lib/auth/client'
+import { reconnectGitHub } from '@/modules/auth/helpers/reconnect-github'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { GitHubImportActivity } from '../components/github-import-activity'
 import { GitHubImportLoadingState } from '../components/github-import-loading-state'
@@ -110,14 +110,6 @@ function GitHubImportRoute() {
 		}
 	}
 
-	async function handleReconnectGitHub() {
-		await authClient.linkSocial({
-			provider: 'github',
-			scopes: ['repo'],
-			callbackURL: window.location.href,
-		})
-	}
-
 	return (
 		<main className="mx-auto flex max-w-6xl flex-col gap-8 px-6 py-8">
 			<div className="flex max-w-3xl flex-col gap-2">
@@ -143,7 +135,7 @@ function GitHubImportRoute() {
 						isImporting={isImportingBatch || createImportMutation.isPending}
 						isLoading={repositoriesQuery.isLoading}
 						onContinue={handleContinue}
-						onReconnectGitHub={handleReconnectGitHub}
+						onReconnectGitHub={reconnectGitHub}
 						onSelectAllRepositories={handleSelectAllRepositories}
 						onToggleRepository={handleToggleRepository}
 						repositories={repositoriesQuery.data?.repositories ?? []}

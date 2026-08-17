@@ -14,17 +14,25 @@ export function toMergeAuthorityReasons({
 	tesseraWritesAllowed: boolean
 	viewerRole?: RepositoryRole
 }): MergeBlockingReason[] {
-	const reasons: MergeBlockingReason[] = []
+	return [
+		...(tesseraWritesAllowed
+			? []
+			: ([{ code: 'read_only_mirror', authority: 'github' }] as const)),
+		...toMergePermissionReasons(viewerRole),
+	]
+}
 
-	if (!tesseraWritesAllowed)
-		reasons.push({ code: 'read_only_mirror', authority: 'github' })
+/** The permission half alone: a merge on GitHub raises no Tessera authority question. */
+export function toMergePermissionReasons(
+	viewerRole?: RepositoryRole
+): MergeBlockingReason[] {
+	if (hasRepositoryRole(viewerRole, 'write')) return []
 
-	if (!hasRepositoryRole(viewerRole, 'write'))
-		reasons.push({
+	return [
+		{
 			code: 'insufficient_permission',
 			requiredRole: 'write',
 			actualRole: viewerRole,
-		})
-
-	return reasons
+		},
+	]
 }

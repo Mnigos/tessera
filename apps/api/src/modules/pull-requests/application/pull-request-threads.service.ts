@@ -1,5 +1,13 @@
 import { GitStorageClient } from '@config/git-storage'
-import { RepositoriesService } from '@modules/repositories'
+import {
+	type GitHubWriteThroughContext,
+	GitHubWriteThroughService,
+	toGitHubWriteThroughContext,
+} from '@modules/github-write-through'
+import {
+	type GitHubWriteThroughTarget,
+	RepositoriesService,
+} from '@modules/repositories'
 import { Injectable } from '@nestjs/common'
 import type {
 	ParsedCreatePullRequestThreadInput,
@@ -11,6 +19,7 @@ import type {
 	ParsedResolvePullRequestThreadInput,
 	PullRequestComment,
 	PullRequestThread,
+	PullRequestThreadKind,
 	PullRequestThreadViewer,
 } from '@repo/contracts'
 import {
@@ -73,6 +82,7 @@ interface PullRequestThreadContext {
 interface PullRequestThreadWriteContext extends PullRequestThreadContext {
 	canAdminister: boolean
 	canWrite: boolean
+	gitHubTarget?: GitHubWriteThroughTarget
 }
 
 @Injectable()
@@ -82,14 +92,15 @@ export class PullRequestThreadsService {
 		private readonly pullRequestsRepository: PullRequestsRepository,
 		private readonly pullRequestReviewsRepository: PullRequestReviewsRepository,
 		private readonly repositoriesService: RepositoriesService,
-		private readonly gitStorageClient: GitStorageClient
+		private readonly gitStorageClient: GitStorageClient,
+		private readonly gitHubWriteThroughService: GitHubWriteThroughService
 	) {}
 
 	async list(
 		viewerUserId: UserId | undefined,
 		{ number, path, slug, username }: ParsedListPullRequestThreadsInput
 	): Promise<ListPullRequestThreadsResult> {
-		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
+		const { repositoryId, storagePath, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
 				{ username, slug }
@@ -103,7 +114,7 @@ export class PullRequestThreadsService {
 				viewerUserId,
 			}),
 		])
-		const canComment = viewerUserId !== undefined && tesseraWritesAllowed
+		const canComment = viewerUserId !== undefined
 
 		return {
 			threads: threads.map(thread =>
@@ -137,6 +148,21 @@ export class PullRequestThreadsService {
 			slug,
 			username,
 		})
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		// GitHub owns the review envelope, so the review marker has nothing to join.
+		if (writeThrough) {
+			const threadId = await this.gitHubWriteThroughService.createThread(
+				writeThrough,
+				{ anchor, body }
+			)
+
+			return await this.toThreadOutput(
+				await this.findThread(threadId, context.pullRequest.id, viewerUserId),
+				context
+			)
+		}
+
 		const reviewId = await this.resolvePendingReviewId(
 			viewerUserId,
 			context,
@@ -176,7 +202,25 @@ export class PullRequestThreadsService {
 			username,
 		})
 
-		await this.findThread(threadId, context.pullRequest.id, viewerUserId)
+		const existingThread = await this.findThread(
+			threadId,
+			context.pullRequest.id,
+			viewerUserId
+		)
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough) {
+			await this.gitHubWriteThroughService.replyThread(writeThrough, {
+				body,
+				threadId,
+				threadKind: existingThread.kind,
+			})
+
+			return await this.toThreadOutput(
+				await this.findThread(threadId, context.pullRequest.id, viewerUserId),
+				context
+			)
+		}
 
 		const reviewId = await this.resolvePendingReviewId(
 			viewerUserId,
@@ -210,11 +254,12 @@ export class PullRequestThreadsService {
 			username,
 		}: ParsedEditPullRequestCommentInput
 	): Promise<PullRequestComment> {
-		const { pullRequest } = await this.getWriteContext(viewerUserId, {
+		const context = await this.getWriteContext(viewerUserId, {
 			number,
 			slug,
 			username,
 		})
+		const { pullRequest } = context
 		const comment = await this.findComment(
 			commentId,
 			pullRequest.id,
@@ -227,6 +272,23 @@ export class PullRequestThreadsService {
 				userId: viewerUserId,
 				action: 'edit',
 			})
+
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough) {
+			await this.gitHubWriteThroughService.editComment(writeThrough, {
+				body,
+				commentId,
+			})
+
+			return toPullRequestCommentOutput(
+				await this.requireCommentReadModel(
+					commentId,
+					pullRequest.id,
+					viewerUserId
+				)
+			)
+		}
 
 		const editedComment = await this.pullRequestThreadsRepository.editComment({
 			commentId,
@@ -248,10 +310,12 @@ export class PullRequestThreadsService {
 		viewerUserId: UserId,
 		{ commentId, number, slug, username }: ParsedDeletePullRequestCommentInput
 	): Promise<{ threadDeleted: boolean }> {
-		const { canAdminister, pullRequest } = await this.getWriteContext(
-			viewerUserId,
-			{ number, slug, username }
-		)
+		const context = await this.getWriteContext(viewerUserId, {
+			number,
+			slug,
+			username,
+		})
+		const { canAdminister, pullRequest } = context
 		const comment = await this.findComment(
 			commentId,
 			pullRequest.id,
@@ -263,6 +327,14 @@ export class PullRequestThreadsService {
 				commentId,
 				userId: viewerUserId,
 				action: 'delete',
+			})
+
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return await this.gitHubWriteThroughService.deleteComment(writeThrough, {
+				commentId,
+				threadId: comment.threadId,
 			})
 
 		const threadDeleted = await this.pullRequestThreadsRepository.deleteComment(
@@ -283,6 +355,16 @@ export class PullRequestThreadsService {
 			viewerUserId,
 			input
 		)
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return await this.resolveThroughGitHub(
+				viewerUserId,
+				context,
+				writeThrough,
+				{ resolved: true, threadId: thread.id, threadKind: thread.kind }
+			)
+
 		const result = await this.pullRequestThreadsRepository.resolveThread({
 			pullRequestId: context.pullRequest.id,
 			threadId: thread.id,
@@ -304,6 +386,16 @@ export class PullRequestThreadsService {
 			viewerUserId,
 			input
 		)
+		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+
+		if (writeThrough)
+			return await this.resolveThroughGitHub(
+				viewerUserId,
+				context,
+				writeThrough,
+				{ resolved: false, threadId: thread.id, threadKind: thread.kind }
+			)
+
 		const result = await this.pullRequestThreadsRepository.unresolveThread({
 			pullRequestId: context.pullRequest.id,
 			threadId: thread.id,
@@ -312,6 +404,31 @@ export class PullRequestThreadsService {
 
 		return await this.toThreadOutput(
 			this.requireResolvedThread(result, thread.id, context.pullRequest.id),
+			context
+		)
+	}
+
+	private async resolveThroughGitHub(
+		viewerUserId: UserId,
+		context: PullRequestThreadWriteContext,
+		writeThrough: GitHubWriteThroughContext,
+		params: {
+			resolved: boolean
+			threadId: PullRequestThreadId
+			threadKind: PullRequestThreadKind
+		}
+	): Promise<PullRequestThread> {
+		await this.gitHubWriteThroughService.setThreadResolution(
+			writeThrough,
+			params
+		)
+
+		return await this.toThreadOutput(
+			await this.findThread(
+				params.threadId,
+				context.pullRequest.id,
+				viewerUserId
+			),
 			context
 		)
 	}
@@ -422,10 +539,13 @@ export class PullRequestThreadsService {
 		viewerUserId: UserId,
 		{ number, slug, username }: ParsedGetPullRequestInput
 	): Promise<PullRequestThreadWriteContext> {
-		const { repositoryId, storagePath, viewerRole } =
-			await this.repositoriesService.getReadableTesseraRepositoryContext(
+		const { gitHubTarget, repositoryId, storagePath, viewerRole } =
+			await this.repositoriesService.getReadableRepositoryContext(
 				viewerUserId,
-				{ username, slug }
+				{
+					username,
+					slug,
+				}
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
 
@@ -433,9 +553,21 @@ export class PullRequestThreadsService {
 			pullRequest,
 			repositoryId,
 			storagePath,
+			gitHubTarget,
 			canWrite: canWriteRepository(viewerRole),
 			canAdminister: canAdministerRepository(viewerRole),
 		}
+	}
+
+	private toWriteThroughContext(
+		viewerUserId: UserId,
+		{ gitHubTarget, pullRequest, repositoryId }: PullRequestThreadWriteContext
+	): GitHubWriteThroughContext | undefined {
+		return toGitHubWriteThroughContext(viewerUserId, {
+			gitHubTarget,
+			pullRequestId: pullRequest.id,
+			repositoryId,
+		})
 	}
 
 	private async toThreadOutput(
@@ -490,6 +622,23 @@ export class PullRequestThreadsService {
 			throw new PullRequestThreadNotFoundError({ threadId, pullRequestId })
 
 		return thread
+	}
+
+	private async requireCommentReadModel(
+		commentId: PullRequestCommentId,
+		pullRequestId: PullRequestId,
+		viewerUserId: UserId
+	) {
+		const comment =
+			await this.pullRequestThreadsRepository.findCommentReadModel({
+				commentId,
+				viewerUserId,
+			})
+
+		if (!comment)
+			throw new PullRequestCommentNotFoundError({ commentId, pullRequestId })
+
+		return comment
 	}
 
 	private async findComment(

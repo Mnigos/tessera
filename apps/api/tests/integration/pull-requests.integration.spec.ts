@@ -1295,7 +1295,10 @@ describe('Pull requests integration', () => {
 			else expect((await getPullRequestRow()).targetBranch).toBe('release')
 		})
 
-		test('refuses a retarget while GitHub is the source of truth', async () => {
+		// Retargeting a mirror is forwarded to GitHub as the caller, so a caller
+		// with no linked GitHub account is asked to reconnect rather than refused
+		// on authority.
+		test('asks an unlinked caller to reconnect GitHub instead of retargeting a mirrored pull request', async () => {
 			const headers = await createRetargetablePullRequest()
 			const repository = await getRepositoryRow()
 			await db.insert(repositoryExternalSources).values({
@@ -1319,7 +1322,7 @@ describe('Pull requests integration', () => {
 				headers
 			)
 
-			expect(response.status).toBe(403)
+			expect(response.status).toBe(401)
 		})
 	})
 

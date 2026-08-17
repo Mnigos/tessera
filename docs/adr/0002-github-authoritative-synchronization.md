@@ -16,16 +16,17 @@ Ambiguity here can create divergent histories, duplicate entities, and write-bac
 
 ### Repository modes and transitions
 
-| Mode | Authority | Inbound GitHub sync | Tessera Git writes | Clone URLs | Allowed transition |
-| --- | --- | --- | --- | --- | --- |
-| `imported` | Tessera after the import completes | None | Allowed by normal permissions | Tessera HTTPS and SSH | None |
-| `github_to_tessera` | GitHub | Webhooks plus backend reconciliation | Rejected with GitHub guidance | GitHub HTTPS and SSH | `tessera_source` |
-| `tessera_source` | Tessera | Stopped | Allowed by normal permissions | Tessera HTTPS and SSH | None |
+| Mode | Authority | Inbound GitHub sync | Tessera Git writes | PR collaboration writes | Clone URLs | Allowed transition |
+| --- | --- | --- | --- | --- | --- | --- |
+| `imported` | Tessera after the import completes | None | Allowed by normal permissions | Native | Tessera HTTPS and SSH | None |
+| `github_to_tessera` | GitHub | Webhooks plus backend reconciliation | Rejected with GitHub guidance | Written through to GitHub as the acting user, echoed locally; GitHub stays authoritative | GitHub HTTPS and SSH | `tessera_source` |
+| `tessera_source` | Tessera | Stopped | Allowed by normal permissions | Native | Tessera HTTPS and SSH | None |
 
 `imported` is a one-time snapshot, not a continuously mirrored repository. Import completion
-establishes Tessera authority immediately. `github_to_tessera` is a read-only synchronized
-view in Tessera: Git refs, pull requests, comments, reviews, checks, and GitHub-owned
-repository settings are authoritative in GitHub. `tessera_source` records an explicit,
+establishes Tessera authority immediately. `github_to_tessera` keeps GitHub authoritative:
+Git refs, checks, and GitHub-owned repository settings are a read-only synchronized view in
+Tessera, and pull request collaboration is written through to GitHub as the acting user (see
+"While GitHub is authoritative" below). `tessera_source` records an explicit,
 irreversible cutover to Tessera authority. Reconnecting to GitHub requires a new import or
 mirror rather than reversing the transition.
 
@@ -33,8 +34,9 @@ mirror rather than reversing the transition.
 | --- | --- | --- | --- |
 | Clone/fetch | Tessera URLs | GitHub URLs | Tessera URLs |
 | Push/ref mutation | Tessera permissions | Reject; perform in GitHub | Tessera permissions |
-| Create/update/merge pull request | Tessera permissions | Read-only; perform in GitHub | Tessera permissions |
-| Comment/review | Tessera permissions | Read-only; perform in GitHub | Tessera permissions |
+| Create pull request | Tessera permissions | Read-only; perform in GitHub | Tessera permissions |
+| Update/merge pull request | Tessera permissions | Written through to GitHub as the acting user | Tessera permissions |
+| Comment/review | Tessera permissions | Written through to GitHub as the acting user | Tessera permissions |
 | Checks/statuses | Native Tessera provider contract | Read-only GitHub synchronization into native models | Native Tessera provider contract |
 | GitHub-owned settings | Not applicable | Read-only; change in GitHub | Historical only |
 | Tessera-owned settings | Tessera permissions | Tessera permissions; never write back | Tessera permissions |
@@ -42,12 +44,15 @@ mirror rather than reversing the transition.
 While GitHub is authoritative:
 
 - clone and fetch guidance uses the GitHub repository's HTTPS and SSH URLs;
-- users push branches, merge pull requests, comment, review, and change GitHub-owned
-  settings in GitHub;
+- users push branches and change GitHub-owned settings in GitHub;
 - Tessera Git transports reject pushes and other ref mutations with actionable GitHub clone
   and push guidance;
-- synchronized pull request collaboration is read-only in Tessera; and
-- Tessera never automatically or manually pushes synchronized state back to GitHub.
+- pull request collaboration — comments, threads, reviews, reviewer requests, pull request
+  edits, lifecycle changes, and direct merges — may be performed from Tessera, which forwards
+  each one to GitHub with the acting user's own GitHub credential before echoing it locally,
+  so GitHub remains the authority that accepted or refused it; and
+- Tessera never pushes Git refs or repository settings back to GitHub, and creating a pull
+  request and joining the merge queue stay GitHub-only.
 
 Tessera-owned settings, such as visibility of the synchronized view and integration
 administration, remain mutable in Tessera. They do not mutate GitHub repository settings.
@@ -178,4 +183,7 @@ TES-55, TES-57, and TES-58 are prerequisites for native checks, comments/threads
   must remain visible.
 - Existing manual sync, push-back, Tessera clone guidance, and duplicate provider-model
   behavior that conflicts with this ADR must be removed or aligned by TES-64 through TES-69.
+- Pull request write-through depends on the acting user's own GitHub OAuth token carrying
+  repository scope, so a user whose grant is missing, revoked, or too narrow is asked to
+  reconnect GitHub rather than served a Tessera-only failure.
 - This ADR introduces no database migration, API behavior, UI behavior, or scheduler by itself.

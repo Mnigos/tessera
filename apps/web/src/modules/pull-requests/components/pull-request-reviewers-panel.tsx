@@ -9,7 +9,6 @@ import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { Link } from '@tanstack/react-router'
 import { GitCompareArrows, History, X } from 'lucide-react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import { formatPullRequestDate } from '../helpers/pull-request-formatting'
 import {
 	getPullRequestReviewerEntries,
@@ -17,6 +16,7 @@ import {
 	type PullRequestReviewerEntry,
 } from '../helpers/pull-request-review'
 import { useRemovePullRequestReviewerRequestMutation } from '../hooks/use-remove-pull-request-reviewer-request.mutation'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestRequestReviewerForm } from './pull-request-request-reviewer-form'
 import { PullRequestReviewDialog } from './pull-request-review-dialog'
 
@@ -28,6 +28,7 @@ interface PullRequestReviewersPanelProps {
 	effectiveReviewStates: readonly PullRequestEffectiveReviewState[]
 	reviewerCandidates: readonly PullRequestReviewerCandidate[]
 	viewer: PullRequestReviewViewer
+	isGitHubAuthoritative: boolean
 	isOpen: boolean
 	headSha?: string
 	pendingCommentCount?: number
@@ -41,6 +42,7 @@ export function PullRequestReviewersPanel({
 	effectiveReviewStates,
 	reviewerCandidates,
 	viewer,
+	isGitHubAuthoritative,
 	isOpen,
 	headSha,
 	pendingCommentCount,
@@ -87,12 +89,10 @@ export function PullRequestReviewersPanel({
 				</ul>
 			)}
 			{removeRequest.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						removeRequest.error,
-						'The review request could not be removed.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={removeRequest.error}
+					fallback="The review request could not be removed."
+				/>
 			)}
 			{viewer.canRequestReviewers && isOpen && (
 				<PullRequestRequestReviewerForm
@@ -107,6 +107,7 @@ export function PullRequestReviewersPanel({
 				<div className="flex border-border border-t pt-3">
 					<PullRequestReviewDialog
 						headSha={headSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
 						number={number}
 						pendingCommentCount={pendingCommentCount}
 						slug={slug}

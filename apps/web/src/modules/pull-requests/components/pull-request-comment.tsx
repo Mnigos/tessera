@@ -3,7 +3,6 @@ import { Button } from '@repo/ui/components/button'
 import { EyeOff, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { MarkdownContent } from '@/shared/components/markdown-content'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
@@ -16,6 +15,7 @@ import {
 import { useDeletePullRequestCommentMutation } from '../hooks/use-delete-pull-request-comment.mutation'
 import { useEditPullRequestCommentMutation } from '../hooks/use-edit-pull-request-comment.mutation'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestSourceLink } from './pull-request-source-link'
 
 interface PullRequestCommentProps {
@@ -110,14 +110,8 @@ export function PullRequestComment({
 			{isEditing ? (
 				<PullRequestCommentComposer
 					defaultValue={comment.body}
-					errorMessage={
-						editMutation.isError
-							? getPullRequestErrorMessage(
-									editMutation.error,
-									'The comment could not be updated.'
-								)
-							: undefined
-					}
+					error={editMutation.error}
+					errorFallback="The comment could not be updated."
 					inputId={`pull-request-comment-edit-${comment.id}`}
 					isPending={editMutation.isPending}
 					label="Edit comment"
@@ -152,12 +146,10 @@ export function PullRequestComment({
 				</div>
 			)}
 			{deleteMutation.isError && (
-				<p className="text-destructive text-sm" role="alert">
-					{getPullRequestErrorMessage(
-						deleteMutation.error,
-						'The comment could not be deleted.'
-					)}
-				</p>
+				<PullRequestErrorMessage
+					error={deleteMutation.error}
+					fallback="The comment could not be deleted."
+				/>
 			)}
 		</li>
 	)

@@ -85,6 +85,23 @@ export class ConflictError extends DomainError {
 	}
 }
 
+export class TooManyRequestsError extends DomainError {
+	constructor(
+		resource: string,
+		context?: Record<string, unknown>,
+		message?: string,
+		options?: DomainErrorOptions
+	) {
+		super(
+			'TOO_MANY_REQUESTS',
+			message ?? `${resource} rate limit exceeded`,
+			'operational',
+			{ ...context, resource },
+			options
+		)
+	}
+}
+
 export class PayloadTooLargeError extends DomainError {
 	constructor(
 		resource: string,

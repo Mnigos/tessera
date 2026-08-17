@@ -5,6 +5,7 @@ import {
 import { status } from '@grpc/grpc-js'
 import { BranchProtectionService } from '@modules/branch-protection'
 import { ChecksReadService } from '@modules/checks'
+import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { MergeRequirements } from '@repo/contracts'
@@ -206,6 +207,7 @@ describe(PullRequestsService.name, () => {
 	let gitStorageClient: GitStorageClient
 	let mergeRequirementsService: MergeRequirementsService
 	let mergeQueueRepository: MergeQueueRepository
+	let gitHubWriteThroughService: GitHubWriteThroughService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -258,6 +260,7 @@ describe(PullRequestsService.name, () => {
 					provide: RepositoriesService,
 					useValue: {
 						getReadableRepositoryContext: vi.fn(),
+						getPullRequestWriteContext: vi.fn(),
 						getWritableRepositoryContext: vi.fn(),
 					},
 				},
@@ -296,6 +299,10 @@ describe(PullRequestsService.name, () => {
 						findMergeReceipt: vi.fn(),
 					},
 				},
+				{
+					provide: GitHubWriteThroughService,
+					useValue: { mergePullRequest: vi.fn(), updatePullRequest: vi.fn() },
+				},
 			],
 		}).compile()
 
@@ -307,6 +314,7 @@ describe(PullRequestsService.name, () => {
 		gitStorageClient = moduleRef.get(GitStorageClient)
 		mergeRequirementsService = moduleRef.get(MergeRequirementsService)
 		mergeQueueRepository = moduleRef.get(MergeQueueRepository)
+		gitHubWriteThroughService = moduleRef.get(GitHubWriteThroughService)
 
 		vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
 			eligibleRequirements
@@ -328,6 +336,14 @@ describe(PullRequestsService.name, () => {
 		)
 		vi.spyOn(mergeQueueRepository, 'countRunnableEntries').mockResolvedValue(0)
 
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue(repositoryAccessContext)
+		vi.spyOn(
+			repositoriesService,
+			'getPullRequestWriteContext'
+		).mockResolvedValue(repositoryAccessContext)
 		vi.spyOn(
 			repositoriesService,
 			'getReadableRepositoryContext'
@@ -539,6 +555,102 @@ describe(PullRequestsService.name, () => {
 				expectedState: 'open',
 			})
 		)
+		expect(gitHubWriteThroughService.updatePullRequest).not.toHaveBeenCalled()
+	})
+
+	test('dispatches mirrored lifecycle writes with the GitHub context and bypasses native repositories', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getPullRequestWriteContext'
+		).mockResolvedValue({
+			...repositoryAccessContext,
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		const closedPullRequest = {
+			...pullRequest,
+			state: 'closed' as const,
+			closedAt: createdAt,
+		}
+		vi.spyOn(repository, 'find')
+			.mockResolvedValueOnce(pullRequest)
+			.mockResolvedValueOnce({ ...pullRequest, title: 'Updated' })
+			.mockResolvedValueOnce(pullRequest)
+			.mockResolvedValueOnce({ ...pullRequest, targetBranch: 'release' })
+			.mockResolvedValueOnce(pullRequest)
+			.mockResolvedValueOnce(closedPullRequest)
+			.mockResolvedValueOnce(closedPullRequest)
+			.mockResolvedValueOnce(pullRequest)
+		vi.spyOn(gitHubWriteThroughService, 'updatePullRequest').mockResolvedValue()
+
+		await service.edit(mockUserId, {
+			...repositoryInput,
+			number: 1,
+			title: 'Updated',
+			body: 'Body',
+		})
+		await service.retarget(mockUserId, {
+			...repositoryInput,
+			number: 1,
+			targetBranch: 'release',
+		})
+		await service.close(mockUserId, { ...repositoryInput, number: 1 })
+		await service.reopen(mockUserId, { ...repositoryInput, number: 1 })
+
+		const writeThrough = {
+			actorUserId: mockUserId,
+			externalRepository: { ownerLogin: 'tessera-org', name: 'notes' },
+			pullRequestId,
+			repositoryId,
+		}
+		expect(
+			vi.mocked(gitHubWriteThroughService.updatePullRequest).mock.calls
+		).toEqual([
+			[
+				writeThrough,
+				{
+					title: 'Updated',
+					body: 'Body',
+					state: undefined,
+					targetBranch: undefined,
+				},
+			],
+			[
+				writeThrough,
+				{
+					title: undefined,
+					body: undefined,
+					state: undefined,
+					targetBranch: 'release',
+				},
+			],
+			[
+				writeThrough,
+				{
+					title: undefined,
+					body: undefined,
+					state: 'closed',
+					targetBranch: undefined,
+				},
+			],
+			[
+				writeThrough,
+				{
+					title: undefined,
+					body: undefined,
+					state: 'open',
+					targetBranch: undefined,
+				},
+			],
+		])
+		expect(repository.edit).not.toHaveBeenCalled()
+		expect(repository.retarget).not.toHaveBeenCalled()
+		expect(repository.close).not.toHaveBeenCalled()
+		expect(repository.reopen).not.toHaveBeenCalled()
+		expect(gitStorageClient.listRepositoryRefs).not.toHaveBeenCalled()
+		expect(
+			mergeQueueRepository.acquireRepositoryMergeLease
+		).not.toHaveBeenCalled()
 	})
 
 	test('rejects edits on merged pull requests', async () => {
@@ -906,7 +1018,7 @@ describe(PullRequestsService.name, () => {
 		test('refuses on a repository GitHub is the source of truth for', async () => {
 			vi.spyOn(
 				repositoriesService,
-				'getWritableRepositoryContext'
+				'getPullRequestWriteContext'
 			).mockRejectedValue(new Error('github is the source of truth'))
 			const retargetSpy = vi.spyOn(repository, 'retarget')
 
@@ -1310,12 +1422,9 @@ describe(PullRequestsService.name, () => {
 			).mockResolvedValue({
 				...repositoryAccessContext,
 				tesseraWritesAllowed: false,
+				gitHubTarget: { ownerLogin: 'octo', name: 'notes' },
 			})
 			const findReceipt = vi.spyOn(gitStorageClient, 'findMergeReceipt')
-			vi.spyOn(mergeRequirementsService, 'evaluate').mockResolvedValue(
-				blockedRequirements
-			)
-			vi.spyOn(repository, 'recordMergeBlocked').mockResolvedValue()
 
 			await service.merge(mergeActor, mergeInput)
 
@@ -1517,6 +1626,7 @@ describe(PullRequestsService.name, () => {
 		expect(mergeGitSpy).toHaveBeenCalledWith(
 			expect.objectContaining({ strategy })
 		)
+		expect(gitHubWriteThroughService.mergePullRequest).not.toHaveBeenCalled()
 	})
 
 	test('claims the merge before Git and completes persistence afterward', async () => {
@@ -1868,6 +1978,7 @@ describe(PullRequestsService.name, () => {
 			...repositoryAccessContext,
 			viewerRole: 'read',
 			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'octo', name: 'notes' },
 		})
 		const acquireLeaseSpy = vi.spyOn(
 			mergeQueueRepository,
@@ -1883,7 +1994,6 @@ describe(PullRequestsService.name, () => {
 				eligible: false,
 				canBypass: false,
 				reasons: [
-					{ code: 'read_only_mirror', authority: 'github' },
 					{
 						code: 'insufficient_permission',
 						requiredRole: 'write',
@@ -1899,7 +2009,7 @@ describe(PullRequestsService.name, () => {
 			pullRequestId,
 			actorUserId: mockUserId,
 			payload: {
-				reasonCodes: ['read_only_mirror', 'insufficient_permission'],
+				reasonCodes: ['insufficient_permission'],
 			},
 		})
 	})
@@ -2028,6 +2138,89 @@ describe(PullRequestsService.name, () => {
 			status: 'merged',
 			pullRequest: { state: 'merged', mergeCommitSha: 'merge-sha' },
 		})
+	})
+
+	test('returns GitHub merge requirements without native evaluation', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			...repositoryAccessContext,
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(repository, 'find').mockResolvedValue({
+			...pullRequest,
+			github: {
+				nodeId: 'pull-request-node',
+				htmlUrl: 'https://github.com/tessera-org/notes/pull/1',
+				draft: false,
+				headSha: 'github-head',
+				baseSha: 'github-base',
+			},
+		})
+
+		expect(
+			await service.getMergeRequirements(mockUserId, {
+				...repositoryInput,
+				number: 1,
+			})
+		).toEqual({
+			eligible: true,
+			canBypass: false,
+			reasons: [],
+			evaluatedBaseSha: 'github-base',
+			evaluatedHeadSha: 'github-head',
+		})
+		expect(mergeRequirementsService.evaluate).not.toHaveBeenCalled()
+	})
+
+	test('merges a mirrored pull request without requirements, queue, Rust, or native merge writes', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			...repositoryAccessContext,
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(repository, 'find')
+			.mockResolvedValueOnce(pullRequest)
+			.mockResolvedValueOnce({
+				...pullRequest,
+				state: 'merged',
+				mergeCommitSha: 'github-merge-sha',
+				closedAt: createdAt,
+				mergedAt: createdAt,
+			})
+		vi.spyOn(gitHubWriteThroughService, 'mergePullRequest').mockResolvedValue()
+
+		expect(await service.merge(mergeActor, mergeInput)).toMatchObject({
+			status: 'merged',
+			pullRequest: { state: 'merged', mergeCommitSha: 'github-merge-sha' },
+		})
+		expect(gitHubWriteThroughService.mergePullRequest).toHaveBeenCalledWith(
+			{
+				actorUserId: mockUserId,
+				externalRepository: {
+					ownerLogin: 'tessera-org',
+					name: 'notes',
+				},
+				pullRequestId,
+				repositoryId,
+			},
+			{
+				expectedHeadSha: 'b'.repeat(40),
+				strategy: 'merge_commit',
+			}
+		)
+		expect(mergeRequirementsService.evaluate).not.toHaveBeenCalled()
+		expect(
+			mergeQueueRepository.acquireRepositoryMergeLease
+		).not.toHaveBeenCalled()
+		expect(gitStorageClient.mergeRepositoryRefs).not.toHaveBeenCalled()
+		expect(repository.claimMerge).not.toHaveBeenCalled()
+		expect(repository.completeMerge).not.toHaveBeenCalled()
 	})
 
 	test('evaluates requirements without auditing the question', async () => {

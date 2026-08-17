@@ -134,16 +134,18 @@ interface CompleteImportedGitHubRepositoryInput
 	extends UpdateImportedRepositoryStorageParams,
 		InitializeGitHubExternalSourceInput {}
 
+export interface GitHubWriteThroughTarget {
+	name: string
+	ownerLogin: string
+}
+
 export interface RepositoryAccessContext {
 	repositoryId: RepositoryId
 	storagePath: string
 	viewerRole: RepositoryRole
-	/**
-	 * Whether Tessera owns the write side of this repository. Read paths use it
-	 * to report viewer capabilities without rejecting GitHub-authoritative
-	 * repositories outright.
-	 */
 	tesseraWritesAllowed: boolean
+	/** Present only while GitHub owns the write side, which is what routes writes there. */
+	gitHubTarget?: GitHubWriteThroughTarget
 }
 
 /**
@@ -295,23 +297,42 @@ export class RepositoriesService {
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryAccessContext> {
-		const { repository, storagePath, role } = await this.findReadableRepository(
+		const { repository, role, storagePath } = await this.findReadableRepository(
 			viewerUserId,
 			input
 		)
 
-		return {
-			repositoryId: repository.id,
-			storagePath,
-			viewerRole: role,
-			tesseraWritesAllowed: allowsTesseraWrites(repository),
-		}
+		return toRepositoryAccessContext({ ...repository, storagePath }, role)
 	}
 
 	async getWritableRepositoryContext(
 		viewerUserId: UserId | undefined,
 		input: ParsedGetRepositoryInput
 	): Promise<RepositoryAccessContext> {
+		const { context, repository } = await this.resolveWritableRepository(
+			viewerUserId,
+			input
+		)
+
+		assertTesseraWritesAllowed(repository)
+
+		return context
+	}
+
+	async getPullRequestWriteContext(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<RepositoryAccessContext> {
+		return (await this.resolveWritableRepository(viewerUserId, input)).context
+	}
+
+	private async resolveWritableRepository(
+		viewerUserId: UserId | undefined,
+		input: ParsedGetRepositoryInput
+	): Promise<{
+		context: RepositoryAccessContext
+		repository: RepositoryWithOwnerEntity & { storagePath: string }
+	}> {
 		const { repository, role } = await this.resolveReadableRepositoryRole(
 			viewerUserId,
 			input
@@ -325,14 +346,8 @@ export class RepositoriesService {
 			})
 
 		assertRepositoryHasStoragePath(repository)
-		assertTesseraWritesAllowed(repository)
 
-		return {
-			repositoryId: repository.id,
-			storagePath: repository.storagePath,
-			viewerRole: role,
-			tesseraWritesAllowed: true,
-		}
+		return { context: toRepositoryAccessContext(repository, role), repository }
 	}
 
 	/**
@@ -368,26 +383,6 @@ export class RepositoriesService {
 			storagePath: repository.storagePath,
 			tesseraWritesAllowed: allowsTesseraWrites(repository),
 			viewerRole: role ?? undefined,
-		}
-	}
-
-	async getReadableTesseraRepositoryContext(
-		viewerUserId: UserId | undefined,
-		input: ParsedGetRepositoryInput
-	): Promise<RepositoryAccessContext> {
-		const { repository, role } = await this.resolveReadableRepositoryRole(
-			viewerUserId,
-			input
-		)
-
-		assertRepositoryHasStoragePath(repository)
-		assertTesseraWritesAllowed(repository)
-
-		return {
-			repositoryId: repository.id,
-			storagePath: repository.storagePath,
-			viewerRole: role,
-			tesseraWritesAllowed: true,
 		}
 	}
 
@@ -1418,4 +1413,22 @@ function isSelectedRepositoryRef(
 ) {
 	if (repositoryRef.name === selectedName) return true
 	return repositoryRef.qualifiedName === selectedName
+}
+
+function toRepositoryAccessContext(
+	repository: RepositoryWithOwnerEntity & { storagePath: string },
+	role: RepositoryRole
+): RepositoryAccessContext {
+	const { externalSource } = repository
+
+	return {
+		repositoryId: repository.id,
+		storagePath: repository.storagePath,
+		viewerRole: role,
+		tesseraWritesAllowed: allowsTesseraWrites(repository),
+		gitHubTarget:
+			externalSource?.mirrorMode === 'github_to_tessera'
+				? { name: externalSource.name, ownerLogin: externalSource.ownerLogin }
+				: undefined,
+	}
 }

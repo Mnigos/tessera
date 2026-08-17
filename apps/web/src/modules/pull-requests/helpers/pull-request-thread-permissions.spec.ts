@@ -2,6 +2,7 @@ import type { PullRequestComment, PullRequestThread } from '@repo/contracts'
 import {
 	canDeletePullRequestComment,
 	canEditPullRequestComment,
+	canReplyToPullRequestThread,
 	canResolvePullRequestThread,
 	getPullRequestThreadPermissions,
 } from './pull-request-thread-permissions'
@@ -38,6 +39,7 @@ const THREAD = {
 	createdAt: COMMENT.createdAt,
 	comments: [COMMENT],
 } as PullRequestThread
+const INLINE_THREAD = { ...THREAD, kind: 'inline' } as PullRequestThread
 
 describe('pull request thread permissions', () => {
 	test('defaults to read-only without server authority', () => {
@@ -101,5 +103,24 @@ describe('pull request thread permissions', () => {
 
 		expect(canResolvePullRequestThread(author, draftThread)).toBeFalsy()
 		expect(canEditPullRequestComment(author, draftComment)).toBeTruthy()
+	})
+
+	test.each([
+		['mirrored top-level', true, THREAD, false],
+		['mirrored inline', true, INLINE_THREAD, true],
+		['native top-level', false, THREAD, true],
+	] as const)('offers reply and resolve correctly for a %s thread', (_name, isGitHubAuthoritative, thread, expected) => {
+		const permissions = getPullRequestThreadPermissions({
+			viewer: {
+				canComment: true,
+				canResolveAnyThread: true,
+				canDeleteAnyComment: true,
+			},
+			viewerUserId: VIEWER_ID,
+			isGitHubAuthoritative,
+		})
+
+		expect(canReplyToPullRequestThread(permissions, thread)).toBe(expected)
+		expect(canResolvePullRequestThread(permissions, thread)).toBe(expected)
 	})
 })

@@ -1,4 +1,5 @@
 import { GitStorageClient } from '@config/git-storage'
+import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
 import type { PullRequest } from '@repo/db'
@@ -126,6 +127,7 @@ describe(PullRequestThreadsService.name, () => {
 	let pullRequestsRepository: PullRequestsRepository
 	let repositoriesService: RepositoriesService
 	let gitStorageClient: GitStorageClient
+	let gitHubWriteThroughService: GitHubWriteThroughService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -137,6 +139,7 @@ describe(PullRequestThreadsService.name, () => {
 						list: vi.fn(),
 						findThread: vi.fn(),
 						findComment: vi.fn(),
+						findCommentReadModel: vi.fn(),
 						createThread: vi.fn(),
 						createComment: vi.fn(),
 						editComment: vi.fn(),
@@ -157,12 +160,21 @@ describe(PullRequestThreadsService.name, () => {
 					provide: RepositoriesService,
 					useValue: {
 						getReadableRepositoryContext: vi.fn(),
-						getReadableTesseraRepositoryContext: vi.fn(),
 					},
 				},
 				{
 					provide: GitStorageClient,
 					useValue: { compareRepositoryRefs: vi.fn() },
+				},
+				{
+					provide: GitHubWriteThroughService,
+					useValue: {
+						createThread: vi.fn(),
+						replyThread: vi.fn(),
+						editComment: vi.fn(),
+						deleteComment: vi.fn(),
+						setThreadResolution: vi.fn(),
+					},
 				},
 			],
 		}).compile()
@@ -173,6 +185,7 @@ describe(PullRequestThreadsService.name, () => {
 		pullRequestsRepository = moduleRef.get(PullRequestsRepository)
 		repositoriesService = moduleRef.get(RepositoriesService)
 		gitStorageClient = moduleRef.get(GitStorageClient)
+		gitHubWriteThroughService = moduleRef.get(GitHubWriteThroughService)
 
 		vi.spyOn(
 			repositoriesService,
@@ -185,7 +198,7 @@ describe(PullRequestThreadsService.name, () => {
 		})
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -263,7 +276,7 @@ describe(PullRequestThreadsService.name, () => {
 		})
 	})
 
-	test('withholds every viewer capability on a GitHub-authoritative repository', async () => {
+	test('keeps viewer capabilities on a GitHub-authoritative repository', async () => {
 		vi.spyOn(
 			repositoriesService,
 			'getReadableRepositoryContext'
@@ -280,9 +293,9 @@ describe(PullRequestThreadsService.name, () => {
 		expect(
 			(await service.list(mockUserId, repositoryInput)).viewer
 		).toStrictEqual({
-			canComment: false,
-			canResolveAnyThread: false,
-			canDeleteAnyComment: false,
+			canComment: true,
+			canResolveAnyThread: true,
+			canDeleteAnyComment: true,
 		})
 		expect(listSpy).toHaveBeenCalledOnce()
 	})
@@ -314,7 +327,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('allows %s repository users to create and reply', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -343,10 +356,114 @@ describe(PullRequestThreadsService.name, () => {
 		expect(createCommentSpy).toHaveBeenCalledOnce()
 	})
 
+	test('dispatches mirrored thread writes with the GitHub context and bypasses native mutations', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			viewerRole: 'owner',
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'findComment').mockResolvedValue({
+			id: commentId,
+			threadId,
+			pullRequestId,
+			authorUserId: mockUserId,
+		})
+		vi.spyOn(threadsRepository, 'findCommentReadModel').mockResolvedValue(
+			comment
+		)
+		vi.spyOn(gitHubWriteThroughService, 'createThread').mockResolvedValue(
+			threadId
+		)
+		vi.spyOn(gitHubWriteThroughService, 'replyThread').mockResolvedValue()
+		vi.spyOn(gitHubWriteThroughService, 'editComment').mockResolvedValue()
+		vi.spyOn(gitHubWriteThroughService, 'deleteComment').mockResolvedValue({
+			threadDeleted: false,
+		})
+		vi.spyOn(
+			gitHubWriteThroughService,
+			'setThreadResolution'
+		).mockResolvedValue()
+
+		await service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Comment',
+		})
+		await service.replyThread(mockUserId, {
+			...repositoryInput,
+			threadId,
+			body: 'Reply',
+		})
+		await service.editComment(mockUserId, {
+			...repositoryInput,
+			commentId,
+			body: 'Edited',
+		})
+		await service.deleteComment(mockUserId, {
+			...repositoryInput,
+			commentId,
+		})
+		await service.resolveThread(mockUserId, { ...repositoryInput, threadId })
+		await service.unresolveThread(mockUserId, { ...repositoryInput, threadId })
+
+		const writeThrough = {
+			actorUserId: mockUserId,
+			externalRepository: { ownerLogin: 'tessera-org', name: 'notes' },
+			pullRequestId,
+			repositoryId,
+		}
+		expect(gitHubWriteThroughService.createThread).toHaveBeenCalledWith(
+			writeThrough,
+			{ body: 'Comment', anchor: undefined }
+		)
+		expect(gitHubWriteThroughService.replyThread).toHaveBeenCalledWith(
+			writeThrough,
+			{ body: 'Reply', threadId, threadKind: 'inline' }
+		)
+		expect(gitHubWriteThroughService.editComment).toHaveBeenCalledWith(
+			writeThrough,
+			{ body: 'Edited', commentId }
+		)
+		expect(gitHubWriteThroughService.deleteComment).toHaveBeenCalledWith(
+			writeThrough,
+			{ commentId, threadId }
+		)
+		expect(
+			vi.mocked(gitHubWriteThroughService.setThreadResolution).mock.calls
+		).toEqual([
+			[writeThrough, { resolved: true, threadId, threadKind: 'inline' }],
+			[writeThrough, { resolved: false, threadId, threadKind: 'inline' }],
+		])
+		expect(threadsRepository.createThread).not.toHaveBeenCalled()
+		expect(threadsRepository.createComment).not.toHaveBeenCalled()
+		expect(threadsRepository.editComment).not.toHaveBeenCalled()
+		expect(threadsRepository.deleteComment).not.toHaveBeenCalled()
+		expect(threadsRepository.resolveThread).not.toHaveBeenCalled()
+		expect(threadsRepository.unresolveThread).not.toHaveBeenCalled()
+		expect(reviewsRepository.getOrCreatePendingReview).not.toHaveBeenCalled()
+	})
+
+	test('never touches write-through for a native thread write', async () => {
+		vi.spyOn(threadsRepository, 'createThread').mockResolvedValue(thread)
+
+		await service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Native comment',
+		})
+
+		expect(gitHubWriteThroughService.createThread).not.toHaveBeenCalled()
+		expect(threadsRepository.createThread).toHaveBeenCalledOnce()
+	})
+
 	test('rejects thread mutations when repository context is unreadable or GitHub-authoritative', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockRejectedValue(new ForbiddenError('repository'))
 
 		await expect(
@@ -365,7 +482,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('rejects %s when GitHub is authoritative', async action => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockRejectedValue(new ForbiddenError('repository'))
 
 		await expect(invokeMutation(action)).rejects.toBeInstanceOf(ForbiddenError)
@@ -381,7 +498,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('masks %s from a user with no private-repository access', async action => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockRejectedValue(new NotFoundError('repository'))
 
 		await expect(invokeMutation(action)).rejects.toBeInstanceOf(NotFoundError)
@@ -390,7 +507,7 @@ describe(PullRequestThreadsService.name, () => {
 	test('masks an unreadable private repository as not found', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockRejectedValue(new NotFoundError('repository'))
 
 		await expect(
@@ -410,7 +527,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('allows a %s comment author to edit and delete their own comment', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -447,7 +564,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('allows %s to delete another authors comment', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -475,7 +592,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('rejects %s deleting another authors comment', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -502,7 +619,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('rejects %s editing another authors comment', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -532,7 +649,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('allows %s to resolve and unresolve any thread', async viewerRole => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -566,7 +683,7 @@ describe(PullRequestThreadsService.name, () => {
 	test('allows a read participant to resolve and unresolve', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -593,7 +710,7 @@ describe(PullRequestThreadsService.name, () => {
 	] as const)('rejects a read non-participant calling %s', async action => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',

@@ -1,6 +1,8 @@
 import { Button } from '@repo/ui/components/button'
 import { Label } from '@repo/ui/components/label'
 import { type ComponentProps, useState } from 'react'
+import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
+import { PullRequestErrorMessage } from './pull-request-error-message'
 
 interface PullRequestCommentComposerProps {
 	inputId: string
@@ -10,7 +12,9 @@ interface PullRequestCommentComposerProps {
 	isPending: boolean
 	onSubmit: (body: string) => void
 	defaultValue?: string
-	errorMessage?: string
+	/** The failed write itself, so its refusal can offer its own way out. */
+	error?: unknown
+	errorFallback: string
 	onCancel?: () => void
 	onSecondarySubmit?: (body: string) => void
 	placeholder?: string
@@ -26,7 +30,8 @@ export function PullRequestCommentComposer({
 	isPending,
 	onSubmit,
 	defaultValue,
-	errorMessage,
+	error,
+	errorFallback,
 	onCancel,
 	onSecondarySubmit,
 	placeholder,
@@ -34,7 +39,13 @@ export function PullRequestCommentComposer({
 	shouldFocusOnMount,
 }: Readonly<PullRequestCommentComposerProps>) {
 	const [body, setBody] = useState(defaultValue ?? '')
-	const isEmpty = body.trim().length === 0
+	const [sentBody, setSentBody] = useState<string>()
+	const trimmedBody = body.trim()
+	// Resending this exact draft would post a second copy of what GitHub took.
+	const isSpent =
+		trimmedBody.length === 0 ||
+		isPending ||
+		(isGitHubSyncDelayedError(error) && trimmedBody === sentBody)
 
 	function focusOnMount(node: HTMLTextAreaElement | null) {
 		if (node && shouldFocusOnMount) node.focus()
@@ -42,15 +53,17 @@ export function PullRequestCommentComposer({
 
 	const handleSubmit: ComponentProps<'form'>['onSubmit'] = event => {
 		event.preventDefault()
-		if (isEmpty || isPending) return
+		if (isSpent) return
 
-		onSubmit(body.trim())
+		setSentBody(trimmedBody)
+		onSubmit(trimmedBody)
 	}
 
 	function handleSecondarySubmit() {
-		if (isEmpty || isPending || !onSecondarySubmit) return
+		if (isSpent || !onSecondarySubmit) return
 
-		onSecondarySubmit(body.trim())
+		setSentBody(trimmedBody)
+		onSecondarySubmit(trimmedBody)
 	}
 
 	return (
@@ -67,18 +80,16 @@ export function PullRequestCommentComposer({
 				ref={focusOnMount}
 				value={body}
 			/>
-			{errorMessage && (
-				<p className="text-destructive text-sm" role="alert">
-					{errorMessage}
-				</p>
+			{Boolean(error) && (
+				<PullRequestErrorMessage error={error} fallback={errorFallback} />
 			)}
 			<div className="flex flex-wrap items-center gap-2">
-				<Button disabled={isEmpty || isPending} size="sm" type="submit">
+				<Button disabled={isSpent} size="sm" type="submit">
 					{isPending ? pendingLabel : submitLabel}
 				</Button>
 				{onSecondarySubmit && secondarySubmitLabel && (
 					<Button
-						disabled={isEmpty || isPending}
+						disabled={isSpent}
 						onClick={handleSecondarySubmit}
 						size="sm"
 						type="button"

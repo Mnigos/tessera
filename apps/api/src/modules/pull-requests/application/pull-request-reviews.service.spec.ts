@@ -1,4 +1,5 @@
 import { GitStorageClient } from '@config/git-storage'
+import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -111,6 +112,7 @@ describe(PullRequestReviewsService.name, () => {
 	let repositoriesService: RepositoriesService
 	let userService: UserService
 	let gitStorageClient: GitStorageClient
+	let gitHubWriteThroughService: GitHubWriteThroughService
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -124,6 +126,8 @@ describe(PullRequestReviewsService.name, () => {
 						removeReviewerRequest: vi.fn(),
 						submitReview: vi.fn(),
 						discardPendingReview: vi.fn(),
+						findReview: vi.fn(),
+						findReviewerRequest: vi.fn(),
 						listActiveReviewerRequests: vi.fn().mockResolvedValue([]),
 						listReviewHistory: vi.fn().mockResolvedValue([]),
 						findPendingReview: vi.fn(),
@@ -135,7 +139,7 @@ describe(PullRequestReviewsService.name, () => {
 				{
 					provide: RepositoriesService,
 					useValue: {
-						getReadableTesseraRepositoryContext: vi.fn(),
+						getReadableRepositoryContext: vi.fn(),
 						canUserReadRepository: vi.fn(),
 						listRepositoryPrincipals: vi.fn().mockResolvedValue([]),
 					},
@@ -148,6 +152,14 @@ describe(PullRequestReviewsService.name, () => {
 						listRepositoryRefs: vi.fn(),
 					},
 				},
+				{
+					provide: GitHubWriteThroughService,
+					useValue: {
+						requestReviewer: vi.fn(),
+						removeReviewerRequest: vi.fn(),
+						submitReview: vi.fn(),
+					},
+				},
 			],
 		}).compile()
 		service = moduleRef.get(PullRequestReviewsService)
@@ -156,10 +168,11 @@ describe(PullRequestReviewsService.name, () => {
 		repositoriesService = moduleRef.get(RepositoriesService)
 		userService = moduleRef.get(UserService)
 		gitStorageClient = moduleRef.get(GitStorageClient)
+		gitHubWriteThroughService = moduleRef.get(GitHubWriteThroughService)
 
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -184,7 +197,7 @@ describe(PullRequestReviewsService.name, () => {
 	] as const)('allows author or write user to request and remove reviewers', async (viewerUserId, viewerRole) => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -212,10 +225,161 @@ describe(PullRequestReviewsService.name, () => {
 		expect(removeSpy).toHaveBeenCalledOnce()
 	})
 
+	test('dispatches mirrored review writes and keeps pending review discard a no-op', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			viewerRole: 'write',
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(gitHubWriteThroughService, 'requestReviewer').mockResolvedValue(
+			requestId
+		)
+		vi.spyOn(
+			gitHubWriteThroughService,
+			'removeReviewerRequest'
+		).mockResolvedValue(true)
+		vi.spyOn(gitHubWriteThroughService, 'submitReview').mockResolvedValue(
+			reviewId
+		)
+		vi.spyOn(reviewsRepository, 'findReviewerRequest').mockResolvedValue(
+			reviewerRequest
+		)
+		vi.spyOn(reviewsRepository, 'findReview').mockResolvedValue(submittedReview)
+
+		expect(
+			await service.requestReviewer(mockUserId, {
+				...repositoryInput,
+				reviewerUsername: 'reviewer',
+			})
+		).toStrictEqual({
+			id: requestId,
+			targetKind: 'user',
+			reviewer: {
+				key: reviewerUserId,
+				provider: 'tessera',
+				userId: reviewerUserId,
+				username: 'reviewer',
+			},
+			requestedBy: {
+				key: mockUserId,
+				provider: 'tessera',
+				userId: mockUserId,
+				username: 'marta',
+			},
+			createdAt,
+		})
+		expect(
+			await service.removeReviewerRequest(mockUserId, {
+				...repositoryInput,
+				reviewerUsername: 'reviewer',
+			})
+		).toEqual({ removed: true })
+		expect(
+			await service.submitReview(reviewerUserId, {
+				...repositoryInput,
+				outcome: 'approve',
+				body: undefined,
+				expectedHeadSha: 'expected-head',
+			})
+		).toStrictEqual({
+			id: reviewId,
+			reviewer: {
+				key: reviewerUserId,
+				provider: 'tessera',
+				userId: reviewerUserId,
+				username: 'reviewer',
+			},
+			state: 'submitted',
+			outcome: 'approve',
+			body: '',
+			headSha: 'reviewed-head',
+			submittedAt: createdAt,
+			dismissedAt: undefined,
+			dismissedBy: undefined,
+			sourceUrl: undefined,
+		})
+		expect(
+			await service.discardPendingReview(reviewerUserId, repositoryInput)
+		).toEqual({ discarded: false })
+
+		const ownerWriteThrough = {
+			actorUserId: mockUserId,
+			externalRepository: { ownerLogin: 'tessera-org', name: 'notes' },
+			pullRequestId,
+			repositoryId,
+		}
+		expect(gitHubWriteThroughService.requestReviewer).toHaveBeenCalledWith(
+			ownerWriteThrough,
+			{ reviewerUserId }
+		)
+		expect(
+			gitHubWriteThroughService.removeReviewerRequest
+		).toHaveBeenCalledWith(ownerWriteThrough, { reviewerUserId })
+		expect(gitHubWriteThroughService.submitReview).toHaveBeenCalledWith(
+			{ ...ownerWriteThrough, actorUserId: reviewerUserId },
+			{
+				body: '',
+				expectedHeadSha: 'expected-head',
+				outcome: 'approve',
+			}
+		)
+		expect(reviewsRepository.findReviewerRequest).toHaveBeenCalledWith({
+			requestId,
+		})
+		expect(reviewsRepository.findReview).toHaveBeenCalledWith({
+			pullRequestId,
+			reviewId,
+		})
+		expect(reviewsRepository.createReviewerRequest).not.toHaveBeenCalled()
+		expect(reviewsRepository.removeReviewerRequest).not.toHaveBeenCalled()
+		expect(reviewsRepository.submitReview).not.toHaveBeenCalled()
+		expect(reviewsRepository.discardPendingReview).not.toHaveBeenCalled()
+	})
+
+	test('never touches write-through for a native review write', async () => {
+		vi.spyOn(reviewsRepository, 'submitReview').mockResolvedValue({
+			status: 'submitted',
+			review: submittedReview,
+		})
+
+		await service.submitReview(reviewerUserId, {
+			...repositoryInput,
+			outcome: 'approve',
+			body: undefined,
+			expectedHeadSha: 'head-sha',
+		})
+
+		expect(gitHubWriteThroughService.submitReview).not.toHaveBeenCalled()
+		expect(reviewsRepository.submitReview).toHaveBeenCalledOnce()
+	})
+
+	test('keeps reviewer capabilities on a mirrored pull request', async () => {
+		expect(
+			(
+				await service.getReviewState({
+					pullRequest: { ...pullRequest, provider: 'github' },
+					repositoryId,
+					storagePath: '/repositories/notes.git',
+					viewerRole: 'read',
+					viewerUserId: reviewerUserId,
+				})
+			).viewer
+		).toEqual({
+			canSubmitReview: true,
+			canRequestReviewers: false,
+			canRemoveReviewerRequests: false,
+		})
+	})
+
 	test('rejects read-only strangers requesting or removing reviewers', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -240,7 +404,7 @@ describe(PullRequestReviewsService.name, () => {
 	test('allows an authenticated reader who is not the author to submit', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockResolvedValue({
 			repositoryId,
 			storagePath: '/repositories/notes.git',
@@ -358,7 +522,7 @@ describe(PullRequestReviewsService.name, () => {
 	test('rejects all mutations when GitHub is authoritative', async () => {
 		vi.spyOn(
 			repositoriesService,
-			'getReadableTesseraRepositoryContext'
+			'getReadableRepositoryContext'
 		).mockRejectedValue(new ForbiddenError('repository'))
 		const mutations = [
 			service.requestReviewer(strangerUserId, {
@@ -493,7 +657,6 @@ describe(PullRequestReviewsService.name, () => {
 			pullRequest,
 			repositoryId,
 			storagePath: '/repositories/notes.git',
-			tesseraWritesAllowed: true,
 			viewerRole: 'read',
 		})
 
@@ -586,7 +749,6 @@ describe(PullRequestReviewsService.name, () => {
 			pullRequest,
 			repositoryId,
 			storagePath: '/repositories/notes.git',
-			tesseraWritesAllowed: true,
 			viewerRole: 'write',
 			viewerUserId: reviewerUserId,
 		})
@@ -638,7 +800,6 @@ describe(PullRequestReviewsService.name, () => {
 			pullRequest,
 			repositoryId,
 			storagePath: '/repositories/notes.git',
-			tesseraWritesAllowed: true,
 			viewerRole: 'read',
 		})
 
@@ -729,7 +890,6 @@ describe(PullRequestReviewsService.name, () => {
 			pullRequest: mergedPullRequest,
 			repositoryId,
 			storagePath: '/repositories/notes.git',
-			tesseraWritesAllowed: true,
 			viewerRole: 'read',
 		})
 

@@ -1,5 +1,9 @@
 import { ORPCError } from '@orpc/client'
-import { type PullRequest, pullRequestSchema } from '@repo/contracts'
+import {
+	GITHUB_SYNC_DELAYED_MESSAGE,
+	type PullRequest,
+	pullRequestSchema,
+} from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useRepositoryRefsQuery } from '@/modules/repositories/hooks/use-repository-refs.query'
@@ -157,6 +161,43 @@ describe('pull request retarget dialog', () => {
 				'Leave the merge queue before changing the target branch.'
 			)
 		).toBeTruthy()
+	})
+
+	test('keeps an idempotent retarget retryable after delayed synchronization', async () => {
+		useRetargetPullRequestMutationMock.mockReturnValue({
+			mutate,
+			reset,
+			isError: true,
+			isPending: false,
+			error: new ORPCError('CONFLICT', {
+				status: 409,
+				message: GITHUB_SYNC_DELAYED_MESSAGE,
+			}),
+		} as never)
+		const user = userEvent.setup()
+		renderDialog()
+
+		await user.click(
+			screen.getByRole('button', { name: CHANGE_TARGET_TRIGGER })
+		)
+		await user.click(screen.getByRole('combobox', { name: 'Target branch' }))
+		await user.click(screen.getByRole('option', { name: 'release' }))
+
+		expect(screen.getByRole('status').textContent).toBe(
+			GITHUB_SYNC_DELAYED_MESSAGE
+		)
+		expect(
+			screen.getByRole<HTMLButtonElement>('button', {
+				name: 'Change target branch',
+			}).disabled
+		).toBeFalsy()
+		await user.click(
+			screen.getByRole('button', { name: 'Change target branch' })
+		)
+		expect(mutate).toHaveBeenCalledWith(
+			{ username: 'marta', slug: 'notes', number: 4, targetBranch: 'release' },
+			expect.anything()
+		)
 	})
 
 	test('reports branches that could not be loaded', async () => {

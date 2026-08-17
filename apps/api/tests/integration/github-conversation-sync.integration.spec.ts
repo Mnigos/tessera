@@ -38,7 +38,7 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE } from '@repo/contracts'
+import { GITHUB_RECONNECT_REQUIRED_MESSAGE } from '@repo/contracts'
 import { db } from '@repo/db/client'
 import {
 	account,
@@ -739,14 +739,14 @@ describe('GitHub conversation sync integration', () => {
 		])
 	})
 
-	test('exposes external actors and links while refusing native mutations', async () => {
+	test('exposes external actors and links while requiring GitHub reconnect for writes', async () => {
 		await runProjection()
 
 		const threads = await listThreads()
 		expect(threads.viewer).toEqual({
-			canComment: false,
-			canResolveAnyThread: false,
-			canDeleteAnyComment: false,
+			canComment: true,
+			canResolveAnyThread: true,
+			canDeleteAnyComment: true,
 		})
 		expect(threads.threads[0]?.comments).toEqual([
 			expect.objectContaining({
@@ -769,9 +769,9 @@ describe('GitHub conversation sync integration', () => {
 		const detail = await getPullRequestDetail()
 		expect(detail.authority).toBe('github')
 		expect(detail.viewer).toEqual({
-			canSubmitReview: false,
-			canRequestReviewers: false,
-			canRemoveReviewerRequests: false,
+			canSubmitReview: true,
+			canRequestReviewers: true,
+			canRemoveReviewerRequests: true,
 		})
 		expect(detail.reviews[0]?.sourceUrl).toBe(
 			`${PULL_REQUEST_URL}#pullrequestreview-31`
@@ -786,16 +786,16 @@ describe('GitHub conversation sync integration', () => {
 			])
 		)
 
-		const rejected = await request(
+		const reconnectRequired = await request(
 			'http://localhost/repositories/maya/notes/pulls/1/threads',
 			'POST',
 			owner.headers,
 			{ body: 'Native comment' }
 		)
-		expect(rejected.status).toBe(403)
-		expect(await rejected.json()).toMatchObject({
-			code: 'FORBIDDEN',
-			message: REPOSITORY_GITHUB_SOURCE_OF_TRUTH_MESSAGE,
+		expect(reconnectRequired.status).toBe(401)
+		expect(await reconnectRequired.json()).toMatchObject({
+			code: 'UNAUTHORIZED',
+			message: GITHUB_RECONNECT_REQUIRED_MESSAGE,
 		})
 	})
 

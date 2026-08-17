@@ -13,34 +13,29 @@ import {
 	getMergeStrategyDescription,
 	getMergeStrategyLabel,
 	getMergeStrategyUnavailableMessage,
-	MERGE_STRATEGY_ORDER,
 } from '../helpers/merge-strategy'
 
 interface PullRequestMergeStrategySelectProps {
 	disabled?: boolean
 	onStrategyChange: (strategy: MergeStrategy) => void
+	/** The methods this pull request can be merged by at all. */
+	strategies: readonly MergeStrategy[]
 	strategy: MergeStrategy
 	strategyAvailability?: MergeStrategyAvailability[]
 	targetBranch: string
 }
 
-/**
- * How this pull request will be merged.
- *
- * Every method stays on the list whether or not it can run right now, and the
- * ones that cannot say why. Hiding them would leave a reader wondering where
- * fast-forward went; naming the reason tells them what would have to change for
- * it to come back.
- */
+/** A method the branches cannot take right now stays listed, saying why. */
 export function PullRequestMergeStrategySelect({
 	disabled = false,
 	onStrategyChange,
+	strategies,
 	strategy,
 	strategyAvailability,
 	targetBranch,
 }: Readonly<PullRequestMergeStrategySelectProps>) {
 	function handleValueChange(value: string | null) {
-		const selected = MERGE_STRATEGY_ORDER.find(candidate => candidate === value)
+		const selected = strategies.find(candidate => candidate === value)
 
 		if (selected) onStrategyChange(selected)
 	}
@@ -61,7 +56,7 @@ export function PullRequestMergeStrategySelect({
 					<SelectValue>{getMergeStrategyLabel(strategy)}</SelectValue>
 				</SelectTrigger>
 				<SelectContent align="start" className="w-80">
-					{MERGE_STRATEGY_ORDER.map(candidate => {
+					{strategies.map(candidate => {
 						const availability = findMergeStrategyAvailability(
 							strategyAvailability,
 							candidate

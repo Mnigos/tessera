@@ -7,7 +7,6 @@ import { Button } from '@repo/ui/components/button'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { useState } from 'react'
 import { useGitHubSyncHealthQuery } from '@/modules/repositories/hooks/use-github-sync-health.query'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	getPullRequestReviewComposerLabel,
 	getPullRequestReviewEventPayload,
@@ -76,6 +75,7 @@ export function PullRequestTimeline({
 	const permissions = getPullRequestThreadPermissions({
 		viewer: threadsQuery.data?.viewer,
 		viewerUserId,
+		isGitHubAuthoritative,
 		review: review && {
 			...review,
 			headSha: threadsQuery.data?.comparison.headSha,
@@ -217,14 +217,8 @@ function PullRequestTimelineComposer({
 		<div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
 			<h3 className="font-medium text-sm">Add a comment</h3>
 			<PullRequestCommentComposer
-				errorMessage={
-					createThreadMutation.isError
-						? getPullRequestErrorMessage(
-								createThreadMutation.error,
-								'The comment could not be posted.'
-							)
-						: undefined
-				}
+				error={createThreadMutation.error}
+				errorFallback="The comment could not be posted."
 				inputId="pull-request-comment-body"
 				isPending={createThreadMutation.isPending}
 				key={composerKey}

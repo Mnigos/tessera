@@ -77,6 +77,7 @@ describe(PullRequestComparison.name, () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="commits"
@@ -121,6 +122,7 @@ describe(PullRequestComparison.name, () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="commits"
@@ -173,6 +175,7 @@ describe(PullRequestComparison.name, () => {
 
 		render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -220,6 +223,7 @@ describe(PullRequestComparison.name, () => {
 
 		const { rerender } = render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -231,6 +235,7 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByText('File list truncated')).toBeTruthy()
 		rerender(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="commits"
@@ -315,6 +320,7 @@ describe(PullRequestComparison.name, () => {
 		const user = userEvent.setup()
 		const { container } = render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -372,6 +378,7 @@ describe(PullRequestComparison.name, () => {
 		const user = userEvent.setup()
 		const { rerender } = render(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="files"
@@ -391,6 +398,7 @@ describe(PullRequestComparison.name, () => {
 		} as never)
 		rerender(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				slug="notes"
 				tab="commits"

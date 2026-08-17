@@ -14,7 +14,7 @@ import type {
 import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { MarkdownContent } from '@/shared/components/markdown-content'
-import type { PullRequestReviewContext } from '../helpers/pull-request-review'
+import { getPullRequestReviewContext } from '../helpers/pull-request-review'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestChecksPanel } from './pull-request-checks-panel'
 import { PullRequestMergePanel } from './pull-request-merge-panel'
@@ -68,10 +68,11 @@ export function PullRequestOverview({
 	// The reviewed head is whichever comparison the viewer is reading, never a
 	// freshly resolved one: a review must never cover unseen commits.
 	const headSha = threadsQuery.data?.comparison.headSha
-	const review: PullRequestReviewContext = {
-		canSubmitReview: reviewViewer.canSubmitReview,
-		hasPendingReview: Boolean(viewerPendingReview),
-	}
+	const review = getPullRequestReviewContext(
+		reviewViewer,
+		viewerPendingReview,
+		isGitHubAuthoritative
+	)
 	const hasReviewers =
 		reviewerRequests.length > 0 ||
 		effectiveReviewStates.length > 0 ||
@@ -107,13 +108,14 @@ export function PullRequestOverview({
 				/>
 				{canWrite && (
 					<PullRequestMergePanel
+						isGitHubAuthoritative={isGitHubAuthoritative}
 						mergeQueue={mergeQueue}
 						pullRequest={pullRequest}
 						slug={slug}
 						username={username}
 					/>
 				)}
-				{viewerPendingReview && (
+				{viewerPendingReview && !isGitHubAuthoritative && (
 					<PullRequestPendingReviewBanner
 						canSubmitReview={reviewViewer.canSubmitReview}
 						headSha={headSha}
@@ -142,6 +144,7 @@ export function PullRequestOverview({
 					<PullRequestReviewersPanel
 						effectiveReviewStates={effectiveReviewStates}
 						headSha={headSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
 						isOpen={isOpen}
 						number={number}
 						pendingCommentCount={viewerPendingReview?.commentCount}

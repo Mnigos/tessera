@@ -276,6 +276,7 @@ function renderComparison({
 } = {}) {
 	return render(
 		<PullRequestComparison
+			isGitHubAuthoritative={false}
 			number="1"
 			reviewSelection={{
 				reviewId: selectedReviewId,
@@ -522,6 +523,7 @@ describe('pull request review comparison', () => {
 
 		rendered.rerender(
 			<PullRequestComparison
+				isGitHubAuthoritative={false}
 				number="1"
 				reviewSelection={{
 					reviewId: LATEST_REVIEW.id,

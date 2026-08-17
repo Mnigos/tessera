@@ -4,7 +4,6 @@ import type {
 } from '@repo/contracts'
 import { History } from 'lucide-react'
 import { useState } from 'react'
-import { getPullRequestErrorMessage } from '../helpers/get-pull-request-error-message'
 import {
 	getPullRequestReviewComposerLabel,
 	getPullRequestReviewMarker,
@@ -109,14 +108,8 @@ function PullRequestDiffThreadComposer({
 		<div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
 			<h3 className="font-medium text-sm">Comment on line {anchor.line}</h3>
 			<PullRequestCommentComposer
-				errorMessage={
-					createThreadMutation.isError
-						? getPullRequestErrorMessage(
-								createThreadMutation.error,
-								'The comment could not be posted.'
-							)
-						: undefined
-				}
+				error={createThreadMutation.error}
+				errorFallback="The comment could not be posted."
 				inputId={`pull-request-line-comment-${anchor.side}-${anchor.line}`}
 				isPending={createThreadMutation.isPending}
 				label={`Comment on line ${anchor.line}`}

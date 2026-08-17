@@ -951,28 +951,19 @@ describe('Merge governance integration', () => {
 		expect(await findPullRequestEvent('merge_bypassed')).toBeUndefined()
 	})
 
-	test('blocks a merge on a repository GitHub is authoritative for', async () => {
+	// A repository GitHub is authoritative for merges on GitHub, as the caller.
+	// This writer has no linked GitHub account, so the attempt is refused before
+	// anything local is touched — Tessera's own governance never runs.
+	test('asks an unlinked writer to reconnect GitHub before any merge governance runs on a mirror', async () => {
 		await createPullRequest()
 		await makeGitHubAuthoritative()
 
-		const outcome = await attemptMerge(writer.headers)
-		expect(outcome).toMatchObject({
-			httpStatus: 200,
-			status: 'blocked',
+		expect(await attemptMerge(writer.headers)).toMatchObject({
+			httpStatus: 401,
 			pullRequestState: 'open',
 			mergeCalls: 0,
 		})
-
-		expect(outcome.requirements).toMatchObject({
-			eligible: false,
-			canBypass: false,
-			reasons: [{ code: 'read_only_mirror', authority: 'github' }],
-		})
-		// A refusal reached before evaluation resolves no refs and judges none.
-		expect(outcome.requirements?.evaluatedBaseSha).toBeUndefined()
-		expect(await findPullRequestEvent('merge_blocked')).toMatchObject({
-			payload: { reasonCodes: ['read_only_mirror'] },
-		})
+		expect(await findPullRequestEvent('merge_blocked')).toBeUndefined()
 	})
 
 	test('blocks a merge from a collaborator without write access', async () => {

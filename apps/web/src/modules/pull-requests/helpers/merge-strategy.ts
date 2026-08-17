@@ -8,6 +8,10 @@ import { mergeStrategies } from '@repo/domain'
 /** The methods, in the order they are offered. */
 export const MERGE_STRATEGY_ORDER: readonly MergeStrategy[] = mergeStrategies
 
+/** GitHub merges pull requests three ways; fast-forward is not one of them. */
+export const GITHUB_MERGE_STRATEGY_ORDER: readonly MergeStrategy[] =
+	MERGE_STRATEGY_ORDER.filter(strategy => strategy !== 'fast_forward')
+
 /** What the button says once a method is chosen. */
 export function getMergeStrategyLabel(strategy: MergeStrategy): string {
 	switch (strategy) {
@@ -76,21 +80,27 @@ export function findMergeStrategyAvailability(
  */
 export function resolveMergeStrategy(
 	selected: MergeStrategy,
-	strategyAvailability: MergeStrategyAvailability[] | undefined
+	strategyAvailability: MergeStrategyAvailability[] | undefined,
+	strategies: readonly MergeStrategy[] = MERGE_STRATEGY_ORDER
 ): MergeStrategy {
-	if (!strategyAvailability?.length) return selected
+	// A selection the active list no longer offers falls back like an unavailable one.
+	const candidate = strategies.includes(selected)
+		? selected
+		: (strategies[0] ?? selected)
+
+	if (!strategyAvailability?.length) return candidate
 
 	const availability = findMergeStrategyAvailability(
 		strategyAvailability,
-		selected
+		candidate
 	)
 
-	if (!availability || availability.available) return selected
+	if (!availability || availability.available) return candidate
 
 	return (
-		MERGE_STRATEGY_ORDER.find(
+		strategies.find(
 			strategy =>
 				findMergeStrategyAvailability(strategyAvailability, strategy)?.available
-		) ?? selected
+		) ?? candidate
 	)
 }
