@@ -73,34 +73,34 @@ export function PullRequestReviewComparisonFiles({
 				/>
 			)}
 			{reviewComparison?.status === 'ready' && (
-				<>
-					<PullRequestReviewChangesAction
-						headSha={reviewComparison.currentHeadSha}
-						isGitHubAuthoritative={isGitHubAuthoritative}
-						number={number}
-						slug={slug}
-						username={username}
-						viewer={reviewViewer}
-						viewerPendingReview={viewerPendingReview}
-					/>
-					<PullRequestComparisonFiles
-						anchorComparison={{
-							baseSha: reviewComparison.canonicalBaseSha,
-							headSha: reviewComparison.currentHeadSha,
-						}}
-						comparison={reviewComparison.comparison}
-						isGitHubAuthoritative={isGitHubAuthoritative}
-						isSinceReview
-						// Nothing about an expanded file survives a change of pair: the paths,
-						// and the diff behind them, belong to the comparison being shown.
-						key={`${reviewComparison.review.headSha}:${reviewComparison.currentHeadSha}`}
-						number={number}
-						review={review}
-						slug={slug}
-						username={username}
-						viewerUserId={viewerUserId}
-					/>
-				</>
+				<PullRequestComparisonFiles
+					anchorComparison={{
+						baseSha: reviewComparison.canonicalBaseSha,
+						headSha: reviewComparison.currentHeadSha,
+					}}
+					comparison={reviewComparison.comparison}
+					isGitHubAuthoritative={isGitHubAuthoritative}
+					isSinceReview
+					// Nothing about an expanded file survives a change of pair: the paths,
+					// and the diff behind them, belong to the comparison being shown.
+					key={`${reviewComparison.review.headSha}:${reviewComparison.currentHeadSha}`}
+					number={number}
+					review={review}
+					slug={slug}
+					toolbarAction={
+						<PullRequestReviewChangesAction
+							headSha={reviewComparison.currentHeadSha}
+							isGitHubAuthoritative={isGitHubAuthoritative}
+							number={number}
+							slug={slug}
+							username={username}
+							viewer={reviewViewer}
+							viewerPendingReview={viewerPendingReview}
+						/>
+					}
+					username={username}
+					viewerUserId={viewerUserId}
+				/>
 			)}
 		</div>
 	)

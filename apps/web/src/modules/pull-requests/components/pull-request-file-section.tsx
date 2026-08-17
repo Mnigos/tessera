@@ -1,15 +1,15 @@
 import type { PullRequestChangedFile } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { Card } from '@repo/ui/components/card'
 import { Toggle } from '@repo/ui/components/toggle'
 import { cn } from '@repo/ui/utils'
-import { Check, ChevronRight, FileCode2 } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import type { PropsWithChildren } from 'react'
 import { isLargeChangedFile } from '../helpers/pull-request-changed-files'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
 
 const EXPAND_TRANSITION = { duration: 0.18, ease: 'easeOut' } as const
+const CHECK_TRANSITION = { duration: 0.15, ease: 'easeOut' } as const
 
 interface PullRequestFileSectionProps extends PropsWithChildren {
 	file: PullRequestChangedFile
@@ -52,17 +52,23 @@ export function PullRequestFileSection({
 	}
 
 	return (
-		<div className="scroll-mt-6" ref={observeSection}>
-			<Card
+		<div className="scroll-mt-2" ref={observeSection}>
+			<div
 				className={cn(
-					'gap-0 overflow-hidden p-0 transition-opacity',
+					'overflow-visible rounded-md border border-border bg-card transition-opacity',
 					isViewed && 'opacity-60'
 				)}
 			>
-				<div className="flex items-center gap-2 pr-3">
+				{/* The header outlives its own diff on screen, so it carries the page background. */}
+				<div
+					className={cn(
+						'sticky top-0 z-10 flex h-10 items-center gap-2 rounded-t-md border-border bg-background pr-2',
+						isExpanded && 'border-b'
+					)}
+				>
 					<Button
 						aria-expanded={isExpanded}
-						className="h-auto min-w-0 flex-1 justify-start rounded-none px-4 py-3 text-left"
+						className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none rounded-tl-md px-2 py-0 text-left font-normal"
 						onClick={onToggleExpanded}
 						onFocus={onPrefetch}
 						onPointerEnter={onPrefetch}
@@ -70,19 +76,15 @@ export function PullRequestFileSection({
 					>
 						<ChevronRight
 							className={cn(
-								'size-4 shrink-0 transition-transform',
+								'size-4 shrink-0 text-muted-foreground transition-transform',
 								isExpanded && 'rotate-90'
 							)}
 						/>
-						<FileCode2 className="size-4 shrink-0 text-muted-foreground" />
 						<span
 							className="min-w-0 flex-1 truncate font-mono text-xs"
 							title={displayPath}
 						>
 							{displayPath}
-						</span>
-						<span className="shrink-0 text-muted-foreground text-xs capitalize">
-							{file.status}
 						</span>
 						<PullRequestDiffStatsBadge
 							additions={file.additions}
@@ -92,19 +94,40 @@ export function PullRequestFileSection({
 					{canMarkViewed && (
 						<Toggle
 							aria-label={`Mark ${path} viewed`}
+							className="h-7 cursor-pointer gap-1.5 px-2"
 							disabled={isViewedPending}
 							onPressedChange={onToggleViewed}
 							pressed={isViewed}
 							size="sm"
 							variant="outline"
 						>
-							<Check className="size-3.5" />
+							<span
+								className={cn(
+									'flex size-3.5 items-center justify-center rounded-[3px] border border-muted-foreground/60 transition-colors',
+									isViewed &&
+										'border-primary bg-primary text-primary-foreground'
+								)}
+							>
+								<motion.span
+									animate={{
+										scale: isViewed ? 1 : 0.4,
+										opacity: isViewed ? 1 : 0,
+									}}
+									className="flex"
+									initial={false}
+									transition={
+										shouldReduceMotion ? { duration: 0 } : CHECK_TRANSITION
+									}
+								>
+									<Check className="size-2.5" strokeWidth={3} />
+								</motion.span>
+							</span>
 							<span className="text-xs">Viewed</span>
 						</Toggle>
 					)}
 				</div>
 				{!isExpanded && isLargeChangedFile(file) && (
-					<div className="flex items-center justify-between gap-3 border-border border-t px-4 py-3">
+					<div className="flex items-center justify-between gap-3 border-border border-t px-3 py-2">
 						<p className="text-muted-foreground text-xs">
 							{file.isBinary
 								? 'Binary file.'
@@ -124,7 +147,7 @@ export function PullRequestFileSection({
 					{isExpanded && isNearViewport && (
 						<motion.div
 							animate={{ height: 'auto', opacity: 1 }}
-							className="overflow-hidden"
+							className="overflow-hidden rounded-b-md"
 							exit={{ height: 0, opacity: 0 }}
 							initial={{ height: 0, opacity: 0 }}
 							transition={
@@ -135,7 +158,7 @@ export function PullRequestFileSection({
 						</motion.div>
 					)}
 				</AnimatePresence>
-			</Card>
+			</div>
 		</div>
 	)
 }

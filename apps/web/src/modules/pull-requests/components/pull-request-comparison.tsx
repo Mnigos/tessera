@@ -110,15 +110,6 @@ export function PullRequestComparison({
 					viewerUserId={viewerUserId}
 				/>
 			)}
-			<PullRequestReviewChangesAction
-				headSha={comparisonQuery.data.headSha}
-				isGitHubAuthoritative={isGitHubAuthoritative}
-				number={number}
-				slug={slug}
-				username={username}
-				viewer={reviewViewer}
-				viewerPendingReview={viewerPendingReview}
-			/>
 			<PullRequestDiffSelectionProvider>
 				<PullRequestComparisonFiles
 					anchorComparison={comparisonQuery.data}
@@ -127,6 +118,17 @@ export function PullRequestComparison({
 					number={number}
 					review={review}
 					slug={slug}
+					toolbarAction={
+						<PullRequestReviewChangesAction
+							headSha={comparisonQuery.data.headSha}
+							isGitHubAuthoritative={isGitHubAuthoritative}
+							number={number}
+							slug={slug}
+							username={username}
+							viewer={reviewViewer}
+							viewerPendingReview={viewerPendingReview}
+						/>
+					}
 					username={username}
 					viewerUserId={viewerUserId}
 				/>

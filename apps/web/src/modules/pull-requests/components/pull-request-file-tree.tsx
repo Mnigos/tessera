@@ -3,7 +3,6 @@ import type {
 	PullRequestChangedFileStatus,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { Check, ChevronDown, ChevronRight, Folder } from 'lucide-react'
 import { useState } from 'react'
@@ -27,7 +26,7 @@ const FILE_STATUS_CLASSES = {
 } as const satisfies Record<PullRequestChangedFileStatus, string>
 
 const ROW_CLASSES =
-	'h-auto w-full justify-start gap-1.5 rounded-md px-2 py-1 text-left font-normal'
+	'h-[26px] w-full justify-start gap-1.5 rounded-sm px-1.5 py-0 text-left font-normal [&_svg]:size-3'
 
 interface PullRequestFileTreeProps {
 	files: readonly PullRequestChangedFile[]
@@ -60,8 +59,8 @@ export function PullRequestFileTree({
 	}
 
 	return (
-		<Card className="gap-2 p-3">
-			<ul className="flex max-h-[calc(100vh-10rem)] flex-col overflow-y-auto">
+		<div className="rounded-md border border-border bg-card p-1">
+			<ul className="flex max-h-[calc(100vh-8rem)] flex-col overflow-y-auto">
 				{rows.map(({ depth, node }) => (
 					<li
 						key={node.path}
@@ -87,7 +86,7 @@ export function PullRequestFileTree({
 					</li>
 				))}
 			</ul>
-		</Card>
+		</div>
 	)
 }
 
@@ -111,8 +110,8 @@ function DirectoryRow({
 			onClick={onToggle}
 			variant="ghost"
 		>
-			<Chevron className="size-3.5 shrink-0 text-muted-foreground" />
-			<Folder className="size-3.5 shrink-0 text-muted-foreground" />
+			<Chevron className="size-3 shrink-0 text-muted-foreground" />
+			<Folder className="size-3 shrink-0 text-muted-foreground" />
 			<span className="min-w-0 flex-1 truncate font-mono text-xs">{name}</span>
 		</Button>
 	)
@@ -162,10 +161,10 @@ function FileRow({
 			<span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
 				{name}
 			</span>
-			<span className="shrink-0 text-[0.625rem] text-emerald-400">
+			<span className="shrink-0 text-[0.625rem] text-emerald-400/70 tabular-nums">
 				+{file.additions}
 			</span>
-			<span className="shrink-0 text-[0.625rem] text-red-400">
+			<span className="shrink-0 text-[0.625rem] text-red-400/70 tabular-nums">
 				−{file.deletions}
 			</span>
 			{isViewed && <Check className="size-3 shrink-0 text-muted-foreground" />}

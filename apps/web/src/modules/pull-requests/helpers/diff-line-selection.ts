@@ -43,7 +43,8 @@ export function reduceDiffLineSelection(
 
 	const { hunk, line, path, side } = action.target
 
-	if (action.type !== 'extend')
+	// An extension with nothing to grow from starts the range it was aimed at.
+	if (action.type !== 'extend' || !selection)
 		return {
 			path,
 			side,
@@ -54,8 +55,7 @@ export function reduceDiffLineSelection(
 			isSelecting: action.type === 'begin',
 		}
 
-	if (!selection || selection.path !== path || selection.side !== side)
-		return undefined
+	if (selection.path !== path || selection.side !== side) return undefined
 
 	const reached = Math.min(
 		Math.max(line, selection.hunk.startLine),

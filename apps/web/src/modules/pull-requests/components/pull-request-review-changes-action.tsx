@@ -27,17 +27,15 @@ export function PullRequestReviewChangesAction({
 	if (viewer.allowedOutcomes.length === 0) return null
 
 	return (
-		<div className="flex justify-end">
-			<PullRequestReviewDialog
-				allowedOutcomes={viewer.allowedOutcomes}
-				headSha={headSha}
-				isGitHubAuthoritative={isGitHubAuthoritative}
-				number={number}
-				pendingCommentCount={viewerPendingReview?.commentCount}
-				slug={slug}
-				triggerLabel="Review changes"
-				username={username}
-			/>
-		</div>
+		<PullRequestReviewDialog
+			allowedOutcomes={viewer.allowedOutcomes}
+			headSha={headSha}
+			isGitHubAuthoritative={isGitHubAuthoritative}
+			number={number}
+			pendingCommentCount={viewerPendingReview?.commentCount}
+			slug={slug}
+			triggerLabel="Review changes"
+			username={username}
+		/>
 	)
 }
