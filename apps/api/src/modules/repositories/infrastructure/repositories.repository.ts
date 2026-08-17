@@ -1,4 +1,5 @@
 import { Database } from '@config/database'
+import type { GitHubSyncRequest } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { Injectable } from '@nestjs/common'
 import {
 	and,
@@ -429,7 +430,7 @@ export class RepositoriesRepository {
 
 	async enableGitHubMirror({
 		repositoryId,
-	}: RepositoryIdParams): Promise<boolean> {
+	}: RepositoryIdParams): Promise<GitHubSyncRequest | undefined> {
 		const [source] = await this.db
 			.update(repositoryExternalSources)
 			.set({
@@ -449,9 +450,13 @@ export class RepositoriesRepository {
 					isNotNull(repositoryExternalSources.installationId)
 				)
 			)
-			.returning({ id: repositoryExternalSources.id })
+			.returning({
+				repositoryId: repositoryExternalSources.repositoryId,
+				authorityGeneration: repositoryExternalSources.authorityGeneration,
+				requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
+			})
 
-		return Boolean(source)
+		return source
 	}
 
 	async cutoverGitHubMirror({
