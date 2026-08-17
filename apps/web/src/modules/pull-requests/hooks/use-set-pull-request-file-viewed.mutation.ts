@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { orpcQuery } from '@/lib/orpc/query'
+import { isPullRequestStaleComparisonError } from '../helpers/get-pull-request-error-message'
 
 export function useSetPullRequestFileViewedMutation() {
 	const queryClient = useQueryClient()
@@ -31,9 +32,18 @@ export function useSetPullRequestFileViewedMutation() {
 
 				return { queryKey, previous }
 			},
-			onError: (_error, _input, context) => {
+			// A rejected head means the ticked diff is gone, so the files view reloads.
+			onError: async (error, { username, slug, number }, context) => {
 				if (context)
 					queryClient.setQueryData(context.queryKey, context.previous)
+
+				if (!isPullRequestStaleComparisonError(error)) return
+
+				await queryClient.invalidateQueries({
+					queryKey: orpcQuery.pullRequests.comparison.key({
+						input: { username, slug, number },
+					}),
+				})
 			},
 			// Only the last toggle still in flight refetches, so a slower one is not clobbered.
 			onSettled: async () => {

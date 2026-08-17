@@ -15,7 +15,7 @@ import type {
 import { Button } from '@repo/ui/components/button'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { Link } from '@tanstack/react-router'
-import { ArrowRight, Pencil } from 'lucide-react'
+import { ArrowLeft, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import {
@@ -210,9 +210,9 @@ function PullRequestDetailContent({
 						<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
 							<PullRequestStateBadge state={pullRequest.state} />
 							<span className="inline-flex min-w-0 max-w-full items-center gap-1">
-								<PullRequestBranchLabel name={pullRequest.sourceBranch} />
-								<ArrowRight aria-hidden className="size-3" />
 								<PullRequestBranchLabel name={pullRequest.targetBranch} />
+								<ArrowLeft aria-hidden className="size-3" />
+								<PullRequestBranchLabel name={pullRequest.sourceBranch} />
 							</span>
 							{canWrite && pullRequest.state === 'open' && (
 								<PullRequestRetargetDialog
