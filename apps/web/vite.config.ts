@@ -67,6 +67,15 @@ const config = defineConfig({
 				'/gpg-public-keys/**': {
 					proxy: `${apiUrl}/gpg-public-keys/**`,
 				},
+				'/handles/**': {
+					proxy: `${apiUrl}/handles/**`,
+				},
+				'/organization-invitations': {
+					proxy: `${apiUrl}/organization-invitations`,
+				},
+				'/organization-invitations/**': {
+					proxy: `${apiUrl}/organization-invitations/**`,
+				},
 				'/organizations': {
 					proxy: `${apiUrl}/organizations`,
 				},
