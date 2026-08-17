@@ -6,6 +6,7 @@ import {
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { z } from 'zod'
 import { PullRequestDetail } from '../components/pull-request-detail'
+import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import { getPullRequestQueryOptions } from '../hooks/use-pull-request.query'
 import { getPullRequestComparisonQueryOptions } from '../hooks/use-pull-request-comparison.query'
 import { getPullRequestReviewComparisonQueryOptions } from '../hooks/use-pull-request-review-comparison.query'
@@ -24,7 +25,7 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
 		params: { username, slug, number },
 	}) => {
 		const input = { username, slug, number }
-		const [error] = await safe(
+		const [error, data] = await safe(
 			Promise.all([
 				context.queryClient.ensureQueryData(getPullRequestQueryOptions(input)),
 				// A review the server will not compare against is answered on the page,
@@ -43,11 +44,15 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
 		if (error instanceof ORPCError && error.status === 404) throw notFound()
 
 		if (error) throw error
+
+		const [{ pullRequest }] = data
+
+		return { displayNumber: toPullRequestDisplayNumber(pullRequest) }
 	},
-	head: ({ params }) => ({
+	head: ({ loaderData, params }) => ({
 		meta: [
 			{
-				title: `${params.username}/${params.slug} #${params.number} files changed · detent`,
+				title: `${params.username}/${params.slug} #${loaderData?.displayNumber ?? params.number} files changed · detent`,
 			},
 		],
 	}),

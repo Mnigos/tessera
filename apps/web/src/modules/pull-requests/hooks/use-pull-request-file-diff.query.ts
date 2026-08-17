@@ -6,10 +6,15 @@ export function usePullRequestFileDiffQuery(
 	input: GetPullRequestFileDiffInput,
 	enabled: boolean
 ) {
-	return useQuery(
-		orpcQuery.pullRequests.fileDiff.queryOptions({
-			input,
-			enabled,
-		})
-	)
+	return useQuery(getPullRequestFileDiffQueryOptions(input, enabled))
+}
+
+export function getPullRequestFileDiffQueryOptions(
+	input: GetPullRequestFileDiffInput,
+	enabled = true
+) {
+	return orpcQuery.pullRequests.fileDiff.queryOptions({
+		input,
+		enabled,
+	})
 }

@@ -22,6 +22,7 @@ import {
 	canWriteRepository,
 	isRepositoryOwner,
 } from '@/modules/repositories/helpers/repository-viewer-role'
+import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
@@ -33,6 +34,7 @@ import {
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
+import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
 import { PullRequestEditForm } from './pull-request-edit-form'
 import { PullRequestGitHubBadge } from './pull-request-github-badge'
 import { PullRequestGitHubWriteThroughNote } from './pull-request-github-write-through-note'
@@ -171,6 +173,8 @@ function PullRequestDetailContent({
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditing, setIsEditing] = useState(false)
 	const sourceUrl = pullRequest.github?.htmlUrl
+	const displayNumber = toPullRequestDisplayNumber(pullRequest)
+	const { diffStats } = pullRequest
 	// Provenance, not authority: a pull request that came from GitHub keeps
 	// saying so after the repository cuts over and Tessera can be written to.
 	const isFromGitHub = pullRequest.provider === 'github'
@@ -186,7 +190,7 @@ function PullRequestDetailContent({
 					>
 						Pull requests
 					</Link>{' '}
-					/ #{pullRequest.number}
+					/ #{displayNumber}
 				</p>
 				{isEditing ? (
 					<PullRequestEditForm
@@ -200,7 +204,7 @@ function PullRequestDetailContent({
 						<h1 className="font-semibold text-3xl tracking-normal">
 							{pullRequest.title}{' '}
 							<span className="font-normal text-muted-foreground">
-								#{pullRequest.number}
+								#{displayNumber}
 							</span>
 						</h1>
 						<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
@@ -226,6 +230,12 @@ function PullRequestDetailContent({
 								</time>{' '}
 								by {pullRequest.authorUsername}
 							</span>
+							{diffStats && (
+								<PullRequestDiffStatsBadge
+									additions={diffStats.additions}
+									deletions={diffStats.deletions}
+								/>
+							)}
 							{isFromGitHub && <PullRequestGitHubBadge sourceUrl={sourceUrl} />}
 						</div>
 						{canWrite && (
@@ -252,6 +262,7 @@ function PullRequestDetailContent({
 				)}
 			</header>
 			<PullRequestNavigation
+				changedFilesCount={diffStats?.changedFiles}
 				number={String(pullRequest.number)}
 				slug={slug}
 				tab={tab}

@@ -4,23 +4,32 @@ import type {
 	PullRequestThreadSide,
 	SessionUser,
 } from '@repo/contracts'
-import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
-import { cn } from '@repo/ui/utils'
-import { ChevronRight, FileCode2 } from 'lucide-react'
+import { useReducedMotion } from 'motion/react'
 import { useState } from 'react'
+import { isPullRequestStaleComparisonError } from '../helpers/get-pull-request-error-message'
+import {
+	getChangedFilePath,
+	isLargeChangedFile,
+} from '../helpers/pull-request-changed-files'
 import {
 	getInlineThreadsForFile,
 	getUnanchoredInlineThreads,
 } from '../helpers/pull-request-inline-threads'
 import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
+import { usePrefetchPullRequestFileDiff } from '../hooks/use-prefetch-pull-request-file-diff'
+import { usePullRequestFileSections } from '../hooks/use-pull-request-file-sections'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
+import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed-files.query'
+import { useSetPullRequestFileViewedMutation } from '../hooks/use-set-pull-request-file-viewed.mutation'
 import {
 	type PullRequestDiffAnchorComparison,
 	PullRequestFileDiffView,
 } from './pull-request-file-diff'
+import { PullRequestFileSection } from './pull-request-file-section'
 import { PullRequestOutdatedThreads } from './pull-request-file-threads'
+import { PullRequestFileTree } from './pull-request-file-tree'
 import { PullRequestsMessage } from './pull-requests-message'
 
 const ANCHORABLE_DIFF_SIDES = [
@@ -28,30 +37,15 @@ const ANCHORABLE_DIFF_SIDES = [
 	'right',
 ] as const satisfies readonly PullRequestThreadSide[]
 
-/**
- * A left-side line of a since-review comparison is numbered against the merge
- * base of the two heads, which is not the pull request's own merge base. A
- * thread neither belongs on such a line nor may be opened from one, because
- * the same number means a different line in the full diff.
- */
+// A since-review left line is numbered against another merge base entirely.
 const RIGHT_ANCHORABLE_DIFF_SIDES = [
 	'right',
 ] as const satisfies readonly PullRequestThreadSide[]
 
 interface PullRequestComparisonFilesProps {
 	comparison: PullRequestComparisonData
-	/**
-	 * The pair every thread opened here is stored against. It is the displayed
-	 * comparison in the full diff, and the pull request's own comparison while
-	 * reading the changes since a review — a thread stored against the review
-	 * pair would be outdated the moment it was written.
-	 */
+	/** The pull request's own pair, which a since-review comparison is not. */
 	anchorComparison: PullRequestDiffAnchorComparison
-	/**
-	 * Whether only the changes since a review are on screen. The rest of the pull
-	 * request is then absent by design: its files are not missing, its threads are
-	 * not outdated, and its left-side lines cannot be anchored to.
-	 */
 	isSinceReview?: boolean
 	username: string
 	slug: string
@@ -72,8 +66,37 @@ export function PullRequestComparisonFiles({
 	viewerUserId,
 	isGitHubAuthoritative,
 }: Readonly<PullRequestComparisonFilesProps>) {
-	const [expandedPaths, setExpandedPaths] = useState<string[]>([])
+	const prefetchFileDiff = usePrefetchPullRequestFileDiff()
+	const shouldReduceMotion = useReducedMotion()
+	const {
+		activePath,
+		clearExpanded,
+		expansionOverrides,
+		nearViewportPaths,
+		registerSectionNode,
+		reset,
+		scrollToSection,
+		setExpanded,
+	} = usePullRequestFileSections()
+	const [pendingViewedPaths, setPendingViewedPaths] = useState<string[]>([])
+	const comparisonPair = `${comparison.baseSha}:${comparison.headSha}`
+	const [renderedPair, setRenderedPair] = useState(comparisonPair)
+
+	// Reset per-pair UI state in place; remounting would drop a comment being written.
+	if (renderedPair !== comparisonPair) {
+		setRenderedPair(comparisonPair)
+		setPendingViewedPaths([])
+		reset()
+	}
+
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
+	// A since-review tick would speak for a diff read against another pair.
+	const canMarkViewed = Boolean(viewerUserId) && !isSinceReview
+	const viewedFilesQuery = usePullRequestViewedFilesQuery(
+		{ username, slug, number, expectedHeadSha: comparison.headSha },
+		canMarkViewed
+	)
+	const setFileViewedMutation = useSetPullRequestFileViewedMutation()
 
 	const threads = threadsQuery.data?.threads ?? []
 	const permissions = getPullRequestThreadPermissions({
@@ -86,12 +109,82 @@ export function PullRequestComparisonFiles({
 		threads,
 		comparison.files
 	)
+	const isViewedStateKnown = canMarkViewed && viewedFilesQuery.isSuccess
+	const viewedPaths = isViewedStateKnown
+		? new Set(viewedFilesQuery.data?.paths ?? [])
+		: undefined
 	const anchorableSides = isSinceReview
 		? RIGHT_ANCHORABLE_DIFF_SIDES
 		: ANCHORABLE_DIFF_SIDES
-	const unanchoredThreadsTitle = isSinceReview
-		? 'Comments on files these commits leave untouched'
-		: 'Outdated discussions'
+	const viewedCount = comparison.files.filter(file =>
+		viewedPaths?.has(getChangedFilePath(file))
+	).length
+
+	function toggleViewed(path: string, viewed: boolean) {
+		if (pendingViewedPaths.includes(path)) return
+
+		setPendingViewedPaths(paths => [...paths, path])
+		setExpanded(path, !viewed)
+		setFileViewedMutation.mutate(
+			{
+				username,
+				slug,
+				number,
+				expectedHeadSha: comparison.headSha,
+				path,
+				viewed,
+			},
+			{
+				onError: () => clearExpanded(path),
+				onSettled: () =>
+					setPendingViewedPaths(paths =>
+						paths.filter(pendingPath => pendingPath !== path)
+					),
+			}
+		)
+	}
+
+	// A file kept behind `Load diff` is the one not worth fetching on a passing pointer.
+	function prefetchFile(file: PullRequestChangedFile) {
+		if (isLargeChangedFile(file)) return
+
+		prefetchFileDiff({
+			username,
+			slug,
+			number,
+			path: getChangedFilePath(file),
+			expectedBaseSha: comparison.baseSha,
+			expectedHeadSha: comparison.headSha,
+		})
+	}
+
+	const outdatedThreads = unanchoredThreads.length > 0 && (
+		<Card className="gap-0 overflow-hidden p-0">
+			<PullRequestOutdatedThreads
+				number={number}
+				permissions={permissions}
+				slug={slug}
+				threads={unanchoredThreads}
+				title={
+					isSinceReview
+						? 'Comments on files these commits leave untouched'
+						: 'Outdated discussions'
+				}
+				username={username}
+			/>
+		</Card>
+	)
+	const fileTree = (
+		<PullRequestFileTree
+			activePath={activePath}
+			files={comparison.files}
+			onPrefetch={prefetchFile}
+			onSelect={path =>
+				scrollToSection(path, shouldReduceMotion ? 'auto' : 'smooth')
+			}
+			viewedPaths={viewedPaths}
+		/>
+	)
 
 	if (comparison.files.length === 0)
 		return (
@@ -104,28 +197,9 @@ export function PullRequestComparisonFiles({
 					}
 					title="No changed files"
 				/>
-				{unanchoredThreads.length > 0 && (
-					<Card className="gap-0 overflow-hidden p-0">
-						<PullRequestOutdatedThreads
-							number={number}
-							permissions={permissions}
-							slug={slug}
-							threads={unanchoredThreads}
-							title={unanchoredThreadsTitle}
-							username={username}
-						/>
-					</Card>
-				)}
+				{outdatedThreads}
 			</div>
 		)
-
-	function togglePath(path: string) {
-		setExpandedPaths(paths =>
-			paths.includes(path)
-				? paths.filter(expandedPath => expandedPath !== path)
-				: [...paths, path]
-		)
-	}
 
 	return (
 		<div className="flex flex-col gap-3">
@@ -140,86 +214,88 @@ export function PullRequestComparisonFiles({
 					The comments for these files could not be loaded.
 				</p>
 			)}
+			{viewedFilesQuery.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					Which files you have already viewed could not be loaded.
+				</p>
+			)}
+			{setFileViewedMutation.isError && (
+				<p className="text-destructive text-sm" role="alert">
+					{isPullRequestStaleComparisonError(setFileViewedMutation.error)
+						? 'The diff changed and was reloaded.'
+						: 'The viewed state could not be saved.'}
+				</p>
+			)}
 			{permissions.canComment && isSinceReview && (
 				<p className="text-muted-foreground text-sm">
 					Comments on already-reviewed lines are available in the full diff.
 				</p>
 			)}
-			{comparison.files.map(file => {
-				const path = file.newPath || file.oldPath
-				const displayPath =
-					file.status === 'renamed' ? `${file.oldPath} → ${file.newPath}` : path
-				const isExpanded = expandedPaths.includes(path)
+			<p className="font-medium text-sm">
+				{viewedPaths
+					? `${viewedCount} / ${comparison.files.length} files viewed`
+					: `${comparison.files.length} changed files`}
+			</p>
+			<details className="lg:hidden">
+				<summary className="cursor-pointer text-muted-foreground text-sm">
+					Files ({comparison.files.length})
+				</summary>
+				<div className="mt-2">{fileTree}</div>
+			</details>
+			<div className="lg:grid lg:grid-cols-[18rem_minmax(0,1fr)] lg:items-start lg:gap-6">
+				<aside className="hidden lg:sticky lg:top-6 lg:block">{fileTree}</aside>
+				<div className="flex min-w-0 flex-col gap-3">
+					{comparison.files.map(file => {
+						const path = getChangedFilePath(file)
+						const isViewed = viewedPaths?.has(path) ?? false
+						const isExpanded =
+							expansionOverrides[path] ??
+							!(isViewed || isLargeChangedFile(file))
 
-				return (
-					<Card
-						className="gap-0 overflow-hidden p-0"
-						key={`${file.oldPath}:${file.newPath}`}
-					>
-						<Button
-							aria-expanded={isExpanded}
-							className="h-auto w-full justify-start rounded-none px-4 py-3 text-left"
-							onClick={() => togglePath(path)}
-							variant="ghost"
-						>
-							<ChevronRight
-								className={cn(
-									'size-4 shrink-0 transition-transform',
-									isExpanded && 'rotate-90'
-								)}
-							/>
-							<FileCode2 className="size-4 shrink-0 text-muted-foreground" />
-							<span
-								className="min-w-0 flex-1 truncate font-mono text-xs"
-								title={displayPath}
-							>
-								{displayPath}
-							</span>
-							<FileStats file={file} />
-						</Button>
-						{isExpanded && (
-							<PullRequestFileDiffView
-								anchorableSides={anchorableSides}
-								anchorComparison={anchorComparison}
-								expectedBaseSha={comparison.baseSha}
-								expectedHeadSha={comparison.headSha}
-								number={number}
+						return (
+							<PullRequestFileSection
+								canMarkViewed={isViewedStateKnown}
+								displayPath={
+									file.status === 'renamed'
+										? `${file.oldPath} → ${file.newPath}`
+										: path
+								}
+								file={file}
+								isExpanded={isExpanded}
+								isNearViewport={nearViewportPaths.includes(path)}
+								isViewed={isViewed}
+								isViewedPending={pendingViewedPaths.includes(path)}
+								key={`${file.oldPath}:${file.newPath}`}
+								onPrefetch={() => prefetchFile(file)}
+								onRegisterNode={node => registerSectionNode(path, node)}
+								onToggleExpanded={() => setExpanded(path, !isExpanded)}
+								onToggleViewed={() => toggleViewed(path, !isViewed)}
 								path={path}
-								permissions={permissions}
-								slug={slug}
-								threads={getInlineThreadsForFile(
-									threads,
-									file,
-									comparison.files
+							>
+								{isExpanded && (
+									<PullRequestFileDiffView
+										anchorableSides={anchorableSides}
+										anchorComparison={anchorComparison}
+										expectedBaseSha={comparison.baseSha}
+										expectedHeadSha={comparison.headSha}
+										number={number}
+										path={path}
+										permissions={permissions}
+										slug={slug}
+										threads={getInlineThreadsForFile(
+											threads,
+											file,
+											comparison.files
+										)}
+										username={username}
+									/>
 								)}
-								username={username}
-							/>
-						)}
-					</Card>
-				)
-			})}
-			{unanchoredThreads.length > 0 && (
-				<Card className="gap-0 overflow-hidden p-0">
-					<PullRequestOutdatedThreads
-						number={number}
-						permissions={permissions}
-						slug={slug}
-						threads={unanchoredThreads}
-						title={unanchoredThreadsTitle}
-						username={username}
-					/>
-				</Card>
-			)}
+							</PullRequestFileSection>
+						)
+					})}
+					{outdatedThreads}
+				</div>
+			</div>
 		</div>
-	)
-}
-
-function FileStats({ file }: Readonly<{ file: PullRequestChangedFile }>) {
-	return (
-		<span className="flex shrink-0 items-center gap-2 text-xs">
-			<span className="text-muted-foreground capitalize">{file.status}</span>
-			<span className="text-emerald-400">+{file.additions}</span>
-			<span className="text-red-400">−{file.deletions}</span>
-		</span>
 	)
 }

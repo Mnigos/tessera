@@ -9,6 +9,7 @@ import {
 	getMergeQueueStateLabel,
 } from '../helpers/merge-blocking-reason'
 import { getMergeStrategyLabel } from '../helpers/merge-strategy'
+import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import { useJoinMergeQueueMutation } from '../hooks/use-join-merge-queue.mutation'
 import { useLeaveMergeQueueMutation } from '../hooks/use-leave-merge-queue.mutation'
 import { useRetryMergeQueueEntryMutation } from '../hooks/use-retry-merge-queue-entry.mutation'
@@ -130,7 +131,7 @@ export function PullRequestMergeQueuePanel({
 						// default the joiner never saw.
 						<PullRequestSquashDialog
 							defaultBody={pullRequest.body}
-							defaultTitle={`${pullRequest.title} (#${pullRequest.number})`}
+							defaultTitle={`${pullRequest.title} (#${toPullRequestDisplayNumber(pullRequest)})`}
 							isOpen={isSquashDialogOpen}
 							isPending={joinQueue.isPending}
 							onConfirm={({ squashBody, squashTitle }) =>

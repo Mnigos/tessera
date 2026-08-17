@@ -1,11 +1,13 @@
 import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
+import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import {
 	formatPullRequestDate,
 	formatPullRequestDateTime,
 } from '../helpers/pull-request-formatting'
 import { PullRequestChecksSummaryBadge } from './pull-request-checks-summary-badge'
+import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
 import { PullRequestReviewSummaryBadges } from './pull-request-review-summary-badges'
 import { PullRequestStateBadge } from './pull-request-state-badge'
 
@@ -20,6 +22,9 @@ export function PullRequestListItem({
 	slug,
 	pullRequest,
 }: Readonly<PullRequestListItemProps>) {
+	const { diffStats } = pullRequest
+	const displayNumber = toPullRequestDisplayNumber(pullRequest)
+
 	return (
 		<li className="flex min-w-0 items-start justify-between gap-4 px-4 py-3">
 			<div className="flex min-w-0 flex-col gap-1">
@@ -31,7 +36,7 @@ export function PullRequestListItem({
 					{pullRequest.title}
 				</Link>
 				<div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-muted-foreground text-xs">
-					<span>#{pullRequest.number}</span>
+					<span>#{displayNumber}</span>
 					<span>by {pullRequest.authorUsername}</span>
 					<span className="inline-flex min-w-0 max-w-full items-center gap-1">
 						<span
@@ -54,6 +59,19 @@ export function PullRequestListItem({
 							{formatPullRequestDate(pullRequest.createdAt)}
 						</time>
 					</span>
+					{diffStats && (
+						<>
+							<span>
+								{diffStats.changedFiles === 1
+									? '1 file'
+									: `${diffStats.changedFiles} files`}
+							</span>
+							<PullRequestDiffStatsBadge
+								additions={diffStats.additions}
+								deletions={diffStats.deletions}
+							/>
+						</>
+					)}
 				</div>
 			</div>
 			<div className="flex shrink-0 flex-col items-end gap-2">

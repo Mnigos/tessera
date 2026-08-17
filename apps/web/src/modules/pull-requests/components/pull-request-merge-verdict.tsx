@@ -9,6 +9,7 @@ import { Button } from '@repo/ui/components/button'
 import { CheckCircle2, GitMerge, ShieldAlert } from 'lucide-react'
 import { type ReactElement, useState } from 'react'
 import { getMergeStrategyLabel } from '../helpers/merge-strategy'
+import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import { PullRequestErrorMessage } from './pull-request-error-message'
 import { PullRequestMergeBypassDialog } from './pull-request-merge-bypass-dialog'
 import { PullRequestMergeRequirementsList } from './pull-request-merge-requirements-list'
@@ -105,7 +106,7 @@ export function PullRequestMergeVerdict({
 		<PullRequestSquashDialog
 			bypassReasons={bypassReasons}
 			defaultBody={pullRequest.body}
-			defaultTitle={`${pullRequest.title} (#${pullRequest.number})`}
+			defaultTitle={`${pullRequest.title} (#${toPullRequestDisplayNumber(pullRequest)})`}
 			isOpen={isSquashDialogOpen}
 			isPending={isPending}
 			onConfirm={({ bypassReason, ...squash }) =>
