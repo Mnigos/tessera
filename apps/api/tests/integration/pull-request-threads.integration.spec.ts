@@ -10,7 +10,10 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
-import type { PullRequestActor } from '@repo/contracts'
+import {
+	PULL_REQUEST_STALE_COMPARISON_MESSAGE,
+	type PullRequestActor,
+} from '@repo/contracts'
 import { db } from '@repo/db/client'
 import {
 	account,
@@ -26,7 +29,7 @@ import {
 	session,
 	user,
 } from '@repo/db/schema'
-import type { UserId } from '@repo/domain'
+import type { PullRequestThreadId, UserId } from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
@@ -79,8 +82,9 @@ interface IntegrationUser {
 }
 
 interface ThreadResponseBody {
-	id: string
+	id: PullRequestThreadId
 	kind: 'top_level' | 'inline'
+	anchor?: { startLine: number; endLine: number }
 	outdated: boolean
 	resolved?: { by: PullRequestActor }
 	comments: { id: string; body: string; author: PullRequestActor }[]
@@ -160,7 +164,8 @@ describe('Pull request threads integration', () => {
 				anchor: {
 					path: 'src/index.ts',
 					side: 'right',
-					line: 7,
+					startLine: 7,
+					endLine: 7,
 					anchorSha: HEAD_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,
@@ -236,6 +241,101 @@ describe('Pull request threads integration', () => {
 		})
 	})
 
+	test('persists and lists range and single-line anchors', async () => {
+		const rangeResponse = await createThread(
+			{
+				body: 'Range',
+				anchor: {
+					path: 'src/index.ts',
+					side: 'right',
+					startLine: 5,
+					endLine: 7,
+					anchorSha: HEAD_SHA,
+					baseSha: BASE_SHA,
+					headSha: HEAD_SHA,
+					lineExcerpt: 'range end',
+				},
+			},
+			owner.headers
+		)
+		expect(rangeResponse.status).toBe(200)
+		const range = (await rangeResponse.json()) as ThreadResponseBody
+		expect(range.anchor).toEqual({
+			path: 'src/index.ts',
+			side: 'right',
+			startLine: 5,
+			endLine: 7,
+			anchorSha: HEAD_SHA,
+			baseSha: BASE_SHA,
+			headSha: HEAD_SHA,
+			lineExcerpt: 'range end',
+		})
+		expect(
+			await db.query.pullRequestThreads.findFirst({
+				where: (threads, { eq }) => eq(threads.id, range.id),
+			})
+		).toMatchObject({ startLine: 5, line: 7 })
+
+		const singleResponse = await createThread(
+			{
+				body: 'Single',
+				anchor: {
+					path: 'src/index.ts',
+					side: 'right',
+					startLine: 9,
+					endLine: 9,
+					anchorSha: HEAD_SHA,
+					baseSha: BASE_SHA,
+					headSha: HEAD_SHA,
+					lineExcerpt: 'single line',
+				},
+			},
+			owner.headers
+		)
+		expect(singleResponse.status).toBe(200)
+		const single = (await singleResponse.json()) as ThreadResponseBody
+		expect(
+			await db.query.pullRequestThreads.findFirst({
+				where: (threads, { eq }) => eq(threads.id, single.id),
+			})
+		).toMatchObject({ startLine: null, line: 9 })
+
+		expect(await (await listThreads(owner.headers)).json()).toMatchObject({
+			threads: [
+				{ id: range.id, anchor: { startLine: 5, endLine: 7 } },
+				{ id: single.id, anchor: { startLine: 9, endLine: 9 } },
+			],
+		})
+	})
+
+	test('rejects creating a thread against a stale head', async () => {
+		compareRepositoryRefs.mockResolvedValue(comparison(MOVED_HEAD_SHA))
+
+		const response = await createThread(
+			{
+				body: 'Stale',
+				anchor: {
+					path: 'src/index.ts',
+					side: 'right',
+					startLine: 7,
+					endLine: 7,
+					anchorSha: HEAD_SHA,
+					baseSha: BASE_SHA,
+					headSha: HEAD_SHA,
+					lineExcerpt: 'const value = 1',
+				},
+			},
+			owner.headers
+		)
+
+		expect(response.status).toBe(409)
+		expect(await response.json()).toMatchObject({
+			code: 'CONFLICT',
+			message: PULL_REQUEST_STALE_COMPARISON_MESSAGE,
+		})
+		expect(await db.query.pullRequestThreads.findFirst()).toBeUndefined()
+	})
+
 	test('marks inline threads outdated after the comparison head moves', async () => {
 		await createThread(
 			{
@@ -243,7 +343,8 @@ describe('Pull request threads integration', () => {
 				anchor: {
 					path: 'src/index.ts',
 					side: 'right',
-					line: 7,
+					startLine: 7,
+					endLine: 7,
 					anchorSha: HEAD_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,
@@ -270,7 +371,8 @@ describe('Pull request threads integration', () => {
 				anchor: {
 					path: 'src/index.ts',
 					side: 'right',
-					line: 7,
+					startLine: 7,
+					endLine: 7,
 					anchorSha: HEAD_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,

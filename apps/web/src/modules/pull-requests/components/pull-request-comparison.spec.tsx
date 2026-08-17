@@ -1,6 +1,7 @@
 import type {
 	PullRequestChangedFile,
 	PullRequestComparison as PullRequestComparisonData,
+	PullRequestReviewViewer,
 } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
@@ -16,6 +17,15 @@ vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-submit-pull-request-review.mutation', () => ({
+	useSubmitPullRequestReviewMutation: () => ({
+		error: undefined,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request-threads.query', () => ({
 	usePullRequestThreadsQuery: () => ({
 		data: undefined,
@@ -24,6 +34,15 @@ vi.mock('../hooks/use-pull-request-threads.query', () => ({
 	}),
 }))
 
+const NO_REVIEW_VIEWER: PullRequestReviewViewer = {
+	allowedOutcomes: [],
+	canRequestReviewers: false,
+	canRemoveReviewerRequests: false,
+}
+const COMMENT_REVIEW_VIEWER: PullRequestReviewViewer = {
+	...NO_REVIEW_VIEWER,
+	allowedOutcomes: ['comment'],
+}
 const useComparisonQueryMock = vi.mocked(usePullRequestComparisonQuery)
 const useFileDiffQueryMock = vi.mocked(usePullRequestFileDiffQuery)
 const INDEX_FILE_BUTTON_NAME_REGEX = /src\/index\.ts/
@@ -79,6 +98,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="commits"
 				username="marta"
@@ -124,6 +144,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="commits"
 				username="marta"
@@ -177,6 +198,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -202,6 +224,27 @@ describe(PullRequestComparison.name, () => {
 		expect(screen.getByText('@@ -1 +1 @@')).toBeTruthy()
 	})
 
+	test('shows the files-view review trigger when commenting is allowed', () => {
+		useComparisonQueryMock.mockReturnValue({
+			data: COMPARISON,
+			isLoading: false,
+			isError: false,
+		} as never)
+
+		render(
+			<PullRequestComparison
+				isGitHubAuthoritative={false}
+				number="1"
+				reviewViewer={COMMENT_REVIEW_VIEWER}
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByRole('button', { name: 'Review changes' })).toBeTruthy()
+	})
+
 	test('shows rename origins and bounded comparison notices', () => {
 		useComparisonQueryMock.mockReturnValue({
 			data: {
@@ -225,6 +268,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -237,6 +281,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="commits"
 				username="marta"
@@ -322,6 +367,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -380,6 +426,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -400,6 +447,7 @@ describe(PullRequestComparison.name, () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="commits"
 				username="marta"

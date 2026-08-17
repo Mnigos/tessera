@@ -40,6 +40,45 @@ describe(toGitHubPullRequestAnchorCoordinates.name, () => {
 		})
 	})
 
+	test('keeps a same-side provider range', () => {
+		expect(
+			toGitHubPullRequestAnchorCoordinates(
+				{
+					...BASE_COMMENT,
+					side: 'right',
+					line: 9,
+					startSide: 'right',
+					startLine: 7,
+					diffHunk: '@@ -7,3 +7,3 @@\n first\n second\n third',
+				},
+				{ currentHeadSha: 'current-head' }
+			)
+		).toMatchObject({ line: 9, startLine: 7 })
+	})
+
+	test('degrades a cross-side provider range to its end line', () => {
+		expect(
+			toGitHubPullRequestAnchorCoordinates(
+				{
+					...BASE_COMMENT,
+					side: 'right',
+					line: 9,
+					startSide: 'left',
+					startLine: 7,
+					diffHunk: '@@ -7,3 +7,3 @@\n first\n second\n third',
+				},
+				{ currentHeadSha: 'current-head' }
+			)
+		).toEqual({
+			path: 'src/index.ts',
+			side: 'right',
+			line: 9,
+			lineExcerpt: 'third',
+			headSha: 'current-head',
+			outdated: false,
+		})
+	})
+
 	test('pairs the original line with the historical head', () => {
 		expect(
 			toGitHubPullRequestAnchorCoordinates(

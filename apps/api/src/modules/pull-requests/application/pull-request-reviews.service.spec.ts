@@ -3,6 +3,7 @@ import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { UserService } from '@modules/user'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE } from '@repo/contracts'
 import type {
 	PullRequestId,
 	PullRequestReviewerRequestId,
@@ -370,7 +371,7 @@ describe(PullRequestReviewsService.name, () => {
 				})
 			).viewer
 		).toEqual({
-			canSubmitReview: true,
+			allowedOutcomes: ['approve', 'request_changes', 'comment'],
 			canRequestReviewers: false,
 			canRemoveReviewerRequests: false,
 		})
@@ -473,15 +474,100 @@ describe(PullRequestReviewsService.name, () => {
 		).rejects.toBeInstanceOf(PullRequestPendingReviewConflictError)
 	})
 
-	test('rejects the pull request author submitting a review', async () => {
+	test.each([
+		'approve',
+		'request_changes',
+	] as const)('rejects the pull request author submitting %s', async outcome => {
 		await expect(
 			service.submitReview(mockUserId, {
 				...repositoryInput,
-				outcome: 'approve',
+				outcome,
 				body: undefined,
 				expectedHeadSha: 'head',
 			})
-		).rejects.toBeInstanceOf(PullRequestReviewAuthorForbiddenError)
+		).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof PullRequestReviewAuthorForbiddenError &&
+				error.message === PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE &&
+				error.context?.outcome === outcome
+		)
+		expect(reviewsRepository.submitReview).not.toHaveBeenCalled()
+		expect(gitHubWriteThroughService.submitReview).not.toHaveBeenCalled()
+	})
+
+	test('allows the pull request author to comment', async () => {
+		vi.spyOn(reviewsRepository, 'submitReview').mockResolvedValue({
+			status: 'submitted',
+			review: {
+				...submittedReview,
+				reviewer: nativeActor(mockUserId, 'marta'),
+				outcome: 'comment',
+			},
+		})
+
+		await service.submitReview(mockUserId, {
+			...repositoryInput,
+			outcome: 'comment',
+			body: 'Author context',
+			expectedHeadSha: 'head',
+		})
+
+		expect(reviewsRepository.submitReview).toHaveBeenCalledWith(
+			expect.objectContaining({
+				reviewerUserId: mockUserId,
+				outcome: 'comment',
+			})
+		)
+	})
+
+	test.each([
+		'approve',
+		'request_changes',
+	] as const)('rejects a GitHub-mapped author submitting %s before write-through', async outcome => {
+		vi.spyOn(pullRequestsRepository, 'find').mockResolvedValue({
+			...pullRequest,
+			provider: 'github',
+			authorUserId: null,
+			authorActorNodeId: 'github-author-node',
+			authorActorUserId: mockUserId,
+		})
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			viewerRole: 'read',
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+
+		await expect(
+			service.submitReview(mockUserId, {
+				...repositoryInput,
+				outcome,
+				body: undefined,
+				expectedHeadSha: 'head',
+			})
+		).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof PullRequestReviewAuthorForbiddenError &&
+				error.message === PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE &&
+				error.context?.outcome === outcome
+		)
+		expect(gitHubWriteThroughService.submitReview).not.toHaveBeenCalled()
+	})
+
+	test('allows the author to discard a pending review', async () => {
+		vi.spyOn(reviewsRepository, 'discardPendingReview').mockResolvedValue(true)
+
+		expect(
+			await service.discardPendingReview(mockUserId, repositoryInput)
+		).toEqual({ discarded: true })
+		expect(reviewsRepository.discardPendingReview).toHaveBeenCalledWith({
+			pullRequestId,
+			reviewerUserId: mockUserId,
+		})
 	})
 
 	test.each([
@@ -765,10 +851,51 @@ describe(PullRequestReviewsService.name, () => {
 			{ userId: reviewerUserId, username: 'reviewer' },
 		])
 		expect(state.viewer).toEqual({
-			canSubmitReview: true,
+			allowedOutcomes: ['approve', 'request_changes', 'comment'],
 			canRequestReviewers: true,
 			canRemoveReviewerRequests: true,
 		})
+	})
+
+	test.each([
+		['native author', pullRequest, mockUserId, ['comment']],
+		[
+			'GitHub-mapped author',
+			{
+				...pullRequest,
+				provider: 'github' as const,
+				authorUserId: null,
+				authorActorNodeId: 'github-author-node',
+				authorActorUserId: mockUserId,
+			},
+			mockUserId,
+			['comment'],
+		],
+		[
+			'authenticated reader',
+			pullRequest,
+			reviewerUserId,
+			['approve', 'request_changes', 'comment'],
+		],
+		['anonymous reader', pullRequest, undefined, []],
+		[
+			'closed pull request reader',
+			{ ...pullRequest, state: 'closed' as const, closedAt: createdAt },
+			reviewerUserId,
+			[],
+		],
+	] as const)('reports server-authoritative outcomes for a %s', async (_name, reviewedPullRequest, viewerUserId, allowedOutcomes) => {
+		expect(
+			(
+				await service.getReviewState({
+					pullRequest: reviewedPullRequest,
+					repositoryId,
+					storagePath: '/repositories/notes.git',
+					viewerRole: 'read',
+					viewerUserId,
+				})
+			).viewer.allowedOutcomes
+		).toEqual(allowedOutcomes)
 	})
 
 	test('breaks equal submittedAt timestamps by descending review id', async () => {

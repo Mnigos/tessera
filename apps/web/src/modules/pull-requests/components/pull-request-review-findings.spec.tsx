@@ -174,7 +174,7 @@ const REVIEW_SUMMARY = {
 }
 
 const REVIEW_VIEWER = {
-	canSubmitReview: false,
+	allowedOutcomes: [],
 	canRequestReviewers: false,
 	canRemoveReviewerRequests: false,
 }

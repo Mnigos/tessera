@@ -18,7 +18,8 @@ function inlineAnchor(path: string): NonNullable<PullRequestThread['anchor']> {
 	return {
 		path,
 		side: 'right',
-		line: 7,
+		startLine: 7,
+		endLine: 7,
 		anchorSha: 'a'.repeat(40),
 		baseSha: 'b'.repeat(40),
 		headSha: 'c'.repeat(40),
@@ -162,7 +163,7 @@ describe('pull request inline threads', () => {
 		)
 		const offHunk = {
 			...inlineThread('00000000-0000-4000-8000-000000000012', 'src/new.ts'),
-			anchor: { ...inlineAnchor('src/new.ts'), line: 99 },
+			anchor: { ...inlineAnchor('src/new.ts'), startLine: 99, endLine: 99 },
 		}
 		const outdated = {
 			...inlineThread('00000000-0000-4000-8000-000000000013', 'src/new.ts'),

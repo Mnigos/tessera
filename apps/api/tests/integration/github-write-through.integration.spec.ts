@@ -27,6 +27,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import {
 	GITHUB_RECONNECT_REQUIRED_MESSAGE,
 	GITHUB_WRITE_REJECTED_MESSAGES,
+	PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE,
 } from '@repo/contracts'
 import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
@@ -364,7 +365,8 @@ describe('GitHub write-through integration', () => {
 			anchor: {
 				path: 'src/requested.ts',
 				side: 'right',
-				line: 9,
+				startLine: 7,
+				endLine: 9,
 				anchorSha: HEAD_SHA,
 				baseSha: BASE_SHA,
 				headSha: HEAD_SHA,
@@ -372,6 +374,12 @@ describe('GitHub write-through integration', () => {
 			},
 		})
 		expect(inlineResponse.status).toBe(200)
+		expect(createReviewComment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				headSha: HEAD_SHA,
+				anchor: expect.objectContaining({ startLine: 7, endLine: 9 }),
+			})
+		)
 		const inline = (await inlineResponse.json()) as ThreadBody
 		expect(
 			await db.query.pullRequestThreads.findFirst({
@@ -533,7 +541,7 @@ describe('GitHub write-through integration', () => {
 		expect(selfApproval.status).toBe(403)
 		expect((await selfApproval.json()) as ErrorBody).toMatchObject({
 			code: 'FORBIDDEN',
-			message: 'The pull request author cannot review their own pull request.',
+			message: PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE,
 		})
 		expect(createReview).not.toHaveBeenCalled()
 

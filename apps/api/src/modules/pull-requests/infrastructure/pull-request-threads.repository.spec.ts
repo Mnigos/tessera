@@ -32,6 +32,7 @@ const thread = {
 	kind: 'inline' as const,
 	path: 'src/index.ts',
 	side: 'right' as const,
+	startLine: null,
 	line: 7,
 	anchorSha: 'a'.repeat(40),
 	baseSha: 'b'.repeat(40),
@@ -147,7 +148,8 @@ describe(PullRequestThreadsRepository.name, () => {
 		const anchor = {
 			path: thread.path,
 			side: thread.side,
-			line: thread.line,
+			startLine: thread.line,
+			endLine: thread.line,
 			anchorSha: thread.anchorSha,
 			baseSha: thread.baseSha,
 			headSha: thread.headSha,
@@ -168,7 +170,14 @@ describe(PullRequestThreadsRepository.name, () => {
 		expect(valuesMock).toHaveBeenNthCalledWith(1, {
 			pullRequestId,
 			kind: 'inline',
-			...anchor,
+			path: anchor.path,
+			side: anchor.side,
+			startLine: undefined,
+			line: anchor.endLine,
+			anchorSha: anchor.anchorSha,
+			baseSha: anchor.baseSha,
+			headSha: anchor.headSha,
+			lineExcerpt: anchor.lineExcerpt,
 		})
 		expect(insertMock).toHaveBeenNthCalledWith(2, pullRequestComments)
 		expect(valuesMock).toHaveBeenNthCalledWith(2, {
@@ -189,6 +198,48 @@ describe(PullRequestThreadsRepository.name, () => {
 				threadKind: 'inline',
 				path: thread.path,
 			},
+		})
+	})
+
+	test('persists the start line only for a real range', async () => {
+		const rangeThread = { ...thread, startLine: 5 }
+		returningMock
+			.mockResolvedValueOnce([
+				{ id: threadId, kind: 'inline', path: thread.path },
+			])
+			.mockResolvedValueOnce([{ id: commentId }])
+		limitMock.mockResolvedValueOnce([rangeThread])
+		orderByMock.mockResolvedValueOnce([comment])
+		const anchor = {
+			path: thread.path,
+			side: thread.side,
+			startLine: 5,
+			endLine: thread.line,
+			anchorSha: thread.anchorSha,
+			baseSha: thread.baseSha,
+			headSha: thread.headSha,
+			lineExcerpt: thread.lineExcerpt,
+		}
+
+		expect(
+			await repository.createThread({
+				pullRequestId,
+				authorUserId: mockUserId,
+				body: comment.body,
+				anchor,
+			})
+		).toEqual({ ...rangeThread, comments: [comment] })
+		expect(valuesMock).toHaveBeenNthCalledWith(1, {
+			pullRequestId,
+			kind: 'inline',
+			path: anchor.path,
+			side: anchor.side,
+			startLine: 5,
+			line: anchor.endLine,
+			anchorSha: anchor.anchorSha,
+			baseSha: anchor.baseSha,
+			headSha: anchor.headSha,
+			lineExcerpt: anchor.lineExcerpt,
 		})
 	})
 

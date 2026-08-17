@@ -62,7 +62,7 @@ const VIEW_CHANGES_SINCE_NAME = /^View changes since/
 const createdAt = new Date('2026-08-08T10:00:00.000Z')
 const repositoryProps = { username: 'marta', slug: 'notes', number: '1' }
 const FULL_VIEWER: PullRequestReviewViewer = {
-	canSubmitReview: true,
+	allowedOutcomes: ['comment', 'approve', 'request_changes'],
 	canRequestReviewers: true,
 	canRemoveReviewerRequests: true,
 }
@@ -205,7 +205,7 @@ describe(PullRequestReviewersPanel.name, () => {
 					},
 				]}
 				reviewerRequests={[]}
-				viewer={{ ...FULL_VIEWER, canSubmitReview: false }}
+				viewer={{ ...FULL_VIEWER, allowedOutcomes: [] }}
 			/>
 		)
 
@@ -245,7 +245,7 @@ describe(PullRequestReviewersPanel.name, () => {
 				reviewerCandidates={[]}
 				reviewerRequests={[request('jan')]}
 				viewer={{
-					canSubmitReview: false,
+					allowedOutcomes: [],
 					canRequestReviewers: false,
 					canRemoveReviewerRequests: false,
 				}}

@@ -4,6 +4,8 @@ import type {
 	PullRequestCommentId,
 	PullRequestComparison as PullRequestComparisonData,
 	PullRequestEvent,
+	PullRequestReviewOutcome,
+	PullRequestReviewViewer,
 	PullRequestThread,
 	PullRequestThreadId,
 	PullRequestThreadViewer,
@@ -109,6 +111,18 @@ const FULL_VIEWER: PullRequestThreadViewer = {
 	canDeleteAnyComment: true,
 }
 
+const ALL_REVIEW_OUTCOMES: PullRequestReviewOutcome[] = [
+	'comment',
+	'approve',
+	'request_changes',
+]
+
+const NO_REVIEW_VIEWER: PullRequestReviewViewer = {
+	allowedOutcomes: [],
+	canRequestReviewers: false,
+	canRemoveReviewerRequests: false,
+}
+
 const RENAMED_FILE = {
 	status: 'renamed',
 	oldPath: 'src/old.ts',
@@ -152,7 +166,8 @@ function thread({
 			? {
 					path,
 					side: 'left',
-					line: 1,
+					startLine: 1,
+					endLine: 1,
 					anchorSha: BASE_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,
@@ -243,6 +258,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -288,6 +304,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -326,6 +343,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -363,6 +381,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -433,6 +452,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -459,7 +479,8 @@ describe('pull request threads', () => {
 				anchor: {
 					path: 'src/old.ts',
 					side: 'left',
-					line: 4,
+					startLine: 4,
+					endLine: 4,
 					anchorSha: BASE_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,
@@ -487,7 +508,8 @@ describe('pull request threads', () => {
 				anchor: {
 					path: 'src/new.ts',
 					side: 'right',
-					line: 9,
+					startLine: 9,
+					endLine: 9,
 					anchorSha: HEAD_SHA,
 					baseSha: BASE_SHA,
 					headSha: HEAD_SHA,
@@ -496,6 +518,118 @@ describe('pull request threads', () => {
 			},
 			expect.any(Object)
 		)
+	})
+
+	test('highlights every row in a range and renders its thread after the end line', async () => {
+		const rangeThread = thread({
+			id: '00000000-0000-4000-8000-000000000020',
+			path: 'src/old.ts',
+			body: 'Range discussion',
+		})
+		if (!rangeThread.anchor) throw new Error('Range thread anchor missing')
+		rangeThread.anchor = {
+			...rangeThread.anchor,
+			startLine: 2,
+			endLine: 4,
+			lineExcerpt: 'fourth removed line',
+		}
+		useThreadsQueryMock.mockReturnValue({
+			data: {
+				threads: [rangeThread],
+				comparison: { baseSha: BASE_SHA, headSha: HEAD_SHA },
+				viewer: FULL_VIEWER,
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		useFileDiffQueryMock.mockReturnValue({
+			...FILE_DIFF,
+			data: {
+				...FILE_DIFF.data,
+				hunks: [
+					{
+						header: '@@ -1,5 +1 @@',
+						lines: [1, 2, 3, 4, 5].map(line => ({
+							kind: 'deletion' as const,
+							content: `${line === 4 ? 'fourth' : `line ${line}`} removed line`,
+							old: {
+								sha: BASE_SHA,
+								path: 'src/old.ts',
+								line,
+								side: 'left' as const,
+							},
+						})),
+					},
+				],
+			},
+		} as never)
+		const user = userEvent.setup()
+		const { container } = render(
+			<PullRequestComparison
+				isGitHubAuthoritative={false}
+				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
+				slug="notes"
+				tab="files"
+				username="marta"
+			/>
+		)
+
+		await user.click(
+			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
+		)
+
+		expect(container.querySelectorAll('[data-commented="true"]')).toHaveLength(
+			3
+		)
+		const precedingRow = screen
+			.getByRole('button', { name: 'Comment on original line 1' })
+			.closest('[data-side="left"]')
+		const followingRow = screen
+			.getByRole('button', { name: 'Comment on original line 5' })
+			.closest('[data-side="left"]')
+		expect(precedingRow?.getAttribute('data-commented')).toBeNull()
+		expect(followingRow?.getAttribute('data-commented')).toBeNull()
+		const endLineButton = screen.getByRole('button', {
+			name: 'Comment on original line 4',
+		})
+		const nextLineButton = screen.getByRole('button', {
+			name: 'Comment on original line 5',
+		})
+		const threadBody = screen.getByText('Range discussion')
+		expect(endLineButton.compareDocumentPosition(threadBody)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		)
+		expect(threadBody.compareDocumentPosition(nextLineButton)).toBe(
+			Node.DOCUMENT_POSITION_FOLLOWING
+		)
+	})
+
+	test('labels a range thread with its path and ordered lines', () => {
+		const rangeThread = thread({
+			id: '00000000-0000-4000-8000-000000000021',
+			path: 'src/old.ts',
+			body: 'Range discussion',
+		})
+		if (!rangeThread.anchor) throw new Error('Range thread anchor missing')
+		rangeThread.anchor = {
+			...rangeThread.anchor,
+			startLine: 2,
+			endLine: 5,
+		}
+
+		render(
+			<PullRequestThreadCard
+				number="1"
+				permissions={FULL_VIEWER}
+				shouldShowAnchor
+				slug="notes"
+				thread={rangeThread}
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('src/old.ts:2–5')).toBeTruthy()
 	})
 
 	test('keeps a thread open until the resolve mutation succeeds', async () => {
@@ -752,7 +886,10 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: false }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: false,
+				}}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -796,7 +933,10 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: false }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: false,
+				}}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -819,7 +959,10 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: false }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: false,
+				}}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -858,7 +1001,11 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: true }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: true,
+				}}
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -913,7 +1060,10 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: true }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: true,
+				}}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -969,7 +1119,10 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: true, hasPendingReview: true }}
+				review={{
+					allowedOutcomes: ALL_REVIEW_OUTCOMES,
+					hasPendingReview: true,
+				}}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -1019,7 +1172,7 @@ describe('pull request threads', () => {
 				isFromGitHub={false}
 				isGitHubAuthoritative={false}
 				number="1"
-				review={{ canSubmitReview: false, hasPendingReview: false }}
+				review={{ allowedOutcomes: [], hasPendingReview: false }}
 				slug="notes"
 				username="marta"
 				viewerUserId={AUTHOR_USER_ID}
@@ -1077,6 +1230,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"
@@ -1319,6 +1473,7 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative
 				number="1"
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"

@@ -2,6 +2,7 @@ import { GitStorageClient } from '@config/git-storage'
 import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { pullRequestThreadAnchorInputSchema } from '@repo/contracts'
 import type { PullRequest } from '@repo/db'
 import type {
 	PullRequestCommentId,
@@ -16,6 +17,7 @@ import { ForbiddenError, NotFoundError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
 import {
 	PullRequestNotFoundError,
+	PullRequestStaleComparisonError,
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestPendingReviewConflictError } from '../domain/pull-request-review.errors'
@@ -105,6 +107,7 @@ const thread: PullRequestThreadReadModel = {
 	kind: 'inline',
 	path: 'src/index.ts',
 	side: 'right',
+	startLine: null,
 	line: 7,
 	anchorSha: 'anchor-sha',
 	baseSha: 'base-current',
@@ -419,7 +422,7 @@ describe(PullRequestThreadsService.name, () => {
 		}
 		expect(gitHubWriteThroughService.createThread).toHaveBeenCalledWith(
 			writeThrough,
-			{ body: 'Comment', anchor: undefined }
+			{ body: 'Comment', inline: undefined }
 		)
 		expect(gitHubWriteThroughService.replyThread).toHaveBeenCalledWith(
 			writeThrough,
@@ -458,6 +461,97 @@ describe(PullRequestThreadsService.name, () => {
 
 		expect(gitHubWriteThroughService.createThread).not.toHaveBeenCalled()
 		expect(threadsRepository.createThread).toHaveBeenCalledOnce()
+	})
+
+	test('rejects a reversed range at the contract boundary', () => {
+		expect(
+			pullRequestThreadAnchorInputSchema.safeParse({
+				path: 'src/index.ts',
+				side: 'right',
+				startLine: 8,
+				endLine: 7,
+				anchorSha: 'anchor-sha',
+				baseSha: 'base-current',
+				headSha: 'head-current',
+				lineExcerpt: 'const value = 1',
+			}).success
+		).toBeFalsy()
+	})
+
+	test('rejects an inline anchor after the comparison head moves', async () => {
+		const promise = service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Stale inline comment',
+			anchor: {
+				path: 'src/index.ts',
+				side: 'right',
+				startLine: 7,
+				endLine: 7,
+				anchorSha: 'old-head',
+				baseSha: 'base-current',
+				headSha: 'old-head',
+				lineExcerpt: 'const value = 1',
+			},
+		})
+
+		await expect(promise).rejects.toSatisfy(
+			(error: unknown) =>
+				error instanceof PullRequestStaleComparisonError &&
+				error.context?.anchorHeadSha === 'old-head' &&
+				error.context?.headSha === 'head-current'
+		)
+		expect(threadsRepository.createThread).not.toHaveBeenCalled()
+		expect(gitHubWriteThroughService.createThread).not.toHaveBeenCalled()
+	})
+
+	test('uses the resolved current head as a mirrored range commit id', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			viewerRole: 'owner',
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(gitHubWriteThroughService, 'createThread').mockResolvedValue(
+			threadId
+		)
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue({
+			...thread,
+			startLine: 5,
+		})
+		const anchor = {
+			path: 'src/index.ts',
+			side: 'right' as const,
+			startLine: 5,
+			endLine: 7,
+			anchorSha: 'head-current',
+			baseSha: 'base-current',
+			headSha: 'head-current',
+			lineExcerpt: 'const value = 1',
+		}
+
+		await service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Range comment',
+			anchor,
+		})
+
+		expect(gitHubWriteThroughService.createThread).toHaveBeenCalledWith(
+			{
+				actorUserId: mockUserId,
+				externalRepository: { ownerLogin: 'tessera-org', name: 'notes' },
+				pullRequestId,
+				repositoryId,
+			},
+			{
+				body: 'Range comment',
+				inline: { anchor, headSha: 'head-current' },
+			}
+		)
+		expect(threadsRepository.createThread).not.toHaveBeenCalled()
 	})
 
 	test('rejects thread mutations when repository context is unreadable or GitHub-authoritative', async () => {
@@ -816,6 +910,42 @@ describe(PullRequestThreadsService.name, () => {
 			})
 		).rejects.toBeInstanceOf(PullRequestStateConflictError)
 		expect(threadsRepository.createThread).not.toHaveBeenCalled()
+	})
+
+	test('allows the author to start and add to a pending comment review', async () => {
+		vi.spyOn(reviewsRepository, 'getOrCreatePendingReview').mockResolvedValue(
+			reviewId
+		)
+		vi.spyOn(threadsRepository, 'createThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'findThread').mockResolvedValue(thread)
+		vi.spyOn(threadsRepository, 'createComment').mockResolvedValue(thread)
+		const review = { expectedHeadSha: 'head-current' }
+
+		await service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Author draft finding',
+			review,
+		})
+		await service.replyThread(mockUserId, {
+			...repositoryInput,
+			threadId,
+			body: 'Author draft reply',
+			review,
+		})
+
+		expect(reviewsRepository.getOrCreatePendingReview).toHaveBeenCalledTimes(2)
+		expect(threadsRepository.createThread).toHaveBeenCalledWith(
+			expect.objectContaining({
+				authorUserId: mockUserId,
+				reviewId,
+			})
+		)
+		expect(threadsRepository.createComment).toHaveBeenCalledWith(
+			expect.objectContaining({
+				authorUserId: mockUserId,
+				reviewId,
+			})
+		)
 	})
 
 	test('rejects cross-PR thread access', async () => {

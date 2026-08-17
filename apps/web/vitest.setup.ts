@@ -4,14 +4,20 @@ import { afterEach, vi } from 'vitest'
 
 class MockPointerEvent extends Event {
 	button: number
+	buttons: number
 	ctrlKey: boolean
+	pointerId: number
 	pointerType: string
+	shiftKey: boolean
 
 	constructor(type: string, props: PointerEventInit) {
 		super(type, props)
 		this.button = props.button ?? 0
+		this.buttons = props.buttons ?? 0
 		this.ctrlKey = props.ctrlKey ?? false
+		this.pointerId = props.pointerId ?? 1
 		this.pointerType = props.pointerType ?? 'mouse'
+		this.shiftKey = props.shiftKey ?? false
 	}
 }
 
