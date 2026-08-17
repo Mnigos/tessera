@@ -53,7 +53,7 @@ const emptyReviewState: PullRequestReviewState = {
 	effectiveReviewStates: [],
 	reviewerCandidates: [],
 	viewer: {
-		canSubmitReview: false,
+		allowedOutcomes: [],
 		canRequestReviewers: false,
 		canRemoveReviewerRequests: false,
 	},

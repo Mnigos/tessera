@@ -3,6 +3,7 @@ import type {
 	PullRequestComment,
 	PullRequestReview,
 	PullRequestReviewComparison as PullRequestReviewComparisonData,
+	PullRequestReviewViewer,
 	PullRequestThread,
 	PullRequestThreadViewer,
 	SessionUser,
@@ -36,6 +37,15 @@ vi.mock('../hooks/use-create-pull-request-thread.mutation', () => ({
 	useCreatePullRequestThreadMutation: vi.fn(),
 }))
 
+vi.mock('../hooks/use-submit-pull-request-review.mutation', () => ({
+	useSubmitPullRequestReviewMutation: () => ({
+		error: undefined,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-reply-pull-request-thread.mutation', () => ({
 	useReplyPullRequestThreadMutation: () => IDLE_MUTATION,
 }))
@@ -63,6 +73,15 @@ const IDLE_MUTATION = {
 	mutate: vi.fn(),
 }
 
+const NO_REVIEW_VIEWER: PullRequestReviewViewer = {
+	allowedOutcomes: [],
+	canRequestReviewers: false,
+	canRemoveReviewerRequests: false,
+}
+const COMMENT_REVIEW_VIEWER: PullRequestReviewViewer = {
+	...NO_REVIEW_VIEWER,
+	allowedOutcomes: ['comment'],
+}
 const useComparisonQueryMock = vi.mocked(usePullRequestComparisonQuery)
 const useCreateThreadMutationMock = vi.mocked(
 	useCreatePullRequestThreadMutation
@@ -101,7 +120,8 @@ const REVIEWED_LINE_THREAD: PullRequestThread = {
 	anchor: {
 		path: 'src/index.ts',
 		side: 'left',
-		line: 4,
+		startLine: 4,
+		endLine: 4,
 		anchorSha: CANONICAL_BASE_SHA,
 		baseSha: CANONICAL_BASE_SHA,
 		headSha: CURRENT_HEAD_SHA,
@@ -133,7 +153,8 @@ const CURRENT_LINE_THREAD: PullRequestThread = {
 	anchor: {
 		path: 'src/index.ts',
 		side: 'right',
-		line: 9,
+		startLine: 9,
+		endLine: 9,
 		anchorSha: CURRENT_HEAD_SHA,
 		baseSha: CANONICAL_BASE_SHA,
 		headSha: CURRENT_HEAD_SHA,
@@ -267,10 +288,12 @@ const FILE_DIFF = {
 
 function renderComparison({
 	onSelectedReviewIdChange = vi.fn(),
+	reviewViewer = NO_REVIEW_VIEWER,
 	selectedReviewId,
 	viewerUserId,
 }: {
 	onSelectedReviewIdChange?: (reviewId?: PullRequestReview['id']) => void
+	reviewViewer?: PullRequestReviewViewer
 	selectedReviewId?: PullRequestReview['id']
 	viewerUserId?: SessionUser['id']
 } = {}) {
@@ -283,6 +306,7 @@ function renderComparison({
 				onReviewIdChange: onSelectedReviewIdChange,
 			}}
 			reviews={REVIEWS}
+			reviewViewer={reviewViewer}
 			slug="notes"
 			tab="files"
 			username="marta"
@@ -405,6 +429,47 @@ describe('pull request review comparison', () => {
 		)
 	})
 
+	test('shows the review trigger only for a ready since-review comparison', () => {
+		const rendered = renderComparison({
+			reviewViewer: COMMENT_REVIEW_VIEWER,
+			selectedReviewId: VIEWER_REVIEW.id,
+		})
+
+		expect(screen.getByRole('button', { name: 'Review changes' })).toBeTruthy()
+
+		for (const status of ['nothing_new', 'review_head_unavailable'] as const) {
+			useReviewComparisonQueryMock.mockReturnValue({
+				data: {
+					status,
+					review: REVIEW_COMPARISON.review,
+					canonicalBaseSha: CANONICAL_BASE_SHA,
+					currentHeadSha: CURRENT_HEAD_SHA,
+				},
+				isLoading: false,
+				isError: false,
+			} as never)
+			rendered.rerender(
+				<PullRequestComparison
+					isGitHubAuthoritative={false}
+					number="1"
+					reviewSelection={{
+						reviewId: VIEWER_REVIEW.id,
+						onReviewIdChange: vi.fn(),
+					}}
+					reviews={REVIEWS}
+					reviewViewer={COMMENT_REVIEW_VIEWER}
+					slug="notes"
+					tab="files"
+					username="marta"
+				/>
+			)
+
+			expect(
+				screen.queryByRole('button', { name: 'Review changes' })
+			).toBeNull()
+		}
+	})
+
 	test('anchors a right-side comment to the pull request comparison', async () => {
 		const mutate = vi.fn()
 		useCreateThreadMutationMock.mockReturnValue({
@@ -445,7 +510,8 @@ describe('pull request review comparison', () => {
 				anchor: {
 					path: 'src/index.ts',
 					side: 'right',
-					line: 9,
+					startLine: 9,
+					endLine: 9,
 					anchorSha: CURRENT_HEAD_SHA,
 					baseSha: CANONICAL_BASE_SHA,
 					headSha: CURRENT_HEAD_SHA,
@@ -530,6 +596,7 @@ describe('pull request review comparison', () => {
 					onReviewIdChange: vi.fn(),
 				}}
 				reviews={REVIEWS}
+				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
 				username="marta"

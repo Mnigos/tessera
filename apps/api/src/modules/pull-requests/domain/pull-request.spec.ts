@@ -10,6 +10,7 @@ import {
 	assertPullRequestEditable,
 	assertPullRequestReopenable,
 	assertPullRequestRetargetable,
+	getPullRequestAuthorUserId,
 	toPullRequestEventOutput,
 	toPullRequestOutput,
 } from './pull-request'
@@ -61,6 +62,27 @@ describe('pull request domain', () => {
 				'marta'
 			).authorUsername
 		).toBe('octocat')
+	})
+
+	test('resolves the effective author from native and linked GitHub identities', () => {
+		const linkedAuthorUserId =
+			'00000000-0000-4000-8000-000000000099' as typeof mockUserId
+
+		expect(getPullRequestAuthorUserId(pullRequest)).toBe(mockUserId)
+		expect(
+			getPullRequestAuthorUserId({
+				...pullRequest,
+				authorUserId: null,
+				authorActorUserId: linkedAuthorUserId,
+			})
+		).toBe(linkedAuthorUserId)
+		expect(
+			getPullRequestAuthorUserId({
+				...pullRequest,
+				authorUserId: null,
+				authorActorUserId: undefined,
+			})
+		).toBeNull()
 	})
 
 	test('carries the joined GitHub identity onto a synchronized event', () => {

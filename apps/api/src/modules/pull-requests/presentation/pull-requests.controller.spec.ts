@@ -188,7 +188,7 @@ describe(PullRequestsController.name, () => {
 				headIsCurrent: true,
 			},
 			viewer: {
-				canSubmitReview: false,
+				allowedOutcomes: [],
 				canRequestReviewers: false,
 				canRemoveReviewerRequests: false,
 			},

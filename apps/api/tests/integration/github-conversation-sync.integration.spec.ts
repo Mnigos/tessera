@@ -164,7 +164,7 @@ interface PullRequestResponseBody {
 	}[]
 	reviewerRequests: { targetKind: string; reviewer: ActorResponse }[]
 	viewer: {
-		canSubmitReview: boolean
+		allowedOutcomes: string[]
 		canRequestReviewers: boolean
 		canRemoveReviewerRequests: boolean
 	}
@@ -769,7 +769,7 @@ describe('GitHub conversation sync integration', () => {
 		const detail = await getPullRequestDetail()
 		expect(detail.authority).toBe('github')
 		expect(detail.viewer).toEqual({
-			canSubmitReview: true,
+			allowedOutcomes: ['approve', 'request_changes', 'comment'],
 			canRequestReviewers: true,
 			canRemoveReviewerRequests: true,
 		})

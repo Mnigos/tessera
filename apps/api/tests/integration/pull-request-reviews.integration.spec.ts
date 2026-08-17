@@ -11,6 +11,7 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE } from '@repo/contracts'
 import { eq } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
@@ -298,7 +299,7 @@ describe('Pull request reviews integration', () => {
 		expect(detail).toMatchObject({
 			effectiveReviewStates: [{ outcome: 'approve', stale: false }],
 			viewer: {
-				canSubmitReview: true,
+				allowedOutcomes: ['approve', 'request_changes', 'comment'],
 				canRequestReviewers: false,
 				canRemoveReviewerRequests: false,
 			},
@@ -317,6 +318,50 @@ describe('Pull request reviews integration', () => {
 					},
 				},
 			],
+		})
+	})
+
+	test('enforces author outcomes and publishes an author comment review', async () => {
+		const authorDetail = await getPullRequest(owner.headers)
+		const readerDetail = await getPullRequest(reviewer.headers)
+		expect(authorDetail.viewer).toMatchObject({ allowedOutcomes: ['comment'] })
+		expect(readerDetail.viewer).toMatchObject({
+			allowedOutcomes: ['approve', 'request_changes', 'comment'],
+		})
+
+		const draftResponse = await request(
+			'http://localhost/repositories/owner/notes/pulls/1/threads',
+			'POST',
+			owner.headers,
+			{
+				body: 'Author context',
+				review: { expectedHeadSha: HEAD_SHA },
+			}
+		)
+		expect(draftResponse.status).toBe(200)
+
+		const commentReview = await reviewAction('reviews', 'POST', owner.headers, {
+			outcome: 'comment',
+			body: 'Context only',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(commentReview.status).toBe(200)
+		expect(await commentReview.json()).toMatchObject({
+			state: 'submitted',
+			outcome: 'comment',
+		})
+		expect(await listThreads(owner.headers)).toMatchObject({
+			threads: [{ comments: [{ body: 'Author context', state: 'published' }] }],
+		})
+
+		const approve = await reviewAction('reviews', 'POST', owner.headers, {
+			outcome: 'approve',
+			expectedHeadSha: HEAD_SHA,
+		})
+		expect(approve.status).toBe(403)
+		expect(await approve.json()).toMatchObject({
+			code: 'FORBIDDEN',
+			message: PULL_REQUEST_AUTHOR_REVIEW_FORBIDDEN_MESSAGE,
 		})
 	})
 

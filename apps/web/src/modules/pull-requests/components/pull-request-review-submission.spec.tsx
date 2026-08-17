@@ -1,14 +1,20 @@
 import { ORPCError } from '@orpc/client'
-import type { PullRequestPendingReview } from '@repo/contracts'
+import type {
+	PullRequestPendingReview,
+	PullRequestReviewOutcome,
+} from '@repo/contracts'
 import {
 	GITHUB_RECONNECT_REQUIRED_MESSAGE,
 	GITHUB_SYNC_DELAYED_MESSAGE,
+	GITHUB_UNAVAILABLE_MESSAGE,
 	GITHUB_WRITE_REJECTED_MESSAGES,
+	PULL_REQUEST_STALE_COMPARISON_MESSAGE,
 } from '@repo/contracts'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useSubmitPullRequestReviewMutation } from '../hooks/use-submit-pull-request-review.mutation'
 import { PullRequestPendingReviewBanner } from './pull-request-pending-review-banner'
+import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
 import { PullRequestReviewDialog } from './pull-request-review-dialog'
 
 vi.mock('../hooks/use-submit-pull-request-review.mutation', () => ({
@@ -37,6 +43,9 @@ const CANNOT_REVIEW_REGEX = /can no longer review/
 const PENDING_COMMENTS_REGEX = /pending comments/
 const APPROVE_REGEX = /Approve/
 const COMMENT_REGEX = /Comment/
+const REQUEST_CHANGES_REGEX = /Request changes/
+const AUTHOR_OUTCOME_REASON =
+	'You can comment on your own pull request, but not approve or block it.'
 const REVIEWED_HEAD_SHA = 'a'.repeat(40)
 const MOVED_HEAD_SHA = 'b'.repeat(40)
 const pendingReview: PullRequestPendingReview = {
@@ -44,10 +53,19 @@ const pendingReview: PullRequestPendingReview = {
 	headSha: REVIEWED_HEAD_SHA,
 	commentCount: 2,
 }
+const ALL_REVIEW_OUTCOMES: PullRequestReviewOutcome[] = [
+	'comment',
+	'approve',
+	'request_changes',
+]
 const repositoryProps = {
 	username: 'marta',
 	slug: 'notes',
 	number: '1',
+}
+const reviewProps = {
+	...repositoryProps,
+	allowedOutcomes: ALL_REVIEW_OUTCOMES,
 }
 
 describe('pull request review submission', () => {
@@ -65,7 +83,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		const { rerender } = render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				triggerLabel="Review changes"
 			/>
@@ -76,7 +94,7 @@ describe('pull request review submission', () => {
 		// A background refetch lands while the dialog is open.
 		rerender(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={MOVED_HEAD_SHA}
 				triggerLabel="Review changes"
 			/>
@@ -100,7 +118,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				triggerLabel="Review changes"
 			/>
@@ -123,6 +141,63 @@ describe('pull request review submission', () => {
 		)
 	})
 
+	test('keeps author-only outcomes visible, disabled, and explained', async () => {
+		const user = userEvent.setup()
+		render(
+			<PullRequestReviewDialog
+				{...repositoryProps}
+				allowedOutcomes={['comment']}
+				headSha={REVIEWED_HEAD_SHA}
+				triggerLabel="Review changes"
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Review changes' }))
+		const comment = screen.getByRole<HTMLInputElement>('radio', {
+			name: COMMENT_REGEX,
+		})
+		const approve = screen.getByRole<HTMLInputElement>('radio', {
+			name: APPROVE_REGEX,
+		})
+		const requestChanges = screen.getByRole<HTMLInputElement>('radio', {
+			name: REQUEST_CHANGES_REGEX,
+		})
+
+		expect(screen.getAllByRole('radio')).toHaveLength(3)
+		expect(comment.disabled).toBeFalsy()
+		expect(approve.disabled).toBeTruthy()
+		expect(requestChanges.disabled).toBeTruthy()
+		expect(screen.getByText(AUTHOR_OUTCOME_REASON)).toBeTruthy()
+
+		const tooltipTrigger = approve.closest('label')?.parentElement
+		if (!tooltipTrigger) throw new Error('Disabled outcome tooltip missing')
+		expect(tooltipTrigger.tabIndex).toBe(0)
+		await user.tab()
+		expect(document.activeElement).toBe(tooltipTrigger)
+		await waitFor(() =>
+			expect(screen.getAllByText(AUTHOR_OUTCOME_REASON)).toHaveLength(2)
+		)
+	})
+
+	test('renders no review trigger when the server allows no outcomes', () => {
+		render(
+			<PullRequestReviewChangesAction
+				headSha={REVIEWED_HEAD_SHA}
+				isGitHubAuthoritative={false}
+				number="1"
+				slug="notes"
+				username="marta"
+				viewer={{
+					allowedOutcomes: [],
+					canRequestReviewers: false,
+					canRemoveReviewerRequests: false,
+				}}
+			/>
+		)
+
+		expect(screen.queryByRole('button', { name: 'Review changes' })).toBeNull()
+	})
+
 	test.each([
 		['Comment', GITHUB_WRITE_REJECTED_MESSAGES.review_body_required],
 		['Request changes', GITHUB_WRITE_REJECTED_MESSAGES.review_body_required],
@@ -130,7 +205,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isGitHubAuthoritative
 				pendingCommentCount={2}
@@ -154,7 +229,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isGitHubAuthoritative
 				triggerLabel="Review changes"
@@ -185,7 +260,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				triggerLabel="Review changes"
 			/>
@@ -206,7 +281,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		const dialog = () => (
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isGitHubAuthoritative
 				triggerLabel="Review changes"
@@ -275,7 +350,7 @@ describe('pull request review submission', () => {
 		const user = userEvent.setup()
 		const dialog = () => (
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isGitHubAuthoritative
 				triggerLabel="Review changes"
@@ -302,12 +377,34 @@ describe('pull request review submission', () => {
 		expect(screen.getByText('The review could not be submitted.')).toBeTruthy()
 	})
 
-	test('disables the trigger and shows why when the comparison is unavailable', () => {
+	test.each([
+		[502, 'BAD_GATEWAY', GITHUB_UNAVAILABLE_MESSAGE, 'alert'],
+		[409, 'CONFLICT', PULL_REQUEST_STALE_COMPARISON_MESSAGE, 'alert'],
+		[409, 'CONFLICT', GITHUB_SYNC_DELAYED_MESSAGE, 'status'],
+	] as const)('surfaces the TES-80 %s review failure copy', async (status, code, message, role) => {
+		useSubmitReviewMutationMock.mockReturnValue({
+			...IDLE_MUTATION,
+			error: new ORPCError(code, { status, message }),
+			isError: true,
+			mutate,
+		} as unknown as ReturnType<typeof useSubmitPullRequestReviewMutation>)
+		const user = userEvent.setup()
 		render(
 			<PullRequestReviewDialog
-				{...repositoryProps}
+				{...reviewProps}
+				headSha={REVIEWED_HEAD_SHA}
 				triggerLabel="Review changes"
 			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Review changes' }))
+
+		expect(screen.getByRole(role).textContent).toBe(message)
+	})
+
+	test('disables the trigger and shows why when the comparison is unavailable', () => {
+		render(
+			<PullRequestReviewDialog {...reviewProps} triggerLabel="Review changes" />
 		)
 
 		expect(
@@ -322,8 +419,7 @@ describe('pull request review submission', () => {
 	test('offers submit and discard while the viewer can still review', () => {
 		render(
 			<PullRequestPendingReviewBanner
-				{...repositoryProps}
-				canSubmitReview
+				{...reviewProps}
 				headSha={REVIEWED_HEAD_SHA}
 				isOpen
 				pendingReview={pendingReview}
@@ -335,11 +431,35 @@ describe('pull request review submission', () => {
 		expect(screen.getByText(BATCHED_COMMENTS_REGEX)).toBeTruthy()
 	})
 
-	test('explains capability loss on an open pull request without actions', () => {
+	test('passes author outcomes into the pending review dialog', async () => {
+		const user = userEvent.setup()
 		render(
 			<PullRequestPendingReviewBanner
 				{...repositoryProps}
-				canSubmitReview={false}
+				allowedOutcomes={['comment']}
+				headSha={REVIEWED_HEAD_SHA}
+				isOpen
+				pendingReview={pendingReview}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Submit review' }))
+
+		expect(
+			screen.getByRole<HTMLInputElement>('radio', { name: APPROVE_REGEX })
+				.disabled
+		).toBeTruthy()
+		expect(
+			screen.getByRole<HTMLInputElement>('radio', { name: COMMENT_REGEX })
+				.disabled
+		).toBeFalsy()
+	})
+
+	test('explains capability loss on an open pull request without actions', () => {
+		render(
+			<PullRequestPendingReviewBanner
+				{...reviewProps}
+				allowedOutcomes={[]}
 				headSha={REVIEWED_HEAD_SHA}
 				isOpen
 				pendingReview={pendingReview}
@@ -354,8 +474,8 @@ describe('pull request review submission', () => {
 	test('explains a retained pending review instead of offering actions that fail', () => {
 		render(
 			<PullRequestPendingReviewBanner
-				{...repositoryProps}
-				canSubmitReview={false}
+				{...reviewProps}
+				allowedOutcomes={[]}
 				headSha={REVIEWED_HEAD_SHA}
 				isOpen={false}
 				pendingReview={pendingReview}

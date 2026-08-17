@@ -10,7 +10,7 @@ import {
 
 const submittedAt = new Date('2026-08-08T10:00:00.000Z')
 const VIEWER: PullRequestReviewViewer = {
-	canSubmitReview: true,
+	allowedOutcomes: ['comment', 'approve', 'request_changes'],
 	canRequestReviewers: true,
 	canRemoveReviewerRequests: true,
 }
@@ -61,7 +61,7 @@ describe(getPullRequestReviewContext.name, () => {
 
 	test('returns the native review capability and pending state', () => {
 		expect(getPullRequestReviewContext(VIEWER, PENDING_REVIEW, false)).toEqual({
-			canSubmitReview: true,
+			allowedOutcomes: ['comment', 'approve', 'request_changes'],
 			hasPendingReview: true,
 		})
 	})
