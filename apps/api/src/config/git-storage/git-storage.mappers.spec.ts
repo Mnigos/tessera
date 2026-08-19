@@ -43,6 +43,7 @@ describe('git storage mappers', () => {
 				content: new TextEncoder().encode('# Tessera'),
 				isTruncated: true,
 			},
+			commitCount: 12,
 		}
 
 		expect(toRepositoryBrowserSummary(response)).toEqual({
@@ -64,6 +65,7 @@ describe('git storage mappers', () => {
 				content: '# Tessera',
 				isTruncated: true,
 			},
+			commitCount: 12,
 		})
 	})
 
@@ -73,6 +75,7 @@ describe('git storage mappers', () => {
 			isEmpty: false,
 			rootEntries: [],
 			readme: undefined,
+			commitCount: 0,
 		})
 	})
 

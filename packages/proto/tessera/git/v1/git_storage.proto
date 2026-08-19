@@ -80,6 +80,7 @@ message GetRepositoryBrowserSummaryResponse {
   string default_branch = 2;
   repeated RepositoryTreeEntry root_entries = 3;
   RepositoryReadme readme = 4;
+  uint64 commit_count = 5;
 }
 
 message GetRepositoryTreeRequest {

@@ -34,6 +34,7 @@ pub struct RepositoryBrowserSummary {
     pub default_branch: String,
     pub root_entries: Vec<RepositoryTreeEntry>,
     pub readme: Option<RepositoryReadme>,
+    pub commit_count: u64,
 }
 
 #[derive(Debug, PartialEq, Eq)]

@@ -196,12 +196,14 @@ type RuntimeRepositoryDiffLine = Partial<GeneratedRepositoryDiffLine>
  * Converts a browser summary gRPC payload into the repository browser model exposed by the API.
  */
 export function toRepositoryBrowserSummary({
+	commitCount,
 	defaultBranch,
 	isEmpty,
 	readme,
 	rootEntries,
 }: RuntimeRepositoryBrowserSummaryResponse): GitStorageRepositoryBrowserSummary {
 	return {
+		commitCount: toUint64Number(commitCount),
 		defaultBranch: defaultBranch ?? '',
 		isEmpty: isEmpty ?? false,
 		rootEntries: (rootEntries ?? []).map(toRepositoryTreeEntry),
