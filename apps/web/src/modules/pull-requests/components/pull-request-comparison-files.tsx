@@ -20,8 +20,16 @@ import {
 import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePrefetchPullRequestFileDiff } from '../hooks/use-prefetch-pull-request-file-diff'
+import {
+	type PullRequestDiffJump,
+	scrollToPullRequestDiffJump,
+} from '../hooks/use-pull-request-diff-jump'
 import { usePullRequestDiffViewOptions } from '../hooks/use-pull-request-diff-view-options'
 import { usePullRequestFileSections } from '../hooks/use-pull-request-file-sections'
+import {
+	type PullRequestReviewOverlay,
+	usePullRequestReviewKeyboard,
+} from '../hooks/use-pull-request-review-keyboard'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed-files.query'
 import { useSetPullRequestFileViewedMutation } from '../hooks/use-set-pull-request-file-viewed.mutation'
@@ -37,6 +45,8 @@ import {
 	setPullRequestTreeOpen,
 	usePullRequestFileTreeLayout,
 } from './pull-request-file-tree'
+import { PullRequestJumpToFile } from './pull-request-jump-to-file'
+import { PullRequestKeyboardHelp } from './pull-request-keyboard-help'
 import { PullRequestsMessage } from './pull-requests-message'
 
 const ANCHORABLE_DIFF_SIDES = [
@@ -130,7 +140,8 @@ export function PullRequestComparisonFiles({
 	)
 	const setFileViewedMutation = useSetPullRequestFileViewedMutation()
 
-	const threads = threadsQuery.data?.threads ?? NO_THREADS
+	const [overlay, setOverlay] = useState<PullRequestReviewOverlay>()
+	const threads = useFreshThreads(threadsQuery, anchorHeadSha)
 	const viewer = threadsQuery.data?.viewer
 	const permissions = useMemo(
 		() =>
@@ -281,6 +292,16 @@ export function PullRequestComparisonFiles({
 		]
 	)
 
+	const isFileExpanded = useCallback(
+		(path: string) =>
+			expansionOverrides[path] ??
+			isOpenByDefault(filesByPath.get(path), {
+				isViewed: viewedPaths?.has(path) ?? false,
+				isChangedSinceReview: changedSincePaths.has(path),
+			}),
+		[changedSincePaths, expansionOverrides, filesByPath, viewedPaths]
+	)
+
 	const outdatedThreads = unanchoredThreads.length > 0 && (
 		<div className="overflow-hidden rounded-md border border-border">
 			<PullRequestOutdatedThreads
@@ -301,12 +322,49 @@ export function PullRequestComparisonFiles({
 		scrollToSection(path, shouldReduceMotion ? 'auto' : 'smooth')
 	}
 
+	// A row deep in a collapsed or windowed file only exists once it is asked for.
+	function revealJump(jump: PullRequestDiffJump) {
+		setExpanded(jump.path, true)
+		scrollToSection(jump.path, 'auto')
+		scrollToPullRequestDiffJump(jump)
+	}
+
+	usePullRequestReviewKeyboard({
+		activePath,
+		canMarkViewed: isViewedStateKnown,
+		changedSincePaths,
+		files: comparison.files,
+		isFileExpanded,
+		isFileViewed: path => viewedPaths?.has(path) ?? false,
+		onJumpToFile: jumpToFile,
+		onOpenOverlay: setOverlay,
+		onRevealJump: revealJump,
+		onToggleExpanded: setExpanded,
+		onToggleViewed: toggleViewed,
+		threads,
+	})
+
+	const overlays = (
+		<PullRequestReviewOverlays
+			comparison={comparison}
+			number={number}
+			onClose={() => setOverlay(undefined)}
+			onJumpToFile={jumpToFile}
+			onRevealJump={revealJump}
+			overlay={overlay}
+			slug={slug}
+			username={username}
+			viewedPaths={viewedPaths}
+		/>
+	)
 	const rail = (
 		<PullRequestDiffRail
 			action={toolbarAction?.({ onJumpToFile: jumpToFile })}
 			fileCount={comparison.files.length}
 			isTreeOpen={isTreeOpen}
 			lead={toolbarLead}
+			onFind={() => setOverlay('find')}
+			onShowShortcuts={() => setOverlay('help')}
 			onToggleTree={() => setPullRequestTreeOpen(!isTreeOpen)}
 			viewedCount={viewedPaths ? viewedCount : undefined}
 		/>
@@ -336,6 +394,7 @@ export function PullRequestComparisonFiles({
 					title="No changed files"
 				/>
 				{outdatedThreads}
+				{overlays}
 			</div>
 		)
 
@@ -386,13 +445,7 @@ export function PullRequestComparisonFiles({
 							const path = getChangedFilePath(file)
 							const isViewed = viewedPaths?.has(path) ?? false
 							const isChangedSinceReview = changedSincePaths.has(path)
-							// A file that moved since the reader's verdict opens even when ticked.
-							const isExpanded =
-								expansionOverrides[path] ??
-								!(
-									(isViewed && !isChangedSinceReview) ||
-									isLargeChangedFile(file)
-								)
+							const isExpanded = isFileExpanded(path)
 
 							return (
 								<PullRequestFileSection
@@ -424,7 +477,102 @@ export function PullRequestComparisonFiles({
 				</div>
 			</div>
 			{outdatedThreads}
+			{overlays}
 		</div>
+	)
+}
+
+/**
+ * Threads read against another head anchor to lines that have since moved, so
+ * they are dropped and re-read once rather than drawn in the wrong places.
+ */
+function useFreshThreads(
+	threadsQuery: ReturnType<typeof usePullRequestThreadsQuery>,
+	headSha: string
+) {
+	const { data, refetch } = threadsQuery
+	const staleHeadSha =
+		data && data.comparison.headSha !== headSha
+			? data.comparison.headSha
+			: undefined
+	const refetchedHeadSha = useRef<string>(undefined)
+
+	if (staleHeadSha && refetchedHeadSha.current !== staleHeadSha) {
+		refetchedHeadSha.current = staleHeadSha
+		queueMicrotask(() => void refetch())
+	}
+
+	if (staleHeadSha) return NO_THREADS
+
+	return data?.threads ?? NO_THREADS
+}
+
+/** A viewed file stays shut unless it moved on since the reader's verdict. */
+function isOpenByDefault(
+	file: PullRequestChangedFile | undefined,
+	state: { isViewed: boolean; isChangedSinceReview: boolean }
+) {
+	if (!file) return false
+
+	return !(
+		(state.isViewed && !state.isChangedSinceReview) ||
+		isLargeChangedFile(file)
+	)
+}
+
+interface PullRequestReviewOverlaysProps {
+	overlay?: PullRequestReviewOverlay
+	comparison: PullRequestComparisonData
+	username: string
+	slug: string
+	number: string
+	viewedPaths?: ReadonlySet<string>
+	onClose: () => void
+	onJumpToFile: (path: string) => void
+	onRevealJump: (jump: PullRequestDiffJump) => void
+}
+
+function PullRequestReviewOverlays({
+	overlay,
+	comparison,
+	username,
+	slug,
+	number,
+	viewedPaths,
+	onClose,
+	onJumpToFile,
+	onRevealJump,
+}: Readonly<PullRequestReviewOverlaysProps>) {
+	return (
+		<>
+			<PullRequestKeyboardHelp
+				isOpen={overlay === 'help'}
+				onOpenChange={isOpen => !isOpen && onClose()}
+			/>
+			<PullRequestJumpToFile
+				diffInput={{
+					username,
+					slug,
+					number,
+					expectedBaseSha: comparison.baseSha,
+					expectedHeadSha: comparison.headSha,
+				}}
+				files={comparison.files}
+				mode={overlay === 'help' ? undefined : overlay}
+				onOpenChange={isOpen => !isOpen && onClose()}
+				onSelect={match => {
+					if (match.side && match.line)
+						onRevealJump({
+							kind: 'line',
+							path: match.path,
+							side: match.side,
+							line: match.line,
+						})
+					else onJumpToFile(match.path)
+				}}
+				viewedPaths={viewedPaths}
+			/>
+		</>
 	)
 }
 
