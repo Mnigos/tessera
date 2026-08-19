@@ -20,6 +20,7 @@ import {
 import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePrefetchPullRequestFileDiff } from '../hooks/use-prefetch-pull-request-file-diff'
+import { usePullRequestDiffViewOptions } from '../hooks/use-pull-request-diff-view-options'
 import { usePullRequestFileSections } from '../hooks/use-pull-request-file-sections'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed-files.query'
@@ -87,6 +88,7 @@ export function PullRequestComparisonFiles({
 }: Readonly<PullRequestComparisonFilesProps>) {
 	const prefetchFileDiff = usePrefetchPullRequestFileDiff()
 	const shouldReduceMotion = useReducedMotion()
+	const { isWrapped, view } = usePullRequestDiffViewOptions()
 	const { isOpen: isTreeOpen, width: treeWidth } =
 		usePullRequestFileTreeLayout()
 	const {
@@ -234,6 +236,7 @@ export function PullRequestComparisonFiles({
 							anchorComparison={diffAnchorComparison}
 							expectedBaseSha={comparison.baseSha}
 							expectedHeadSha={comparison.headSha}
+							isWrapped={isWrapped}
 							key={path}
 							number={number}
 							path={path}
@@ -241,6 +244,7 @@ export function PullRequestComparisonFiles({
 							slug={slug}
 							threads={getInlineThreadsForFile(threads, file, comparison.files)}
 							username={username}
+							view={view}
 						/>,
 					] as const
 				})
@@ -251,11 +255,13 @@ export function PullRequestComparisonFiles({
 			comparison.baseSha,
 			comparison.files,
 			comparison.headSha,
+			isWrapped,
 			number,
 			permissions,
 			slug,
 			threads,
 			username,
+			view,
 		]
 	)
 

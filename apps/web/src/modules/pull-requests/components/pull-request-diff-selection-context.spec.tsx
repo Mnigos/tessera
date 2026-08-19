@@ -10,6 +10,14 @@ vi.mock('@/modules/auth/hooks/use-auth', () => ({
 	useAuth: () => ({ user: undefined }),
 }))
 
+vi.mock('../hooks/use-pull-request-file-expansion', () => ({
+	usePullRequestFileExpansion: () => ({
+		lines: new Map(),
+		expand: vi.fn(),
+		retry: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
@@ -75,12 +83,14 @@ function FileView({ path }: Readonly<{ path: string }>) {
 			anchorComparison={{ baseSha: BASE_SHA, headSha: HEAD_SHA }}
 			expectedBaseSha={BASE_SHA}
 			expectedHeadSha={HEAD_SHA}
+			isWrapped={false}
 			number="1"
 			path={path}
 			permissions={PERMISSIONS}
 			slug="notes"
 			threads={[]}
 			username="marta"
+			view="split"
 		/>
 	)
 }
