@@ -68,11 +68,7 @@ export function PullRequestOverview({
 	// The reviewed head is whichever comparison the viewer is reading, never a
 	// freshly resolved one: a review must never cover unseen commits.
 	const headSha = threadsQuery.data?.comparison.headSha
-	const review = getPullRequestReviewContext(
-		reviewViewer,
-		viewerPendingReview,
-		isGitHubAuthoritative
-	)
+	const review = getPullRequestReviewContext(reviewViewer, viewerPendingReview)
 	const hasReviewers =
 		reviewerRequests.length > 0 ||
 		effectiveReviewStates.length > 0 ||
@@ -106,10 +102,11 @@ export function PullRequestOverview({
 					slug={slug}
 					username={username}
 				/>
-				{viewerPendingReview && !isGitHubAuthoritative && (
+				{viewerPendingReview && (
 					<PullRequestPendingReviewBanner
 						allowedOutcomes={reviewViewer.allowedOutcomes}
 						headSha={headSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
 						isOpen={isOpen}
 						number={number}
 						pendingReview={viewerPendingReview}

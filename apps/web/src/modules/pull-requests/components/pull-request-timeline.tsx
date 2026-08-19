@@ -19,6 +19,7 @@ import { useCreatePullRequestThreadMutation } from '../hooks/use-create-pull-req
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestEventRow } from './pull-request-event-row'
+import { PullRequestGitHubRefresh } from './pull-request-github-refresh'
 import { PullRequestReviewEventCard } from './pull-request-review-event-card'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimelineSyncNotice } from './pull-request-timeline-sync-notice'
@@ -88,7 +89,14 @@ export function PullRequestTimeline({
 
 	return (
 		<section className="flex flex-col gap-3">
-			<h2 className="font-semibold text-base tracking-normal">Activity</h2>
+			<div className="flex flex-wrap items-center justify-between gap-2">
+				<h2 className="font-semibold text-base tracking-normal">Activity</h2>
+				<PullRequestGitHubRefresh
+					number={number}
+					slug={slug}
+					username={username}
+				/>
+			</div>
 			<PullRequestTimelineSyncNotice
 				syncHealth={syncHealthQuery.data?.syncHealth}
 			/>

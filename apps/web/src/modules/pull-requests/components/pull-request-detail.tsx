@@ -31,6 +31,7 @@ import {
 	type PullRequestReviewSelection,
 } from '../helpers/pull-request-review'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
+import { usePullRequestActivityQuery } from '../hooks/use-pull-request-activity.query'
 import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
@@ -68,6 +69,9 @@ export function PullRequestDetail({
 		slug,
 		number,
 	})
+	// Polled from here rather than from a tab, so the page keeps itself current
+	// whether the reader is on the conversation or in the files.
+	usePullRequestActivityQuery({ username, slug, number }, Boolean(data))
 
 	if (isLoading)
 		return (
@@ -287,8 +291,7 @@ function PullRequestDetailContent({
 					number={String(pullRequest.number)}
 					review={getPullRequestReviewContext(
 						reviewViewer,
-						viewerPendingReview,
-						isGitHubAuthoritative
+						viewerPendingReview
 					)}
 					reviewSelection={reviewSelection}
 					reviews={reviews}

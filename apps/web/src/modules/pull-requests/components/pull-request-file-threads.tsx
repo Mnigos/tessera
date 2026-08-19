@@ -84,9 +84,8 @@ function PullRequestDiffThreadComposer({
 		permissions.review,
 		draftHeadSha
 	)
-	// GitHub keeps no Tessera-side draft, so a mirrored comment can only be posted at once.
 	const reviewActions =
-		reviewMarker && permissions.review && !permissions.isGitHubAuthoritative
+		reviewMarker && permissions.review
 			? getPullRequestReviewComposerActions(permissions.review, 'Comment')
 			: undefined
 	const isPrimaryReview = reviewActions?.isPrimaryReview ?? false

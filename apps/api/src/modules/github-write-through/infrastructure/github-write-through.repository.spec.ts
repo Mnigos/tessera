@@ -137,6 +137,7 @@ describe(GitHubWriteThroughRepository.name, () => {
 					pullRequestMappingId: PULL_REQUEST_MAPPING_ID,
 					externalNodeId: 'pull-request-node',
 					externalNumber: 1,
+					headSha: null,
 				},
 				anchor: {
 					path: 'src/index.ts',

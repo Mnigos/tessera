@@ -27,6 +27,17 @@ import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimeline } from './pull-request-timeline'
 
+vi.mock('../hooks/use-pull-request-activity.query', () => ({
+	usePullRequestActivityQuery: () => ({ data: undefined }),
+}))
+
+vi.mock('../hooks/use-refresh-pull-request-github.mutation', () => ({
+	useRefreshPullRequestGitHubMutation: () => ({
+		isPending: false,
+		mutate: vi.fn(),
+	}),
+}))
+
 vi.mock('@/modules/auth/hooks/use-auth', () => ({
 	useAuth: () => ({ user: undefined }),
 }))
@@ -1322,7 +1333,7 @@ describe('pull request threads', () => {
 		expect(screen.queryByRole('button', { name: 'Add to review' })).toBeNull()
 	})
 
-	test('offers an immediate mirrored inline comment without a review action', async () => {
+	test('batches a mirrored inline comment into a review the reviewer starts', async () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [],
@@ -1338,6 +1349,10 @@ describe('pull request threads', () => {
 			<PullRequestComparison
 				isGitHubAuthoritative
 				number="1"
+				review={{
+					allowedOutcomes: ['comment'],
+					hasPendingReview: false,
+				}}
 				reviewViewer={NO_REVIEW_VIEWER}
 				slug="notes"
 				tab="files"
@@ -1354,8 +1369,7 @@ describe('pull request threads', () => {
 		)
 
 		expect(screen.getByRole('button', { name: 'Comment' })).toBeTruthy()
-		expect(screen.queryByRole('button', { name: 'Start a review' })).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Add to review' })).toBeNull()
+		expect(screen.getByRole('button', { name: 'Start a review' })).toBeTruthy()
 	})
 
 	test.each([

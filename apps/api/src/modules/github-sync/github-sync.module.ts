@@ -1,7 +1,9 @@
 import { ChecksModule } from '@modules/checks'
 import { PullRequestsModule } from '@modules/pull-requests'
+import { RepositoriesModule } from '@modules/repositories'
 import { BullModule, getQueueToken } from '@nestjs/bullmq'
 import { Module } from '@nestjs/common'
+import { GitHubPullRequestRefreshService } from './application/github-pull-request-refresh.service'
 import { GitHubSyncProcessor } from './application/github-sync.processor'
 import { GitHubSyncScheduler } from './application/github-sync.scheduler'
 import { GitHubSyncReplayService } from './application/github-sync-replay.service'
@@ -16,16 +18,19 @@ import {
 import { GitHubSyncRepository } from './infrastructure/github-sync.repository'
 import { GitHubSyncChecksRepository } from './infrastructure/github-sync-checks.repository'
 import { GitHubSyncConversationsRepository } from './infrastructure/github-sync-conversations.repository'
+import { GitHubPullRequestRefreshController } from './presentation/github-pull-request-refresh.controller'
 import { GitHubWebhookController } from './presentation/github-webhook.controller'
 
 @Module({
 	imports: [
 		ChecksModule,
 		PullRequestsModule,
+		RepositoriesModule,
 		BullModule.registerQueue({ name: GITHUB_SYNC_QUEUE_NAME }),
 	],
-	controllers: [GitHubWebhookController],
+	controllers: [GitHubPullRequestRefreshController, GitHubWebhookController],
 	providers: [
+		GitHubPullRequestRefreshService,
 		GitHubWebhookService,
 		GitHubSyncProcessor,
 		GitHubSyncReplayService,
@@ -41,6 +46,11 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 		},
 		GitHubSyncQueue,
 	],
-	exports: [GitHubSyncQueue, GitHubSyncReplayService, GitHubSyncRepository],
+	exports: [
+		GitHubPullRequestRefreshService,
+		GitHubSyncQueue,
+		GitHubSyncReplayService,
+		GitHubSyncRepository,
+	],
 })
 export class GitHubSyncModule {}

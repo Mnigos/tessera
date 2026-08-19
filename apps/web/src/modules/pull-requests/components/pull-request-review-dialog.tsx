@@ -108,16 +108,12 @@ export function PullRequestReviewDialog({
 	// approval the viewer never read.
 	const [reviewedHeadSha, setReviewedHeadSha] = useState<string>()
 	const submitReview = useSubmitPullRequestReviewMutation()
-	// A draft left from before the mirror is not part of a GitHub review.
-	const batchedCommentCount = isGitHubAuthoritative
-		? undefined
-		: pendingCommentCount
 	// The files view has already fetched these; the dialog reads the same cache.
 	const threadsQuery = usePullRequestThreadsQuery(
 		{ username, slug, number },
-		isOpen && Boolean(batchedCommentCount)
+		isOpen && Boolean(pendingCommentCount)
 	)
-	const pendingComments = batchedCommentCount
+	const pendingComments = pendingCommentCount
 		? getPullRequestPendingComments(threadsQuery.data?.threads)
 		: []
 
@@ -173,10 +169,15 @@ export function PullRequestReviewDialog({
 								{reviewedHeadSha.slice(0, 7)} ·{' '}
 							</span>
 						)}
-						{batchedCommentCount
-							? `Submitting publishes ${batchedCommentCount} pending ${batchedCommentCount === 1 ? 'comment' : 'comments'} against the changes you are viewing.`
+						{pendingCommentCount
+							? `Submitting publishes ${pendingCommentCount} pending ${pendingCommentCount === 1 ? 'comment' : 'comments'} against the changes you are viewing.`
 							: 'Your review is recorded against the changes you are viewing and goes stale if the branch moves.'}
 					</DialogDescription>
+					{isGitHubAuthoritative && Boolean(pendingCommentCount) && (
+						<p className="text-muted-foreground text-xs">
+							They will post to GitHub as one review.
+						</p>
+					)}
 				</DialogHeader>
 				<PullRequestReviewForm
 					allowedOutcomes={allowedOutcomes}

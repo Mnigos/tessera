@@ -53,16 +53,17 @@ describe('pull request review labels', () => {
 })
 
 describe(getPullRequestReviewContext.name, () => {
-	test('returns no batched review context for a mirror', () => {
-		expect(
-			getPullRequestReviewContext(VIEWER, PENDING_REVIEW, true)
-		).toBeUndefined()
-	})
-
-	test('returns the native review capability and pending state', () => {
-		expect(getPullRequestReviewContext(VIEWER, PENDING_REVIEW, false)).toEqual({
+	test('returns the review capability and pending state', () => {
+		expect(getPullRequestReviewContext(VIEWER, PENDING_REVIEW)).toEqual({
 			allowedOutcomes: ['comment', 'approve', 'request_changes'],
 			hasPendingReview: true,
+		})
+	})
+
+	test('reports no pending review when the viewer has batched nothing', () => {
+		expect(getPullRequestReviewContext(VIEWER, undefined)).toEqual({
+			allowedOutcomes: ['comment', 'approve', 'request_changes'],
+			hasPendingReview: false,
 		})
 	})
 })

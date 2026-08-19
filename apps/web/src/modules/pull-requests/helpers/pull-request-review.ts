@@ -30,14 +30,11 @@ export interface PullRequestReviewContext {
 	headSha?: string
 }
 
-/** Absent on a mirror: GitHub has no batched review to start or add to. */
+/** Drafts are local-first everywhere, mirrors included, so this is never absent. */
 export function getPullRequestReviewContext(
 	viewer: PullRequestReviewViewer,
-	viewerPendingReview: PullRequestPendingReview | undefined,
-	isGitHubAuthoritative: boolean
-): PullRequestReviewContext | undefined {
-	if (isGitHubAuthoritative) return undefined
-
+	viewerPendingReview: PullRequestPendingReview | undefined
+): PullRequestReviewContext {
 	return {
 		allowedOutcomes: viewer.allowedOutcomes,
 		hasPendingReview: Boolean(viewerPendingReview),

@@ -17,6 +17,7 @@ import type {
 	RepositoryId,
 } from '@repo/domain'
 import { createMockSession, mockUserId } from '~/shared/test-utils'
+import { PullRequestActivityService } from '../application/pull-request-activity.service'
 import { PullRequestsService } from '../application/pull-requests.service'
 import { PullRequestsController } from './pull-requests.controller'
 
@@ -67,6 +68,10 @@ describe(PullRequestsController.name, () => {
 				{
 					provide: RepositoriesService,
 					useValue: { assertViewerRepositoryWriteAccess: vi.fn() },
+				},
+				{
+					provide: PullRequestActivityService,
+					useValue: { getActivity: vi.fn() },
 				},
 				{
 					provide: PullRequestsService,
