@@ -14,7 +14,6 @@ import type {
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Skeleton } from '@repo/ui/components/skeleton'
-import { Link } from '@tanstack/react-router'
 import { ArrowLeft, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
@@ -182,16 +181,6 @@ function PullRequestDetailContent({
 	return (
 		<section className="flex flex-col gap-6">
 			<header className="flex flex-col gap-3">
-				<p className="text-muted-foreground text-sm">
-					<Link
-						className="hover:underline"
-						params={{ username, slug }}
-						to="/$username/$slug/pulls"
-					>
-						Pull requests
-					</Link>{' '}
-					/ #{displayNumber}
-				</p>
 				{isEditing ? (
 					<PullRequestEditForm
 						onDone={() => setIsEditing(false)}

@@ -39,13 +39,11 @@ function PullRequestCommitsRoute() {
 	const { username, slug, number } = Route.useParams()
 
 	return (
-		<main className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
-			<PullRequestDetail
-				number={number}
-				slug={slug}
-				tab="commits"
-				username={username}
-			/>
-		</main>
+		<PullRequestDetail
+			number={number}
+			slug={slug}
+			tab="commits"
+			username={username}
+		/>
 	)
 }

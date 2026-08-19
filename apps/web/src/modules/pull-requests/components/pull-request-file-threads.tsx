@@ -33,7 +33,7 @@ export function PullRequestDiffThreadRow({
 	onComposerDone,
 }: Readonly<PullRequestDiffThreadRowProps>) {
 	return (
-		<div className="border-border border-y bg-muted/20 px-4 py-3 font-sans text-sm">
+		<div className="px-4 py-3 font-sans text-sm">
 			<div className="flex max-w-3xl flex-col gap-3 whitespace-normal">
 				{threads.map(thread => (
 					<PullRequestThreadCard

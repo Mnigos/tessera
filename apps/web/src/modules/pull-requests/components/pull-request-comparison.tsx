@@ -17,8 +17,8 @@ import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
 import { PullRequestDiffSelectionProvider } from './pull-request-diff-selection-context'
 import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
-import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
 import { PullRequestReviewComparisonFiles } from './pull-request-review-comparison-files'
+import { PullRequestReviewComparisonSwitch } from './pull-request-review-comparison-switch'
 import { PullRequestsMessage } from './pull-requests-message'
 
 type PullRequestDetailTab = 'overview' | 'commits' | 'files'
@@ -102,38 +102,40 @@ export function PullRequestComparison({
 		return <PullRequestCommits comparison={comparisonQuery.data} />
 
 	return (
-		<div className="flex flex-col gap-3">
-			{reviewSelection && reviews && reviews.length > 0 && (
-				<PullRequestReviewComparisonBanner
-					onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
-					reviews={reviews}
-					viewerUserId={viewerUserId}
-				/>
-			)}
-			<PullRequestDiffSelectionProvider>
-				<PullRequestComparisonFiles
-					anchorComparison={comparisonQuery.data}
-					comparison={comparisonQuery.data}
-					isGitHubAuthoritative={isGitHubAuthoritative}
-					number={number}
-					review={review}
-					slug={slug}
-					toolbarAction={
-						<PullRequestReviewChangesAction
-							headSha={comparisonQuery.data.headSha}
-							isGitHubAuthoritative={isGitHubAuthoritative}
-							number={number}
-							slug={slug}
-							username={username}
-							viewer={reviewViewer}
-							viewerPendingReview={viewerPendingReview}
+		<PullRequestDiffSelectionProvider>
+			<PullRequestComparisonFiles
+				anchorComparison={comparisonQuery.data}
+				comparison={comparisonQuery.data}
+				isGitHubAuthoritative={isGitHubAuthoritative}
+				number={number}
+				review={review}
+				slug={slug}
+				toolbarAction={
+					<PullRequestReviewChangesAction
+						headSha={comparisonQuery.data.headSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
+						number={number}
+						slug={slug}
+						username={username}
+						viewer={reviewViewer}
+						viewerPendingReview={viewerPendingReview}
+					/>
+				}
+				toolbarLead={
+					reviewSelection &&
+					reviews &&
+					reviews.length > 0 && (
+						<PullRequestReviewComparisonSwitch
+							onSelectedReviewIdChange={reviewSelection.onReviewIdChange}
+							reviews={reviews}
+							viewerUserId={viewerUserId}
 						/>
-					}
-					username={username}
-					viewerUserId={viewerUserId}
-				/>
-			</PullRequestDiffSelectionProvider>
-		</div>
+					)
+				}
+				username={username}
+				viewerUserId={viewerUserId}
+			/>
+		</PullRequestDiffSelectionProvider>
 	)
 }
 

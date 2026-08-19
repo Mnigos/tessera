@@ -32,15 +32,11 @@ export function PullRequestsList({
 
 	return (
 		<section className="flex flex-col gap-4">
-			<header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-				<div className="min-w-0">
-					<p className="truncate text-muted-foreground text-sm">
-						{username}/{slug}
-					</p>
-					<h1 className="font-semibold text-3xl tracking-normal">
-						Pull requests
-					</h1>
-				</div>
+			<header className="flex flex-wrap items-center justify-between gap-3">
+				<PullRequestsStateFilter
+					onSelectedStateChange={onSelectedStateChange}
+					selectedState={selectedState}
+				/>
 				{canWriteRepository(data?.viewerRole) &&
 					data?.authority !== 'github' && (
 						<Link
@@ -53,10 +49,6 @@ export function PullRequestsList({
 						</Link>
 					)}
 			</header>
-			<PullRequestsStateFilter
-				onSelectedStateChange={onSelectedStateChange}
-				selectedState={selectedState}
-			/>
 			<PullRequestsListContent
 				isError={isError}
 				isLoading={isLoading}

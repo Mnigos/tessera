@@ -36,9 +36,5 @@ export const Route = createFileRoute(
 function CheckStatusProvidersSettingsRoute() {
 	const { username, slug } = Route.useParams()
 
-	return (
-		<main className="mx-auto max-w-6xl px-6 py-8">
-			<CheckStatusProvidersSettings slug={slug} username={username} />
-		</main>
-	)
+	return <CheckStatusProvidersSettings slug={slug} username={username} />
 }

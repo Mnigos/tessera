@@ -1,31 +1,35 @@
 import { routes } from '@/routes'
 import { Route as commitsRoute } from './repository.$username.$slug.pulls.$number.commits.route'
 import { Route as filesRoute } from './repository.$username.$slug.pulls.$number.files.route'
-import { Route as overviewRoute } from './repository.$username.$slug.pulls.$number.route'
+import { Route as overviewRoute } from './repository.$username.$slug.pulls.$number.index.route'
 
 const REVIEW_ID = '00000000-0000-4000-8000-000000000011'
-const PULL_REQUEST_PATHS = [
-	'/$username/$slug/pulls',
-	'/$username/$slug/pulls/new',
-	'/$username/$slug/pulls/$number',
-	'/$username/$slug/pulls/$number/commits',
-	'/$username/$slug/pulls/$number/files',
-]
+const PULL_REQUEST_PATHS = ['/pulls', '/pulls/new', '/pulls/$number']
+const PULL_REQUEST_DETAIL_PATHS = ['index', '/commits', '/files']
 
 describe('pull request routes', () => {
-	test('registers list, create, overview, commits, and files as separate pages', () => {
-		const pullRequestRoutes = (routes.children ?? []).filter(
-			route => 'path' in route && route.path?.includes('/pulls')
+	test('hangs list, create, and the detail sub-tabs off the repository shell', () => {
+		const repositoryRoute = (routes.children ?? []).find(
+			route => 'path' in route && route.path === '/$username/$slug'
+		)
+		const pullRequestRoutes = (
+			(repositoryRoute && 'children' in repositoryRoute
+				? repositoryRoute.children
+				: undefined) ?? []
+		).filter(route => 'path' in route && route.path.includes('/pulls'))
+		const detailRoute = pullRequestRoutes.find(
+			route => 'path' in route && route.path === '/pulls/$number'
 		)
 
 		expect(
 			pullRequestRoutes.map(route => ('path' in route ? route.path : undefined))
 		).toEqual(PULL_REQUEST_PATHS)
 		expect(
-			pullRequestRoutes.every(
-				route => !('children' in route) || route.children === undefined
-			)
-		).toBeTruthy()
+			(detailRoute && 'children' in detailRoute
+				? (detailRoute.children ?? [])
+				: []
+			).map(route => ('path' in route ? route.path : route.type))
+		).toEqual(PULL_REQUEST_DETAIL_PATHS)
 	})
 
 	test('carries the reviewed comparison on the files page as one review id', () => {

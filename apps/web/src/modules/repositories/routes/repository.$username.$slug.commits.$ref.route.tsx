@@ -33,8 +33,6 @@ function RepositoryCommitsRoute() {
 	const { username, slug, ref } = Route.useParams()
 
 	return (
-		<main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-			<RepositoryCommitHistory refName={ref} slug={slug} username={username} />
-		</main>
+		<RepositoryCommitHistory refName={ref} slug={slug} username={username} />
 	)
 }

@@ -1,9 +1,20 @@
 import { ORPCError, safe } from '@orpc/client'
-import { createFileRoute, notFound } from '@tanstack/react-router'
+import { cn } from '@repo/ui/utils'
+import {
+	createFileRoute,
+	notFound,
+	Outlet,
+	useRouterState,
+} from '@tanstack/react-router'
 import { z } from 'zod'
-import { RepositoryBrowserMessage } from '../components/repository-browser-message'
-import { RepositoryOverview } from '../components/repository-overview'
+import {
+	RepositoryHeader,
+	RepositoryHeaderSkeleton,
+} from '../components/repository-header'
+import { isRepositoryNotReadyError } from '../helpers/repository-storage-readiness'
 import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
+
+const PULL_REQUEST_FILES_ROUTE_ID = '/$username/$slug/pulls/$number/files'
 
 export const Route = createFileRoute('/$username/$slug')({
 	validateSearch: z.object({
@@ -57,61 +68,29 @@ export const Route = createFileRoute('/$username/$slug')({
 function RepositoryRoute() {
 	const { username, slug } = Route.useParams()
 	const { ref } = Route.useSearch()
-	const {
-		data: summary,
-		error,
-		isLoading,
-		isError,
-	} = useRepositoryBrowserSummaryQuery({ ref, slug, username })
-
-	if (isLoading)
-		return (
-			<main className="mx-auto max-w-6xl px-6 py-8">
-				<div className="flex flex-col gap-4">
-					<div className="h-5 max-w-56 animate-pulse rounded-md bg-secondary/70" />
-					<div className="h-10 max-w-lg animate-pulse rounded-md bg-secondary" />
-					<div className="h-24 animate-pulse rounded-md bg-secondary/50" />
-				</div>
-			</main>
-		)
-
-	if (isError)
-		return (
-			<main className="mx-auto max-w-6xl px-6 py-8">
-				<RepositoryBrowserMessage
-					title={
-						isRepositoryNotReadyError(error)
-							? 'Repository is not ready'
-							: 'Repository could not be loaded'
-					}
-				>
-					{isRepositoryNotReadyError(error)
-						? 'This repository exists, but its Git data is not available yet. Try again after the import finishes.'
-						: 'The repository overview could not be loaded.'}
-				</RepositoryBrowserMessage>
-			</main>
-		)
-
-	if (!summary)
-		return (
-			<main className="mx-auto max-w-6xl px-6 py-8">
-				<RepositoryBrowserMessage title="Repository has no overview data">
-					The repository overview returned no data.
-				</RepositoryBrowserMessage>
-			</main>
-		)
+	// Files changed is the one page that reads better across the whole viewport.
+	const isFullWidth = useRouterState({
+		select: state =>
+			state.matches.some(
+				match => match.routeId === PULL_REQUEST_FILES_ROUTE_ID
+			),
+	})
+	const { data: summary, isLoading } = useRepositoryBrowserSummaryQuery({
+		ref,
+		slug,
+		username,
+	})
 
 	return (
-		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryOverview selectedRef={ref} summary={summary} />
+		<main
+			className={cn(
+				'mx-auto flex w-full flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8',
+				isFullWidth ? 'max-w-none' : 'max-w-6xl'
+			)}
+		>
+			{isLoading && <RepositoryHeaderSkeleton />}
+			{summary && <RepositoryHeader selectedRef={ref} summary={summary} />}
+			<Outlet />
 		</main>
-	)
-}
-
-function isRepositoryNotReadyError(error: unknown) {
-	return (
-		error instanceof ORPCError &&
-		error.status === 404 &&
-		error.message === 'repository not found while storage is being prepared'
 	)
 }

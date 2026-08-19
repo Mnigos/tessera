@@ -6,13 +6,14 @@ import type {
 import { toast } from '@repo/ui/components/sonner'
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { AnchorHTMLAttributes, ReactNode } from 'react'
+import type { AnchorHTMLAttributes, ComponentProps, ReactNode } from 'react'
 import {
 	getFallbackRefOptions,
 	getSelectedRepositoryQualifiedRef,
 	getSelectedRepositoryRefOption,
 } from '../helpers/repository-refs'
 import { useGitHubSyncHealthQuery } from '../hooks/use-github-sync-health.query'
+import { RepositoryHeader } from './repository-header'
 import { RepositoryOverview } from './repository-overview'
 
 vi.mock('@tanstack/react-router', () => ({
@@ -40,6 +41,7 @@ vi.mock('@tanstack/react-router', () => ({
 		)
 	},
 	useNavigate: () => vi.fn(),
+	useRouterState: () => '/$username/$slug/',
 }))
 
 vi.mock('@repo/ui/components/sonner', async importOriginal => {
@@ -251,6 +253,18 @@ function getTesseraSourceSummary(
 	})
 }
 
+// The header and the overview are one page; only the route puts them together.
+function RepositoryOverviewPage(
+	props: Readonly<ComponentProps<typeof RepositoryOverview>>
+) {
+	return (
+		<>
+			<RepositoryHeader {...props} />
+			<RepositoryOverview {...props} />
+		</>
+	)
+}
+
 describe('RepositoryOverview', () => {
 	afterEach(() => {
 		vi.restoreAllMocks()
@@ -262,7 +276,7 @@ describe('RepositoryOverview', () => {
 
 	test('renders README markdown before the root tree when README is present', () => {
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={getSummary({
 					readme: {
 						filename: 'README.md',
@@ -292,7 +306,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={getSummary({
 					readme: {
 						filename: 'README.md',
@@ -316,7 +330,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('shows the file tree first without a large missing README placeholder', () => {
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		expect(
 			screen.queryByRole('heading', { name: README_HEADING_REGEX })
@@ -333,7 +347,7 @@ describe('RepositoryOverview', () => {
 			.mockResolvedValue(undefined)
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		await user.click(screen.getByRole('button', { name: 'Code' }))
 
@@ -363,7 +377,7 @@ describe('RepositoryOverview', () => {
 	test('states GitHub authority with a source link and no controls at all', () => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
 
-		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText('GitHub is the source of truth')).toBeTruthy()
 		expect(
@@ -382,7 +396,7 @@ describe('RepositoryOverview', () => {
 	test('keeps a healthy mirror quiet, with no explanation and no settings link', () => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
 
-		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText('In sync')).toBeTruthy()
 		expect(
@@ -420,7 +434,7 @@ describe('RepositoryOverview', () => {
 	] as const)('names the %s sync state in words and points the owner at the detail', (state, label, description) => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state })
 
-		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText(label)).toBeTruthy()
 		expect(screen.getByText(description)).toBeTruthy()
@@ -438,7 +452,7 @@ describe('RepositoryOverview', () => {
 			rateLimitedUntil: new Date('2026-06-15T11:00:00.000Z'),
 		})
 
-		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />)
 
 		expect(screen.getByText('Waiting on GitHub')).toBeTruthy()
 		expect(
@@ -451,7 +465,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('never asks for owner-only sync health on behalf of a non-owner', () => {
-		render(<RepositoryOverview summary={getMirroredSummary()} />)
+		render(<RepositoryOverviewPage summary={getMirroredSummary()} />)
 
 		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
 			expect.anything(),
@@ -460,7 +474,7 @@ describe('RepositoryOverview', () => {
 
 		useGitHubSyncHealthQueryMock.mockClear()
 
-		render(<RepositoryOverview summary={asOwner(getMirroredSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />)
 
 		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
 			expect.anything(),
@@ -469,7 +483,9 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('does not ask for sync health on a repository with no running mirror', () => {
-		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
+		render(
+			<RepositoryOverviewPage summary={asOwner(getTesseraSourceSummary())} />
+		)
 
 		expect(useGitHubSyncHealthQueryMock).toHaveBeenCalledWith(
 			expect.anything(),
@@ -478,7 +494,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('states provenance without a sync state for viewers who cannot read health', () => {
-		render(<RepositoryOverview summary={getMirroredSummary()} />)
+		render(<RepositoryOverviewPage summary={getMirroredSummary()} />)
 
 		expect(screen.getByText('GitHub is the source of truth')).toBeTruthy()
 		expect(
@@ -492,7 +508,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={asOwner({
 					...getMirroredSummary(),
 					repository: {
@@ -533,7 +549,7 @@ describe('RepositoryOverview', () => {
 		} satisfies RepositoryBrowserSummary['repository']['cloneUrls']
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={
 					{
 						...mirrored,
@@ -563,7 +579,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={asOwner(getMirroredSummary({ mode: 'imported' }))}
 			/>
 		)
@@ -582,7 +598,9 @@ describe('RepositoryOverview', () => {
 	test('switches clone URLs back to Tessera after cutover', async () => {
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
+		render(
+			<RepositoryOverviewPage summary={asOwner(getTesseraSourceSummary())} />
+		)
 
 		expect(screen.getByText('Tessera is the source of truth')).toBeTruthy()
 
@@ -596,7 +614,7 @@ describe('RepositoryOverview', () => {
 		const mirrored = getMirroredSummary()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={
 					{
 						...mirrored,
@@ -639,7 +657,9 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('keeps historical GitHub provenance after cutover, with no controls', () => {
-		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
+		render(
+			<RepositoryOverviewPage summary={asOwner(getTesseraSourceSummary())} />
+		)
 
 		expect(screen.getByText('Tessera is the source of truth')).toBeTruthy()
 		expect(
@@ -657,7 +677,7 @@ describe('RepositoryOverview', () => {
 		mockSyncHealth({ ...BASE_SYNC_HEALTH, state: 'healthy' })
 
 		const { rerender } = render(
-			<RepositoryOverview summary={asOwner(getMirroredSummary())} />
+			<RepositoryOverviewPage summary={asOwner(getMirroredSummary())} />
 		)
 
 		expect(
@@ -665,7 +685,7 @@ describe('RepositoryOverview', () => {
 		).toBe('/mnigos/tessera-notes/settings/github')
 
 		rerender(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={{ ...getMirroredSummary(), viewerRole: 'admin' }}
 			/>
 		)
@@ -674,7 +694,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('does not show a source strip for native Tessera repositories', () => {
-		render(<RepositoryOverview summary={asOwner(getSummary())} />)
+		render(<RepositoryOverviewPage summary={asOwner(getSummary())} />)
 
 		expect(screen.queryByText('GitHub is the source of truth')).toBeNull()
 		expect(screen.queryByText('Imported from GitHub')).toBeNull()
@@ -686,7 +706,7 @@ describe('RepositoryOverview', () => {
 		'owner',
 		'admin',
 	] as const)('shows the collaborators settings link for %s viewers', viewerRole => {
-		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
+		render(<RepositoryOverviewPage summary={getSummary({ viewerRole })} />)
 
 		expect(
 			screen.getByRole('link', { name: 'Collaborators 2' }).getAttribute('href')
@@ -697,7 +717,7 @@ describe('RepositoryOverview', () => {
 		'write',
 		'read',
 	] as const)('hides the collaborators settings link for %s viewers', viewerRole => {
-		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
+		render(<RepositoryOverviewPage summary={getSummary({ viewerRole })} />)
 
 		expect(
 			screen.queryByRole('link', { name: COLLABORATORS_TAB_REGEX })
@@ -705,7 +725,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('distinguishes directory and file rows', () => {
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		const rows = screen.getAllByTestId('file-tree-row')
 		const srcRow = rows.find(row => row.dataset.entryName === 'src')
@@ -722,7 +742,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('links root rows to tree and blob routes', () => {
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		const rows = screen.getAllByTestId('file-tree-row')
 		const srcRow = rows.find(row => row.dataset.entryName === 'src')
@@ -744,7 +764,7 @@ describe('RepositoryOverview', () => {
 	})
 
 	test('links to commit history for the default branch', () => {
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		expect(
 			screen.getByRole('link', { name: 'Commits 12' }).getAttribute('href')
@@ -753,7 +773,7 @@ describe('RepositoryOverview', () => {
 
 	test('prefers API-normalized selected refs over raw search refs', () => {
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				selectedRef="release"
 				summary={getSummary({
 					selectedRef: {
@@ -830,7 +850,7 @@ describe('RepositoryOverview', () => {
 	test('shows a grouped branch and tag selector with default branch selected', async () => {
 		const user = userEvent.setup()
 
-		render(<RepositoryOverview summary={getSummary()} />)
+		render(<RepositoryOverviewPage summary={getSummary()} />)
 
 		expect(
 			screen.getByRole('combobox', { name: 'Repository ref' }).textContent
@@ -857,7 +877,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={getSummary({
 					isEmpty: true,
 					rootEntries: [],
@@ -908,7 +928,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={getSummary({
 					isEmpty: true,
 					rootEntries: [],
@@ -945,7 +965,7 @@ describe('RepositoryOverview', () => {
 		const user = userEvent.setup()
 
 		render(
-			<RepositoryOverview
+			<RepositoryOverviewPage
 				summary={getSummary({
 					isEmpty: true,
 					rootEntries: [],

@@ -5,7 +5,6 @@ import type {
 	SessionUser,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-import { Card } from '@repo/ui/components/card'
 import {
 	Select,
 	SelectContent,
@@ -23,22 +22,20 @@ import {
 	getPullRequestReviewLabel,
 } from '../helpers/pull-request-review'
 
-interface PullRequestReviewComparisonBannerProps {
+interface PullRequestReviewComparisonSwitchProps {
 	reviews: readonly PullRequestReview[]
 	selectedReviewId?: PullRequestReviewId
-	/** Absent while the selected comparison loads, and in full-diff mode. */
-	reviewComparison?: PullRequestReviewComparison
 	viewerUserId?: SessionUser['id']
 	onSelectedReviewIdChange: (reviewId?: PullRequestReviewId) => void
 }
 
-export function PullRequestReviewComparisonBanner({
+/** Which comparison is being read, sitting on the toolbar row rather than in a card. */
+export function PullRequestReviewComparisonSwitch({
 	reviews,
 	selectedReviewId,
-	reviewComparison,
 	viewerUserId,
 	onSelectedReviewIdChange,
-}: Readonly<PullRequestReviewComparisonBannerProps>) {
+}: Readonly<PullRequestReviewComparisonSwitchProps>) {
 	const defaultReviewId = getDefaultPullRequestReviewId(reviews, viewerUserId)
 	const isSinceReview = Boolean(selectedReviewId)
 
@@ -49,64 +46,59 @@ export function PullRequestReviewComparisonBanner({
 	}
 
 	return (
-		<Card className="gap-3">
-			<div className="flex flex-wrap items-center gap-2">
-				<fieldset className="flex flex-wrap items-center gap-1">
-					<legend className="sr-only">Choose which changes to show</legend>
-					<Button
-						aria-pressed={!isSinceReview}
-						onClick={() => onSelectedReviewIdChange(undefined)}
-						size="sm"
-						variant={isSinceReview ? 'ghost' : 'secondary'}
+		<div className="flex min-w-0 flex-wrap items-center gap-2">
+			<fieldset className="flex flex-wrap items-center gap-1">
+				<legend className="sr-only">Choose which changes to show</legend>
+				<Button
+					aria-pressed={!isSinceReview}
+					onClick={() => onSelectedReviewIdChange(undefined)}
+					size="sm"
+					variant={isSinceReview ? 'ghost' : 'secondary'}
+				>
+					Full diff
+				</Button>
+				<Button
+					aria-pressed={isSinceReview}
+					disabled={!defaultReviewId}
+					onClick={() =>
+						onSelectedReviewIdChange(selectedReviewId ?? defaultReviewId)
+					}
+					size="sm"
+					variant={isSinceReview ? 'secondary' : 'ghost'}
+				>
+					Since review
+				</Button>
+			</fieldset>
+			{isSinceReview && reviews.length > 0 && (
+				<Select
+					onValueChange={handleSelectedReviewChange}
+					value={selectedReviewId}
+				>
+					<SelectTrigger
+						aria-label="Review to compare against"
+						className="h-8 w-full max-w-96 justify-start sm:w-72"
 					>
-						Full diff
-					</Button>
-					<Button
-						aria-pressed={isSinceReview}
-						disabled={!defaultReviewId}
-						onClick={() =>
-							onSelectedReviewIdChange(selectedReviewId ?? defaultReviewId)
-						}
-						size="sm"
-						variant={isSinceReview ? 'secondary' : 'ghost'}
-					>
-						Since review
-					</Button>
-				</fieldset>
-				{isSinceReview && reviews.length > 0 && (
-					<Select
-						onValueChange={handleSelectedReviewChange}
-						value={selectedReviewId}
-					>
-						<SelectTrigger
-							aria-label="Review to compare against"
-							className="w-full max-w-96 justify-start sm:w-80"
-						>
-							<SelectValue placeholder="Select a review" />
-						</SelectTrigger>
-						<SelectContent align="start" className="w-96">
-							{reviews.map(review => (
-								<SelectItem key={review.id} value={review.id}>
-									<span className="flex min-w-0 flex-col items-start">
-										<span className="truncate">
-											{getPullRequestActorName(review.reviewer)} ·{' '}
-											{getPullRequestReviewLabel(review)}
-										</span>
-										<span className="text-muted-foreground text-xs">
-											{formatPullRequestDate(review.submittedAt)} ·{' '}
-											{formatPullRequestShortSha(review.headSha)}
-										</span>
+						<SelectValue placeholder="Select a review" />
+					</SelectTrigger>
+					<SelectContent align="start" className="w-96">
+						{reviews.map(review => (
+							<SelectItem key={review.id} value={review.id}>
+								<span className="flex min-w-0 flex-col items-start">
+									<span className="truncate">
+										{getPullRequestActorName(review.reviewer)} ·{' '}
+										{getPullRequestReviewLabel(review)}
 									</span>
-								</SelectItem>
-							))}
-						</SelectContent>
-					</Select>
-				)}
-			</div>
-			{reviewComparison && (
-				<PullRequestReviewComparisonState reviewComparison={reviewComparison} />
+									<span className="text-muted-foreground text-xs">
+										{formatPullRequestDate(review.submittedAt)} ·{' '}
+										{formatPullRequestShortSha(review.headSha)}
+									</span>
+								</span>
+							</SelectItem>
+						))}
+					</SelectContent>
+				</Select>
 			)}
-		</Card>
+		</div>
 	)
 }
 
@@ -114,7 +106,7 @@ interface PullRequestReviewComparisonStateProps {
 	reviewComparison: PullRequestReviewComparison
 }
 
-function PullRequestReviewComparisonState({
+export function PullRequestReviewComparisonState({
 	reviewComparison,
 }: Readonly<PullRequestReviewComparisonStateProps>) {
 	const { currentHeadSha, review } = reviewComparison

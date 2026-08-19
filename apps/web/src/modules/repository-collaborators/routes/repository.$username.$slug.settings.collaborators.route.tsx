@@ -36,9 +36,5 @@ export const Route = createFileRoute('/$username/$slug/settings/collaborators')(
 function RepositoryCollaboratorsSettingsRoute() {
 	const { username, slug } = Route.useParams()
 
-	return (
-		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryCollaboratorsSettings slug={slug} username={username} />
-		</main>
-	)
+	return <RepositoryCollaboratorsSettings slug={slug} username={username} />
 }
