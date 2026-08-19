@@ -82,6 +82,9 @@ const baseSummary = {
 	},
 	viewerRole: 'read',
 	defaultBranch: 'main',
+	commitCount: 12,
+	openPullRequestCount: 3,
+	collaboratorCount: 2,
 	branches: [
 		{
 			type: 'branch',
@@ -146,6 +149,7 @@ const GITHUB_REPOSITORY_REGEX = /mnigos\/upstream-notes/
 const MIRROR_BUTTON_REGEX = /mirror/i
 const SYNC_BUTTON_REGEX = /sync/i
 const AUTHORITY_BUTTON_REGEX = /authoritative/i
+const COLLABORATORS_TAB_REGEX = /^Collaborators/
 
 const GITHUB_CLONE_URLS = {
 	authority: 'github',
@@ -331,9 +335,9 @@ describe('RepositoryOverview', () => {
 
 		render(<RepositoryOverview summary={getSummary()} />)
 
-		expect(screen.getByRole('heading', { name: 'Clone' })).toBeTruthy()
+		await user.click(screen.getByRole('button', { name: 'Code' }))
+
 		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
-		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
 
 		await user.click(screen.getByRole('button', { name: 'Copy SSH clone URL' }))
 
@@ -341,6 +345,10 @@ describe('RepositoryOverview', () => {
 		expect(
 			screen.getByRole('button', { name: 'SSH clone URL copied' })
 		).toBeTruthy()
+
+		await user.click(screen.getByRole('tab', { name: 'HTTPS' }))
+
+		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
 
 		await user.click(
 			screen.getByRole('button', { name: 'Copy HTTPS clone URL' })
@@ -480,7 +488,9 @@ describe('RepositoryOverview', () => {
 		expect(screen.queryByRole('link', { name: 'Sync details' })).toBeNull()
 	})
 
-	test('offers GitHub clone URLs while GitHub is authoritative', () => {
+	test('offers GitHub clone URLs while GitHub is authoritative', async () => {
+		const user = userEvent.setup()
+
 		render(
 			<RepositoryOverview
 				summary={asOwner({
@@ -493,14 +503,19 @@ describe('RepositoryOverview', () => {
 			/>
 		)
 
+		await user.click(screen.getByRole('button', { name: 'Code' }))
+
 		expect(screen.getByText(GITHUB_CLONE_URLS.ssh)).toBeTruthy()
-		expect(screen.getByText(GITHUB_CLONE_URLS.https)).toBeTruthy()
 		expect(
 			screen.getByText(
 				'GitHub is the source of truth for this repository, so clones and pushes go to GitHub.'
 			)
 		).toBeTruthy()
 		expect(screen.queryByText(expectedSshCloneUrl)).toBeNull()
+
+		await user.click(screen.getByRole('tab', { name: 'HTTPS' }))
+
+		expect(screen.getByText(GITHUB_CLONE_URLS.https)).toBeTruthy()
 	})
 
 	// Labelling a plain-HTTP Enterprise remote "HTTPS" would be a security claim,
@@ -528,15 +543,12 @@ describe('RepositoryOverview', () => {
 			/>
 		)
 
-		expect(screen.getByText('HTTP')).toBeTruthy()
-		expect(screen.queryByText('HTTPS')).toBeNull()
-		// The description names the protocol too, so it cannot claim HTTPS either.
-		expect(
-			screen.queryByText(
-				'Use SSH for authenticated Git access, or HTTPS when SSH is not available.'
-			)
-		).toBeNull()
+		await user.click(screen.getByRole('button', { name: 'Code' }))
 
+		expect(screen.getByRole('tab', { name: 'HTTP' })).toBeTruthy()
+		expect(screen.queryByRole('tab', { name: 'HTTPS' })).toBeNull()
+
+		await user.click(screen.getByRole('tab', { name: 'HTTP' }))
 		await user.click(
 			screen.getByRole('button', { name: 'Copy HTTP clone URL' })
 		)
@@ -547,7 +559,9 @@ describe('RepositoryOverview', () => {
 		).toBeTruthy()
 	})
 
-	test('offers Tessera clone URLs for an imported repository', () => {
+	test('offers Tessera clone URLs for an imported repository', async () => {
+		const user = userEvent.setup()
+
 		render(
 			<RepositoryOverview
 				summary={asOwner(getMirroredSummary({ mode: 'imported' }))}
@@ -555,14 +569,25 @@ describe('RepositoryOverview', () => {
 		)
 
 		expect(screen.getByText('Imported from GitHub')).toBeTruthy()
+
+		await user.click(screen.getByRole('button', { name: 'Code' }))
+
 		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
+
+		await user.click(screen.getByRole('tab', { name: 'HTTPS' }))
+
 		expect(screen.getByText(expectedCloneUrl)).toBeTruthy()
 	})
 
-	test('switches clone URLs back to Tessera after cutover', () => {
+	test('switches clone URLs back to Tessera after cutover', async () => {
+		const user = userEvent.setup()
+
 		render(<RepositoryOverview summary={asOwner(getTesseraSourceSummary())} />)
 
 		expect(screen.getByText('Tessera is the source of truth')).toBeTruthy()
+
+		await user.click(screen.getByRole('button', { name: 'Code' }))
+
 		expect(screen.getByText(expectedSshCloneUrl)).toBeTruthy()
 		expect(screen.queryByText(GITHUB_CLONE_URLS.ssh)).toBeNull()
 	})
@@ -664,7 +689,7 @@ describe('RepositoryOverview', () => {
 		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
 
 		expect(
-			screen.getByRole('link', { name: 'Collaborators' }).getAttribute('href')
+			screen.getByRole('link', { name: 'Collaborators 2' }).getAttribute('href')
 		).toBe('/mnigos/tessera-notes/settings/collaborators')
 	})
 
@@ -674,7 +699,9 @@ describe('RepositoryOverview', () => {
 	] as const)('hides the collaborators settings link for %s viewers', viewerRole => {
 		render(<RepositoryOverview summary={getSummary({ viewerRole })} />)
 
-		expect(screen.queryByRole('link', { name: 'Collaborators' })).toBeNull()
+		expect(
+			screen.queryByRole('link', { name: COLLABORATORS_TAB_REGEX })
+		).toBeNull()
 	})
 
 	test('distinguishes directory and file rows', () => {
@@ -720,9 +747,7 @@ describe('RepositoryOverview', () => {
 		render(<RepositoryOverview summary={getSummary()} />)
 
 		expect(
-			screen
-				.getByRole('link', { name: 'View commits for main' })
-				.getAttribute('href')
+			screen.getByRole('link', { name: 'Commits 12' }).getAttribute('href')
 		).toBe('/mnigos/tessera-notes/commits/refs%2Fheads%2Fmain')
 	})
 
@@ -746,9 +771,7 @@ describe('RepositoryOverview', () => {
 		)
 
 		expect(
-			screen
-				.getByRole('link', { name: 'View commits for release' })
-				.getAttribute('href')
+			screen.getByRole('link', { name: 'Commits 12' }).getAttribute('href')
 		).toBe('/mnigos/tessera-notes/commits/refs%2Ftags%2Frelease')
 	})
 
