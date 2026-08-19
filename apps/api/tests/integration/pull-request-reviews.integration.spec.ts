@@ -605,6 +605,7 @@ describe('Pull request reviews integration', () => {
 			providerUpdatedAt: new Date(),
 			lastSyncedAt: new Date(),
 		})
+		gitStorageCompareRepositoryRefs.mockClear()
 		gitStorageCompareRepositoryRefs.mockResolvedValueOnce(
 			comparisonResult(storedBaseSha, storedHeadSha)
 		)
