@@ -1,28 +1,20 @@
 import type { RepositoryBrowserSummary } from '@repo/contracts'
-import { Link, useNavigate } from '@tanstack/react-router'
+import { useNavigate } from '@tanstack/react-router'
 import {
-	CircleDot,
-	Github,
-	GitPullRequest,
-	History,
-	Settings,
-	ShieldCheck,
-} from 'lucide-react'
-import {
-	getRepositoryRefDisplayName,
 	getRepositoryRefOptions,
 	getSelectedRepositoryQualifiedRef,
 } from '../helpers/repository-refs'
-import {
-	canAdministerRepository,
-	isRepositoryOwner,
-} from '../helpers/repository-viewer-role'
-import { RepositoryClonePanel } from './repository-clone-panel'
+import { isRepositoryOwner } from '../helpers/repository-viewer-role'
+import { RepositoryClonePopover } from './repository-clone-popover'
 import { RepositoryEmptyState } from './repository-empty-state'
+import { RepositoryNavigation } from './repository-navigation'
 import { RepositoryReadmePreview } from './repository-readme-preview'
 import { RepositoryRefSelector } from './repository-ref-selector'
 import { RepositoryRootTree } from './repository-root-tree'
-import { RepositorySourceBadge } from './repository-source-badge'
+import {
+	RepositorySourceChip,
+	RepositorySourceSyncLine,
+} from './repository-source'
 
 interface RepositoryOverviewProps {
 	summary: RepositoryBrowserSummary
@@ -41,7 +33,6 @@ export function RepositoryOverview({
 		selectedRef,
 		summary,
 	})
-	const selectedRefName = getRepositoryRefDisplayName(selectedQualifiedRef)
 
 	function handleSelectedRefChange(ref: string) {
 		navigate({ search: previousSearch => ({ ...previousSearch, ref }) })
@@ -50,118 +41,66 @@ export function RepositoryOverview({
 	return (
 		<section className="flex flex-col gap-6">
 			<header className="flex flex-col gap-3">
-				<div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-					<div className="min-w-0">
-						<p className="truncate text-muted-foreground text-sm">
-							{owner.username}/{repository.slug}
-						</p>
-						<h1 className="truncate font-semibold text-3xl tracking-normal">
+				<div className="flex flex-col gap-1">
+					<p className="truncate text-muted-foreground text-sm">
+						{owner.username}/{repository.slug}
+					</p>
+					<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+						<h1 className="min-w-0 truncate font-semibold text-3xl tracking-normal">
 							{repository.name}
 						</h1>
+						<span className="rounded-md border border-border px-2.5 py-1 text-muted-foreground text-sm capitalize">
+							{repository.visibility}
+						</span>
+						<RepositorySourceChip repository={repository} />
 					</div>
-					<span className="w-fit rounded-md border border-border px-2.5 py-1 text-muted-foreground text-sm capitalize">
-						{repository.visibility}
-					</span>
 				</div>
-				<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
-					<RepositoryRefSelector
-						disabled={isEmpty}
-						onSelectedRefChange={handleSelectedRefChange}
-						refs={refOptions}
-						selectedRef={selectedQualifiedRef}
-					/>
-					<span>
-						{rootEntries.length} root{' '}
-						{rootEntries.length === 1 ? 'entry' : 'entries'}
-					</span>
-					<Link
-						aria-label={`View commits for ${selectedRefName}`}
-						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-						params={{
-							username: owner.username,
-							slug: repository.slug,
-							ref: selectedQualifiedRef,
-						}}
-						to="/$username/$slug/commits/$ref"
-					>
-						<History className="size-4" />
-						Commits
-					</Link>
-					<Link
-						className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-						params={{ username: owner.username, slug: repository.slug }}
-						to="/$username/$slug/pulls"
-					>
-						<GitPullRequest className="size-4" />
-						Pull requests
-					</Link>
-					{canAdministerRepository(summary.viewerRole) && (
-						<>
-							<Link
-								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
-								to="/$username/$slug/settings/collaborators"
-							>
-								<Settings className="size-4" />
-								Collaborators
-							</Link>
-							<Link
-								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
-								to="/$username/$slug/settings/branch-protection"
-							>
-								<ShieldCheck className="size-4" />
-								Branch protection
-							</Link>
-							<Link
-								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
-								to="/$username/$slug/settings/status-providers"
-							>
-								<CircleDot className="size-4" />
-								Status providers
-							</Link>
-						</>
-					)}
-					{/* Every GitHub source procedure is the owner's alone, so the entry
-					    point is too rather than leading admins to a refusal. */}
-					{isRepositoryOwner(summary.viewerRole) &&
-						repository.externalSource.mode !== 'none' && (
-							<Link
-								className="inline-flex h-8 items-center gap-2 rounded-md border border-border px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary"
-								params={{ username: owner.username, slug: repository.slug }}
-								to="/$username/$slug/settings/github"
-							>
-								<Github className="size-4" />
-								GitHub
-							</Link>
-						)}
-				</div>
+				<RepositorySourceSyncLine
+					isOwner={isRepositoryOwner(summary.viewerRole)}
+					owner={owner}
+					repository={repository}
+				/>
 				{repository.description && (
 					<p className="max-w-3xl text-muted-foreground text-sm">
 						{repository.description}
 					</p>
 				)}
 			</header>
-			<RepositorySourceBadge
-				isOwner={isRepositoryOwner(summary.viewerRole)}
-				owner={owner}
-				repository={repository}
+			<RepositoryNavigation
+				selectedQualifiedRef={selectedQualifiedRef}
+				selectedRef={selectedRef}
+				summary={summary}
 			/>
-			{isEmpty ? (
-				<RepositoryEmptyState repository={repository} />
-			) : (
-				<>
-					<RepositoryClonePanel repository={repository} />
-					{readme && <RepositoryReadmePreview readme={readme} />}
-					<RepositoryRootTree
-						entries={rootEntries}
-						refName={selectedQualifiedRef}
-						slug={repository.slug}
-						username={owner.username}
-					/>
-				</>
-			)}
+			<div className="flex flex-col gap-4">
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
+						<RepositoryRefSelector
+							disabled={isEmpty}
+							onSelectedRefChange={handleSelectedRefChange}
+							refs={refOptions}
+							selectedRef={selectedQualifiedRef}
+						/>
+						<span>
+							{rootEntries.length} root{' '}
+							{rootEntries.length === 1 ? 'entry' : 'entries'}
+						</span>
+					</div>
+					<RepositoryClonePopover repository={repository} />
+				</div>
+				{isEmpty ? (
+					<RepositoryEmptyState repository={repository} />
+				) : (
+					<>
+						{readme && <RepositoryReadmePreview readme={readme} />}
+						<RepositoryRootTree
+							entries={rootEntries}
+							refName={selectedQualifiedRef}
+							slug={repository.slug}
+							username={owner.username}
+						/>
+					</>
+				)}
+			</div>
 		</section>
 	)
 }

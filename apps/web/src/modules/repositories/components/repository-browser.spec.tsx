@@ -234,6 +234,9 @@ const baseSummary = {
 	viewerRole: 'read',
 	isEmpty: false,
 	rootEntries: baseTree.entries,
+	commitCount: 0,
+	openPullRequestCount: 0,
+	collaboratorCount: 0,
 } satisfies RepositoryBrowserSummary
 
 const baseRefs = {

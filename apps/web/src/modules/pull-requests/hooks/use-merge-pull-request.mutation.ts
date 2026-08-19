@@ -23,6 +23,9 @@ export function useMergePullRequestMutation() {
 					queryClient.invalidateQueries({
 						queryKey: orpcQuery.pullRequests.getMergeRequirements.key(),
 					}),
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositories.getBrowserSummary.key(),
+					}),
 				])
 			},
 		})

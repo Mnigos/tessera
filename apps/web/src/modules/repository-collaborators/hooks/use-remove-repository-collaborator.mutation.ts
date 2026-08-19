@@ -7,9 +7,14 @@ export function useRemoveRepositoryCollaboratorMutation() {
 	return useMutation(
 		orpcQuery.repositoryCollaborators.remove.mutationOptions({
 			onSuccess: async () => {
-				await queryClient.invalidateQueries({
-					queryKey: orpcQuery.repositoryCollaborators.list.key(),
-				})
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositoryCollaborators.list.key(),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositories.getBrowserSummary.key(),
+					}),
+				])
 			},
 		})
 	)

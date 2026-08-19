@@ -114,6 +114,9 @@ interface RepositoryBrowserSummaryResponseBody extends RepositoryResponseBody {
 		content: string
 		isTruncated: boolean
 	}
+	commitCount: number
+	openPullRequestCount: number
+	collaboratorCount: number
 }
 
 interface RepositoryBranchRefResponseBody {
@@ -244,6 +247,7 @@ describe('Repositories integration', () => {
 				content: '# Notes',
 				isTruncated: false,
 			},
+			commitCount: 12,
 		})
 		gitStorageListRepositoryRefs = vi.fn().mockResolvedValue({
 			branches: [
@@ -342,6 +346,7 @@ describe('Repositories integration', () => {
 				content: '# Notes',
 				isTruncated: false,
 			},
+			commitCount: 12,
 		})
 		gitStorageListRepositoryRefs.mockResolvedValue({
 			branches: [
@@ -1282,6 +1287,7 @@ describe('Repositories integration', () => {
 			defaultBranch: 'main',
 			rootEntries: [],
 			readme: undefined,
+			commitCount: 0,
 		})
 
 		const response = await getBrowserSummary('marta', 'notes')

@@ -14,6 +14,9 @@ export function useReopenPullRequestMutation() {
 					queryClient.invalidateQueries({
 						queryKey: orpcQuery.pullRequests.get.key(),
 					}),
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositories.getBrowserSummary.key(),
+					}),
 				])
 			},
 		})
