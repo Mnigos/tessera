@@ -979,7 +979,7 @@ export class RepositoriesService {
 			}
 		)
 		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
-		const preview = await this.enrichBlobPreview(path, blob.preview)
+		const preview = await this.enrichBlobPreview(blob, path)
 
 		return {
 			...repositoryOutput,
@@ -1320,13 +1320,16 @@ export class RepositoriesService {
 	}
 
 	private async enrichBlobPreview(
-		path: string,
-		preview: RepositoryBlobPreview
+		blob: GitStorageRepositoryBlob,
+		path: string
 	): Promise<RepositoryBlobPreview> {
+		const { preview } = blob
+
 		if (preview.type !== 'text') return preview
 
 		const highlighted = await highlightRepositoryBlobPreview({
 			content: preview.content,
+			objectId: blob.objectId,
 			path,
 		})
 

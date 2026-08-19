@@ -61,8 +61,7 @@ describe(highlightPullRequestDiff.name, () => {
 
 		expect(result.language).toBe('typescript')
 		expect(result.hunks[0]?.lines[0]).toMatchObject({
-			lightHtml: expect.stringContaining('span'),
-			darkHtml: expect.stringContaining('span'),
+			html: expect.stringContaining('span'),
 			old: {
 				sha: 'merge-base-sha',
 				path: 'src/example.ts',
@@ -90,7 +89,7 @@ describe(highlightPullRequestDiff.name, () => {
 		})
 
 		expect(result.language).toBeUndefined()
-		expect(result.hunks[0]?.lines[0]?.lightHtml).toBeUndefined()
+		expect(result.hunks[0]?.lines[0]?.html).toBeUndefined()
 	})
 
 	test('falls back to raw lines when full-file highlighting is oversized', async () => {
@@ -105,7 +104,7 @@ describe(highlightPullRequestDiff.name, () => {
 		})
 
 		expect(result.language).toBeUndefined()
-		expect(result.hunks[0]?.lines[0]?.darkHtml).toBeUndefined()
+		expect(result.hunks[0]?.lines[0]?.html).toBeUndefined()
 	})
 
 	test('preserves multiline string highlighting across hidden ranges', async () => {
@@ -130,20 +129,18 @@ describe(highlightPullRequestDiff.name, () => {
 		const result = await highlightPullRequestDiff({
 			diff: multilineStringDiff,
 			baseBlob: {
-				objectId: 'base-blob',
+				objectId: 'multiline-base-blob',
 				sizeBytes: content.length,
 				preview: { type: 'text', content },
 			},
 			headBlob: {
-				objectId: 'head-blob',
+				objectId: 'multiline-head-blob',
 				sizeBytes: content.length,
 				preview: { type: 'text', content },
 			},
 		})
 
-		expect(result.hunks[0]?.lines[0]?.darkHtml).toContain('span')
-		expect(result.hunks[0]?.lines[0]?.darkHtml).toContain(
-			'still inside template'
-		)
+		expect(result.hunks[0]?.lines[0]?.html).toContain('span')
+		expect(result.hunks[0]?.lines[0]?.html).toContain('still inside template')
 	})
 })

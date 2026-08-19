@@ -48,6 +48,7 @@ async function highlightBlob(
 
 	return await highlightSourceCode({
 		content: blob.preview.content,
+		objectId: blob.objectId,
 		path,
 	})
 }
@@ -67,8 +68,7 @@ function toHighlightedDiffLine(
 	return {
 		kind: line.kind,
 		content: line.content,
-		lightHtml: highlightedLine?.lightHtml,
-		darkHtml: highlightedLine?.darkHtml,
+		html: highlightedLine?.html,
 		old: toPullRequestDiffAnchor({
 			sha: diff.mergeBaseSha,
 			path: diff.file.oldPath,

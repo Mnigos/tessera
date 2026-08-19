@@ -5,7 +5,7 @@ import type { ComponentProps } from 'react'
 export const tabsClassName = 'flex flex-col gap-2'
 export const tabsListClassName = 'inline-flex h-10 items-center overflow-x-auto'
 export const tabsTriggerClassName =
-	'not-only:disabled:pointer-events-none inline-flex cursor-pointer items-center justify-center gap-1.5 border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors duration-300 hover:text-primary/50 disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60 disabled:hover:text-muted-foreground data-selected:border-primary data-selected:text-primary [&_svg]:size-4 [&_svg]:shrink-0 whitespace-nowrap'
+	'not-only:disabled:pointer-events-none inline-flex cursor-pointer items-center justify-center gap-1.5 border-b-2 border-transparent px-4 py-2 text-sm font-medium text-muted-foreground transition-colors duration-[120ms] hover:text-foreground disabled:cursor-not-allowed disabled:text-muted-foreground disabled:opacity-60 disabled:hover:text-muted-foreground data-selected:border-primary data-selected:text-primary [&_svg]:size-4 [&_svg]:shrink-0 whitespace-nowrap'
 
 export function Tabs({
 	className,

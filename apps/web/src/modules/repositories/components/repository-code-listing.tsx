@@ -79,7 +79,11 @@ function CodeLineContent({ html, text }: Readonly<CodeLineContentProps>) {
 
 	if (html)
 		return (
-			<span className={className} dangerouslySetInnerHTML={{ __html: html }} />
+			<span
+				className={className}
+				dangerouslySetInnerHTML={{ __html: html }}
+				data-shiki=""
+			/>
 		)
 
 	return <span className={className}>{text}</span>

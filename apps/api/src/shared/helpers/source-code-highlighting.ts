@@ -2,11 +2,20 @@ import {
 	type BundledLanguage,
 	createHighlighter,
 	type Highlighter,
+	type ThemedToken,
 } from 'shiki'
 import { bundledLanguages } from 'shiki/langs'
 
 const DARK_THEME = 'github-dark'
 const LIGHT_THEME = 'github-light'
+const HIGHLIGHT_CACHE_LIMIT = 256
+const THEME_COLOR_VARIABLES = new Set([
+	'--shiki-light',
+	'--shiki-dark',
+	'--shiki-light-bg',
+	'--shiki-dark-bg',
+])
+const LIGHT_STYLE_VARIABLE_PREFIX = '--shiki-light-'
 
 const FILENAME_LANGUAGES = new Map<string, BundledLanguage>([
 	['dockerfile', 'docker'],
@@ -34,14 +43,19 @@ const EXTENSION_LANGUAGES = new Map<string, BundledLanguage>([
 
 let highlighterPromise: Promise<Highlighter> | undefined
 
+const highlightCache = new Map<
+	string,
+	Promise<HighlightedSourceCode | undefined>
+>()
+
 export interface HighlightSourceCodeParams {
 	content: string
+	objectId?: string
 	path: string
 }
 
 export interface HighlightedSourceLine {
-	darkHtml: string
-	lightHtml: string
+	html: string
 	number: number
 }
 
@@ -51,9 +65,27 @@ export interface HighlightedSourceCode {
 }
 
 /**
- * Highlights complete source text in both application themes so callers can select line ranges without losing multiline grammar state.
+ * Highlights complete source text once, emitting per-theme CSS variables so callers can select line ranges without losing multiline grammar state.
  */
-export async function highlightSourceCode({
+export async function highlightSourceCode(
+	params: HighlightSourceCodeParams
+): Promise<HighlightedSourceCode | undefined> {
+	if (!params.objectId) return await tokenizeSourceCode(params)
+
+	const key = `${params.objectId}:${params.path}`
+	const cached = readHighlightCache(key)
+
+	if (cached) return await cached
+
+	// The promise itself is cached so the near-simultaneous file-diff requests of one pull request tokenize a blob once.
+	const pending = tokenizeSourceCode(params)
+
+	writeHighlightCache(key, pending)
+
+	return await pending
+}
+
+async function tokenizeSourceCode({
 	content,
 	path,
 }: HighlightSourceCodeParams): Promise<HighlightedSourceCode | undefined> {
@@ -64,26 +96,46 @@ export async function highlightSourceCode({
 	try {
 		const highlighter = await getHighlighter()
 		await highlighter.loadLanguage(language)
-		const lightTokens = highlighter.codeToTokens(content, {
+		const { tokens } = highlighter.codeToTokens(content, {
 			lang: language,
-			theme: LIGHT_THEME,
-		}).tokens
-		const darkTokens = highlighter.codeToTokens(content, {
-			lang: language,
-			theme: DARK_THEME,
-		}).tokens
+			themes: { light: LIGHT_THEME, dark: DARK_THEME },
+			defaultColor: false,
+		})
 
 		return {
 			language,
-			lines: lightTokens.map((lineTokens, index) => ({
+			lines: tokens.map((lineTokens, index) => ({
 				number: index + 1,
-				lightHtml: lineTokens.map(toTokenHtml).join(''),
-				darkHtml: (darkTokens[index] ?? []).map(toTokenHtml).join(''),
+				html: lineTokens.map(toTokenHtml).join(''),
 			})),
 		}
 	} catch {
 		return undefined
 	}
+}
+
+function readHighlightCache(key: string) {
+	const cached = highlightCache.get(key)
+
+	if (!cached) return undefined
+
+	highlightCache.delete(key)
+	highlightCache.set(key, cached)
+
+	return cached
+}
+
+function writeHighlightCache(
+	key: string,
+	highlighted: Promise<HighlightedSourceCode | undefined>
+) {
+	highlightCache.set(key, highlighted)
+
+	if (highlightCache.size <= HIGHLIGHT_CACHE_LIMIT) return
+
+	const oldestKey = highlightCache.keys().next().value
+
+	if (oldestKey) highlightCache.delete(oldestKey)
 }
 
 function detectSourceLanguage(path: string): BundledLanguage | undefined {
@@ -117,27 +169,26 @@ function getHighlighter() {
 	return highlighterPromise
 }
 
-function toTokenHtml({
-	color,
-	content,
-	fontStyle,
-}: {
-	color?: string
-	content: string
-	fontStyle?: number
-}) {
-	const style = [
-		color ? `color:${color}` : undefined,
-		fontStyle === 1 || fontStyle === 3 ? 'font-style:italic' : undefined,
-		fontStyle === 2 || fontStyle === 3 ? 'font-weight:bold' : undefined,
-	]
-		.filter(Boolean)
-		.join(';')
+function toTokenHtml({ content, htmlStyle }: ThemedToken) {
+	const style = toTokenStyle(htmlStyle)
 	const escapedContent = escapeHtml(content)
 
 	if (!style) return escapedContent
 
 	return `<span style="${style}">${escapedContent}</span>`
+}
+
+/** Colours stay per-theme variables the stylesheet resolves; font styles collapse to the light variant because both bundled themes derive them from the same grammar. */
+function toTokenStyle(htmlStyle: Record<string, string> | undefined) {
+	return Object.entries(htmlStyle ?? {})
+		.flatMap(([key, value]) => {
+			if (value === 'inherit') return []
+			if (THEME_COLOR_VARIABLES.has(key)) return [`${key}:${value}`]
+			if (!key.startsWith(LIGHT_STYLE_VARIABLE_PREFIX)) return []
+
+			return [`${key.slice(LIGHT_STYLE_VARIABLE_PREFIX.length)}:${value}`]
+		})
+		.join(';')
 }
 
 function escapeHtml(value: string) {
