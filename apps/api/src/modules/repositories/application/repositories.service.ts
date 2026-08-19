@@ -854,18 +854,23 @@ export class RepositoriesService {
 			slug,
 		})
 
-		const browserSummary =
-			await this.gitStorageClient.getRepositoryBrowserSummary({
+		const [browserSummary, counts] = await Promise.all([
+			this.gitStorageClient.getRepositoryBrowserSummary({
 				repositoryId: repository.id,
 				storagePath,
 				defaultBranch: repository.defaultBranch,
 				ref: selectedRef?.qualifiedName ?? ref,
-			})
+			}),
+			this.repositoriesRepository.countOpenPullRequestsAndCollaborators({
+				repositoryId: repository.id,
+			}),
+		])
 		const repositoryOutput = toRepositoryOutput(repository, this.cloneBaseUrls)
 
 		return {
 			...repositoryOutput,
 			...browserSummary,
+			...counts,
 			viewerRole: role,
 			selectedRef,
 			branches: refs.branches,

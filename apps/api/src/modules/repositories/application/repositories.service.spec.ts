@@ -154,6 +154,10 @@ describe(RepositoriesService.name, () => {
 						findGitHubAccount: vi.fn(),
 						findCollaboratorRole: vi.fn(),
 						findOrganizationMemberRole: vi.fn(),
+						countOpenPullRequestsAndCollaborators: vi.fn().mockResolvedValue({
+							openPullRequestCount: 3,
+							collaboratorCount: 2,
+						}),
 						delete: vi.fn(),
 					},
 				},
@@ -183,6 +187,7 @@ describe(RepositoriesService.name, () => {
 								content: '# Tessera',
 								isTruncated: false,
 							},
+							commitCount: 12,
 						}),
 						getRepositoryTree: vi.fn().mockResolvedValue({
 							commitId: 'commit123',
@@ -1182,6 +1187,9 @@ describe(RepositoriesService.name, () => {
 				content: '# Tessera',
 				isTruncated: false,
 			},
+			commitCount: 12,
+			openPullRequestCount: 3,
+			collaboratorCount: 2,
 		})
 		expect(findSpy).toHaveBeenCalledWith({
 			username: 'marta',
