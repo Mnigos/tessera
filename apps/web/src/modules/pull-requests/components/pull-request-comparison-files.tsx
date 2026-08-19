@@ -88,13 +88,16 @@ export function PullRequestComparisonFiles({
 		activePath,
 		clearExpanded,
 		expansionOverrides,
-		nearViewportPaths,
+		mountedPaths,
 		registerSectionNode,
 		reset,
 		scrollToSection,
+		sectionPlaceholders,
 		setExpanded,
 	} = usePullRequestFileSections()
-	const [pendingViewedPaths, setPendingViewedPaths] = useState<string[]>([])
+	const [pendingViewedPaths, setPendingViewedPaths] = useState<
+		ReadonlySet<string>
+	>(new Set())
 	const inFlightViewedPaths = useRef(new Set<string>())
 	const { baseSha: anchorBaseSha, headSha: anchorHeadSha } = anchorComparison
 	const diffAnchorComparison = useMemo(
@@ -107,7 +110,7 @@ export function PullRequestComparisonFiles({
 	// Reset per-pair UI state in place; remounting would drop a comment being written.
 	if (renderedPair !== comparisonPair) {
 		setRenderedPair(comparisonPair)
-		setPendingViewedPaths([])
+		setPendingViewedPaths(new Set())
 		reset()
 	}
 
@@ -153,7 +156,7 @@ export function PullRequestComparisonFiles({
 			if (inFlightViewedPaths.current.has(path)) return
 
 			inFlightViewedPaths.current.add(path)
-			setPendingViewedPaths(paths => [...paths, path])
+			setPendingViewedPaths(paths => new Set(paths).add(path))
 			setExpanded(path, !viewed)
 			setFileViewed(
 				{
@@ -168,9 +171,12 @@ export function PullRequestComparisonFiles({
 					onError: () => clearExpanded(path),
 					onSettled: () => {
 						inFlightViewedPaths.current.delete(path)
-						setPendingViewedPaths(paths =>
-							paths.filter(pendingPath => pendingPath !== path)
-						)
+						setPendingViewedPaths(paths => {
+							const pending = new Set(paths)
+							pending.delete(path)
+
+							return pending
+						})
 					},
 				}
 			)
@@ -363,15 +369,16 @@ export function PullRequestComparisonFiles({
 									}
 									file={file}
 									isExpanded={isExpanded}
-									isNearViewport={nearViewportPaths.includes(path)}
+									isMounted={mountedPaths.has(path)}
 									isViewed={isViewed}
-									isViewedPending={pendingViewedPaths.includes(path)}
+									isViewedPending={pendingViewedPaths.has(path)}
 									key={`${file.oldPath}:${file.newPath}`}
 									onPrefetch={prefetchFile}
 									onRegisterNode={registerSectionNode}
 									onToggleExpanded={setExpanded}
 									onToggleViewed={toggleViewed}
 									path={path}
+									placeholderHeight={sectionPlaceholders.get(path)}
 								>
 									{isExpanded && fileDiffViews.get(path)}
 								</PullRequestFileSection>

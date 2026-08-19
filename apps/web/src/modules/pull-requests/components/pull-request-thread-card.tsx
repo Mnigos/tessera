@@ -103,7 +103,7 @@ export function PullRequestThreadCard({
 	return (
 		<div
 			className={cn(
-				'flex flex-col gap-3 rounded-lg border border-border bg-card p-4',
+				'flex flex-col gap-2 rounded-md border border-border bg-card p-3',
 				thread.resolved && 'bg-muted/30'
 			)}
 		>
@@ -120,7 +120,7 @@ export function PullRequestThreadCard({
 							{thread.anchor.lineExcerpt}
 						</pre>
 					)}
-					<ol className="flex flex-col gap-4">
+					<ol className="flex flex-col gap-3">
 						{thread.comments.map(comment => (
 							<PullRequestComment
 								comment={comment}

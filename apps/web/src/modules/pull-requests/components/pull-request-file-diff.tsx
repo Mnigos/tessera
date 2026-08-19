@@ -233,13 +233,18 @@ function FileDiff({
 				</p>
 			)}
 			<div
-				className="font-mono text-xs leading-5 [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none]"
+				className="font-mono text-[13px] leading-[22px] [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none] [tab-size:2]"
 				data-diff-code
-				style={{ '--diff-gutter': toGutterWidth(diff) } as CSSProperties}
+				style={
+					{
+						'--diff-gutter': toGutterWidth(diff),
+						'--diff-code-pad': '1.25rem',
+					} as CSSProperties
+				}
 			>
 				{hunks.map(hunk => (
 					<div key={hunk.header}>
-						<div className="bg-secondary/60 px-2 py-1 text-muted-foreground">
+						<div className="flex h-[22px] items-center bg-diff-hunk px-3 text-diff-hunk-fg text-xs">
 							{hunk.header}
 						</div>
 						{hunk.rows.map(row => (
@@ -324,7 +329,7 @@ function toSelectionAnchor(
 	}
 }
 
-/** Room for the widest number this diff prints, plus the comment button's lane. */
+/** Room for the widest number this diff prints, with no lane held for the button. */
 function toGutterWidth(diff: PullRequestFileDiff): string {
 	const widest = diff.hunks.reduce(
 		(digits, hunk) =>
@@ -340,7 +345,7 @@ function toGutterWidth(diff: PullRequestFileDiff): string {
 		1
 	)
 
-	return `calc(${widest}ch + 2rem)`
+	return `max(2.25rem, calc(${widest}ch + 1.25rem))`
 }
 
 /** The line numbers a hunk renders on one side, absent when it renders none. */
@@ -461,7 +466,7 @@ interface DiffRowProps {
 }
 
 const SPLIT_GRID_CLASSES =
-	'grid grid-cols-[var(--diff-gutter)_1.25rem_minmax(0,1fr)_var(--diff-gutter)_1.25rem_minmax(0,1fr)]'
+	'grid grid-cols-[var(--diff-gutter)_minmax(0,1fr)_var(--diff-gutter)_minmax(0,1fr)]'
 
 function DiffRowView({
 	context,
@@ -501,14 +506,9 @@ function DiffRowView({
 			</div>
 			{(hasLeftThreadRow || hasRightThreadRow) && (
 				// Discussion sits under the column it belongs to, as a split diff reads.
-				<div
-					className={cn(
-						SPLIT_GRID_CLASSES,
-						'border-border border-y bg-muted/20'
-					)}
-				>
+				<div className={SPLIT_GRID_CLASSES}>
 					<div
-						className="col-span-3 min-w-0 border-border border-r"
+						className="col-span-2 min-w-0 border-border border-r"
 						data-thread-side="left"
 					>
 						{hasLeftThreadRow && (
@@ -523,7 +523,7 @@ function DiffRowView({
 							/>
 						)}
 					</div>
-					<div className="col-span-3 min-w-0" data-thread-side="right">
+					<div className="col-span-2 min-w-0" data-thread-side="right">
 						{hasRightThreadRow && (
 							<PullRequestDiffThreadRow
 								anchor={rightAnchor}
@@ -590,31 +590,42 @@ function getSplitDiffRows(lines: PullRequestDiffLine[]): SplitDiffRow[] {
 type DiffLineTone = 'addition' | 'context' | 'deletion' | 'empty'
 
 const DIFF_GUTTER_TONE_CLASSES: Record<DiffLineTone, string> = {
-	addition: 'bg-emerald-950/50',
+	addition: 'bg-diff-add-gutter',
 	context: '',
-	deletion: 'bg-red-950/50',
-	empty: 'bg-muted/20',
+	deletion: 'bg-diff-del-gutter',
+	empty: 'diff-empty-cell',
 }
 
 const DIFF_CELL_TONE_CLASSES: Record<DiffLineTone, string> = {
-	addition: 'bg-emerald-950/35',
-	context: '',
-	deletion: 'bg-red-950/35',
-	empty: 'bg-muted/20',
+	addition: 'bg-diff-add-line',
+	context: 'group-hover/diff-row:bg-diff-row-hover',
+	deletion: 'bg-diff-del-line',
+	empty: 'diff-empty-cell',
 }
 
-const DIFF_LINE_PREFIXES: Record<DiffLineTone, string> = {
+const DIFF_SIGN_CLASSES: Partial<Record<DiffLineTone, string>> = {
+	addition: 'text-diff-add-marker',
+	deletion: 'text-diff-del-marker',
+}
+
+const DIFF_LINE_PREFIXES: Partial<Record<DiffLineTone, string>> = {
 	addition: '+',
-	context: ' ',
-	deletion: '−',
-	empty: '',
+	deletion: '\u2212',
 }
 
 const PRIMARY_BUTTON_HELD = 1
 
-const DIFF_SELECTED_CLASSES = 'bg-primary/20'
-/** A left rule rather than a tint, so an added or removed line keeps its colour. */
-const DIFF_COMMENTED_CLASSES = 'border-l-2 border-l-amber-400/60'
+const DIFF_SELECTED_CLASSES = 'bg-diff-select/45'
+const DIFF_SELECTED_EDGE_CLASSES = 'border-l-2 border-l-diff-select-edge'
+/** Carried by the gutter alone, so an added or removed line keeps its colour. */
+const DIFF_COMMENTED_CLASSES =
+	'border-l-2 border-l-diff-comment-edge bg-diff-comment-tint/55'
+
+// Only the hovered side offers its comment button, so two-sided rows stay unambiguous.
+const DIFF_COMMENT_BUTTON_CLASSES: Record<PullRequestThreadSide, string> = {
+	left: 'group-has-[[data-side=left]:hover]/diff-row:opacity-100',
+	right: 'group-has-[[data-side=right]:hover]/diff-row:opacity-100',
+}
 
 interface DiffSideProps {
 	line?: PullRequestDiffLine
@@ -635,23 +646,21 @@ function DiffSide({
 }: Readonly<DiffSideProps>) {
 	const tone: DiffLineTone = line?.kind ?? 'empty'
 	const anchor = side === 'left' ? line?.old : line?.new
+	const sign = DIFF_LINE_PREFIXES[tone]
 
 	return (
-		<div
-			className="contents"
-			data-commented={isCommented || undefined}
-			data-empty={tone === 'empty' || undefined}
-			data-selected={isSelected || undefined}
-			data-side={side}
-		>
+		<>
 			{/* The whole gutter widens a drag, so the range does not stop at the button. */}
 			<span
 				className={cn(
-					'relative select-none border-border border-r py-0 pr-2 pl-6 text-right text-muted-foreground',
+					'relative select-none py-0 pr-2 pl-3 text-right text-diff-gutter-fg tabular-nums',
 					DIFF_GUTTER_TONE_CLASSES[tone],
 					isCommented && DIFF_COMMENTED_CLASSES,
-					isSelected && DIFF_SELECTED_CLASSES
+					isSelected && [DIFF_SELECTED_CLASSES, DIFF_SELECTED_EDGE_CLASSES]
 				)}
+				data-commented={isCommented || undefined}
+				data-selected={isSelected || undefined}
+				data-side={side}
 				onPointerEnter={event => {
 					if (event.buttons === PRIMARY_BUTTON_HELD && target)
 						onSelect?.({ type: 'extend', target })
@@ -660,7 +669,10 @@ function DiffSide({
 				{onSelect && line && anchor && target && (
 					<button
 						aria-label={`Comment on ${side === 'left' ? 'original' : 'updated'} line ${anchor.line}`}
-						className="absolute top-1/2 left-0.5 flex size-[18px] -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 transition-opacity focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring group-hover/diff-row:opacity-100"
+						className={cn(
+							'absolute top-1/2 right-0.5 flex size-4 -translate-y-1/2 cursor-pointer items-center justify-center rounded-sm bg-primary text-primary-foreground opacity-0 shadow-sm transition-opacity duration-[90ms] ease-out focus-visible:opacity-100 focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
+							DIFF_COMMENT_BUTTON_CLASSES[side]
+						)}
 						onClick={event =>
 							onSelect({
 								type: event.shiftKey ? 'extend' : 'select',
@@ -680,26 +692,29 @@ function DiffSide({
 			</span>
 			<span
 				className={cn(
-					'select-none py-0 text-center text-muted-foreground',
-					DIFF_CELL_TONE_CLASSES[tone],
-					isSelected && DIFF_SELECTED_CLASSES
-				)}
-			>
-				{DIFF_LINE_PREFIXES[tone]}
-			</span>
-			<span
-				className={cn(
-					'whitespace-pre-wrap py-0 pr-3 [overflow-wrap:anywhere]',
+					'relative whitespace-pre-wrap break-words py-0 pr-3 pl-[calc(var(--diff-code-pad)+1.5ch)] text-diff-code-fg [text-indent:-1.5ch]',
 					side === 'left' && 'border-border border-r',
 					DIFF_CELL_TONE_CLASSES[tone],
 					isSelected && DIFF_SELECTED_CLASSES
 				)}
+				data-empty={tone === 'empty' || undefined}
 				data-kind={line?.kind}
 				data-side={side}
 			>
+				{sign && (
+					<span
+						aria-hidden
+						className={cn(
+							'absolute left-1.5 w-3 select-none text-center [text-indent:0]',
+							DIFF_SIGN_CLASSES[tone]
+						)}
+					>
+						{sign}
+					</span>
+				)}
 				{line && <HighlightedDiffContent line={line} />}
 			</span>
-		</div>
+		</>
 	)
 }
 
