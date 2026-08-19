@@ -17,6 +17,10 @@ import { usePullRequestReviewComparisonQuery } from '../hooks/use-pull-request-r
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestComparison } from './pull-request-comparison'
 
+vi.mock('@/modules/auth/hooks/use-auth', () => ({
+	useAuth: () => ({ user: undefined }),
+}))
+
 vi.mock('../hooks/use-pull-request-comparison.query', () => ({
 	usePullRequestComparisonQuery: vi.fn(),
 }))

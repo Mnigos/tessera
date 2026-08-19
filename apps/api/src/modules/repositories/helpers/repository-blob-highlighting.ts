@@ -1,4 +1,7 @@
-import { highlightSourceCode } from '~/shared/helpers/source-code-highlighting'
+import {
+	highlightSourceCode,
+	toHighlightedLineHtml,
+} from '~/shared/helpers/source-code-highlighting'
 
 export interface HighlightRepositoryBlobPreviewParams {
 	content: string
@@ -34,7 +37,7 @@ export async function highlightRepositoryBlobPreview({
 			startLine: 1,
 			lines: highlighted.lines.map(line => ({
 				number: line.number,
-				html: line.html,
+				html: toHighlightedLineHtml(line.tokens),
 			})),
 		},
 	}

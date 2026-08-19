@@ -17,6 +17,10 @@ import { PullRequestPendingReviewBanner } from './pull-request-pending-review-ba
 import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
 import { PullRequestReviewDialog } from './pull-request-review-dialog'
 
+vi.mock('../hooks/use-pull-request-threads.query', () => ({
+	usePullRequestThreadsQuery: () => ({ data: undefined, isError: false }),
+}))
+
 vi.mock('../hooks/use-submit-pull-request-review.mutation', () => ({
 	useSubmitPullRequestReviewMutation: vi.fn(),
 }))

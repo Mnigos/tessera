@@ -1,5 +1,8 @@
 import type { GitStorageRepositoryFileDiff } from '@config/git-storage'
-import { highlightPullRequestDiff } from './pull-request-diff-highlighting'
+import {
+	highlightPullRequestDiff,
+	highlightPullRequestFileLines,
+} from './pull-request-diff-highlighting'
 
 const diff: GitStorageRepositoryFileDiff = {
 	baseSha: 'base-sha',
@@ -142,5 +145,131 @@ describe(highlightPullRequestDiff.name, () => {
 
 		expect(result.hunks[0]?.lines[0]?.html).toContain('span')
 		expect(result.hunks[0]?.lines[0]?.html).toContain('still inside template')
+	})
+})
+
+describe('word-level emphasis', () => {
+	const toPairedDiff = (
+		deletion: string,
+		addition: string
+	): GitStorageRepositoryFileDiff => ({
+		...diff,
+		hunks: [
+			{
+				header: '@@ -1 +1 @@',
+				lines: [
+					{ kind: 'deletion', content: deletion, oldLine: 1 },
+					{ kind: 'addition', content: addition, newLine: 1 },
+				],
+			},
+		],
+	})
+
+	const highlightPair = async (deletion: string, addition: string) =>
+		await highlightPullRequestDiff({
+			diff: toPairedDiff(deletion, addition),
+			baseBlob: {
+				objectId: `base-${deletion}`,
+				sizeBytes: deletion.length,
+				preview: { type: 'text', content: deletion },
+			},
+			headBlob: {
+				objectId: `head-${addition}`,
+				sizeBytes: addition.length,
+				preview: { type: 'text', content: addition },
+			},
+		})
+
+	test('marks only what changed between a paired removal and addition', async () => {
+		const result = await highlightPair('const answer = 41', 'const answer = 42')
+
+		expect(result.hunks[0]?.lines[0]?.html).toContain('<span class="dw">41')
+		expect(result.hunks[0]?.lines[1]?.html).toContain('<span class="dw">42')
+		expect(result.hunks[0]?.lines[1]?.html).not.toContain(
+			'<span class="dw">answer'
+		)
+	})
+
+	test('leaves rewrites unmarked below the similarity threshold', async () => {
+		const result = await highlightPair(
+			'const answer = 41',
+			'export function computeEverything(input: string[]) {'
+		)
+
+		expect(result.hunks[0]?.lines[0]?.html).not.toContain('class="dw"')
+		expect(result.hunks[0]?.lines[1]?.html).not.toContain('class="dw"')
+	})
+
+	test('leaves unpaired surplus lines of an uneven run unmarked', async () => {
+		const result = await highlightPullRequestDiff({
+			diff: {
+				...diff,
+				hunks: [
+					{
+						header: '@@ -1,1 +1,2 @@',
+						lines: [
+							{ kind: 'deletion', content: 'const a = 1', oldLine: 1 },
+							{ kind: 'addition', content: 'const a = 2', newLine: 1 },
+							{ kind: 'addition', content: 'const b = 3', newLine: 2 },
+						],
+					},
+				],
+			},
+			baseBlob: undefined,
+			headBlob: undefined,
+		})
+
+		expect(result.hunks[0]?.lines[1]?.html).toContain('<span class="dw">2')
+		expect(result.hunks[0]?.lines[2]?.html).toBeUndefined()
+	})
+
+	test('skips lines longer than the emphasis limit', async () => {
+		const result = await highlightPair(
+			`const a = '${'x'.repeat(1200)}'`,
+			`const a = '${'y'.repeat(1200)}'`
+		)
+
+		expect(result.hunks[0]?.lines[0]?.html).not.toContain('class="dw"')
+	})
+})
+
+describe(highlightPullRequestFileLines.name, () => {
+	const content = 'const one = 1\nconst two = 2\nconst three = 3\n'
+
+	test('serves a slice of one blob as context lines anchored on that side', async () => {
+		const result = await highlightPullRequestFileLines({
+			content,
+			objectId: 'head-blob-lines',
+			path: 'src/example.ts',
+			sha: 'head-sha',
+			side: 'right',
+			startLine: 2,
+			endLine: 3,
+		})
+
+		expect(result.totalLines).toBe(3)
+		expect(result.lines).toHaveLength(2)
+		expect(result.lines[0]).toMatchObject({
+			kind: 'context',
+			content: 'const two = 2',
+			html: expect.stringContaining('span'),
+			new: { sha: 'head-sha', path: 'src/example.ts', line: 2, side: 'right' },
+		})
+		expect(result.lines[0]?.old).toBeUndefined()
+	})
+
+	test('clamps a range that runs past the end of the file', async () => {
+		const result = await highlightPullRequestFileLines({
+			content,
+			objectId: 'head-blob-lines',
+			path: 'src/example.ts',
+			sha: 'head-sha',
+			side: 'left',
+			startLine: 3,
+			endLine: 40,
+		})
+
+		expect(result.lines).toHaveLength(1)
+		expect(result.lines[0]?.old?.line).toBe(3)
 	})
 })

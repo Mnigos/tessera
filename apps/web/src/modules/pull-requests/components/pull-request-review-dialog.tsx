@@ -1,6 +1,7 @@
 import {
 	GITHUB_WRITE_REJECTED_MESSAGES,
 	type PullRequestReviewOutcome,
+	type PullRequestThread,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import {
@@ -20,15 +21,17 @@ import {
 	TooltipTrigger,
 } from '@repo/ui/components/tooltip'
 import { cn } from '@repo/ui/utils'
+import { CornerDownRight } from 'lucide-react'
 import { type ComponentProps, useState } from 'react'
 import { isGitHubSyncDelayedError } from '../helpers/get-pull-request-error-message'
-import { submitPullRequestComposerOnShortcut } from '../helpers/pull-request-composer-shortcut'
 import {
 	getPullRequestReviewOutcomePresentation,
 	PULL_REQUEST_REVIEW_OUTCOME_OPTIONS,
 } from '../helpers/pull-request-review'
+import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { useSubmitPullRequestReviewMutation } from '../hooks/use-submit-pull-request-review.mutation'
 import { PullRequestErrorMessage } from './pull-request-error-message'
+import { PullRequestMarkdownField } from './pull-request-markdown-editor'
 
 const REVIEW_BODY_INPUT_ID = 'pull-request-review-body'
 const REVIEW_BODY_HINT_ID = 'pull-request-review-body-hint'
@@ -36,6 +39,41 @@ const REVIEW_OUTCOME_HINT_ID = 'pull-request-review-outcome-hint'
 // Only the pull request author is ever left a subset of the outcomes.
 const REVIEW_OUTCOME_REFUSED_REASON =
 	'You can comment on your own pull request, but not approve or block it.'
+// Beyond a handful the list would push the summary and the submit off screen.
+const COLLAPSED_PENDING_COMMENT_COUNT = 5
+const SELECTED_REVIEW_OUTCOME_CLASSES: Record<
+	PullRequestReviewOutcome,
+	string
+> = {
+	approve: 'border-emerald-500/40 bg-emerald-500/10',
+	request_changes: 'border-rose-500/40 bg-rose-500/10',
+	comment: 'border-border bg-secondary',
+}
+
+interface PullRequestPendingComment {
+	id: string
+	path?: string
+	location: string
+	excerpt: string
+}
+
+// Every pending comment is the viewer's own: drafts reach nobody else.
+function getPullRequestPendingComments(
+	threads: readonly PullRequestThread[] | undefined
+): PullRequestPendingComment[] {
+	return (threads ?? []).flatMap(thread =>
+		thread.comments
+			.filter(comment => comment.state === 'pending')
+			.map(comment => ({
+				id: comment.id,
+				path: thread.anchor?.path,
+				location: thread.anchor
+					? `${thread.anchor.path}:${thread.anchor.endLine}`
+					: 'Conversation',
+				excerpt: comment.body.trim().split('\n')[0] ?? '',
+			}))
+	)
+}
 
 interface PullRequestReviewDialogProps {
 	username: string
@@ -46,6 +84,8 @@ interface PullRequestReviewDialogProps {
 	pendingCommentCount?: number
 	/** Left unset on surfaces a mirrored pull request never reaches. */
 	isGitHubAuthoritative?: boolean
+	/** Scrolls the files view to a draft's file; absent where there is none. */
+	onJumpToComment?: (path: string) => void
 	triggerLabel: string
 	triggerVariant?: ComponentProps<typeof Button>['variant']
 }
@@ -58,6 +98,7 @@ export function PullRequestReviewDialog({
 	headSha,
 	pendingCommentCount,
 	isGitHubAuthoritative = false,
+	onJumpToComment,
 	triggerLabel,
 	triggerVariant,
 }: Readonly<PullRequestReviewDialogProps>) {
@@ -71,6 +112,14 @@ export function PullRequestReviewDialog({
 	const batchedCommentCount = isGitHubAuthoritative
 		? undefined
 		: pendingCommentCount
+	// The files view has already fetched these; the dialog reads the same cache.
+	const threadsQuery = usePullRequestThreadsQuery(
+		{ username, slug, number },
+		isOpen && Boolean(batchedCommentCount)
+	)
+	const pendingComments = batchedCommentCount
+		? getPullRequestPendingComments(threadsQuery.data?.threads)
+		: []
 
 	function handleOpenChange(open: boolean) {
 		setIsOpen(open)
@@ -95,6 +144,11 @@ export function PullRequestReviewDialog({
 		)
 	}
 
+	function handleJumpToComment(path: string) {
+		setIsOpen(false)
+		onJumpToComment?.(path)
+	}
+
 	return (
 		<Dialog onOpenChange={handleOpenChange} open={isOpen}>
 			<div className="flex flex-col items-start gap-1">
@@ -110,10 +164,15 @@ export function PullRequestReviewDialog({
 					</p>
 				)}
 			</div>
-			<DialogContent>
+			<DialogContent className="sm:max-w-[35rem]">
 				<DialogHeader>
 					<DialogTitle>Review changes</DialogTitle>
 					<DialogDescription>
+						{reviewedHeadSha && (
+							<span className="font-mono">
+								{reviewedHeadSha.slice(0, 7)} ·{' '}
+							</span>
+						)}
 						{batchedCommentCount
 							? `Submitting publishes ${batchedCommentCount} pending ${batchedCommentCount === 1 ? 'comment' : 'comments'} against the changes you are viewing.`
 							: 'Your review is recorded against the changes you are viewing and goes stale if the branch moves.'}
@@ -124,7 +183,9 @@ export function PullRequestReviewDialog({
 					error={submitReview.error}
 					isBodyRequired={isGitHubAuthoritative && !pendingCommentCount}
 					isPending={submitReview.isPending}
+					onJumpToComment={onJumpToComment && handleJumpToComment}
 					onSubmit={handleSubmit}
+					pendingComments={pendingComments}
 				/>
 			</DialogContent>
 		</Dialog>
@@ -138,6 +199,8 @@ interface PullRequestReviewFormProps {
 	isBodyRequired: boolean
 	isPending: boolean
 	onSubmit: (outcome: PullRequestReviewOutcome, body: string) => void
+	pendingComments: readonly PullRequestPendingComment[]
+	onJumpToComment?: (path: string) => void
 }
 
 function PullRequestReviewForm({
@@ -146,6 +209,8 @@ function PullRequestReviewForm({
 	isBodyRequired,
 	isPending,
 	onSubmit,
+	pendingComments,
+	onJumpToComment,
 }: Readonly<PullRequestReviewFormProps>) {
 	const [outcome, setOutcome] = useState<PullRequestReviewOutcome>('comment')
 	const [body, setBody] = useState('')
@@ -155,6 +220,9 @@ function PullRequestReviewForm({
 		isBodyRequired && outcome !== 'approve' && trimmedBody.length === 0
 	const hasRefusedOutcome = PULL_REQUEST_REVIEW_OUTCOME_OPTIONS.some(
 		option => !allowedOutcomes.includes(option.value)
+	)
+	const selectedOption = PULL_REQUEST_REVIEW_OUTCOME_OPTIONS.find(
+		option => option.value === outcome
 	)
 	// Resubmitting this exact review would leave a second one GitHub already has.
 	const isSpent =
@@ -174,68 +242,73 @@ function PullRequestReviewForm({
 		<form className="flex flex-col gap-4" onSubmit={handleSubmit}>
 			<fieldset className="flex flex-col gap-2">
 				<legend className="sr-only">Review outcome</legend>
-				{PULL_REQUEST_REVIEW_OUTCOME_OPTIONS.map(option => {
-					const presentation = getPullRequestReviewOutcomePresentation(
-						option.value
-					)
-					const isSelected = outcome === option.value
-					const isAllowed = allowedOutcomes.includes(option.value)
+				<div className="grid grid-cols-3 gap-2">
+					{PULL_REQUEST_REVIEW_OUTCOME_OPTIONS.map(option => {
+						const presentation = getPullRequestReviewOutcomePresentation(
+							option.value
+						)
+						const isSelected = outcome === option.value
+						const isAllowed = allowedOutcomes.includes(option.value)
 
-					return (
-						<Tooltip key={option.value}>
-							{/* A disabled radio takes no focus, so the reason hangs off the wrapper. */}
-							<TooltipTrigger
-								render={
-									<span
-										className="flex flex-col"
-										tabIndex={isAllowed ? undefined : 0}
-									/>
-								}
-							>
-								<label
-									className={cn(
-										'flex items-start gap-3 rounded-lg border px-3 py-2.5 transition-colors',
-										isAllowed
-											? 'cursor-pointer'
-											: 'cursor-not-allowed border-border opacity-50',
-										isAllowed &&
-											(isSelected
-												? presentation.cardClassName
-												: 'border-border hover:bg-muted/40')
-									)}
+						return (
+							<Tooltip key={option.value}>
+								{/* A disabled radio takes no focus, so the reason hangs off the wrapper. */}
+								<TooltipTrigger
+									render={
+										<span
+											className="flex flex-col"
+											tabIndex={isAllowed ? undefined : 0}
+										/>
+									}
 								>
-									<input
-										aria-describedby={
-											isAllowed ? undefined : REVIEW_OUTCOME_HINT_ID
-										}
-										checked={isSelected}
-										className="mt-1 accent-primary"
-										disabled={!isAllowed}
-										name="pull-request-review-outcome"
-										onChange={() => setOutcome(option.value)}
-										type="radio"
-										value={option.value}
-									/>
-									<span className="flex min-w-0 flex-col gap-0.5">
-										<span className="flex items-center gap-2 font-medium text-sm">
-											<presentation.icon
-												aria-hidden
-												className={cn('size-4', presentation.iconClassName)}
-											/>
-											{option.label}
-										</span>
-										<span className="text-muted-foreground text-xs">
-											{option.description}
-										</span>
-									</span>
-								</label>
-							</TooltipTrigger>
-							{!isAllowed && (
-								<TooltipContent>{REVIEW_OUTCOME_REFUSED_REASON}</TooltipContent>
-							)}
-						</Tooltip>
-					)
-				})}
+									<label
+										className={cn(
+											'flex h-11 items-center justify-center gap-1.5 rounded-md border px-2 text-center font-medium text-sm transition-colors has-[input:focus-visible]:ring-2 has-[input:focus-visible]:ring-ring/55',
+											isAllowed
+												? 'cursor-pointer'
+												: 'cursor-not-allowed border-border opacity-50',
+											isAllowed &&
+												(isSelected
+													? SELECTED_REVIEW_OUTCOME_CLASSES[option.value]
+													: 'border-border hover:bg-muted/40')
+										)}
+									>
+										<input
+											aria-describedby={
+												isAllowed ? undefined : REVIEW_OUTCOME_HINT_ID
+											}
+											checked={isSelected}
+											className="sr-only"
+											disabled={!isAllowed}
+											name="pull-request-review-outcome"
+											onChange={() => setOutcome(option.value)}
+											type="radio"
+											value={option.value}
+										/>
+										<presentation.icon
+											aria-hidden
+											className={cn(
+												'size-4 shrink-0',
+												presentation.iconClassName
+											)}
+										/>
+										<span className="truncate">{option.label}</span>
+									</label>
+								</TooltipTrigger>
+								{!isAllowed && (
+									<TooltipContent>
+										{REVIEW_OUTCOME_REFUSED_REASON}
+									</TooltipContent>
+								)}
+							</Tooltip>
+						)
+					})}
+				</div>
+				{selectedOption && (
+					<p className="text-muted-foreground text-xs">
+						{selectedOption.description}
+					</p>
+				)}
 				{hasRefusedOutcome && (
 					<p
 						className="text-muted-foreground text-xs"
@@ -249,16 +322,14 @@ function PullRequestReviewForm({
 				<Label className="sr-only" htmlFor={REVIEW_BODY_INPUT_ID}>
 					Review summary
 				</Label>
-				<textarea
-					aria-describedby={isBodyMissing ? REVIEW_BODY_HINT_ID : undefined}
-					className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm outline-hidden placeholder:text-muted-foreground focus:ring-2 focus:ring-ring"
+				<PullRequestMarkdownField
 					id={REVIEW_BODY_INPUT_ID}
-					maxLength={65_536}
-					onChange={event => setBody(event.target.value)}
-					onKeyDown={submitPullRequestComposerOnShortcut}
+					modeLabel="Review summary mode"
+					onValueChange={setBody}
 					placeholder={
 						isBodyRequired ? 'Leave a summary' : 'Leave a summary (optional)'
 					}
+					textareaClassName="min-h-24"
 					value={body}
 				/>
 				{isBodyMissing && (
@@ -267,20 +338,79 @@ function PullRequestReviewForm({
 					</p>
 				)}
 			</div>
+			{pendingComments.length > 0 && (
+				<PullRequestPendingCommentList
+					comments={pendingComments}
+					onJumpToComment={onJumpToComment}
+				/>
+			)}
 			{Boolean(error) && (
 				<PullRequestErrorMessage
 					error={error}
 					fallback="The review could not be submitted."
 				/>
 			)}
-			<DialogFooter>
-				<DialogClose render={<Button type="button" variant="secondary" />}>
-					Cancel
-				</DialogClose>
-				<Button disabled={isSpent} type="submit">
-					{isPending ? 'Submitting' : 'Submit review'}
-				</Button>
+			<DialogFooter className="sm:items-center sm:justify-between">
+				<span className="hidden text-muted-foreground text-xs sm:block">
+					⌘⏎ to submit
+				</span>
+				<div className="flex flex-col-reverse gap-2 sm:flex-row">
+					<DialogClose render={<Button type="button" variant="ghost" />}>
+						Cancel
+					</DialogClose>
+					<Button disabled={isSpent} type="submit">
+						{isPending ? 'Submitting' : 'Submit review'}
+					</Button>
+				</div>
 			</DialogFooter>
 		</form>
+	)
+}
+
+interface PullRequestPendingCommentListProps {
+	comments: readonly PullRequestPendingComment[]
+	onJumpToComment?: (path: string) => void
+}
+
+// What the viewer is about to publish, re-readable before they publish it.
+function PullRequestPendingCommentList({
+	comments,
+	onJumpToComment,
+}: Readonly<PullRequestPendingCommentListProps>) {
+	return (
+		<details
+			className="rounded-md border border-border"
+			open={comments.length <= COLLAPSED_PENDING_COMMENT_COUNT}
+		>
+			<summary className="cursor-pointer px-3 py-2 font-medium text-sm">
+				{comments.length} pending{' '}
+				{comments.length === 1 ? 'comment' : 'comments'}
+			</summary>
+			<ul className="max-h-48 overflow-y-auto border-border border-t">
+				{comments.map(comment => (
+					<li
+						className="flex h-8 items-center gap-2 px-3 text-xs"
+						key={comment.id}
+					>
+						<span className="shrink-0 truncate font-mono text-muted-foreground">
+							{comment.location}
+						</span>
+						<span className="min-w-0 flex-1 truncate">{comment.excerpt}</span>
+						{onJumpToComment && comment.path && (
+							<Button
+								aria-label={`Jump to ${comment.location}`}
+								className="size-6 shrink-0 text-muted-foreground"
+								onClick={() => onJumpToComment(comment.path ?? '')}
+								size="icon"
+								type="button"
+								variant="ghost"
+							>
+								<CornerDownRight aria-hidden className="size-3.5" />
+							</Button>
+						)}
+					</li>
+				))}
+			</ul>
+		</details>
 	)
 }

@@ -54,6 +54,13 @@ export class PullRequestsController {
 		)
 	}
 
+	@Implement(contract.pullRequests.fileLines)
+	fileLines(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.fileLines).handler(({ input }) =>
+			this.pullRequestsService.fileLines(session?.user.id, input)
+		)
+	}
+
 	@Implement(contract.pullRequests.listChecks)
 	listChecks(@Session() session?: UserSession) {
 		return implement(contract.pullRequests.listChecks).handler(({ input }) =>

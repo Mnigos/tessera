@@ -98,17 +98,18 @@ export function PullRequestReviewComparisonFiles({
 					number={number}
 					review={review}
 					slug={slug}
-					toolbarAction={
+					toolbarAction={({ onJumpToFile }) => (
 						<PullRequestReviewChangesAction
 							headSha={reviewComparison.currentHeadSha}
 							isGitHubAuthoritative={isGitHubAuthoritative}
 							number={number}
+							onJumpToComment={onJumpToFile}
 							slug={slug}
 							username={username}
 							viewer={reviewViewer}
 							viewerPendingReview={viewerPendingReview}
 						/>
-					}
+					)}
 					toolbarLead={comparisonSwitch}
 					username={username}
 					viewerUserId={viewerUserId}

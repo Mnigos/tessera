@@ -12,6 +12,13 @@ export class PullRequestNotFoundError extends NotFoundError {
 	}
 }
 
+/** The side of a file the caller asked to expand holds no readable text at those commits. */
+export class PullRequestFileContentNotFoundError extends NotFoundError {
+	constructor(context?: Record<string, unknown>) {
+		super('pull request file content', context)
+	}
+}
+
 export class PullRequestInvalidBranchesError extends BadRequestError {
 	constructor(context?: Record<string, unknown>, message?: string) {
 		super('pull request branches', context, message)

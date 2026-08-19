@@ -216,11 +216,11 @@ function PullRequestTimelineComposer({
 	}
 
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
-			<h3 className="font-medium text-sm">Add a comment</h3>
+		<div className="flex flex-col gap-2">
 			<PullRequestCommentComposer
 				error={createThreadMutation.error}
 				errorFallback="The comment could not be posted."
+				heading="Add a comment"
 				inputId="pull-request-comment-body"
 				isPending={createThreadMutation.isPending}
 				key={composerKey}

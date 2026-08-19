@@ -136,6 +136,7 @@ export function PullRequestThreadCard({
 						<PullRequestCommentComposer
 							error={replyMutation.error}
 							errorFallback="The reply could not be posted."
+							heading="Reply"
 							inputId={`pull-request-thread-reply-${thread.id}`}
 							isPending={replyMutation.isPending}
 							label="Reply to thread"

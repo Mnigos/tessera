@@ -12,6 +12,10 @@ import { useRemovePullRequestReviewerRequestMutation } from '../hooks/use-remove
 import { useRequestPullRequestReviewerMutation } from '../hooks/use-request-pull-request-reviewer.mutation'
 import { PullRequestReviewersPanel } from './pull-request-reviewers-panel'
 
+vi.mock('../hooks/use-pull-request-threads.query', () => ({
+	usePullRequestThreadsQuery: () => ({ data: undefined, isError: false }),
+}))
+
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
 		children,

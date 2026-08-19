@@ -13,6 +13,8 @@ interface PullRequestReviewChangesActionProps {
 	headSha: string
 	viewerPendingReview?: PullRequestPendingReview
 	isGitHubAuthoritative: boolean
+	/** Scrolls the files view to a pending comment's file. */
+	onJumpToComment?: (path: string) => void
 }
 
 export function PullRequestReviewChangesAction({
@@ -23,6 +25,7 @@ export function PullRequestReviewChangesAction({
 	headSha,
 	viewerPendingReview,
 	isGitHubAuthoritative,
+	onJumpToComment,
 }: Readonly<PullRequestReviewChangesActionProps>) {
 	if (viewer.allowedOutcomes.length === 0) return null
 
@@ -32,6 +35,7 @@ export function PullRequestReviewChangesAction({
 			headSha={headSha}
 			isGitHubAuthoritative={isGitHubAuthoritative}
 			number={number}
+			onJumpToComment={onJumpToComment}
 			pendingCommentCount={viewerPendingReview?.commentCount}
 			slug={slug}
 			triggerLabel="Review changes"

@@ -77,6 +77,7 @@ describe(PullRequestsController.name, () => {
 						comparison: vi.fn(),
 						reviewComparison: vi.fn(),
 						fileDiff: vi.fn(),
+						fileLines: vi.fn(),
 						edit: vi.fn(),
 						retarget: vi.fn(),
 						close: vi.fn(),
@@ -324,6 +325,36 @@ describe(PullRequestsController.name, () => {
 			})
 		).toEqual(output)
 		expect(fileDiffSpy).toHaveBeenCalledWith(mockUserId, input)
+	})
+
+	test('delegates context expansion requests with an optional viewer', async () => {
+		const input = {
+			...repositoryInput,
+			number: 1,
+			path: 'src/index.ts',
+			side: 'right' as const,
+			startLine: 1,
+			endLine: 20,
+			expectedBaseSha: 'a'.repeat(40),
+			expectedHeadSha: 'b'.repeat(40),
+		}
+		const output = { lines: [], totalLines: 0 }
+		const fileLinesSpy = vi
+			.spyOn(service, 'fileLines')
+			.mockResolvedValue(output)
+		const procedure = controller.fileLines(session)
+
+		expect(
+			await procedure['~orpc'].handler({
+				input,
+				context: {},
+				path: ['pullRequests', 'fileLines'],
+				procedure,
+				lastEventId: undefined,
+				errors: {},
+			})
+		).toEqual(output)
+		expect(fileLinesSpy).toHaveBeenCalledWith(mockUserId, input)
 	})
 
 	test.each([

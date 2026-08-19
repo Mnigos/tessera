@@ -50,6 +50,11 @@ const RIGHT_ANCHORABLE_DIFF_SIDES = [
 	'right',
 ] as const satisfies readonly PullRequestThreadSide[]
 
+/** What the toolbar action is handed: the files view owns the scrolling. */
+export interface PullRequestToolbarActionOptions {
+	onJumpToFile: (path: string) => void
+}
+
 interface PullRequestComparisonFilesProps {
 	comparison: PullRequestComparisonData
 	/** The pull request's own pair, which a since-review comparison is not. */
@@ -62,7 +67,7 @@ interface PullRequestComparisonFilesProps {
 	viewerUserId?: SessionUser['id']
 	isGitHubAuthoritative: boolean
 	/** The review trigger, which shares the toolbar row with the viewed counter. */
-	toolbarAction?: ReactNode
+	toolbarAction?: (options: PullRequestToolbarActionOptions) => ReactNode
 	/** The comparison switch, which leads the toolbar row before the counter. */
 	toolbarLead?: ReactNode
 }
@@ -270,9 +275,13 @@ export function PullRequestComparisonFiles({
 			/>
 		</div>
 	)
+	function jumpToFile(path: string) {
+		scrollToSection(path, shouldReduceMotion ? 'auto' : 'smooth')
+	}
+
 	const rail = (
 		<PullRequestDiffRail
-			action={toolbarAction}
+			action={toolbarAction?.({ onJumpToFile: jumpToFile })}
 			fileCount={comparison.files.length}
 			isTreeOpen={isTreeOpen}
 			lead={toolbarLead}
@@ -286,9 +295,7 @@ export function PullRequestComparisonFiles({
 			files={comparison.files}
 			isResizable={isResizable}
 			onPrefetch={prefetchFile}
-			onSelect={path =>
-				scrollToSection(path, shouldReduceMotion ? 'auto' : 'smooth')
-			}
+			onSelect={jumpToFile}
 			viewedPaths={viewedPaths}
 		/>
 	)
