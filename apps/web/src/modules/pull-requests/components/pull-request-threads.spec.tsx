@@ -43,6 +43,14 @@ vi.mock('../hooks/use-pull-request-comparison.query', () => ({
 	usePullRequestComparisonQuery: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-file-expansion', () => ({
+	usePullRequestFileExpansion: () => ({
+		lines: new Map(),
+		expand: vi.fn(),
+		retry: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))

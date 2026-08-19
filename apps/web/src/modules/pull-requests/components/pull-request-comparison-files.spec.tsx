@@ -54,6 +54,14 @@ vi.mock('motion/react', () => ({
 	useReducedMotion: vi.fn(),
 }))
 
+vi.mock('../hooks/use-pull-request-file-expansion', () => ({
+	usePullRequestFileExpansion: () => ({
+		lines: new Map(),
+		expand: vi.fn(),
+		retry: vi.fn(),
+	}),
+}))
+
 vi.mock('../hooks/use-pull-request-file-diff.query', async importOriginal => ({
 	...(await importOriginal<
 		typeof import('../hooks/use-pull-request-file-diff.query')

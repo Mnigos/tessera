@@ -1,12 +1,39 @@
 import { Button } from '@repo/ui/components/button'
+import { Checkbox } from '@repo/ui/components/checkbox'
+import {
+	Popover,
+	PopoverContent,
+	PopoverTrigger,
+} from '@repo/ui/components/popover'
 import { Progress } from '@repo/ui/components/progress'
 import {
 	Tooltip,
 	TooltipContent,
 	TooltipTrigger,
 } from '@repo/ui/components/tooltip'
-import { Keyboard, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { cn } from '@repo/ui/utils'
+import {
+	Keyboard,
+	MoreHorizontal,
+	PanelLeftClose,
+	PanelLeftOpen,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
+import {
+	type PullRequestDiffView,
+	setPullRequestDiffView,
+	setPullRequestDiffWrap,
+	usePullRequestDiffViewOptions,
+} from '../hooks/use-pull-request-diff-view-options'
+
+const DIFF_VIEW_LABELS = {
+	split: 'Split',
+	unified: 'Unified',
+} as const satisfies Record<PullRequestDiffView, string>
+
+const DIFF_VIEWS = ['split', 'unified'] as const satisfies PullRequestDiffView[]
+
+const WRAP_CHECKBOX_ID = 'pull-request-diff-wrap'
 
 interface PullRequestDiffRailProps {
 	fileCount: number
@@ -68,6 +95,7 @@ export function PullRequestDiffRail({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-2">
+				<PullRequestDiffViewControls />
 				{action}
 				<Tooltip>
 					<TooltipTrigger render={<span className="inline-flex" />}>
@@ -84,6 +112,62 @@ export function PullRequestDiffRail({
 					<TooltipContent>Keyboard shortcuts — coming soon</TooltipContent>
 				</Tooltip>
 			</div>
+		</div>
+	)
+}
+
+/** Layout choices that outlive the page, so the rail reads them rather than being told. */
+function PullRequestDiffViewControls() {
+	const { view, isWrapped } = usePullRequestDiffViewOptions()
+
+	return (
+		<div className="flex items-center gap-1">
+			<fieldset className="flex h-7 items-center gap-0.5 rounded-md border border-border p-0.5">
+				<legend className="sr-only">Diff layout</legend>
+				{DIFF_VIEWS.map(candidate => (
+					<button
+						aria-pressed={view === candidate}
+						className={cn(
+							'h-6 cursor-pointer rounded-[3px] px-2 text-xs transition-colors duration-[90ms] ease-out focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring',
+							view === candidate
+								? 'bg-secondary font-medium text-foreground'
+								: 'text-muted-foreground hover:text-foreground'
+						)}
+						key={candidate}
+						onClick={() => setPullRequestDiffView(candidate)}
+						type="button"
+					>
+						{DIFF_VIEW_LABELS[candidate]}
+					</button>
+				))}
+			</fieldset>
+			<Popover>
+				<PopoverTrigger
+					render={
+						<Button
+							aria-label="Diff options"
+							className="size-7"
+							size="icon"
+							variant="ghost"
+						/>
+					}
+				>
+					<MoreHorizontal aria-hidden className="size-4" />
+				</PopoverTrigger>
+				<PopoverContent align="end" className="w-52 p-2">
+					<label
+						className="flex cursor-pointer items-center gap-2 rounded-sm px-1 py-1 text-sm hover:bg-secondary"
+						htmlFor={WRAP_CHECKBOX_ID}
+					>
+						<Checkbox
+							checked={isWrapped}
+							id={WRAP_CHECKBOX_ID}
+							onCheckedChange={setPullRequestDiffWrap}
+						/>
+						Wrap lines
+					</label>
+				</PopoverContent>
+			</Popover>
 		</div>
 	)
 }

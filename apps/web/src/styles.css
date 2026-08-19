@@ -17,3 +17,14 @@ body {
 	color: var(--shiki-dark);
 	background-color: var(--shiki-dark-bg);
 }
+
+/* Word-level marks tint inside the row's own fill, so the row tone still reads. */
+[data-diff-code] [data-kind="deletion"] .dw {
+	background-color: var(--diff-del-word);
+	border-radius: 2px;
+}
+
+[data-diff-code] [data-kind="addition"] .dw {
+	background-color: var(--diff-add-word);
+	border-radius: 2px;
+}

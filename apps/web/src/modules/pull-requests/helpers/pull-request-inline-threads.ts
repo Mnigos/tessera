@@ -5,6 +5,8 @@ import type {
 	PullRequestThreadSide,
 } from '@repo/contracts'
 
+type PullRequestDiffLine = PullRequestFileDiff['hunks'][number]['lines'][number]
+
 /** Matches the contract bound on a thread anchor's line excerpt. */
 const LINE_EXCERPT_MAX_LENGTH = 4096
 
@@ -83,14 +85,16 @@ export function getOutdatedInlineThreads(threads: PullRequestThread[]) {
  */
 export function getLeftoverInlineThreads(
 	threads: PullRequestThread[],
-	diff: PullRequestFileDiff
+	diff: PullRequestFileDiff,
+	/** Context lines an expanded gap put on screen, which the hunks do not list. */
+	revealedLines: readonly PullRequestDiffLine[] = []
 ) {
 	const renderedLines = new Set(
-		diff.hunks.flatMap(hunk =>
-			hunk.lines.flatMap(line => [
+		[...diff.hunks.flatMap(hunk => hunk.lines), ...revealedLines].flatMap(
+			line => [
 				...(line.old ? [`left:${line.old.line}`] : []),
 				...(line.new ? [`right:${line.new.line}`] : []),
-			])
+			]
 		)
 	)
 
