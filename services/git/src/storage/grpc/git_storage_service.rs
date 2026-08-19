@@ -159,6 +159,7 @@ impl GitStorageService for GitStorageGrpcService {
                 content: readme.content,
                 is_truncated: readme.is_truncated,
             }),
+            commit_count: summary.commit_count,
         }))
     }
 

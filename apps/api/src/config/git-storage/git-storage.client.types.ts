@@ -131,6 +131,7 @@ export interface GitStorageRepositoryReadme {
 }
 
 export interface GitStorageRepositoryBrowserSummary {
+	commitCount: number
 	defaultBranch: string
 	isEmpty: boolean
 	readme?: GitStorageRepositoryReadme

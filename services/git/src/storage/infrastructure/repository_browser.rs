@@ -69,17 +69,20 @@ impl RepositoryStorage {
                 default_branch: resolved_branch.to_string(),
                 root_entries: Vec::new(),
                 readme: None,
+                commit_count: 0,
             });
         };
 
         let root_entries = self.root_tree_entries(&repository_path, &commit_id).await?;
         let readme = self.readme(&repository_path, &root_entries).await?;
+        let commit_count = self.commit_count(&repository_path, &commit_id).await?;
 
         Ok(RepositoryBrowserSummary {
             is_empty: false,
             default_branch: branch_name,
             root_entries,
             readme,
+            commit_count,
         })
     }
 
@@ -395,6 +398,28 @@ impl RepositoryStorage {
         }
 
         parse_ls_tree_entries(&output.stdout, "")
+    }
+
+    async fn commit_count(
+        &self,
+        repository_path: &Path,
+        commit_id: &str,
+    ) -> Result<u64, RepositoryError> {
+        let output = self
+            .git(repository_path, ["rev-list", "--count", commit_id, "--"])
+            .await?;
+
+        if !output.status.success() {
+            return Err(RepositoryError::GitProcessFailed);
+        }
+
+        let value =
+            String::from_utf8(output.stdout).map_err(|_| RepositoryError::InvalidGitOutput)?;
+
+        value
+            .trim()
+            .parse()
+            .map_err(|_| RepositoryError::InvalidGitOutput)
     }
 
     async fn tree_entries(

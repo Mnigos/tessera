@@ -146,6 +146,7 @@ export interface GetRepositoryBrowserSummaryResponse {
   defaultBranch: string;
   rootEntries: RepositoryTreeEntry[];
   readme: RepositoryReadme | undefined;
+  commitCount: number;
 }
 
 export interface GetRepositoryTreeRequest {
@@ -950,7 +951,7 @@ export const GetRepositoryBrowserSummaryRequest: MessageFns<GetRepositoryBrowser
 };
 
 function createBaseGetRepositoryBrowserSummaryResponse(): GetRepositoryBrowserSummaryResponse {
-  return { isEmpty: false, defaultBranch: "", rootEntries: [], readme: undefined };
+  return { isEmpty: false, defaultBranch: "", rootEntries: [], readme: undefined, commitCount: 0 };
 }
 
 export const GetRepositoryBrowserSummaryResponse: MessageFns<GetRepositoryBrowserSummaryResponse> = {
@@ -966,6 +967,9 @@ export const GetRepositoryBrowserSummaryResponse: MessageFns<GetRepositoryBrowse
     }
     if (message.readme !== undefined) {
       RepositoryReadme.encode(message.readme, writer.uint32(34).fork()).join();
+    }
+    if (message.commitCount !== 0) {
+      writer.uint32(40).uint64(message.commitCount);
     }
     return writer;
   },
@@ -1007,6 +1011,14 @@ export const GetRepositoryBrowserSummaryResponse: MessageFns<GetRepositoryBrowse
           }
 
           message.readme = RepositoryReadme.decode(reader, reader.uint32());
+          continue;
+        }
+        case 5: {
+          if (tag !== 40) {
+            break;
+          }
+
+          message.commitCount = longToNumber(reader.uint64());
           continue;
         }
       }

@@ -101,6 +101,7 @@ describe(GitStorageClient.name, () => {
 						content: new TextEncoder().encode('# Tessera'),
 						isTruncated: false,
 					},
+					commitCount: 12,
 				})
 			),
 			getRepositoryTree: vi.fn(() =>
@@ -389,6 +390,7 @@ describe(GitStorageClient.name, () => {
 				content: '# Tessera',
 				isTruncated: false,
 			},
+			commitCount: 12,
 		})
 		expect(
 			gitStorageService.getRepositoryBrowserSummary
@@ -754,6 +756,7 @@ describe(GitStorageClient.name, () => {
 			defaultBranch: 'main',
 			rootEntries: [],
 			readme: undefined,
+			commitCount: 0,
 		})
 	})
 
@@ -786,6 +789,7 @@ describe(GitStorageClient.name, () => {
 				content: '# Tessera',
 				isTruncated: false,
 			},
+			commitCount: 0,
 		})
 	})
 
