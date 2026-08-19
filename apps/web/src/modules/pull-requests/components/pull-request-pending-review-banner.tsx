@@ -15,6 +15,8 @@ interface PullRequestPendingReviewBannerProps {
 	headSha?: string
 	allowedOutcomes: readonly PullRequestReviewOutcome[]
 	isOpen: boolean
+	/** Whether submitting hands the batch to GitHub rather than publishing it here. */
+	isGitHubAuthoritative?: boolean
 }
 
 export function PullRequestPendingReviewBanner({
@@ -25,6 +27,7 @@ export function PullRequestPendingReviewBanner({
 	headSha,
 	allowedOutcomes,
 	isOpen,
+	isGitHubAuthoritative,
 }: Readonly<PullRequestPendingReviewBannerProps>) {
 	const { commentCount } = pendingReview
 	const hasMovedHead = Boolean(headSha) && headSha !== pendingReview.headSha
@@ -53,6 +56,7 @@ export function PullRequestPendingReviewBanner({
 					<PullRequestReviewDialog
 						allowedOutcomes={allowedOutcomes}
 						headSha={headSha}
+						isGitHubAuthoritative={isGitHubAuthoritative}
 						number={number}
 						pendingCommentCount={commentCount}
 						slug={slug}

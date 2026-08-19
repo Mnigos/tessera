@@ -6,10 +6,10 @@ import { GitHubSyncRepository } from '../infrastructure/github-sync.repository'
 /**
  * Replays a stored delivery through the ordinary reconciliation path.
  *
- * This is an operator tool with no procedure, no route, and no button. Tessera
- * deliberately has no user-facing synchronization or retry action — the mirror
- * converges on its own — and a replay is for the case where an operator knows a
- * specific delivery was mishandled and wants that target reconciled now.
+ * This is an operator tool with no procedure, no route, and no button. The one
+ * thing a reader can ask for is a refresh of the pull request in front of them;
+ * a replay is for the different case where an operator knows a specific delivery
+ * was mishandled and wants that target reconciled now.
  *
  * It cannot duplicate anything, because it adds no second projection path: the
  * delivery is re-armed, the repository's sync version advances, and the normal

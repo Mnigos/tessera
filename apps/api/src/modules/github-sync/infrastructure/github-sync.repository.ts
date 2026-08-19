@@ -1673,6 +1673,84 @@ export class GitHubSyncRepository {
 		})
 	}
 
+	/**
+	 * Asks for a reconciliation on behalf of somebody reading one pull request.
+	 * Clearing the rotation cursor is what targets it: the sweep orders by that
+	 * column, so the woken run projects this conversation first and reconciles the
+	 * rest as it always would. Nothing back means there is no mirror to ask.
+	 */
+	async requestPullRequestConversationRefresh({
+		pullRequestId,
+		repositoryId,
+	}: {
+		pullRequestId: PullRequestId
+		repositoryId: RepositoryId
+	}): Promise<GitHubSyncRequest | undefined> {
+		return await this.db.transaction(async transaction => {
+			const [source] = await transaction
+				.select({
+					repositoryId: repositoryExternalSources.repositoryId,
+					authorityGeneration: repositoryExternalSources.authorityGeneration,
+				})
+				.from(repositoryExternalSources)
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(repositoryExternalSources.provider, 'github'),
+						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera'),
+						isNotNull(repositoryExternalSources.installationId)
+					)
+				)
+				.limit(1)
+
+			if (!source) return undefined
+
+			const [mapping] = await transaction
+				.update(gitHubPullRequestMappings)
+				.set({ conversationSyncedAt: null })
+				.where(
+					and(
+						eq(gitHubPullRequestMappings.pullRequestId, pullRequestId),
+						eq(gitHubPullRequestMappings.repositoryId, repositoryId)
+					)
+				)
+				.returning({ id: gitHubPullRequestMappings.id })
+
+			if (!mapping) return undefined
+
+			const [requestedSource] = await transaction
+				.update(repositoryExternalSources)
+				.set({
+					requestedSyncVersion: sql`${repositoryExternalSources.requestedSyncVersion} + 1`,
+					// The trigger enum has no value for a reader asking; a replay is the
+					// one it already has for "somebody wanted this target reconciled now".
+					requestedSyncTrigger: 'replay',
+					requestedReplayDeliveryId: null,
+					syncStatus: 'pending',
+					syncFailureCode: null,
+					syncFailureReason: null,
+					nextSyncAt: new Date(),
+				})
+				.where(
+					and(
+						eq(repositoryExternalSources.repositoryId, repositoryId),
+						eq(
+							repositoryExternalSources.authorityGeneration,
+							source.authorityGeneration
+						),
+						eq(repositoryExternalSources.mirrorMode, 'github_to_tessera')
+					)
+				)
+				.returning({
+					repositoryId: repositoryExternalSources.repositoryId,
+					authorityGeneration: repositoryExternalSources.authorityGeneration,
+					requestedSyncVersion: repositoryExternalSources.requestedSyncVersion,
+				})
+
+			return requestedSource
+		})
+	}
+
 	async requestDueReconciliations({
 		limit,
 		now,

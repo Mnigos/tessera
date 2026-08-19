@@ -468,6 +468,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId,
 			authorUserId: mockUserId,
+			state: 'published',
 		})
 		vi.spyOn(threadsRepository, 'findCommentReadModel').mockResolvedValue(
 			comment
@@ -646,6 +647,45 @@ describe(PullRequestThreadsService.name, () => {
 		expect(threadsRepository.createThread).not.toHaveBeenCalled()
 	})
 
+	test('keeps a mirrored inline comment a local draft when it joins a review', async () => {
+		vi.spyOn(
+			repositoriesService,
+			'getReadableRepositoryContext'
+		).mockResolvedValue({
+			repositoryId,
+			storagePath: '/repositories/notes.git',
+			viewerRole: 'owner',
+			tesseraWritesAllowed: false,
+			gitHubTarget: { ownerLogin: 'tessera-org', name: 'notes' },
+		})
+		vi.spyOn(reviewsRepository, 'getOrCreatePendingReview').mockResolvedValue(
+			reviewId
+		)
+		vi.spyOn(threadsRepository, 'createThread').mockResolvedValue(thread)
+		const anchor = {
+			path: 'src/index.ts',
+			side: 'right' as const,
+			startLine: 7,
+			endLine: 7,
+			anchorSha: 'head-current',
+			baseSha: 'base-current',
+			headSha: 'head-current',
+			lineExcerpt: 'const value = 1',
+		}
+
+		await service.createThread(mockUserId, {
+			...repositoryInput,
+			body: 'Batched comment',
+			anchor,
+			review: { expectedHeadSha: 'head-current' },
+		})
+
+		expect(gitHubWriteThroughService.createThread).not.toHaveBeenCalled()
+		expect(threadsRepository.createThread).toHaveBeenCalledWith(
+			expect.objectContaining({ anchor, reviewId })
+		)
+	})
+
 	test('rejects thread mutations when repository context is unreadable or GitHub-authoritative', async () => {
 		vi.spyOn(
 			repositoriesService,
@@ -725,6 +765,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId,
 			authorUserId: mockUserId,
+			state: 'published',
 		})
 		const editCommentSpy = vi
 			.spyOn(threadsRepository, 'editComment')
@@ -762,6 +803,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId,
 			authorUserId: otherUserId,
+			state: 'published',
 		})
 		const deleteCommentSpy = vi
 			.spyOn(threadsRepository, 'deleteComment')
@@ -790,6 +832,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId,
 			authorUserId: otherUserId,
+			state: 'published',
 		})
 
 		await expect(
@@ -817,6 +860,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId,
 			authorUserId: otherUserId,
+			state: 'published',
 		})
 
 		await expect(
@@ -1061,6 +1105,7 @@ describe(PullRequestThreadsService.name, () => {
 			threadId,
 			pullRequestId: otherPullRequestId,
 			authorUserId: mockUserId,
+			state: 'published',
 		})
 
 		await expect(

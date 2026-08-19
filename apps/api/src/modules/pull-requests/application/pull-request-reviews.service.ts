@@ -1,4 +1,5 @@
 import {
+	type BatchedReviewDraft,
 	type GitHubWriteThroughContext,
 	GitHubWriteThroughService,
 	toGitHubWriteThroughContext,
@@ -232,9 +233,11 @@ export class PullRequestReviewsService {
 					pullRequest.id,
 					await this.gitHubWriteThroughService.submitReview(writeThrough, {
 						body: body ?? '',
+						drafts: await this.loadBatchedDrafts(pendingReview?.id),
 						expectedHeadSha,
 						outcome,
 						pendingCommentCount: pendingReview?.commentCount ?? 0,
+						pendingReviewId: pendingReview?.id,
 					})
 				)
 			)
@@ -273,10 +276,6 @@ export class PullRequestReviewsService {
 			requireWriteRole: false,
 		})
 		const { pullRequest } = context
-
-		// GitHub holds the drafts on a mirror; Tessera keeps none to discard.
-		if (context.gitHubTarget) return { discarded: false }
-
 		const discarded =
 			await this.pullRequestReviewsRepository.discardPendingReview({
 				pullRequestId: pullRequest.id,
@@ -389,6 +388,38 @@ export class PullRequestReviewsService {
 				),
 			])
 		)
+	}
+
+	/**
+	 * The drafts GitHub can take as one review: a new inline thread each. A draft
+	 * that replies to a thread GitHub already owns is not one of them — the review
+	 * payload has no way to say what it replies to — so it stays behind and is
+	 * published locally when the envelope is sealed.
+	 */
+	private async loadBatchedDrafts(
+		reviewId: PullRequestReviewId | undefined
+	): Promise<BatchedReviewDraft[]> {
+		if (!reviewId) return []
+
+		const drafts =
+			await this.pullRequestReviewsRepository.listPendingReviewDrafts({
+				reviewId,
+			})
+
+		return drafts.flatMap(draft => {
+			const { anchor } = draft
+
+			if (!anchor || draft.threadMappingId) return []
+
+			return [
+				{
+					anchor,
+					body: draft.body,
+					commentId: draft.commentId,
+					threadId: draft.threadId,
+				},
+			]
+		})
 	}
 
 	private async requireReviewerRequest(

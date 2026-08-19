@@ -140,6 +140,7 @@ describe(PullRequestReviewsService.name, () => {
 						listActiveReviewerRequests: vi.fn().mockResolvedValue([]),
 						listReviewHistory: vi.fn().mockResolvedValue([]),
 						findPendingReview: vi.fn(),
+						listPendingReviewDrafts: vi.fn().mockResolvedValue([]),
 						listEffectiveReviews: vi.fn().mockResolvedValue([]),
 						countActiveReviewerRequests: vi.fn().mockResolvedValue([]),
 					},
@@ -234,7 +235,7 @@ describe(PullRequestReviewsService.name, () => {
 		expect(removeSpy).toHaveBeenCalledOnce()
 	})
 
-	test('dispatches mirrored review writes and keeps pending review discard a no-op', async () => {
+	test('dispatches mirrored review writes and discards the local pending review', async () => {
 		vi.spyOn(
 			repositoriesService,
 			'getReadableRepositoryContext'
@@ -318,9 +319,10 @@ describe(PullRequestReviewsService.name, () => {
 			dismissedBy: undefined,
 			sourceUrl: undefined,
 		})
+		vi.spyOn(reviewsRepository, 'discardPendingReview').mockResolvedValue(true)
 		expect(
 			await service.discardPendingReview(reviewerUserId, repositoryInput)
-		).toEqual({ discarded: false })
+		).toEqual({ discarded: true })
 
 		const ownerWriteThrough = {
 			actorUserId: mockUserId,
@@ -339,9 +341,11 @@ describe(PullRequestReviewsService.name, () => {
 			{ ...ownerWriteThrough, actorUserId: reviewerUserId },
 			{
 				body: '',
+				drafts: [],
 				expectedHeadSha: 'expected-head',
 				outcome: 'approve',
 				pendingCommentCount: 0,
+				pendingReviewId: undefined,
 			}
 		)
 		expect(reviewsRepository.findReviewerRequest).toHaveBeenCalledWith({
@@ -354,7 +358,10 @@ describe(PullRequestReviewsService.name, () => {
 		expect(reviewsRepository.createReviewerRequest).not.toHaveBeenCalled()
 		expect(reviewsRepository.removeReviewerRequest).not.toHaveBeenCalled()
 		expect(reviewsRepository.submitReview).not.toHaveBeenCalled()
-		expect(reviewsRepository.discardPendingReview).not.toHaveBeenCalled()
+		expect(reviewsRepository.discardPendingReview).toHaveBeenCalledWith({
+			pullRequestId,
+			reviewerUserId,
+		})
 	})
 
 	test('never touches write-through for a native review write', async () => {

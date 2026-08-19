@@ -3,11 +3,15 @@ import { RequireAuth, Session, type UserSession } from '@modules/auth'
 import { RepositoryWriteGuard } from '@modules/repositories'
 import { Controller, UseGuards } from '@nestjs/common'
 import { Implement, implement } from '@orpc/nest'
+import { PullRequestActivityService } from '../application/pull-request-activity.service'
 import { PullRequestsService } from '../application/pull-requests.service'
 
 @Controller()
 export class PullRequestsController {
-	constructor(private readonly pullRequestsService: PullRequestsService) {}
+	constructor(
+		private readonly pullRequestsService: PullRequestsService,
+		private readonly pullRequestActivityService: PullRequestActivityService
+	) {}
 
 	@RequireAuth()
 	@UseGuards(RepositoryWriteGuard)
@@ -29,6 +33,15 @@ export class PullRequestsController {
 	get(@Session() session?: UserSession) {
 		return implement(contract.pullRequests.get).handler(({ input }) =>
 			this.pullRequestsService.get(session?.user.id, input)
+		)
+	}
+
+	// The only read a pull request page polls, and the reason it may: one indexed
+	// aggregate per moving part, no Git and no GitHub.
+	@Implement(contract.pullRequests.activity)
+	activity(@Session() session?: UserSession) {
+		return implement(contract.pullRequests.activity).handler(({ input }) =>
+			this.pullRequestActivityService.getActivity(session?.user.id, input)
 		)
 	}
 

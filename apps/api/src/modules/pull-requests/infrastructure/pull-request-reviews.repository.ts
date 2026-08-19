@@ -4,6 +4,8 @@ import type {
 	PullRequestReviewerTargetKind,
 	PullRequestReviewOutcome,
 	PullRequestReviewState,
+	PullRequestThreadAnchor,
+	PullRequestThreadKind,
 } from '@repo/contracts'
 import {
 	and,
@@ -12,10 +14,12 @@ import {
 	type DrizzleTransaction,
 	desc,
 	eq,
+	type GitHubPullRequestThreadMappingId,
 	gitHubActors,
 	gitHubPullRequestMappings,
 	gitHubPullRequestReviewerRequestMappings,
 	gitHubPullRequestReviewMappings,
+	gitHubPullRequestThreadMappings,
 	inArray,
 	isNull,
 	type PullRequestEvent,
@@ -30,6 +34,7 @@ import {
 	user,
 } from '@repo/db'
 import type {
+	PullRequestCommentId,
 	PullRequestId,
 	PullRequestReviewerRequestId,
 	PullRequestReviewId,
@@ -110,6 +115,17 @@ export interface PullRequestPendingReviewReadModel {
 	id: PullRequestReviewId
 	headSha: string
 	commentCount: number
+}
+
+/** One batched draft, with everything a provider needs to place it. */
+export interface PullRequestReviewDraftReadModel {
+	commentId: PullRequestCommentId
+	threadId: PullRequestThreadId
+	threadKind: PullRequestThreadKind
+	body: string
+	/** Set once the thread exists on GitHub, which makes every draft on it a reply. */
+	threadMappingId: GitHubPullRequestThreadMappingId | null
+	anchor?: PullRequestThreadAnchor
 }
 
 export interface PullRequestEffectiveReviewRow {
@@ -311,6 +327,88 @@ export class PullRequestReviewsRepository {
 			.limit(1)
 
 		return review
+	}
+
+	/**
+	 * Every draft the reviewer batched, in the order a provider should place them:
+	 * a thread's root leads the replies written under it, and threads follow the
+	 * order they were opened in.
+	 */
+	async listPendingReviewDrafts({
+		reviewId,
+	}: {
+		reviewId: PullRequestReviewId
+	}): Promise<PullRequestReviewDraftReadModel[]> {
+		const rows = await this.db
+			.select({
+				commentId: pullRequestComments.id,
+				threadId: pullRequestThreads.id,
+				threadKind: pullRequestThreads.kind,
+				body: pullRequestComments.body,
+				threadMappingId: gitHubPullRequestThreadMappings.id,
+				path: pullRequestThreads.path,
+				side: pullRequestThreads.side,
+				startLine: pullRequestThreads.startLine,
+				line: pullRequestThreads.line,
+				anchorSha: pullRequestThreads.anchorSha,
+				baseSha: pullRequestThreads.baseSha,
+				headSha: pullRequestThreads.headSha,
+				lineExcerpt: pullRequestThreads.lineExcerpt,
+			})
+			.from(pullRequestComments)
+			.innerJoin(
+				pullRequestThreads,
+				eq(pullRequestThreads.id, pullRequestComments.threadId)
+			)
+			.leftJoin(
+				gitHubPullRequestThreadMappings,
+				and(
+					eq(
+						gitHubPullRequestThreadMappings.pullRequestThreadId,
+						pullRequestThreads.id
+					),
+					isNull(gitHubPullRequestThreadMappings.deletedAt)
+				)
+			)
+			.where(
+				and(
+					eq(pullRequestComments.reviewId, reviewId),
+					eq(pullRequestComments.state, 'pending')
+				)
+			)
+			.orderBy(
+				asc(pullRequestThreads.createdAt),
+				asc(pullRequestThreads.id),
+				asc(pullRequestComments.createdAt),
+				asc(pullRequestComments.id)
+			)
+
+		return rows.map(({ path, side, startLine, line, ...row }) => ({
+			commentId: row.commentId,
+			threadId: row.threadId,
+			threadKind: row.threadKind,
+			body: row.body,
+			threadMappingId: row.threadMappingId,
+			anchor:
+				row.threadKind === 'inline' &&
+				path &&
+				side &&
+				line &&
+				row.anchorSha &&
+				row.baseSha &&
+				row.headSha
+					? {
+							path,
+							side,
+							startLine: startLine ?? line,
+							endLine: line,
+							anchorSha: row.anchorSha,
+							baseSha: row.baseSha,
+							headSha: row.headSha,
+							lineExcerpt: row.lineExcerpt ?? '',
+						}
+					: undefined,
+		}))
 	}
 
 	/**

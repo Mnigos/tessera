@@ -48,6 +48,10 @@ export const GITHUB_WRITE_REJECTED_MESSAGES = {
 		'Only inline review threads can be resolved on GitHub.',
 	reviewer_not_on_github: 'This reviewer has no linked GitHub account.',
 	review_body_required: 'GitHub requires a comment for this kind of review.',
+	github_pending_review_exists:
+		'You have an unsubmitted review on github.com. Submit or discard it there, then try again.',
+	unanchorable_comment:
+		'One of your batched comments no longer matches the diff on GitHub. Nothing was posted.',
 } as const
 export type GitHubWriteRejectionReason =
 	keyof typeof GITHUB_WRITE_REJECTED_MESSAGES
@@ -1281,6 +1285,43 @@ export const pullRequestFileViewSchema = z.object({
 })
 export type PullRequestFileView = z.infer<typeof pullRequestFileViewSchema>
 
+/** How far a mirrored pull request's projection is behind what was asked for. */
+export const pullRequestActivityMirrorSchema = z.object({
+	requestedSyncVersion: z.number().int().nonnegative(),
+	projectedSyncVersion: z.number().int().nonnegative(),
+	/** When reconciliation last wrote this pull request's mapping. */
+	lastSyncedAt: z.coerce.date().optional(),
+})
+export type PullRequestActivityMirror = z.infer<
+	typeof pullRequestActivityMirrorSchema
+>
+
+/**
+ * The only thing a client polls. Every field moves when the thing it names
+ * moves, so a reader that kept the last cursor can reload exactly what went
+ * stale. The comment count is there because a deletion lowers no timestamp.
+ */
+export const pullRequestActivitySchema = z.object({
+	headSha: z.string(),
+	threadsUpdatedAt: z.coerce.date().optional(),
+	commentCount: z.number().int().nonnegative(),
+	unresolvedThreadCount: z.number().int().nonnegative(),
+	reviewsUpdatedAt: z.coerce.date().optional(),
+	eventsUpdatedAt: z.coerce.date().optional(),
+	checksUpdatedAt: z.coerce.date().optional(),
+	mirror: pullRequestActivityMirrorSchema.optional(),
+})
+export type PullRequestActivity = z.infer<typeof pullRequestActivitySchema>
+
+/** `throttled` is an answer, not an error: asking again that soon buys nothing. */
+export const pullRequestGitHubRefreshSchema = z.object({
+	status: z.enum(['queued', 'throttled', 'unavailable']),
+	retryAfterSeconds: z.number().int().nonnegative().optional(),
+})
+export type PullRequestGitHubRefresh = z.infer<
+	typeof pullRequestGitHubRefreshSchema
+>
+
 export const pullRequestsContract = {
 	create: oc
 		.route({
@@ -1324,6 +1365,20 @@ export const pullRequestsContract = {
 				viewerRole: repositoryViewerRoleSchema,
 			})
 		),
+	activity: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/activity',
+		})
+		.input(getPullRequestInputSchema)
+		.output(pullRequestActivitySchema),
+	refreshGitHub: oc
+		.route({
+			method: 'POST',
+			path: '/repositories/{username}/{slug}/pulls/{number}/github/refresh',
+		})
+		.input(getPullRequestInputSchema)
+		.output(pullRequestGitHubRefreshSchema),
 	comparison: oc
 		.route({
 			method: 'GET',

@@ -71,7 +71,17 @@ export function canReplyToPullRequestThread(
 	permissions: PullRequestThreadPermissions,
 	thread: PullRequestThread
 ) {
-	return permissions.canComment && !isGitHubFlatThread(permissions, thread)
+	if (isGitHubFlatThread(permissions, thread)) return false
+
+	// A batched draft reaches GitHub only when the review is submitted, so on a
+	// mirror there is nothing to reply to until it does.
+	if (
+		permissions.isGitHubAuthoritative &&
+		!thread.comments.some(comment => comment.state === 'published')
+	)
+		return false
+
+	return permissions.canComment
 }
 
 // A mirrored top-level thread is a GitHub issue comment: flat, unresolvable.

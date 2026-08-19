@@ -27,14 +27,17 @@ import {
 	gitHubPullRequestReviewerRequestMappings,
 	gitHubPullRequestReviewMappings,
 	gitHubPullRequestThreadMappings,
+	inArray,
 	isNotNull,
 	isNull,
 	ne,
 	type PullRequestEvent,
 	type PullRequestEventPayload,
+	type PullRequestReviewSubmissionId,
 	pullRequestComments,
 	pullRequestEvents,
 	pullRequestReviewerRequests,
+	pullRequestReviewSubmissions,
 	pullRequestReviews,
 	pullRequests,
 	pullRequestThreads,
@@ -55,6 +58,8 @@ export interface GitHubPullRequestWriteTarget {
 	pullRequestMappingId: GitHubPullRequestMappingId
 	externalNodeId: string
 	externalNumber: number
+	/** The head GitHub last reported, which outranks the one the caller claimed. */
+	headSha: string | null
 }
 
 export interface GitHubCommentWriteTarget {
@@ -120,9 +125,42 @@ interface EchoReviewerRequestParams extends EchoParams {
 	reviewerUserId: UserId
 }
 
-interface EchoReviewParams extends EchoParams {
+/** One batched draft, paired with the GitHub comment that took its place. */
+export interface BatchedReviewDraft {
+	anchor: PullRequestThreadAnchor
+	body: string
+	commentId: PullRequestCommentId
+	threadId: PullRequestThreadId
+}
+
+interface EchoBatchedReviewParams extends EchoParams {
+	comments: readonly GitHubSyncReviewComment[]
+	drafts: readonly BatchedReviewDraft[]
 	headSha: string
+	isAdopted: boolean
+	/** The pending envelope being sealed; absent when the reviewer batched nothing. */
+	pendingReviewId?: PullRequestReviewId
 	review: GitHubSyncReview & { outcome: GitHubSyncReviewOutcome }
+	submissionId: PullRequestReviewSubmissionId
+}
+
+export interface GitHubReviewSubmissionLedgerEntry {
+	id: PullRequestReviewSubmissionId
+	createdAt: Date
+	externalReviewNodeId: string | null
+	/** Set once an earlier attempt was fully reconciled, which makes this call a replay. */
+	settledReviewId?: PullRequestReviewId
+	/** Whether an earlier attempt reached GitHub without saying what became of it. */
+	isUnresolved: boolean
+}
+
+interface StartReviewSubmissionParams {
+	actorUserId: UserId
+	commentCount: number
+	expectedHeadSha: string
+	idempotencyKey: string
+	pullRequestId: PullRequestId
+	reviewId?: PullRequestReviewId
 }
 
 interface EchoPullRequestParams {
@@ -153,6 +191,7 @@ export class GitHubWriteThroughRepository {
 				pullRequestMappingId: gitHubPullRequestMappings.id,
 				externalNodeId: gitHubPullRequestMappings.externalNodeId,
 				externalNumber: gitHubPullRequestMappings.externalNumber,
+				headSha: gitHubPullRequestMappings.headSha,
 			})
 			.from(gitHubPullRequestMappings)
 			.where(eq(gitHubPullRequestMappings.pullRequestId, pullRequestId))
@@ -611,74 +650,6 @@ export class GitHubWriteThroughRepository {
 		})
 	}
 
-	async echoReview({
-		headSha,
-		review,
-		...params
-	}: EchoReviewParams): Promise<PullRequestReviewId> {
-		return await this.echo(params, async (transaction, syncVersion) => {
-			const reviewerActorId = await upsertGitHubActor(
-				transaction,
-				review.reviewer
-			)
-			const [echoedReview] = await transaction
-				.insert(pullRequestReviews)
-				.values({
-					pullRequestId: params.pullRequestId,
-					provider: 'github',
-					reviewerUserId: params.actorUserId,
-					state: 'submitted',
-					outcome: review.outcome,
-					headSha: review.commitId ?? headSha,
-					body: review.body,
-					createdAt: review.submittedAt,
-					submittedAt: review.submittedAt,
-				})
-				.returning({ id: pullRequestReviews.id })
-
-			if (!echoedReview) throw new Error('failed to echo GitHub review')
-
-			await transaction.insert(gitHubPullRequestReviewMappings).values({
-				pullRequestMappingId: params.target.pullRequestMappingId,
-				pullRequestReviewId: echoedReview.id,
-				externalNodeId: review.nodeId,
-				externalNumericId: review.numericId,
-				reviewerActorId,
-				htmlUrl: review.htmlUrl,
-				commitId: review.commitId,
-				providerSubmittedAt: review.submittedAt,
-				lastSeenSyncVersion: syncVersion,
-			})
-
-			await transaction
-				.update(pullRequestReviewerRequests)
-				.set({ fulfilledByReviewId: echoedReview.id })
-				.where(
-					and(
-						eq(pullRequestReviewerRequests.pullRequestId, params.pullRequestId),
-						eq(pullRequestReviewerRequests.reviewerUserId, params.actorUserId),
-						isNull(pullRequestReviewerRequests.removedAt),
-						isNull(pullRequestReviewerRequests.fulfilledByReviewId)
-					)
-				)
-
-			await this.insertGitHubEvent(transaction, {
-				actorId: reviewerActorId,
-				createdAt: review.submittedAt,
-				externalKey: `${review.nodeId}:review_submitted`,
-				payload: {
-					reviewId: echoedReview.id,
-					outcome: review.outcome,
-					headSha: review.commitId ?? headSha,
-				},
-				pullRequestId: params.pullRequestId,
-				type: 'review_submitted',
-			})
-
-			return echoedReview.id
-		})
-	}
-
 	async echoPullRequest({
 		mergeCommitSha,
 		pullRequest,
@@ -742,6 +713,392 @@ export class GitHubWriteThroughRepository {
 				})
 			}
 		)
+	}
+
+	/**
+	 * Opens or resumes the ledger row for one submission attempt. `createReview`
+	 * carries no idempotency key, so this row is the only thing that can tell a
+	 * retry from a first attempt after a lost response.
+	 */
+	async startReviewSubmission({
+		actorUserId,
+		commentCount,
+		expectedHeadSha,
+		idempotencyKey,
+		pullRequestId,
+		reviewId,
+	}: StartReviewSubmissionParams): Promise<GitHubReviewSubmissionLedgerEntry> {
+		return await this.db.transaction(async transaction => {
+			const [existing] = await transaction
+				.select()
+				.from(pullRequestReviewSubmissions)
+				.where(eq(pullRequestReviewSubmissions.idempotencyKey, idempotencyKey))
+				.limit(1)
+				.for('update')
+
+			if (!existing) {
+				const [created] = await transaction
+					.insert(pullRequestReviewSubmissions)
+					.values({
+						pullRequestId,
+						reviewId,
+						actorUserId,
+						idempotencyKey,
+						state: 'sent',
+						expectedHeadSha,
+						commentCount,
+					})
+					.returning()
+
+				if (!created)
+					throw new Error('failed to open a pull request review submission')
+
+				return {
+					id: created.id,
+					createdAt: created.createdAt,
+					externalReviewNodeId: null,
+					isUnresolved: false,
+				}
+			}
+
+			if (
+				(existing.state === 'reconciled' || existing.state === 'adopted') &&
+				existing.reviewId
+			)
+				return {
+					id: existing.id,
+					createdAt: existing.createdAt,
+					externalReviewNodeId: existing.externalReviewNodeId,
+					settledReviewId: existing.reviewId,
+					isUnresolved: false,
+				}
+
+			await transaction
+				.update(pullRequestReviewSubmissions)
+				.set({
+					state: 'sent',
+					attempts: existing.attempts + 1,
+					lastErrorCode: null,
+				})
+				.where(eq(pullRequestReviewSubmissions.id, existing.id))
+
+			// A refusal GitHub named left nothing behind, so only an attempt that got
+			// no answer at all has a review that might already exist.
+			return {
+				id: existing.id,
+				createdAt: existing.createdAt,
+				externalReviewNodeId: existing.externalReviewNodeId,
+				isUnresolved: existing.state !== 'failed',
+			}
+		})
+	}
+
+	/** Records the identity GitHub answered with, before the local echo is tried. */
+	async recordReviewSubmissionPosted({
+		externalReviewNodeId,
+		externalReviewNumericId,
+		submissionId,
+	}: {
+		externalReviewNodeId: string
+		externalReviewNumericId: bigint
+		submissionId: PullRequestReviewSubmissionId
+	}): Promise<void> {
+		await this.db
+			.update(pullRequestReviewSubmissions)
+			.set({ externalReviewNodeId, externalReviewNumericId })
+			.where(eq(pullRequestReviewSubmissions.id, submissionId))
+	}
+
+	async failReviewSubmission({
+		lastErrorCode,
+		submissionId,
+	}: {
+		lastErrorCode: string
+		submissionId: PullRequestReviewSubmissionId
+	}): Promise<void> {
+		await this.db
+			.update(pullRequestReviewSubmissions)
+			.set({ state: 'failed', lastErrorCode })
+			.where(eq(pullRequestReviewSubmissions.id, submissionId))
+	}
+
+	/**
+	 * Seals the batched review in one transaction: the drafts become the GitHub
+	 * comments they were posted as, in place, so their ids survive and every
+	 * optimistic update and permalink that already named them still resolves.
+	 */
+	async echoBatchedReview({
+		comments,
+		drafts,
+		headSha,
+		isAdopted,
+		pendingReviewId,
+		review,
+		submissionId,
+		...params
+	}: EchoBatchedReviewParams): Promise<PullRequestReviewId> {
+		return await this.echo(params, async (transaction, syncVersion) => {
+			const reviewerActorId = await upsertGitHubActor(
+				transaction,
+				review.reviewer
+			)
+			const reviewId = await this.sealBatchedReview(transaction, {
+				headSha,
+				pendingReviewId,
+				pullRequestId: params.pullRequestId,
+				review,
+				reviewerUserId: params.actorUserId,
+			})
+
+			await transaction.insert(gitHubPullRequestReviewMappings).values({
+				pullRequestMappingId: params.target.pullRequestMappingId,
+				pullRequestReviewId: reviewId,
+				externalNodeId: review.nodeId,
+				externalNumericId: review.numericId,
+				reviewerActorId,
+				htmlUrl: review.htmlUrl,
+				commitId: review.commitId,
+				providerSubmittedAt: review.submittedAt,
+				lastSeenSyncVersion: syncVersion,
+			})
+
+			for (const [draft, comment] of pairBatchedReviewComments(
+				drafts,
+				comments
+			))
+				await this.convertDraftComment(transaction, {
+					...params,
+					authorActorId: reviewerActorId,
+					comment,
+					draft,
+					reviewId,
+					syncVersion,
+				})
+
+			// A draft the batch could not place stays the reviewer's own note in
+			// Tessera rather than vanishing with the envelope that carried it.
+			await transaction
+				.update(pullRequestComments)
+				.set({ state: 'published' })
+				.where(
+					and(
+						eq(pullRequestComments.reviewId, reviewId),
+						eq(pullRequestComments.state, 'pending')
+					)
+				)
+
+			await transaction
+				.update(pullRequestReviewerRequests)
+				.set({ fulfilledByReviewId: reviewId })
+				.where(
+					and(
+						eq(pullRequestReviewerRequests.pullRequestId, params.pullRequestId),
+						eq(pullRequestReviewerRequests.reviewerUserId, params.actorUserId),
+						isNull(pullRequestReviewerRequests.removedAt),
+						isNull(pullRequestReviewerRequests.fulfilledByReviewId)
+					)
+				)
+
+			await this.insertGitHubEvent(transaction, {
+				actorId: reviewerActorId,
+				createdAt: review.submittedAt,
+				externalKey: `${review.nodeId}:review_submitted`,
+				payload: {
+					reviewId,
+					outcome: review.outcome,
+					headSha: review.commitId ?? headSha,
+				},
+				pullRequestId: params.pullRequestId,
+				type: 'review_submitted',
+			})
+
+			await transaction
+				.update(pullRequestReviewSubmissions)
+				.set({
+					state: isAdopted ? 'adopted' : 'reconciled',
+					reviewId,
+					externalReviewNodeId: review.nodeId,
+					externalReviewNumericId: review.numericId,
+				})
+				.where(eq(pullRequestReviewSubmissions.id, submissionId))
+
+			return reviewId
+		})
+	}
+
+	/** Reviews the actor submitted from a moment on, so an adoption never claims one twice. */
+	async findMappedReviewNodeIds({
+		nodeIds,
+	}: {
+		nodeIds: readonly string[]
+	}): Promise<Set<string>> {
+		if (nodeIds.length === 0) return new Set()
+
+		const mappings = await this.db
+			.select({
+				externalNodeId: gitHubPullRequestReviewMappings.externalNodeId,
+			})
+			.from(gitHubPullRequestReviewMappings)
+			.where(
+				inArray(gitHubPullRequestReviewMappings.externalNodeId, [...nodeIds])
+			)
+
+		return new Set(mappings.map(mapping => mapping.externalNodeId))
+	}
+
+	/**
+	 * Turns the reviewer's pending envelope into the review GitHub created, or
+	 * opens one when they batched nothing. Sealing in place keeps the review id
+	 * the pending banner and the draft comments already point at.
+	 */
+	private async sealBatchedReview(
+		transaction: DrizzleTransaction,
+		{
+			headSha,
+			pendingReviewId,
+			pullRequestId,
+			review,
+			reviewerUserId,
+		}: {
+			headSha: string
+			pendingReviewId?: PullRequestReviewId
+			pullRequestId: PullRequestId
+			review: GitHubSyncReview & { outcome: GitHubSyncReviewOutcome }
+			reviewerUserId: UserId
+		}
+	): Promise<PullRequestReviewId> {
+		const values = {
+			provider: 'github' as const,
+			state: 'submitted' as const,
+			outcome: review.outcome,
+			headSha: review.commitId ?? headSha,
+			body: review.body,
+			submittedAt: review.submittedAt,
+		}
+
+		if (pendingReviewId) {
+			const [sealed] = await transaction
+				.update(pullRequestReviews)
+				.set(values)
+				.where(
+					and(
+						eq(pullRequestReviews.id, pendingReviewId),
+						eq(pullRequestReviews.state, 'pending')
+					)
+				)
+				.returning({ id: pullRequestReviews.id })
+
+			if (sealed) return sealed.id
+		}
+
+		const [created] = await transaction
+			.insert(pullRequestReviews)
+			.values({
+				...values,
+				pullRequestId,
+				reviewerUserId,
+				createdAt: review.submittedAt,
+			})
+			.returning({ id: pullRequestReviews.id })
+
+		if (!created) throw new Error('failed to echo the batched GitHub review')
+
+		return created.id
+	}
+
+	/**
+	 * Publishes one draft as the GitHub comment it became: the thread and comment
+	 * rows keep their ids and gain the provider anchors GitHub answered with.
+	 */
+	private async convertDraftComment(
+		transaction: DrizzleTransaction,
+		{
+			authorActorId,
+			comment,
+			draft,
+			reviewId,
+			syncVersion,
+			target,
+		}: Omit<EchoParams, 'pullRequestId' | 'repositoryId'> & {
+			authorActorId: GitHubActorId
+			comment: GitHubSyncReviewComment
+			draft: BatchedReviewDraft
+			reviewId: PullRequestReviewId
+			syncVersion: number
+		}
+	): Promise<void> {
+		const { anchor } = draft
+		// GitHub may place the comment elsewhere than the client asked.
+		const side = comment.side ?? anchor.side
+		const line = comment.line ?? anchor.endLine
+		// A range GitHub starts on the other side is two anchors, and this model holds one.
+		const providerStartLine =
+			(comment.startSide ?? side) === side ? comment.startLine : undefined
+		const startLine =
+			(comment.line ? providerStartLine : anchor.startLine) ?? line
+
+		await transaction
+			.update(pullRequestThreads)
+			.set({
+				provider: 'github',
+				path: comment.path,
+				side,
+				line,
+				startLine: startLine < line ? startLine : null,
+				anchorSha: comment.commitId ?? anchor.anchorSha,
+				headSha: comment.commitId ?? anchor.headSha,
+			})
+			.where(eq(pullRequestThreads.id, draft.threadId))
+
+		const [threadMapping] = await transaction
+			.insert(gitHubPullRequestThreadMappings)
+			.values({
+				pullRequestMappingId: target.pullRequestMappingId,
+				pullRequestThreadId: draft.threadId,
+				rootCommentNodeId: comment.nodeId,
+				lastSeenSyncVersion: syncVersion,
+			})
+			.returning({ id: gitHubPullRequestThreadMappings.id })
+
+		if (!threadMapping)
+			throw new Error('failed to map a batched GitHub review thread')
+
+		await transaction
+			.update(pullRequestComments)
+			.set({
+				provider: 'github',
+				state: 'published',
+				reviewId,
+				body: comment.body,
+				createdAt: comment.createdAt,
+			})
+			.where(eq(pullRequestComments.id, draft.commentId))
+
+		await transaction.insert(gitHubPullRequestCommentMappings).values({
+			pullRequestMappingId: target.pullRequestMappingId,
+			threadMappingId: threadMapping.id,
+			pullRequestCommentId: draft.commentId,
+			kind: 'review',
+			externalNodeId: comment.nodeId,
+			externalNumericId: comment.numericId,
+			authorActorId,
+			reviewExternalNumericId: comment.reviewNumericId,
+			htmlUrl: comment.htmlUrl,
+			subjectType: comment.subjectType,
+			path: comment.path,
+			side: comment.side,
+			line: comment.line,
+			originalLine: comment.originalLine,
+			startSide: comment.startSide,
+			startLine: comment.startLine,
+			originalStartLine: comment.originalStartLine,
+			commitId: comment.commitId,
+			originalCommitId: comment.originalCommitId,
+			diffHunk: comment.diffHunk,
+			providerCreatedAt: comment.createdAt,
+			providerUpdatedAt: comment.updatedAt,
+			lastSeenSyncVersion: syncVersion,
+		})
 	}
 
 	private async insertComment(
@@ -971,4 +1328,43 @@ export class GitHubWriteThroughRepository {
 
 		return source.requestedSyncVersion
 	}
+}
+
+/**
+ * Which GitHub comment took which draft's place. GitHub creates the array in the
+ * order it was sent, so position settles the pairing and the path guards it;
+ * anything the pairing cannot claim keeps its draft unconverted rather than
+ * attaching a comment to the wrong line.
+ */
+function pairBatchedReviewComments(
+	drafts: readonly BatchedReviewDraft[],
+	comments: readonly GitHubSyncReviewComment[]
+): [BatchedReviewDraft, GitHubSyncReviewComment][] {
+	const ordered = [...comments].sort((first, second) =>
+		first.numericId < second.numericId ? -1 : 1
+	)
+	const unclaimed = new Set(ordered)
+
+	return drafts.flatMap((draft, index) => {
+		const positional = ordered[index]
+		const match =
+			positional &&
+			unclaimed.has(positional) &&
+			positional.path === draft.anchor.path
+				? positional
+				: ordered.find(
+						comment =>
+							unclaimed.has(comment) &&
+							comment.path === draft.anchor.path &&
+							comment.body === draft.body
+					)
+
+		if (!match) return []
+
+		unclaimed.delete(match)
+
+		return [
+			[draft, match] satisfies [BatchedReviewDraft, GitHubSyncReviewComment],
+		]
+	})
 }

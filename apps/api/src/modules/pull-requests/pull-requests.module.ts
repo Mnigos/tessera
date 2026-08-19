@@ -6,6 +6,7 @@ import { UserModule } from '@modules/user'
 import { Module } from '@nestjs/common'
 import { MergeQueueStatusService } from './application/merge-queue-status.service'
 import { MergeRequirementsService } from './application/merge-requirements.service'
+import { PullRequestActivityService } from './application/pull-request-activity.service'
 import { PullRequestFileViewsService } from './application/pull-request-file-views.service'
 import { PullRequestHeadResolver } from './application/pull-request-head.resolver'
 import { PullRequestMergeRunner } from './application/pull-request-merge.runner'
@@ -14,6 +15,7 @@ import { PullRequestReviewsService } from './application/pull-request-reviews.se
 import { PullRequestThreadsService } from './application/pull-request-threads.service'
 import { PullRequestsService } from './application/pull-requests.service'
 import { MergeQueueRepository } from './infrastructure/merge-queue.repository'
+import { PullRequestActivityRepository } from './infrastructure/pull-request-activity.repository'
 import { PullRequestFileViewsRepository } from './infrastructure/pull-request-file-views.repository'
 import { PullRequestReviewsRepository } from './infrastructure/pull-request-reviews.repository'
 import { PullRequestThreadsRepository } from './infrastructure/pull-request-threads.repository'
@@ -50,6 +52,7 @@ import { PullRequestsController } from './presentation/pull-requests.controller'
 	],
 	providers: [
 		PullRequestsService,
+		PullRequestActivityService,
 		PullRequestThreadsService,
 		PullRequestReviewsService,
 		PullRequestFileViewsService,
@@ -60,6 +63,7 @@ import { PullRequestsController } from './presentation/pull-requests.controller'
 		MergeQueueStatusService,
 		MergeQueueRepository,
 		PullRequestsRepository,
+		PullRequestActivityRepository,
 		PullRequestThreadsRepository,
 		PullRequestReviewsRepository,
 		PullRequestFileViewsRepository,

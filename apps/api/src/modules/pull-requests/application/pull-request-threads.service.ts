@@ -169,8 +169,10 @@ export class PullRequestThreadsService {
 			: undefined
 		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
 
-		// GitHub owns the review envelope, so the review marker has nothing to join.
-		if (writeThrough) {
+		// A batched inline comment stays a Tessera draft until the review is
+		// submitted, which is the one GitHub call that can carry it. A top-level
+		// comment has no such call, so a mirror posts it at once either way.
+		if (writeThrough && !(anchor && review)) {
 			const threadId = await this.gitHubWriteThroughService.createThread(
 				writeThrough,
 				{
@@ -317,7 +319,12 @@ export class PullRequestThreadsService {
 				action: 'edit',
 			})
 
-		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+		// A draft exists nowhere but Tessera, so editing it is a native write even
+		// on a mirror.
+		const writeThrough =
+			comment.state === 'pending'
+				? undefined
+				: this.toWriteThroughContext(viewerUserId, context)
 
 		if (writeThrough) {
 			await this.gitHubWriteThroughService.editComment(writeThrough, {
@@ -373,7 +380,11 @@ export class PullRequestThreadsService {
 				action: 'delete',
 			})
 
-		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
+		// A draft exists nowhere but Tessera, so discarding it is a native write.
+		const writeThrough =
+			comment.state === 'pending'
+				? undefined
+				: this.toWriteThroughContext(viewerUserId, context)
 
 		if (writeThrough)
 			return await this.gitHubWriteThroughService.deleteComment(writeThrough, {

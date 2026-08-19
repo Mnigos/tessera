@@ -1,6 +1,9 @@
 import { Database } from '@config/database'
 import { Injectable } from '@nestjs/common'
-import type { PullRequestThreadAnchor } from '@repo/contracts'
+import type {
+	PullRequestCommentState,
+	PullRequestThreadAnchor,
+} from '@repo/contracts'
 import {
 	and,
 	asc,
@@ -123,6 +126,8 @@ export interface PullRequestCommentContext {
 	authorUserId: UserId | null
 	id: PullRequestCommentId
 	pullRequestId: PullRequestId
+	/** A draft only its author can see, which no provider holds a copy of. */
+	state: PullRequestCommentState
 	threadId: PullRequestThreadId
 }
 
@@ -291,6 +296,7 @@ export class PullRequestThreadsRepository {
 				threadId: pullRequestComments.threadId,
 				authorUserId: pullRequestComments.authorUserId,
 				pullRequestId: pullRequestThreads.pullRequestId,
+				state: pullRequestComments.state,
 			})
 			.from(pullRequestComments)
 			.innerJoin(
