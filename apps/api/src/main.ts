@@ -4,6 +4,7 @@ import { HonoAdapter } from '@mnigos/platform-hono'
 import { Logger } from '@nestjs/common'
 import { NestFactory } from '@nestjs/core'
 import { type MicroserviceOptions, Transport } from '@nestjs/microservices'
+import { compress } from 'hono/compress'
 import { EnvService } from './config/env'
 import {
 	GIT_GRPC_LOADER_OPTIONS,
@@ -15,6 +16,13 @@ import { AppModule } from './modules/app'
 async function bootstrap() {
 	const adapter = new HonoAdapter({
 		skipBodyParserFor: ['/api/auth'],
+	})
+
+	// Git smart-http streams its own pack encoding; compressing it breaks clients.
+	adapter.hono.use(async (context, next) => {
+		if (context.req.path.includes('.git/')) return await next()
+
+		return await compress()(context, next)
 	})
 	const app = await NestFactory.create(AppModule, adapter, { rawBody: true })
 	const envService = app.get(EnvService)
