@@ -25,6 +25,7 @@
     "@tanstack/react-router": "catalog:",
     "@tanstack/react-router-ssr-query": "^1.158.1",
     "@tanstack/react-start": "catalog:",
+    "@tanstack/react-virtual": "catalog:",
     "@tanstack/router-plugin": "catalog:",
     "@tanstack/virtual-file-routes": "^1.154.7",
     "better-auth": "^1.6.9",

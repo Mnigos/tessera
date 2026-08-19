@@ -35,6 +35,7 @@ function inlineThread(id: string, path: string): PullRequestThread {
 		kind: 'inline',
 		anchor,
 		currentAnchor: {
+			path,
 			side: anchor.side,
 			startLine: anchor.startLine,
 			endLine: anchor.endLine,
@@ -148,7 +149,12 @@ describe('pull request inline threads', () => {
 		const wrongSide = {
 			...inlineThread('00000000-0000-4000-8000-000000000009', 'src/new.ts'),
 			anchor: { ...inlineAnchor('src/new.ts'), side: 'left' as const },
-			currentAnchor: { side: 'left' as const, startLine: 7, endLine: 7 },
+			currentAnchor: {
+				path: 'src/new.ts',
+				side: 'left' as const,
+				startLine: 7,
+				endLine: 7,
+			},
 		}
 		const outdated = {
 			...matching,
@@ -173,7 +179,12 @@ describe('pull request inline threads', () => {
 		const offHunk = {
 			...inlineThread('00000000-0000-4000-8000-000000000012', 'src/new.ts'),
 			anchor: { ...inlineAnchor('src/new.ts'), startLine: 99, endLine: 99 },
-			currentAnchor: { side: 'right' as const, startLine: 99, endLine: 99 },
+			currentAnchor: {
+				path: 'src/new.ts',
+				side: 'right' as const,
+				startLine: 99,
+				endLine: 99,
+			},
 		}
 		const outdated = {
 			...inlineThread('00000000-0000-4000-8000-000000000013', 'src/new.ts'),

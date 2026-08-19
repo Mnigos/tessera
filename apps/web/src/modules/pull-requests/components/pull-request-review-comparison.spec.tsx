@@ -153,7 +153,12 @@ const REVIEWED_LINE_THREAD: PullRequestThread = {
 		headSha: CURRENT_HEAD_SHA,
 		lineExcerpt: 'const answer = 41',
 	},
-	currentAnchor: { side: 'left', startLine: 4, endLine: 4 },
+	currentAnchor: {
+		path: 'src/index.ts',
+		side: 'left',
+		startLine: 4,
+		endLine: 4,
+	},
 	outdated: false,
 	createdAt: submittedAt,
 	comments: [
@@ -187,7 +192,12 @@ const CURRENT_LINE_THREAD: PullRequestThread = {
 		headSha: CURRENT_HEAD_SHA,
 		lineExcerpt: 'const answer = 42',
 	},
-	currentAnchor: { side: 'right', startLine: 9, endLine: 9 },
+	currentAnchor: {
+		path: 'src/index.ts',
+		side: 'right',
+		startLine: 9,
+		endLine: 9,
+	},
 	outdated: false,
 	createdAt: submittedAt,
 	comments: [

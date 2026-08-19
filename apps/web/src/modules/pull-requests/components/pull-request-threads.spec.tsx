@@ -213,7 +213,7 @@ function thread({
 				}
 			: undefined,
 		currentAnchor: path
-			? { side: 'left', startLine: 1, endLine: 1 }
+			? { path, side: 'left', startLine: 1, endLine: 1 }
 			: undefined,
 		resolved: resolved
 			? { at: createdAt, by: threadAuthor(AUTHOR_USER_ID, 'marta') }
@@ -567,7 +567,12 @@ describe('pull request threads', () => {
 			endLine: 4,
 			lineExcerpt: 'fourth removed line',
 		}
-		rangeThread.currentAnchor = { side: 'left', startLine: 2, endLine: 4 }
+		rangeThread.currentAnchor = {
+			path: rangeThread.anchor.path,
+			side: 'left',
+			startLine: 2,
+			endLine: 4,
+		}
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [rangeThread],

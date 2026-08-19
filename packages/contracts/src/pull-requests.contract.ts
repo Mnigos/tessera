@@ -556,6 +556,8 @@ export type PullRequestComment = z.infer<typeof pullRequestCommentSchema>
 
 /** Where the thread sits in the comparison being served; absent once its lines are gone. */
 export const pullRequestThreadPlacementSchema = z.object({
+	/** The changed file holding those lines now, which a rename moves away from the anchor's own path. */
+	path: z.string(),
 	side: pullRequestThreadSideSchema,
 	startLine: z.number().int().positive(),
 	endLine: z.number().int().positive(),
