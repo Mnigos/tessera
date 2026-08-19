@@ -24,18 +24,21 @@ export const pullRequestFileViews = pgTable(
 			.$type<PullRequestId>()
 			.references(() => pullRequests.id, { onDelete: 'cascade' }),
 		path: text('path').notNull(),
+		// The blob pair the tick was made against, null per side for an add or a delete.
+		baseBlobId: text('base_blob_id'),
+		headBlobId: text('head_blob_id'),
+		// Provenance, and the only identity a submodule's blobless row has.
 		headSha: text('head_sha').notNull(),
 		viewedAt: timestamp('viewed_at').defaultNow().notNull(),
 	},
 	table => [
 		primaryKey({
 			name: 'pull_request_file_views_pkey',
-			columns: [table.userId, table.pullRequestId, table.path, table.headSha],
+			columns: [table.userId, table.pullRequestId, table.path],
 		}),
-		index('pull_request_file_views_pull_request_user_head_idx').on(
+		index('pull_request_file_views_pull_request_user_idx').on(
 			table.pullRequestId,
-			table.userId,
-			table.headSha
+			table.userId
 		),
 	]
 )

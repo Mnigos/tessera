@@ -28,10 +28,17 @@ function inlineAnchor(path: string): NonNullable<PullRequestThread['anchor']> {
 }
 
 function inlineThread(id: string, path: string): PullRequestThread {
+	const anchor = inlineAnchor(path)
+
 	return {
 		id: id as PullRequestThreadId,
 		kind: 'inline',
-		anchor: inlineAnchor(path),
+		anchor,
+		currentAnchor: {
+			side: anchor.side,
+			startLine: anchor.startLine,
+			endLine: anchor.endLine,
+		},
 		outdated: false,
 		createdAt,
 		comments: [],
@@ -141,10 +148,12 @@ describe('pull request inline threads', () => {
 		const wrongSide = {
 			...inlineThread('00000000-0000-4000-8000-000000000009', 'src/new.ts'),
 			anchor: { ...inlineAnchor('src/new.ts'), side: 'left' as const },
+			currentAnchor: { side: 'left' as const, startLine: 7, endLine: 7 },
 		}
 		const outdated = {
 			...matching,
 			id: '00000000-0000-4000-8000-000000000010' as PullRequestThreadId,
+			currentAnchor: undefined,
 			outdated: true,
 		}
 
@@ -164,9 +173,11 @@ describe('pull request inline threads', () => {
 		const offHunk = {
 			...inlineThread('00000000-0000-4000-8000-000000000012', 'src/new.ts'),
 			anchor: { ...inlineAnchor('src/new.ts'), startLine: 99, endLine: 99 },
+			currentAnchor: { side: 'right' as const, startLine: 99, endLine: 99 },
 		}
 		const outdated = {
 			...inlineThread('00000000-0000-4000-8000-000000000013', 'src/new.ts'),
+			currentAnchor: undefined,
 			outdated: true,
 		}
 		const diff = {

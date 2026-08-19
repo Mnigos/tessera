@@ -201,6 +201,9 @@ function thread({
 					lineExcerpt: 'const removed = 1',
 				}
 			: undefined,
+		currentAnchor: path
+			? { side: 'left', startLine: 1, endLine: 1 }
+			: undefined,
 		resolved: resolved
 			? { at: createdAt, by: threadAuthor(AUTHOR_USER_ID, 'marta') }
 			: undefined,
@@ -553,6 +556,7 @@ describe('pull request threads', () => {
 			endLine: 4,
 			lineExcerpt: 'fourth removed line',
 		}
+		rangeThread.currentAnchor = { side: 'left', startLine: 2, endLine: 4 }
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [rangeThread],

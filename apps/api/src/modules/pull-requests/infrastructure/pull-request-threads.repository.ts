@@ -68,6 +68,8 @@ interface PendingCommentParams {
 
 interface CreateThreadParams extends PullRequestParams, PendingCommentParams {
 	anchor?: PullRequestThreadAnchor
+	/** The anchored file's blobs in the comparison the comment was written against. */
+	anchorBlobs?: { baseBlobId?: string; headBlobId?: string }
 	authorUserId: UserId
 	body: string
 }
@@ -147,6 +149,8 @@ const THREAD_READ_COLUMNS = {
 	anchorSha: pullRequestThreads.anchorSha,
 	baseSha: pullRequestThreads.baseSha,
 	headSha: pullRequestThreads.headSha,
+	baseBlobId: pullRequestThreads.baseBlobId,
+	headBlobId: pullRequestThreads.headBlobId,
 	lineExcerpt: pullRequestThreads.lineExcerpt,
 	resolvedAt: pullRequestThreads.resolvedAt,
 	resolvedByUserId: pullRequestThreads.resolvedByUserId,
@@ -306,6 +310,7 @@ export class PullRequestThreadsRepository {
 
 	async createThread({
 		anchor,
+		anchorBlobs,
 		authorUserId,
 		body,
 		pullRequestId,
@@ -331,6 +336,8 @@ export class PullRequestThreadsRepository {
 					anchorSha: anchor?.anchorSha,
 					baseSha: anchor?.baseSha,
 					headSha: anchor?.headSha,
+					baseBlobId: anchor ? anchorBlobs?.baseBlobId : undefined,
+					headBlobId: anchor ? anchorBlobs?.headBlobId : undefined,
 					lineExcerpt: anchor?.lineExcerpt,
 				})
 				.returning({ id: pullRequestThreads.id, ...THREAD_EVENT_COLUMNS })

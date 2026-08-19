@@ -2,6 +2,7 @@ import type {
 	PullRequestComment as PullRequestCommentOutput,
 	PullRequestThreadAnchor,
 	PullRequestThread as PullRequestThreadOutput,
+	PullRequestThreadPlacement,
 } from '@repo/contracts'
 import type { UserId } from '@repo/domain'
 import type {
@@ -17,6 +18,29 @@ export interface PullRequestThreadComparison {
 	baseSha: string
 	headSha: string
 }
+
+/** The shape of a changed file the anchoring rules read, as git storage reports it. */
+export interface PullRequestThreadComparisonFile {
+	baseBlobId?: string
+	headBlobId?: string
+	isBinary: boolean
+	newPath: string
+	oldPath: string
+}
+
+export interface PullRequestThreadDiffLine {
+	content: string
+	newLine?: number
+	oldLine?: number
+}
+
+export type PullRequestThreadAnchorClassification =
+	| { kind: 'current'; placement: PullRequestThreadPlacement }
+	| { kind: 'outdated' }
+	| { kind: 'relocate'; path: string }
+
+/** Matches the contract bound on a thread anchor's line excerpt. */
+const LINE_EXCERPT_MAX_LENGTH = 4096
 
 export function toPullRequestCommentOutput(
 	comment: PullRequestCommentReadModel
@@ -36,37 +60,109 @@ export function toPullRequestCommentOutput(
 	}
 }
 
+/** An inline thread with nowhere to sit in the served comparison is what outdated means. */
 export function toPullRequestThreadOutput(
 	thread: PullRequestThreadReadModel,
-	outdated: boolean
+	currentAnchor?: PullRequestThreadPlacement
 ): PullRequestThreadOutput {
 	return {
 		id: thread.id,
 		kind: thread.kind,
 		anchor: toPullRequestThreadAnchor(thread),
+		currentAnchor,
 		resolved: toPullRequestThreadResolution(thread),
-		outdated,
+		outdated: thread.kind === 'inline' && !currentAnchor,
 		createdAt: thread.createdAt,
 		comments: thread.comments.map(toPullRequestCommentOutput),
 	}
 }
 
 /**
- * GitHub decides outdatedness for the threads it owns — it can see history a
- * mirrored comparison cannot — so its verdict stands on its own, and the local
- * base/head comparison still catches anchors that aged after the last sync.
+ * Places an inline thread in the comparison being served, without reading git:
+ * the anchored side holding the same blob means the same lines at the same
+ * numbers, and anything else has to be looked for in the current diff.
+ *
+ * GitHub decides outdatedness for the threads it owns, so its verdict stands on
+ * its own, and a mirror — which reports no files here — answers by shas alone.
  */
-export function isPullRequestThreadOutdated(
+export function classifyPullRequestThreadAnchor(
 	thread: PullRequestThreadReadModel,
-	comparison: PullRequestThreadComparison
-): boolean {
-	if (thread.kind !== 'inline') return false
-	if (thread.providerOutdated) return true
+	comparison: PullRequestThreadComparison,
+	files: PullRequestThreadComparisonFile[] | undefined
+): PullRequestThreadAnchorClassification {
+	if (thread.kind !== 'inline') return { kind: 'outdated' }
+	if (thread.providerOutdated) return { kind: 'outdated' }
 
-	return (
-		thread.baseSha !== comparison.baseSha ||
-		thread.headSha !== comparison.headSha
+	const anchor = toPullRequestThreadAnchor(thread)
+
+	if (!anchor) return { kind: 'outdated' }
+
+	const placement = {
+		side: anchor.side,
+		startLine: anchor.startLine,
+		endLine: anchor.endLine,
+	}
+
+	if (
+		thread.baseSha === comparison.baseSha &&
+		thread.headSha === comparison.headSha
 	)
+		return { kind: 'current', placement }
+
+	if (!files) return { kind: 'outdated' }
+
+	const file = files.find(
+		changedFile =>
+			changedFile.newPath === anchor.path || changedFile.oldPath === anchor.path
+	)
+
+	if (!file || file.isBinary) return { kind: 'outdated' }
+
+	const anchoredBlobId =
+		anchor.side === 'left' ? thread.baseBlobId : thread.headBlobId
+	const currentBlobId =
+		anchor.side === 'left' ? file.baseBlobId : file.headBlobId
+
+	if (anchoredBlobId && anchoredBlobId === currentBlobId)
+		return { kind: 'current', placement }
+
+	return { kind: 'relocate', path: file.newPath }
+}
+
+/** Finds the anchored line again by its own text, nearest match first so a duplicated line cannot drag the thread across the file. */
+export function relocatePullRequestThreadAnchor(
+	thread: PullRequestThreadReadModel,
+	lines: PullRequestThreadDiffLine[]
+): PullRequestThreadPlacement | undefined {
+	const anchor = toPullRequestThreadAnchor(thread)
+
+	if (!anchor) return undefined
+
+	let endLine: number | undefined
+
+	for (const line of lines) {
+		const lineNumber = anchor.side === 'left' ? line.oldLine : line.newLine
+
+		if (
+			lineNumber === undefined ||
+			line.content.slice(0, LINE_EXCERPT_MAX_LENGTH) !== anchor.lineExcerpt
+		)
+			continue
+
+		if (
+			endLine === undefined ||
+			Math.abs(lineNumber - anchor.endLine) < Math.abs(endLine - anchor.endLine)
+		)
+			endLine = lineNumber
+	}
+
+	if (endLine === undefined) return undefined
+
+	return {
+		side: anchor.side,
+		startLine: Math.max(1, endLine - (anchor.endLine - anchor.startLine)),
+		endLine,
+	}
 }
 
 export function isPullRequestThreadParticipant(

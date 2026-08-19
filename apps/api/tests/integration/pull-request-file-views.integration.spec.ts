@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto'
 import { fileURLToPath } from 'node:url'
 import { DatabaseModule } from '@config/database'
 import { EnvModule } from '@config/env'
@@ -34,6 +35,28 @@ const BASE_SHA = 'a'.repeat(40)
 const HEAD_SHA = 'b'.repeat(40)
 const MOVED_HEAD_SHA = 'c'.repeat(40)
 
+/** The blob pair a path has while nothing has rewritten it. */
+function blobsFor(path: string, revision = '1') {
+	return {
+		baseBlobId: createHash('sha1').update(`base:${path}`).digest('hex'),
+		headBlobId: createHash('sha1')
+			.update(`head:${revision}:${path}`)
+			.digest('hex'),
+	}
+}
+
+function changedFile(path: string, revision = '1') {
+	return {
+		status: 'modified' as 'modified' | 'renamed',
+		oldPath: path,
+		newPath: path,
+		...blobsFor(path, revision),
+		additions: 1,
+		deletions: 0,
+		isBinary: false,
+	}
+}
+
 @Module({
 	imports: [
 		EnvModule,
@@ -58,6 +81,7 @@ describe('Pull request file views integration', () => {
 	let app: INestApplication
 	let adapter: HonoAdapter
 	let currentHeadSha: string
+	let currentFiles: ReturnType<typeof changedFile>[]
 	let owner: IntegrationUser
 
 	beforeAll(async () => {
@@ -102,7 +126,7 @@ describe('Pull request file views integration', () => {
 						headSha: currentHeadSha,
 						mergeBaseSha: BASE_SHA,
 						commits: [],
-						files: [],
+						files: currentFiles,
 						isTruncated: false,
 						commitsTruncated: false,
 						commitLimit: 500,
@@ -120,6 +144,7 @@ describe('Pull request file views integration', () => {
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
 		currentHeadSha = HEAD_SHA
+		currentFiles = []
 		owner = await createIntegrationUser('owner')
 		await createRepository(owner.headers)
 		const response = await request(
@@ -140,14 +165,22 @@ describe('Pull request file views integration', () => {
 	})
 
 	test('lists empty state and handles true and false idempotently', async () => {
+		currentFiles = [changedFile('src/index.ts'), changedFile('src/other.ts')]
+
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
 			paths: [],
+			changedSinceReviewPaths: [],
 		})
 
 		for (const viewed of [true, true]) {
 			const response = await setFileViewed(
-				{ expectedHeadSha: HEAD_SHA, path: 'src/index.ts', viewed },
+				{
+					expectedHeadSha: HEAD_SHA,
+					path: 'src/index.ts',
+					viewed,
+					...blobsFor('src/index.ts'),
+				},
 				owner.headers
 			)
 			expect(response.status).toBe(200)
@@ -161,15 +194,26 @@ describe('Pull request file views integration', () => {
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
 			paths: ['src/index.ts'],
+			changedSinceReviewPaths: [],
 		})
 		await setFileViewed(
-			{ expectedHeadSha: HEAD_SHA, path: 'src/other.ts', viewed: true },
+			{
+				expectedHeadSha: HEAD_SHA,
+				path: 'src/other.ts',
+				viewed: true,
+				...blobsFor('src/other.ts'),
+			},
 			owner.headers
 		)
 
 		for (const viewed of [false, false]) {
 			const response = await setFileViewed(
-				{ expectedHeadSha: HEAD_SHA, path: 'src/index.ts', viewed },
+				{
+					expectedHeadSha: HEAD_SHA,
+					path: 'src/index.ts',
+					viewed,
+					...blobsFor('src/index.ts'),
+				},
 				owner.headers
 			)
 			expect(response.status).toBe(200)
@@ -183,38 +227,89 @@ describe('Pull request file views integration', () => {
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
 			paths: ['src/other.ts'],
+			changedSinceReviewPaths: [],
 		})
 	})
 
-	test('filters rows by current head', async () => {
+	test('keeps a tick a push spared and drops one on a file it rewrote', async () => {
 		const pullRequest = await getPullRequestRow()
+		// The tick was made two heads ago; only the rewritten file loses it.
 		await db.insert(pullRequestFileViews).values([
 			{
 				userId: owner.id,
 				pullRequestId: pullRequest.id,
-				headSha: HEAD_SHA,
-				path: 'src/current.ts',
+				headSha: MOVED_HEAD_SHA,
+				path: 'src/spared.ts',
+				...blobsFor('src/spared.ts'),
 			},
 			{
 				userId: owner.id,
 				pullRequestId: pullRequest.id,
 				headSha: MOVED_HEAD_SHA,
-				path: 'src/other-head.ts',
+				path: 'src/rewritten.ts',
+				...blobsFor('src/rewritten.ts'),
 			},
 		])
+		currentFiles = [
+			changedFile('src/spared.ts'),
+			changedFile('src/rewritten.ts', '2'),
+		]
 
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
-			paths: ['src/current.ts'],
+			paths: ['src/spared.ts'],
+			changedSinceReviewPaths: [],
 		})
 	})
 
-	test('rejects a stale expected head', async () => {
+	test('carries a tick across a rename that leaves the content alone', async () => {
+		const pullRequest = await getPullRequestRow()
+		await db.insert(pullRequestFileViews).values({
+			userId: owner.id,
+			pullRequestId: pullRequest.id,
+			headSha: HEAD_SHA,
+			path: 'src/before.ts',
+			...blobsFor('src/before.ts'),
+		})
+		currentFiles = [
+			{
+				...changedFile('src/before.ts'),
+				status: 'renamed' as const,
+				newPath: 'src/after.ts',
+			},
+		]
+
+		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
+			headSha: HEAD_SHA,
+			paths: ['src/after.ts'],
+			changedSinceReviewPaths: [],
+		})
+
+		const response = await setFileViewed(
+			{
+				expectedHeadSha: HEAD_SHA,
+				path: 'src/after.ts',
+				viewed: false,
+				...blobsFor('src/before.ts'),
+			},
+			owner.headers
+		)
+
+		expect(response.status).toBe(200)
+		expect(await countViewedPaths()).toBe(0)
+	})
+
+	test('rejects a stale list but still takes the tick behind it', async () => {
 		currentHeadSha = MOVED_HEAD_SHA
 
 		const getResponse = await listViewedFiles(owner.headers, HEAD_SHA)
 		const putResponse = await setFileViewed(
-			{ expectedHeadSha: HEAD_SHA, path: 'src/index.ts', viewed: true },
+			{
+				expectedHeadSha: HEAD_SHA,
+				path: 'src/index.ts',
+				viewed: true,
+				...blobsFor('src/index.ts'),
+			},
 			owner.headers
 		)
 
@@ -223,12 +318,13 @@ describe('Pull request file views integration', () => {
 			code: 'CONFLICT',
 			status: 409,
 		})
-		expect(putResponse.status).toBe(409)
+		expect(putResponse.status).toBe(200)
+		// The head the client has to reconcile against comes back with the tick.
 		expect(await putResponse.json()).toMatchObject({
-			code: 'CONFLICT',
-			status: 409,
+			headSha: MOVED_HEAD_SHA,
+			viewed: true,
 		})
-		expect(await countViewedPaths()).toBe(0)
+		expect(await countViewedPaths()).toBe(1)
 	})
 
 	test('requires authentication', async () => {
@@ -264,11 +360,17 @@ describe('Pull request file views integration', () => {
 
 	test('round-trips whitespace paths exactly', async () => {
 		const path = ' src/index.ts '
+		currentFiles = [changedFile(path)]
 
 		expect(
 			(
 				await setFileViewed(
-					{ expectedHeadSha: HEAD_SHA, path, viewed: true },
+					{
+						expectedHeadSha: HEAD_SHA,
+						path,
+						viewed: true,
+						...blobsFor(path),
+					},
 					owner.headers
 				)
 			).status
@@ -276,17 +378,24 @@ describe('Pull request file views integration', () => {
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
 			paths: [path],
+			changedSinceReviewPaths: [],
 		})
 	})
 
 	test('round-trips 2048 UTF-8 bytes and rejects larger paths', async () => {
 		const maximumPath = 'ą'.repeat(1024)
 		const oversizedPath = 'ą'.repeat(1025)
+		currentFiles = [changedFile(maximumPath)]
 
 		expect(
 			(
 				await setFileViewed(
-					{ expectedHeadSha: HEAD_SHA, path: maximumPath, viewed: true },
+					{
+						expectedHeadSha: HEAD_SHA,
+						path: maximumPath,
+						viewed: true,
+						...blobsFor(maximumPath),
+					},
 					owner.headers
 				)
 			).status
@@ -302,6 +411,7 @@ describe('Pull request file views integration', () => {
 		expect(await (await listViewedFiles(owner.headers)).json()).toEqual({
 			headSha: HEAD_SHA,
 			paths: [maximumPath],
+			changedSinceReviewPaths: [],
 		})
 	})
 
@@ -434,8 +544,7 @@ describe('Pull request file views integration', () => {
 			.where(
 				and(
 					eq(pullRequestFileViews.userId, owner.id),
-					eq(pullRequestFileViews.pullRequestId, pullRequest.id),
-					eq(pullRequestFileViews.headSha, HEAD_SHA)
+					eq(pullRequestFileViews.pullRequestId, pullRequest.id)
 				)
 			)
 
