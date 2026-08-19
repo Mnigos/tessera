@@ -9,6 +9,7 @@ import { bundledLanguages } from 'shiki/langs'
 const DARK_THEME = 'github-dark'
 const LIGHT_THEME = 'github-light'
 const HIGHLIGHT_CACHE_LIMIT = 256
+const WORD_DIFF_CLASS = 'dw'
 const THEME_COLOR_VARIABLES = new Set([
 	'--shiki-light',
 	'--shiki-dark',
@@ -54,9 +55,20 @@ export interface HighlightSourceCodeParams {
 	path: string
 }
 
+export interface HighlightedSourceToken {
+	content: string
+	style: string
+}
+
 export interface HighlightedSourceLine {
-	html: string
 	number: number
+	tokens: HighlightedSourceToken[]
+}
+
+/** A half-open character range of the raw line, in raw (unescaped) coordinates. */
+export interface SourceLineMark {
+	end: number
+	start: number
 }
 
 export interface HighlightedSourceCode {
@@ -106,7 +118,7 @@ async function tokenizeSourceCode({
 			language,
 			lines: tokens.map((lineTokens, index) => ({
 				number: index + 1,
-				html: lineTokens.map(toTokenHtml).join(''),
+				tokens: lineTokens.map(toHighlightedToken),
 			})),
 		}
 	} catch {
@@ -169,13 +181,56 @@ function getHighlighter() {
 	return highlighterPromise
 }
 
-function toTokenHtml({ content, htmlStyle }: ThemedToken) {
-	const style = toTokenStyle(htmlStyle)
-	const escapedContent = escapeHtml(content)
+/**
+ * Renders one tokenized line, optionally emphasising raw character ranges.
+ *
+ * Marks are cut at token edges and folded in before escaping, so a mark never
+ * lands inside an entity and never crosses the span carrying a token's colour.
+ * Ranges must arrive sorted and non-overlapping.
+ */
+export function toHighlightedLineHtml(
+	tokens: readonly HighlightedSourceToken[],
+	marks: readonly SourceLineMark[] = []
+) {
+	let offset = 0
 
-	if (!style) return escapedContent
+	return tokens
+		.map(({ content, style }) => {
+			const html = toTokenHtml(content, offset, marks)
 
-	return `<span style="${style}">${escapedContent}</span>`
+			offset += content.length
+
+			return style ? `<span style="${style}">${html}</span>` : html
+		})
+		.join('')
+}
+
+function toTokenHtml(
+	content: string,
+	offset: number,
+	marks: readonly SourceLineMark[]
+) {
+	let cursor = 0
+	let html = ''
+
+	for (const mark of marks) {
+		const start = Math.max(mark.start - offset, cursor)
+		const end = Math.min(mark.end - offset, content.length)
+
+		if (end <= start) continue
+
+		html += `${escapeHtml(content.slice(cursor, start))}<span class="${WORD_DIFF_CLASS}">${escapeHtml(content.slice(start, end))}</span>`
+		cursor = end
+	}
+
+	return html + escapeHtml(content.slice(cursor))
+}
+
+function toHighlightedToken({
+	content,
+	htmlStyle,
+}: ThemedToken): HighlightedSourceToken {
+	return { content, style: toTokenStyle(htmlStyle) }
 }
 
 /** Colours stay per-theme variables the stylesheet resolves; font styles collapse to the light variant because both bundled themes derive them from the same grammar. */

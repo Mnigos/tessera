@@ -511,6 +511,13 @@ export const pullRequestFileDiffSchema = z.object({
 })
 export type PullRequestFileDiff = z.infer<typeof pullRequestFileDiffSchema>
 
+/** A slice of one side's blob, so an expanded gap splices into the same row model the hunks use. */
+export const pullRequestFileLinesSchema = z.object({
+	lines: z.array(pullRequestDiffLineSchema),
+	totalLines: z.number().int().nonnegative(),
+})
+export type PullRequestFileLines = z.infer<typeof pullRequestFileLinesSchema>
+
 /** A range on one side of one file; a single-line anchor repeats its line. */
 export const pullRequestThreadAnchorInputSchema = z
 	.object({
@@ -901,6 +908,33 @@ export type ParsedGetPullRequestFileDiffInput = z.infer<
 	typeof getPullRequestFileDiffInputSchema
 >
 
+export const PULL_REQUEST_FILE_LINES_LIMIT = 500
+
+export const getPullRequestFileLinesInputSchema =
+	getPullRequestFileDiffInputSchema
+		.extend({
+			side: pullRequestThreadSideSchema,
+			startLine: z.coerce.number().int().positive(),
+			endLine: z.coerce.number().int().positive(),
+		})
+		.refine(input => input.startLine <= input.endLine, {
+			message: 'The line range must not end before it starts',
+			path: ['startLine'],
+		})
+		.refine(
+			input => input.endLine - input.startLine < PULL_REQUEST_FILE_LINES_LIMIT,
+			{
+				message: `At most ${PULL_REQUEST_FILE_LINES_LIMIT} lines can be expanded at once`,
+				path: ['endLine'],
+			}
+		)
+export type GetPullRequestFileLinesInput = z.input<
+	typeof getPullRequestFileLinesInputSchema
+>
+export type ParsedGetPullRequestFileLinesInput = z.infer<
+	typeof getPullRequestFileLinesInputSchema
+>
+
 export const getPullRequestReviewComparisonInputSchema =
 	getPullRequestInputSchema.extend({ reviewId: pullRequestReviewIdSchema })
 export type GetPullRequestReviewComparisonInput = z.input<
@@ -1279,6 +1313,13 @@ export const pullRequestsContract = {
 		})
 		.input(getPullRequestFileDiffInputSchema)
 		.output(pullRequestFileDiffSchema),
+	fileLines: oc
+		.route({
+			method: 'GET',
+			path: '/repositories/{username}/{slug}/pulls/{number}/files/lines',
+		})
+		.input(getPullRequestFileLinesInputSchema)
+		.output(pullRequestFileLinesSchema),
 	listChecks: oc
 		.route({
 			method: 'GET',

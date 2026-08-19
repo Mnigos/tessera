@@ -116,28 +116,27 @@ function PullRequestDiffThreadComposer({
 	}
 
 	return (
-		<div className="flex flex-col gap-2 rounded-md border border-border bg-card p-3">
-			<h3 className="font-medium text-sm">Comment on {lines}</h3>
-			<PullRequestCommentComposer
-				error={createThreadMutation.error}
-				errorFallback="The comment could not be posted."
-				inputId={`pull-request-line-comment-${anchor.side}-${anchor.startLine}-${anchor.endLine}`}
-				isPending={createThreadMutation.isPending}
-				label={`Comment on ${lines}`}
-				onCancel={onDone}
-				onSecondarySubmit={reviewActions ? handleSecondarySubmit : undefined}
-				onSubmit={handlePrimarySubmit}
-				pendingLabel="Posting"
-				placeholder={
-					isRange
-						? 'Leave a comment on these lines'
-						: 'Leave a comment on this line'
-				}
-				secondarySubmitLabel={reviewActions?.secondaryLabel}
-				shouldFocusOnMount
-				submitLabel={reviewActions?.primaryLabel ?? 'Comment'}
-			/>
-		</div>
+		<PullRequestCommentComposer
+			error={createThreadMutation.error}
+			errorFallback="The comment could not be posted."
+			heading={`Comment on ${lines}`}
+			inputId={`pull-request-line-comment-${anchor.side}-${anchor.startLine}-${anchor.endLine}`}
+			isAddingToReview={isPrimaryReview}
+			isPending={createThreadMutation.isPending}
+			label={`Comment on ${lines}`}
+			onCancel={onDone}
+			onSecondarySubmit={reviewActions ? handleSecondarySubmit : undefined}
+			onSubmit={handlePrimarySubmit}
+			pendingLabel="Posting"
+			placeholder={
+				isRange
+					? 'Leave a comment on these lines'
+					: 'Leave a comment on this line'
+			}
+			secondarySubmitLabel={reviewActions?.secondaryLabel}
+			shouldFocusOnMount
+			submitLabel={reviewActions?.primaryLabel ?? 'Comment'}
+		/>
 	)
 }
 
@@ -159,7 +158,7 @@ export function PullRequestOutdatedThreads({
 	title = 'Outdated comments',
 }: Readonly<PullRequestOutdatedThreadsProps>) {
 	return (
-		<section className="flex flex-col gap-3 border-border border-t bg-muted/20 px-4 py-3">
+		<section className="flex flex-col gap-3 px-3 py-3">
 			<h3 className="flex items-center gap-2 font-medium text-muted-foreground text-sm">
 				<History aria-hidden className="size-4" />
 				{title} ({threads.length})

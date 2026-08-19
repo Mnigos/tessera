@@ -20,6 +20,10 @@ import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed
 import { useSetPullRequestFileViewedMutation } from '../hooks/use-set-pull-request-file-viewed.mutation'
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 
+vi.mock('@/modules/auth/hooks/use-auth', () => ({
+	useAuth: () => ({ user: undefined }),
+}))
+
 vi.mock('@tanstack/react-query', async importOriginal => ({
 	...(await importOriginal<typeof import('@tanstack/react-query')>()),
 	useQueryClient: vi.fn(),

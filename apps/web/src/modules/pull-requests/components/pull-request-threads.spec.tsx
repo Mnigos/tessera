@@ -27,6 +27,10 @@ import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimeline } from './pull-request-timeline'
 
+vi.mock('@/modules/auth/hooks/use-auth', () => ({
+	useAuth: () => ({ user: undefined }),
+}))
+
 vi.mock('@/modules/repositories/hooks/use-github-sync-health.query', () => ({
 	useGitHubSyncHealthQuery: () => ({
 		data: undefined,

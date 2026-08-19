@@ -6,6 +6,10 @@ import { usePullRequestFileDiffQuery } from '../hooks/use-pull-request-file-diff
 import { PullRequestDiffSelectionProvider } from './pull-request-diff-selection-context'
 import { PullRequestFileDiffView } from './pull-request-file-diff'
 
+vi.mock('@/modules/auth/hooks/use-auth', () => ({
+	useAuth: () => ({ user: undefined }),
+}))
+
 vi.mock('../hooks/use-pull-request-file-diff.query', () => ({
 	usePullRequestFileDiffQuery: vi.fn(),
 }))
