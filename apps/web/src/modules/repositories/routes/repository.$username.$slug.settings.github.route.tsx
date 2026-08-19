@@ -34,9 +34,5 @@ export const Route = createFileRoute('/$username/$slug/settings/github')({
 function RepositoryGitHubSettingsRoute() {
 	const { username, slug } = Route.useParams()
 
-	return (
-		<main className="mx-auto max-w-6xl px-6 py-8">
-			<RepositoryGitHubSettings slug={slug} username={username} />
-		</main>
-	)
+	return <RepositoryGitHubSettings slug={slug} username={username} />
 }

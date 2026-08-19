@@ -39,7 +39,9 @@ export function reduceDiffLineSelection(
 ): DiffLineSelection | undefined {
 	if (action.type === 'clear') return undefined
 	if (action.type === 'commit')
-		return selection && { ...selection, isSelecting: false }
+		return selection?.isSelecting
+			? { ...selection, isSelecting: false }
+			: selection
 
 	const { hunk, line, path, side } = action.target
 

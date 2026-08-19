@@ -39,12 +39,12 @@ function NewPullRequestRoute() {
 	}
 
 	return (
-		<main className="mx-auto max-w-3xl px-4 py-6 sm:px-6 sm:py-8">
+		<div className="mx-auto w-full max-w-3xl">
 			<CreatePullRequestPanel
 				onCreated={handleCreated}
 				slug={slug}
 				username={username}
 			/>
-		</main>
+		</div>
 	)
 }

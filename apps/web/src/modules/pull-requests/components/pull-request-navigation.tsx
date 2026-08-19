@@ -58,6 +58,7 @@ export function PullRequestNavigation({
 					return (
 						<li key={item.tab}>
 							<Link
+								activeOptions={{ exact: true }}
 								aria-current={isActive ? 'page' : undefined}
 								className={cn(
 									tabsTriggerClassName,

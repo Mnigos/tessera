@@ -346,7 +346,7 @@ describe(PullRequestComparisonFiles.name, () => {
 		expect(fileHeader(large.newPath).getAttribute('aria-expanded')).toBe('true')
 		expect(
 			useFileDiffQueryMock.mock.calls.map(([input]) => input.path)
-		).toEqual(['src/ordinary.ts', 'src/large.ts'])
+		).toEqual(['src/large.ts'])
 	})
 
 	test('shows changed-file copy until the authenticated viewed query succeeds', () => {

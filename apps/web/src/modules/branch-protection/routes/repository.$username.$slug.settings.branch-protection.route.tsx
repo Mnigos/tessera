@@ -36,9 +36,5 @@ export const Route = createFileRoute(
 function BranchProtectionSettingsRoute() {
 	const { username, slug } = Route.useParams()
 
-	return (
-		<main className="mx-auto max-w-6xl px-6 py-8">
-			<BranchProtectionSettings slug={slug} username={username} />
-		</main>
-	)
+	return <BranchProtectionSettings slug={slug} username={username} />
 }

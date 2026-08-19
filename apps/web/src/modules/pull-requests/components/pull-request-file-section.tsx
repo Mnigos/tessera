@@ -4,7 +4,7 @@ import { Toggle } from '@repo/ui/components/toggle'
 import { cn } from '@repo/ui/utils'
 import { Check, ChevronRight } from 'lucide-react'
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
-import type { PropsWithChildren } from 'react'
+import { memo, type PropsWithChildren, useCallback } from 'react'
 import { isLargeChangedFile } from '../helpers/pull-request-changed-files'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
 
@@ -20,13 +20,13 @@ interface PullRequestFileSectionProps extends PropsWithChildren {
 	canMarkViewed: boolean
 	isViewedPending: boolean
 	isNearViewport: boolean
-	onToggleExpanded: () => void
-	onToggleViewed: () => void
-	onPrefetch: () => void
-	onRegisterNode: (node: HTMLElement | null) => void
+	onToggleExpanded: (path: string, isExpanded: boolean) => void
+	onToggleViewed: (path: string, viewed: boolean) => void
+	onPrefetch: (file: PullRequestChangedFile) => void
+	onRegisterNode: (path: string, node: HTMLElement | null) => void
 }
 
-export function PullRequestFileSection({
+function FileSection({
 	file,
 	path,
 	displayPath,
@@ -42,14 +42,25 @@ export function PullRequestFileSection({
 	children,
 }: Readonly<PullRequestFileSectionProps>) {
 	const shouldReduceMotion = useReducedMotion()
+	const observeSection = useCallback(
+		(node: HTMLDivElement | null) => {
+			if (!node) return
 
-	function observeSection(node: HTMLDivElement | null) {
-		if (!node) return
+			onRegisterNode(path, node)
 
-		onRegisterNode(node)
-
-		return () => onRegisterNode(null)
-	}
+			return () => onRegisterNode(path, null)
+		},
+		[onRegisterNode, path]
+	)
+	const handleToggleExpanded = useCallback(
+		() => onToggleExpanded(path, !isExpanded),
+		[isExpanded, onToggleExpanded, path]
+	)
+	const handleToggleViewed = useCallback(
+		(pressed: boolean) => onToggleViewed(path, pressed),
+		[onToggleViewed, path]
+	)
+	const handlePrefetch = useCallback(() => onPrefetch(file), [file, onPrefetch])
 
 	return (
 		<div className="scroll-mt-2" ref={observeSection}>
@@ -69,9 +80,9 @@ export function PullRequestFileSection({
 					<Button
 						aria-expanded={isExpanded}
 						className="h-10 min-w-0 flex-1 justify-start gap-2 rounded-none rounded-tl-md px-2 py-0 text-left font-normal"
-						onClick={onToggleExpanded}
-						onFocus={onPrefetch}
-						onPointerEnter={onPrefetch}
+						onClick={handleToggleExpanded}
+						onFocus={handlePrefetch}
+						onPointerEnter={handlePrefetch}
 						variant="ghost"
 					>
 						<ChevronRight
@@ -96,7 +107,7 @@ export function PullRequestFileSection({
 							aria-label={`Mark ${path} viewed`}
 							className="h-7 cursor-pointer gap-1.5 px-2"
 							disabled={isViewedPending}
-							onPressedChange={onToggleViewed}
+							onPressedChange={handleToggleViewed}
 							pressed={isViewed}
 							size="sm"
 							variant="outline"
@@ -135,7 +146,7 @@ export function PullRequestFileSection({
 						</p>
 						<Button
 							aria-label={`Load diff for ${path}`}
-							onClick={onToggleExpanded}
+							onClick={handleToggleExpanded}
 							size="sm"
 							variant="outline"
 						>
@@ -162,3 +173,6 @@ export function PullRequestFileSection({
 		</div>
 	)
 }
+
+// A viewed tick moves state on the files view, which renders every other file.
+export const PullRequestFileSection = memo(FileSection)

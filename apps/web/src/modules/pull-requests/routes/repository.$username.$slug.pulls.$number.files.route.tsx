@@ -76,17 +76,15 @@ function PullRequestFilesRoute() {
 	}
 
 	return (
-		<main className="mx-auto max-w-screen-2xl px-4 py-6 sm:px-6 sm:py-8">
-			<PullRequestDetail
-				number={number}
-				reviewSelection={{
-					reviewId,
-					onReviewIdChange: handleSelectedReviewIdChange,
-				}}
-				slug={slug}
-				tab="files"
-				username={username}
-			/>
-		</main>
+		<PullRequestDetail
+			number={number}
+			reviewSelection={{
+				reviewId,
+				onReviewIdChange: handleSelectedReviewIdChange,
+			}}
+			slug={slug}
+			tab="files"
+			username={username}
+		/>
 	)
 }

@@ -59,8 +59,8 @@ export function PullRequestFileTree({
 	}
 
 	return (
-		<div className="rounded-md border border-border bg-card p-1">
-			<ul className="flex max-h-[calc(100vh-8rem)] flex-col overflow-y-auto">
+		<div className="flex h-full flex-col rounded-md border border-border bg-card p-1">
+			<ul className="flex min-h-0 flex-1 flex-col overflow-y-auto">
 				{rows.map(({ depth, node }) => (
 					<li
 						key={node.path}

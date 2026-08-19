@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 
 // Diffs load before the reader arrives, so scrolling never waits on a request.
 const PRELOAD_OPTIONS = { rootMargin: '600px 0px' }
@@ -22,14 +22,15 @@ export function usePullRequestFileSections() {
 	const [nearViewportPaths, setNearViewportPaths] = useState<string[]>([])
 	const [activePath, setActivePath] = useState<string>()
 
-	function toEnteredPaths(entries: readonly IntersectionObserverEntry[]) {
-		return entries
-			.filter(entry => entry.isIntersecting)
-			.map(entry => observedPaths.current.get(entry.target))
-			.filter(path => path !== undefined)
-	}
-
-	function getObservers(): SectionObservers {
+	const toEnteredPaths = useCallback(
+		(entries: readonly IntersectionObserverEntry[]) =>
+			entries
+				.filter(entry => entry.isIntersecting)
+				.map(entry => observedPaths.current.get(entry.target))
+				.filter(path => path !== undefined),
+		[]
+	)
+	const getObservers = useCallback((): SectionObservers => {
 		observers.current ??= {
 			preload: new IntersectionObserver(entries => {
 				const entered = toEnteredPaths(entries)
@@ -48,52 +49,55 @@ export function usePullRequestFileSections() {
 		}
 
 		return observers.current
-	}
+	}, [toEnteredPaths])
+	const registerSectionNode = useCallback(
+		(path: string, node: HTMLElement | null) => {
+			const { active, preload } = getObservers()
+			const observed = sectionNodes.current.get(path)
 
-	function registerSectionNode(path: string, node: HTMLElement | null) {
-		const { active, preload } = getObservers()
-		const observed = sectionNodes.current.get(path)
+			if (observed) {
+				preload.unobserve(observed)
+				active.unobserve(observed)
+				observedPaths.current.delete(observed)
+			}
 
-		if (observed) {
-			preload.unobserve(observed)
-			active.unobserve(observed)
-			observedPaths.current.delete(observed)
-		}
+			if (!node) {
+				sectionNodes.current.delete(path)
 
-		if (!node) {
-			sectionNodes.current.delete(path)
+				return
+			}
 
-			return
-		}
-
-		sectionNodes.current.set(path, node)
-		observedPaths.current.set(node, path)
-		preload.observe(node)
-		active.observe(node)
-	}
-
-	function scrollToSection(path: string, behavior: ScrollBehavior) {
-		setActivePath(path)
-		sectionNodes.current.get(path)?.scrollIntoView({ behavior, block: 'start' })
-	}
-
-	function setExpanded(path: string, isExpanded: boolean) {
+			sectionNodes.current.set(path, node)
+			observedPaths.current.set(node, path)
+			preload.observe(node)
+			active.observe(node)
+		},
+		[getObservers]
+	)
+	const scrollToSection = useCallback(
+		(path: string, behavior: ScrollBehavior) => {
+			setActivePath(path)
+			sectionNodes.current
+				.get(path)
+				?.scrollIntoView({ behavior, block: 'start' })
+		},
+		[]
+	)
+	const setExpanded = useCallback((path: string, isExpanded: boolean) => {
 		setExpansionOverrides(overrides => ({ ...overrides, [path]: isExpanded }))
-	}
-
-	function clearExpanded(path: string) {
+	}, [])
+	const clearExpanded = useCallback((path: string) => {
 		setExpansionOverrides(overrides =>
 			Object.fromEntries(
 				Object.entries(overrides).filter(([key]) => key !== path)
 			)
 		)
-	}
-
+	}, [])
 	// Mounted sections stay mounted, so a comment being written survives the reset.
-	function reset() {
+	const reset = useCallback(() => {
 		setExpansionOverrides({})
 		setActivePath(undefined)
-	}
+	}, [])
 
 	return {
 		activePath,

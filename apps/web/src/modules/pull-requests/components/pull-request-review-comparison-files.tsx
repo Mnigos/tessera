@@ -13,7 +13,10 @@ import { usePullRequestReviewComparisonQuery } from '../hooks/use-pull-request-r
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
 import { PullRequestComparisonSkeleton } from './pull-request-comparison-skeleton'
 import { PullRequestReviewChangesAction } from './pull-request-review-changes-action'
-import { PullRequestReviewComparisonBanner } from './pull-request-review-comparison-banner'
+import {
+	PullRequestReviewComparisonState,
+	PullRequestReviewComparisonSwitch,
+} from './pull-request-review-comparison-switch'
 import { PullRequestsMessage } from './pull-requests-message'
 
 interface PullRequestReviewComparisonFilesProps {
@@ -55,16 +58,24 @@ export function PullRequestReviewComparisonFiles({
 		reviewId,
 	})
 	const reviewComparison = reviewComparisonQuery.data
+	const isReady = reviewComparison?.status === 'ready'
+	const comparisonSwitch = (
+		<PullRequestReviewComparisonSwitch
+			onSelectedReviewIdChange={onSelectedReviewIdChange}
+			reviews={reviews}
+			selectedReviewId={reviewId}
+			viewerUserId={viewerUserId}
+		/>
+	)
 
 	return (
 		<div className="flex flex-col gap-3">
-			<PullRequestReviewComparisonBanner
-				onSelectedReviewIdChange={onSelectedReviewIdChange}
-				reviewComparison={reviewComparison}
-				reviews={reviews}
-				selectedReviewId={reviewId}
-				viewerUserId={viewerUserId}
-			/>
+			{!isReady && (
+				<div className="flex min-h-9 items-center">{comparisonSwitch}</div>
+			)}
+			{reviewComparison && (
+				<PullRequestReviewComparisonState reviewComparison={reviewComparison} />
+			)}
 			{reviewComparisonQuery.isLoading && <PullRequestComparisonSkeleton />}
 			{reviewComparisonQuery.isError && (
 				<PullRequestsMessage
@@ -98,6 +109,7 @@ export function PullRequestReviewComparisonFiles({
 							viewerPendingReview={viewerPendingReview}
 						/>
 					}
+					toolbarLead={comparisonSwitch}
 					username={username}
 					viewerUserId={viewerUserId}
 				/>

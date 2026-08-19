@@ -463,6 +463,11 @@ describe('pull request threads', () => {
 		const leftComposer = screen.getByRole('textbox', {
 			name: 'Comment on line 4',
 		})
+		expect(
+			leftComposer
+				.closest('[data-thread-side]')
+				?.getAttribute('data-thread-side')
+		).toBe('left')
 		fireEvent.change(leftComposer, { target: { value: 'Left note' } })
 		fireEvent.submit(leftComposer.closest('form') ?? leftComposer)
 
@@ -493,6 +498,11 @@ describe('pull request threads', () => {
 		const rightComposer = screen.getByRole('textbox', {
 			name: 'Comment on line 9',
 		})
+		expect(
+			rightComposer
+				.closest('[data-thread-side]')
+				?.getAttribute('data-thread-side')
+		).toBe('right')
 		fireEvent.change(rightComposer, { target: { value: 'Right note' } })
 		fireEvent.submit(rightComposer.closest('form') ?? rightComposer)
 		expect(mutate).toHaveBeenLastCalledWith(
@@ -593,6 +603,9 @@ describe('pull request threads', () => {
 			name: 'Comment on original line 5',
 		})
 		const threadBody = screen.getByText('Range discussion')
+		expect(
+			threadBody.closest('[data-thread-side]')?.getAttribute('data-thread-side')
+		).toBe('left')
 		expect(endLineButton.compareDocumentPosition(threadBody)).toBe(
 			Node.DOCUMENT_POSITION_FOLLOWING
 		)
@@ -1582,6 +1595,10 @@ describe('pull request threads', () => {
 			mutate: create,
 		} as never)
 		comparisonView.rerender(comparison())
+		// Only the selected row re-renders, so re-selecting it delivers the refusal.
+		fireEvent.click(
+			screen.getByRole('button', { name: 'Comment on original line 1' })
+		)
 		expect(
 			screen.getByRole<HTMLButtonElement>('button', { name: 'Comment' })
 				.disabled
