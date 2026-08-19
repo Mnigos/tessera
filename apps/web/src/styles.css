@@ -28,3 +28,32 @@ body {
 	background-color: var(--diff-add-word);
 	border-radius: 2px;
 }
+
+/* The line cursor rings the row inset, so moving it never shifts the diff by a pixel. */
+[data-diff-code] [data-cursor],
+[data-diff-code] [data-cursor] + span {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+}
+
+/* A jumped-to row says where it landed once, then gets out of the way. */
+[data-flash] {
+	animation: diff-flash 1.2s ease-out;
+}
+
+@keyframes diff-flash {
+	from {
+		background-color: color-mix(in oklch, var(--primary) 35%, transparent);
+	}
+
+	to {
+		background-color: transparent;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	[data-flash] {
+		animation-duration: 0.01ms;
+		background-color: color-mix(in oklch, var(--primary) 20%, transparent);
+	}
+}

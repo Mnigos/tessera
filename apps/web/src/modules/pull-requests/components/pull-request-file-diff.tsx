@@ -45,6 +45,10 @@ import {
 } from '../helpers/pull-request-diff-rows'
 import { toThreadLineExcerpt } from '../helpers/pull-request-inline-threads'
 import type { PullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
+import {
+	type PullRequestDiffJump,
+	usePullRequestDiffJump,
+} from '../hooks/use-pull-request-diff-jump'
 import type { PullRequestDiffView } from '../hooks/use-pull-request-diff-view-options'
 import { usePullRequestFileDiffQuery } from '../hooks/use-pull-request-file-diff.query'
 import {
@@ -311,6 +315,7 @@ function FileDiff({
 						commentedKeys={commentedKeys}
 						context={rowContext}
 						expansion={expansion}
+						path={diff.file.newPath || diff.file.oldPath}
 						rows={rows}
 						selection={selection}
 					/>
@@ -344,6 +349,7 @@ interface DiffRowListProps {
 	anchorComparison: PullRequestDiffAnchorComparison
 	context: DiffRowContext
 	expansion: PullRequestFileExpansion
+	path: string
 }
 
 function DiffRowList({
@@ -353,6 +359,7 @@ function DiffRowList({
 	anchorComparison,
 	context,
 	expansion,
+	path,
 }: Readonly<DiffRowListProps>) {
 	// Windowing is one-way: crossing back would remount every row under a draft.
 	const [isWindowed, setIsWindowed] = useState(
@@ -378,6 +385,7 @@ function DiffRowList({
 	return (
 		<DiffRowsWindow
 			isWrapped={context.isWrapped}
+			path={path}
 			renderRow={renderRow}
 			rows={rows}
 		/>
@@ -388,6 +396,27 @@ function needsMeasurement(row: DiffRow, isWrapped: boolean) {
 	if (row.kind === 'thread') return true
 
 	return isWrapped && row.kind !== 'separator'
+}
+
+function matchesJump(row: DiffRow, jump: PullRequestDiffJump) {
+	if (jump.kind === 'thread')
+		return (
+			row.kind === 'thread' &&
+			[row.left, row.right].some(slot =>
+				slot?.threads.some(thread => thread.id === jump.threadId)
+			)
+		)
+
+	if (row.kind === 'unified')
+		return row.side === jump.side && row.target?.line === jump.line
+
+	if (row.kind === 'split')
+		return (
+			(jump.side === 'left' ? row.leftTarget : row.rightTarget)?.line ===
+			jump.line
+		)
+
+	return false
 }
 
 function hasOpenComposer(row: DiffRow) {
@@ -401,12 +430,14 @@ interface DiffRowsWindowProps {
 	rows: DiffRow[]
 	isWrapped: boolean
 	renderRow: DiffRowRenderer
+	path: string
 }
 
 function DiffRowsWindow({
 	rows,
 	isWrapped,
 	renderRow,
+	path,
 }: Readonly<DiffRowsWindowProps>) {
 	// The virtualizer mutates one stable instance, which the compiler would cache away.
 	'use no memo'
@@ -419,7 +450,8 @@ function DiffRowsWindow({
 
 		if (node) setScrollMargin(node.getBoundingClientRect().top + window.scrollY)
 	}, [])
-	// A row holding a draft or the caret must outlive scrolling far past it.
+	const jump = usePullRequestDiffJump(path)
+	// A row holding a draft, the caret, or a jump must outlive scrolling far past it.
 	const pinnedIndexes = useMemo(() => {
 		const pinned: number[] = []
 
@@ -427,8 +459,13 @@ function DiffRowsWindow({
 			if (row.key === focusedRowKey || hasOpenComposer(row)) pinned.push(index)
 		})
 
-		return pinned
-	}, [focusedRowKey, rows])
+		// Nothing can scroll to a row this file never rendered.
+		const jumpIndex = jump ? rows.findIndex(row => matchesJump(row, jump)) : -1
+
+		if (jumpIndex >= 0 && !pinned.includes(jumpIndex)) pinned.push(jumpIndex)
+
+		return pinned.sort((a, b) => a - b)
+	}, [focusedRowKey, jump, rows])
 	const virtualizer = useWindowVirtualizer<HTMLDivElement>({
 		count: rows.length,
 		estimateSize: index =>
@@ -704,12 +741,13 @@ function DiffThreadRowView({
 	row,
 }: Readonly<DiffThreadRowProps>) {
 	const { number, onComposerDone, permissions, slug, username, view } = context
+	const threadIds = toThreadIds(row)
 
 	if (view === 'unified') {
 		const slot = row.left ?? row.right
 
 		return (
-			<div className={UNIFIED_GRID_CLASSES}>
+			<div className={UNIFIED_GRID_CLASSES} data-thread-ids={threadIds}>
 				<div
 					className={cn('col-span-3', THREAD_CELL_CLASSES)}
 					data-thread-side={slot?.side}
@@ -730,7 +768,7 @@ function DiffThreadRowView({
 
 	return (
 		// Discussion sits under the column it belongs to, as a split diff reads.
-		<div className={SPLIT_GRID_CLASSES}>
+		<div className={SPLIT_GRID_CLASSES} data-thread-ids={threadIds}>
 			<div
 				className={cn('col-span-2 border-border border-r', THREAD_CELL_CLASSES)}
 				data-thread-side="left"
@@ -765,6 +803,15 @@ function DiffThreadRowView({
 			</div>
 		</div>
 	)
+}
+
+/** The ids a jump matches against, which `~=` reads as a whitespace list. */
+function toThreadIds(row: DiffThreadRow) {
+	const ids = [...(row.left?.threads ?? []), ...(row.right?.threads ?? [])].map(
+		thread => thread.id
+	)
+
+	return ids.length > 0 ? ids.join(' ') : undefined
 }
 
 interface UnifiedDiffRowProps {
@@ -898,6 +945,7 @@ function DiffGutter({
 				isSelected && [DIFF_SELECTED_CLASSES, DIFF_SELECTED_EDGE_CLASSES]
 			)}
 			data-commented={isCommented || undefined}
+			data-line={anchor?.line}
 			data-selected={isSelected || undefined}
 			data-side={side}
 			onPointerEnter={event => {

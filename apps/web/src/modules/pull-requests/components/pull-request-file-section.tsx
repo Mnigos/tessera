@@ -10,14 +10,14 @@ import { memo, type PropsWithChildren, useCallback } from 'react'
 import { isLargeChangedFile } from '../helpers/pull-request-changed-files'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
 
-const FILE_STATUS_LETTERS = {
+export const FILE_STATUS_LETTERS = {
 	added: 'A',
 	deleted: 'D',
 	modified: 'M',
 	renamed: 'R',
 } as const satisfies Record<PullRequestChangedFileStatus, string>
 
-const FILE_STATUS_CLASSES = {
+export const FILE_STATUS_CLASSES = {
 	added: 'bg-diff-add-marker text-background',
 	deleted: 'bg-diff-del-marker text-background',
 	modified: 'bg-primary text-primary-foreground',
@@ -91,6 +91,7 @@ function FileSection({
 	return (
 		<div
 			className="scroll-mt-[var(--review-rail-h)]"
+			data-file-path={path}
 			ref={observeSection}
 			style={placeholderHeight ? { minHeight: placeholderHeight } : undefined}
 		>

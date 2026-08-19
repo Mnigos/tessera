@@ -387,6 +387,7 @@ describe('pull request review comparison', () => {
 			},
 			isLoading: false,
 			isError: false,
+			refetch: vi.fn(),
 		} as never)
 		useCreateThreadMutationMock.mockReturnValue(IDLE_MUTATION as never)
 	})
@@ -563,6 +564,7 @@ describe('pull request review comparison', () => {
 			},
 			isLoading: false,
 			isError: false,
+			refetch: vi.fn(),
 		} as never)
 
 		renderComparison({ selectedReviewId: VIEWER_REVIEW.id })

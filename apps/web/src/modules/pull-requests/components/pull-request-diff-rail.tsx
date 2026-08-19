@@ -17,6 +17,7 @@ import {
 	MoreHorizontal,
 	PanelLeftClose,
 	PanelLeftOpen,
+	Search,
 } from 'lucide-react'
 import type { ReactNode } from 'react'
 import {
@@ -45,6 +46,8 @@ interface PullRequestDiffRailProps {
 	lead?: ReactNode
 	/** The review trigger, which closes the rail on the right. */
 	action?: ReactNode
+	onFind: () => void
+	onShowShortcuts: () => void
 }
 
 /**
@@ -58,6 +61,8 @@ export function PullRequestDiffRail({
 	onToggleTree,
 	lead,
 	action,
+	onFind,
+	onShowShortcuts,
 }: Readonly<PullRequestDiffRailProps>) {
 	const TreeIcon = isTreeOpen ? PanelLeftClose : PanelLeftOpen
 	const progress =
@@ -95,21 +100,39 @@ export function PullRequestDiffRail({
 				</div>
 			</div>
 			<div className="flex shrink-0 items-center gap-2">
+				<Tooltip>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Find in this diff"
+								className="size-7"
+								onClick={onFind}
+								size="icon"
+								variant="ghost"
+							/>
+						}
+					>
+						<Search aria-hidden className="size-4" />
+					</TooltipTrigger>
+					<TooltipContent>Find in this diff — ⌘F</TooltipContent>
+				</Tooltip>
 				<PullRequestDiffViewControls />
 				{action}
 				<Tooltip>
-					<TooltipTrigger render={<span className="inline-flex" />}>
-						<Button
-							aria-label="Keyboard shortcuts"
-							className="size-7"
-							disabled
-							size="icon"
-							variant="ghost"
-						>
-							<Keyboard aria-hidden className="size-4" />
-						</Button>
+					<TooltipTrigger
+						render={
+							<Button
+								aria-label="Keyboard shortcuts"
+								className="size-7"
+								onClick={onShowShortcuts}
+								size="icon"
+								variant="ghost"
+							/>
+						}
+					>
+						<Keyboard aria-hidden className="size-4" />
 					</TooltipTrigger>
-					<TooltipContent>Keyboard shortcuts — coming soon</TooltipContent>
+					<TooltipContent>Keyboard shortcuts — ?</TooltipContent>
 				</Tooltip>
 			</div>
 		</div>

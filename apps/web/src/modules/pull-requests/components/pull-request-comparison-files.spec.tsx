@@ -293,6 +293,7 @@ describe(PullRequestComparisonFiles.name, () => {
 			},
 			isLoading: false,
 			isError: false,
+			refetch: vi.fn(),
 		} as never)
 		useViewedFilesQueryMock.mockReturnValue({
 			data: undefined,

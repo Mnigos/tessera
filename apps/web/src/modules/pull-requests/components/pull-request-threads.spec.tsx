@@ -1122,6 +1122,8 @@ describe('pull request threads', () => {
 			},
 			isLoading: false,
 			isError: false,
+			// The head moves under the cached threads, which the files view re-reads.
+			refetch: vi.fn(),
 		} as never)
 		const user = userEvent.setup()
 		const comparison = () => (
