@@ -550,10 +550,22 @@ export const pullRequestCommentSchema = z.object({
 })
 export type PullRequestComment = z.infer<typeof pullRequestCommentSchema>
 
+/** Where the thread sits in the comparison being served; absent once its lines are gone. */
+export const pullRequestThreadPlacementSchema = z.object({
+	side: pullRequestThreadSideSchema,
+	startLine: z.number().int().positive(),
+	endLine: z.number().int().positive(),
+})
+export type PullRequestThreadPlacement = z.infer<
+	typeof pullRequestThreadPlacementSchema
+>
+
 export const pullRequestThreadSchema = z.object({
 	id: pullRequestThreadIdSchema,
 	kind: pullRequestThreadKindSchema,
+	/** The lines the comment was written against, kept verbatim however far the diff moves. */
 	anchor: pullRequestThreadAnchorInputSchema.optional(),
+	currentAnchor: pullRequestThreadPlacementSchema.optional(),
 	resolved: z
 		.object({
 			at: z.coerce.date(),
@@ -1221,11 +1233,26 @@ const pullRequestFileViewPathSchema = z
 		'A file path cannot exceed 2048 bytes.'
 	)
 
+// A git object id, read back from the comparison the tick is made against.
+const pullRequestBlobIdSchema = z
+	.string()
+	.min(1)
+	.max(64)
+	.regex(/^[0-9a-f]+$/)
+
 export const setPullRequestFileViewedInputSchema =
 	getPullRequestInputSchema.extend({
 		expectedHeadSha: pullRequestShaSchema,
 		path: pullRequestFileViewPathSchema,
 		viewed: z.boolean(),
+		/**
+		 * The blob pair the file has in the comparison being ticked. The tick is
+		 * keyed to it rather than to the head, so a push that leaves the file alone
+		 * leaves the tick standing. A side is absent for an added or deleted file,
+		 * and both are absent for a submodule, which falls back to the head.
+		 */
+		baseBlobId: pullRequestBlobIdSchema.optional(),
+		headBlobId: pullRequestBlobIdSchema.optional(),
 	})
 export type SetPullRequestFileViewedInput = z.input<
 	typeof setPullRequestFileViewedInputSchema
@@ -1236,7 +1263,12 @@ export type ParsedSetPullRequestFileViewedInput = z.infer<
 
 export const pullRequestViewedFilesSchema = z.object({
 	headSha: pullRequestShaSchema,
+	/** Paths of the current comparison whose blob pair the viewer has ticked. */
 	paths: z.array(z.string()),
+	/** Paths the head has moved on since the viewer's own last submitted review. */
+	changedSinceReviewPaths: z.array(z.string()),
+	/** The review those marks are measured from, absent when the viewer has none. */
+	reviewHeadSha: pullRequestShaSchema.optional(),
 })
 export type PullRequestViewedFiles = z.infer<
 	typeof pullRequestViewedFilesSchema

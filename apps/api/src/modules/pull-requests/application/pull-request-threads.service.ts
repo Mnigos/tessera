@@ -21,6 +21,7 @@ import type {
 	PullRequestThread,
 	PullRequestThreadAnchor,
 	PullRequestThreadKind,
+	PullRequestThreadPlacement,
 	PullRequestThreadViewer,
 } from '@repo/contracts'
 import {
@@ -40,9 +41,11 @@ import {
 } from '../domain/pull-request.errors'
 import { PullRequestPendingReviewConflictError } from '../domain/pull-request-review.errors'
 import {
-	isPullRequestThreadOutdated,
+	classifyPullRequestThreadAnchor,
 	isPullRequestThreadParticipant,
 	type PullRequestThreadComparison,
+	type PullRequestThreadComparisonFile,
+	relocatePullRequestThreadAnchor,
 	toPullRequestCommentOutput,
 	toPullRequestThreadOutput,
 } from '../domain/pull-request-thread'
@@ -78,6 +81,17 @@ interface PullRequestThreadContext {
 	storagePath: string
 }
 
+/** A comparison plus the changed files anchoring reads; a mirror answers without them. */
+interface PullRequestThreadComparisonSnapshot {
+	comparison: PullRequestThreadComparison
+	files?: PullRequestThreadComparisonFile[]
+}
+
+type PullRequestThreadPlacements = Map<
+	PullRequestThreadId,
+	PullRequestThreadPlacement
+>
+
 interface PullRequestThreadWriteContext extends PullRequestThreadContext {
 	canAdminister: boolean
 	canWrite: boolean
@@ -105,24 +119,27 @@ export class PullRequestThreadsService {
 				{ username, slug }
 			)
 		const pullRequest = await this.findPullRequest(repositoryId, number)
-		const [comparison, threads] = await Promise.all([
-			this.resolveComparison({ pullRequest, repositoryId, storagePath }),
+		const context = { pullRequest, repositoryId, storagePath }
+		const [snapshot, threads] = await Promise.all([
+			this.resolveComparison(context),
 			this.pullRequestThreadsRepository.list({
 				pullRequestId: pullRequest.id,
 				path,
 				viewerUserId,
 			}),
 		])
+		const placements = await this.resolveThreadPlacements(
+			threads,
+			snapshot,
+			context
+		)
 		const canComment = viewerUserId !== undefined
 
 		return {
 			threads: threads.map(thread =>
-				toPullRequestThreadOutput(
-					thread,
-					isPullRequestThreadOutdated(thread, comparison)
-				)
+				toPullRequestThreadOutput(thread, placements.get(thread.id))
 			),
-			comparison,
+			comparison: snapshot.comparison,
 			viewer: {
 				canComment,
 				canResolveAnyThread: canComment && canWriteRepository(viewerRole),
@@ -147,7 +164,7 @@ export class PullRequestThreadsService {
 			slug,
 			username,
 		})
-		const comparison = anchor
+		const snapshot = anchor
 			? await this.requireAnchoredComparison(anchor, context)
 			: undefined
 		const writeThrough = this.toWriteThroughContext(viewerUserId, context)
@@ -159,8 +176,8 @@ export class PullRequestThreadsService {
 				{
 					body,
 					inline:
-						anchor && comparison
-							? { anchor, headSha: comparison.headSha }
+						anchor && snapshot
+							? { anchor, headSha: snapshot.comparison.headSha }
 							: undefined,
 				}
 			)
@@ -168,7 +185,7 @@ export class PullRequestThreadsService {
 			return await this.toThreadOutput(
 				await this.findThread(threadId, context.pullRequest.id, viewerUserId),
 				context,
-				comparison
+				snapshot
 			)
 		}
 
@@ -182,6 +199,7 @@ export class PullRequestThreadsService {
 			authorUserId: viewerUserId,
 			body,
 			anchor,
+			anchorBlobs: anchor && findComparisonFile(snapshot?.files, anchor.path),
 			reviewId,
 		})
 
@@ -191,24 +209,24 @@ export class PullRequestThreadsService {
 				userId: viewerUserId,
 			})
 
-		return await this.toThreadOutput(thread, context, comparison)
+		return await this.toThreadOutput(thread, context, snapshot)
 	}
 
 	/** The comparison an anchor claims, refused once its lines number a moved head. */
 	private async requireAnchoredComparison(
 		anchor: PullRequestThreadAnchor,
 		context: PullRequestThreadContext
-	): Promise<PullRequestThreadComparison> {
-		const comparison = await this.resolveComparison(context)
+	): Promise<PullRequestThreadComparisonSnapshot> {
+		const snapshot = await this.resolveComparison(context)
 
-		if (anchor.headSha !== comparison.headSha)
+		if (anchor.headSha !== snapshot.comparison.headSha)
 			throw new PullRequestStaleComparisonError({
 				pullRequestId: context.pullRequest.id,
 				anchorHeadSha: anchor.headSha,
-				headSha: comparison.headSha,
+				headSha: snapshot.comparison.headSha,
 			})
 
-		return comparison
+		return snapshot
 	}
 
 	async replyThread(
@@ -593,32 +611,100 @@ export class PullRequestThreadsService {
 	private async toThreadOutput(
 		thread: PullRequestThreadReadModel,
 		context: PullRequestThreadContext,
-		resolved?: PullRequestThreadComparison
+		resolved?: PullRequestThreadComparisonSnapshot
 	): Promise<PullRequestThread> {
-		if (thread.kind !== 'inline')
-			return toPullRequestThreadOutput(thread, false)
+		if (thread.kind !== 'inline') return toPullRequestThreadOutput(thread)
 
-		const comparison = resolved ?? (await this.resolveComparison(context))
-
-		return toPullRequestThreadOutput(
-			thread,
-			isPullRequestThreadOutdated(thread, comparison)
+		const snapshot = resolved ?? (await this.resolveComparison(context))
+		const placements = await this.resolveThreadPlacements(
+			[thread],
+			snapshot,
+			context
 		)
+
+		return toPullRequestThreadOutput(thread, placements.get(thread.id))
+	}
+
+	/** Where each inline thread sits now: the changed files answer for most of them, the rest cost one file diff per path and never one per thread. */
+	private async resolveThreadPlacements(
+		threads: PullRequestThreadReadModel[],
+		snapshot: PullRequestThreadComparisonSnapshot,
+		context: PullRequestThreadContext
+	): Promise<PullRequestThreadPlacements> {
+		const placements: PullRequestThreadPlacements = new Map()
+		const relocations = new Map<string, PullRequestThreadReadModel[]>()
+
+		for (const thread of threads) {
+			const classification = classifyPullRequestThreadAnchor(
+				thread,
+				snapshot.comparison,
+				snapshot.files
+			)
+
+			if (classification.kind === 'current')
+				placements.set(thread.id, classification.placement)
+
+			if (classification.kind === 'relocate')
+				relocations.set(classification.path, [
+					...(relocations.get(classification.path) ?? []),
+					thread,
+				])
+		}
+
+		await Promise.all(
+			[...relocations].map(async ([path, pathThreads]) => {
+				const lines = await this.readComparisonLines(
+					context,
+					snapshot.comparison,
+					path
+				)
+
+				for (const thread of pathThreads) {
+					const placement = relocatePullRequestThreadAnchor(thread, lines)
+
+					if (placement) placements.set(thread.id, placement)
+				}
+			})
+		)
+
+		return placements
+	}
+
+	private async readComparisonLines(
+		{ repositoryId, storagePath }: PullRequestThreadContext,
+		{ baseSha, headSha }: PullRequestThreadComparison,
+		path: string
+	) {
+		try {
+			const diff = await this.gitStorageClient.getRepositoryFileDiff({
+				repositoryId,
+				storagePath,
+				baseRef: baseSha,
+				headRef: headSha,
+				path,
+			})
+
+			return diff.hunks.flatMap(hunk => hunk.lines)
+		} catch {
+			return []
+		}
 	}
 
 	private async resolveComparison({
 		pullRequest,
 		repositoryId,
 		storagePath,
-	}: PullRequestThreadContext): Promise<PullRequestThreadComparison> {
+	}: PullRequestThreadContext): Promise<PullRequestThreadComparisonSnapshot> {
 		if (pullRequest.github)
 			return {
-				baseSha: pullRequest.github.baseSha,
-				headSha: pullRequest.github.headSha,
+				comparison: {
+					baseSha: pullRequest.github.baseSha,
+					headSha: pullRequest.github.headSha,
+				},
 			}
 
 		const { baseRef, headRef } = getPullRequestComparisonRefs(pullRequest)
-		const { baseSha, headSha } =
+		const { baseSha, files, headSha } =
 			await this.gitStorageClient.compareRepositoryRefs({
 				repositoryId,
 				storagePath,
@@ -626,7 +712,7 @@ export class PullRequestThreadsService {
 				headRef,
 			})
 
-		return { baseSha, headSha }
+		return { comparison: { baseSha, headSha }, files }
 	}
 
 	private async findThread(
@@ -692,4 +778,12 @@ export class PullRequestThreadsService {
 
 		return pullRequest
 	}
+}
+
+/** The changed file a thread's path belongs to, whichever side of a rename it names. */
+function findComparisonFile(
+	files: PullRequestThreadComparisonFile[] | undefined,
+	path: string
+) {
+	return files?.find(file => file.newPath === path || file.oldPath === path)
 }

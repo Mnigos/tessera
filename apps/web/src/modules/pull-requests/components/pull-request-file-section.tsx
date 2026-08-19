@@ -35,6 +35,8 @@ interface PullRequestFileSectionProps extends PropsWithChildren {
 	displayPath: string
 	isExpanded: boolean
 	isViewed: boolean
+	/** The file moved on after the reader's own last submitted review. */
+	isChangedSinceReview: boolean
 	canMarkViewed: boolean
 	isViewedPending: boolean
 	isMounted: boolean
@@ -52,6 +54,7 @@ function FileSection({
 	displayPath,
 	isExpanded,
 	isViewed,
+	isChangedSinceReview,
 	canMarkViewed,
 	isViewedPending,
 	isMounted,
@@ -101,7 +104,7 @@ function FileSection({
 				<Button
 					aria-expanded={isExpanded}
 					// The dimmed directory is its own span, which the name would read apart.
-					aria-label={`${file.status} ${displayPath}`}
+					aria-label={`${file.status} ${displayPath}${isChangedSinceReview ? ', changed since your last review' : ''}`}
 					className="h-9 min-w-0 flex-1 justify-start gap-2 rounded-none px-2 py-0 text-left font-normal"
 					onClick={handleToggleExpanded}
 					onFocus={handlePrefetch}
@@ -135,6 +138,18 @@ function FileSection({
 						)}
 						{name}
 					</span>
+					{isChangedSinceReview && (
+						<span
+							className="flex shrink-0 items-center gap-1 text-[0.6875rem] text-diff-comment-edge"
+							title="Changed since your last review"
+						>
+							<span
+								aria-hidden
+								className="size-1.5 rounded-full bg-diff-comment-edge"
+							/>
+							Changed
+						</span>
+					)}
 					<PullRequestDiffStatsBadge
 						additions={file.additions}
 						deletions={file.deletions}

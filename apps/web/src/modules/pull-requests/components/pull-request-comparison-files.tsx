@@ -150,6 +150,11 @@ export function PullRequestComparisonFiles({
 	const viewedPaths = isViewedStateKnown
 		? new Set(viewedFilesQuery.data?.paths ?? [])
 		: undefined
+	// Files the head moved on after the reader's own last verdict on them.
+	const changedSincePaths = useMemo(
+		() => new Set(viewedFilesQuery.data?.changedSinceReviewPaths ?? []),
+		[viewedFilesQuery.data?.changedSinceReviewPaths]
+	)
 	const anchorableSides = isSinceReview
 		? RIGHT_ANCHORABLE_DIFF_SIDES
 		: ANCHORABLE_DIFF_SIDES
@@ -158,9 +163,16 @@ export function PullRequestComparisonFiles({
 	).length
 
 	const setFileViewed = setFileViewedMutation.mutate
+	const filesByPath = useMemo(
+		() =>
+			new Map(comparison.files.map(file => [getChangedFilePath(file), file])),
+		[comparison.files]
+	)
 	const toggleViewed = useCallback(
 		(path: string, viewed: boolean) => {
 			if (inFlightViewedPaths.current.has(path)) return
+
+			const file = filesByPath.get(path)
 
 			inFlightViewedPaths.current.add(path)
 			setPendingViewedPaths(paths => new Set(paths).add(path))
@@ -173,6 +185,9 @@ export function PullRequestComparisonFiles({
 					expectedHeadSha: comparison.headSha,
 					path,
 					viewed,
+					// The blobs the tick is keyed to, so a push that spares the file spares it.
+					baseBlobId: file?.baseBlobId,
+					headBlobId: file?.headBlobId,
 				},
 				{
 					onError: () => clearExpanded(path),
@@ -191,6 +206,7 @@ export function PullRequestComparisonFiles({
 		[
 			clearExpanded,
 			comparison.headSha,
+			filesByPath,
 			number,
 			setExpanded,
 			setFileViewed,
@@ -298,6 +314,7 @@ export function PullRequestComparisonFiles({
 	const fileTree = (isResizable: boolean) => (
 		<PullRequestFileTree
 			activePath={activePath}
+			changedSincePaths={changedSincePaths}
 			files={comparison.files}
 			isResizable={isResizable}
 			onPrefetch={prefetchFile}
@@ -368,9 +385,14 @@ export function PullRequestComparisonFiles({
 						{comparison.files.map(file => {
 							const path = getChangedFilePath(file)
 							const isViewed = viewedPaths?.has(path) ?? false
+							const isChangedSinceReview = changedSincePaths.has(path)
+							// A file that moved since the reader's verdict opens even when ticked.
 							const isExpanded =
 								expansionOverrides[path] ??
-								!(isViewed || isLargeChangedFile(file))
+								!(
+									(isViewed && !isChangedSinceReview) ||
+									isLargeChangedFile(file)
+								)
 
 							return (
 								<PullRequestFileSection
@@ -381,6 +403,7 @@ export function PullRequestComparisonFiles({
 											: path
 									}
 									file={file}
+									isChangedSinceReview={isChangedSinceReview}
 									isExpanded={isExpanded}
 									isMounted={mountedPaths.has(path)}
 									isViewed={isViewed}

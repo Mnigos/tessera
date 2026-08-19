@@ -152,6 +152,8 @@ interface PullRequestFileTreeProps {
 	files: readonly PullRequestChangedFile[]
 	/** Absent where the viewed state is unknown, so no row may claim to be ticked. */
 	viewedPaths?: ReadonlySet<string>
+	/** Files the head moved on after the reader's own last submitted review. */
+	changedSincePaths?: ReadonlySet<string>
 	activePath?: string
 	/** Absent where the tree is a disclosure rather than a resizable column. */
 	isResizable?: boolean
@@ -162,6 +164,7 @@ interface PullRequestFileTreeProps {
 export function PullRequestFileTree({
 	files,
 	viewedPaths,
+	changedSincePaths,
 	activePath,
 	isResizable = false,
 	onSelect,
@@ -237,6 +240,9 @@ export function PullRequestFileTree({
 							<FileRow
 								file={node.file}
 								isActive={node.path === activePath}
+								isChangedSinceReview={
+									changedSincePaths?.has(node.path) ?? false
+								}
 								isViewed={viewedPaths?.has(node.path) ?? false}
 								name={node.name}
 								onPrefetch={() => onPrefetch(node.file)}
@@ -324,6 +330,7 @@ interface FileRowProps {
 	path: string
 	isActive: boolean
 	isViewed: boolean
+	isChangedSinceReview: boolean
 	onSelect: () => void
 	onPrefetch: () => void
 }
@@ -334,6 +341,7 @@ function FileRow({
 	path,
 	isActive,
 	isViewed,
+	isChangedSinceReview,
 	onSelect,
 	onPrefetch,
 }: Readonly<FileRowProps>) {
@@ -364,6 +372,14 @@ function FileRow({
 			<span className="min-w-0 flex-1 truncate font-mono text-xs" title={path}>
 				{name}
 			</span>
+			{isChangedSinceReview && (
+				<span
+					className="size-1.5 shrink-0 rounded-full bg-diff-comment-edge"
+					title="Changed since your last review"
+				>
+					<span className="sr-only">changed since your last review</span>
+				</span>
+			)}
 			<DiffBar additions={file.additions} deletions={file.deletions} />
 			{isViewed && <Check className="size-3 shrink-0" />}
 		</Button>

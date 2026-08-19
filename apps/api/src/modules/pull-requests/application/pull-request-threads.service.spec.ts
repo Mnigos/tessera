@@ -1,4 +1,9 @@
-import { GitStorageClient } from '@config/git-storage'
+import {
+	GitStorageClient,
+	type GitStorageRepositoryComparison,
+	type GitStorageRepositoryDiffLine,
+	type GitStorageRepositoryFileDiff,
+} from '@config/git-storage'
 import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
@@ -120,6 +125,8 @@ const thread: PullRequestThreadReadModel = {
 	anchorSha: 'anchor-sha',
 	baseSha: 'base-current',
 	headSha: 'head-current',
+	baseBlobId: 'base-blob',
+	headBlobId: 'head-blob',
 	lineExcerpt: 'const value = 1',
 	resolvedAt: null,
 	resolvedByUserId: null,
@@ -128,6 +135,48 @@ const thread: PullRequestThreadReadModel = {
 	createdAt,
 	updatedAt: createdAt,
 	comments: [comment],
+}
+
+const changedFile = {
+	status: 'modified' as const,
+	oldPath: 'src/index.ts',
+	newPath: 'src/index.ts',
+	baseBlobId: 'base-blob',
+	headBlobId: 'other-head-blob',
+	additions: 1,
+	deletions: 0,
+	isBinary: false,
+}
+
+function comparison(
+	headSha: string,
+	files: (typeof changedFile)[] = []
+): GitStorageRepositoryComparison {
+	return {
+		baseSha: 'base-current',
+		headSha,
+		mergeBaseSha: 'base-current',
+		commits: [],
+		files,
+		isTruncated: false,
+		commitsTruncated: false,
+		commitLimit: 500,
+		fileLimit: 300,
+	}
+}
+
+function fileDiff(
+	lines: GitStorageRepositoryDiffLine[]
+): GitStorageRepositoryFileDiff {
+	return {
+		baseSha: 'base-current',
+		headSha: 'moved-head',
+		mergeBaseSha: 'base-current',
+		file: changedFile,
+		hunks: [{ header: '@@', lines }],
+		isTruncated: false,
+		patchLimitBytes: 2_000_000,
+	}
 }
 
 describe(PullRequestThreadsService.name, () => {
@@ -139,6 +188,12 @@ describe(PullRequestThreadsService.name, () => {
 	let repositoriesService: RepositoriesService
 	let gitStorageClient: GitStorageClient
 	let gitHubWriteThroughService: GitHubWriteThroughService
+
+	function mockComparison(headSha: string, files?: (typeof changedFile)[]) {
+		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue(
+			comparison(headSha, files)
+		)
+	}
 
 	beforeEach(async () => {
 		moduleRef = await Test.createTestingModule({
@@ -175,7 +230,10 @@ describe(PullRequestThreadsService.name, () => {
 				},
 				{
 					provide: GitStorageClient,
-					useValue: { compareRepositoryRefs: vi.fn() },
+					useValue: {
+						compareRepositoryRefs: vi.fn(),
+						getRepositoryFileDiff: vi.fn(),
+					},
 				},
 				{
 					provide: GitHubWriteThroughService,
@@ -217,17 +275,7 @@ describe(PullRequestThreadsService.name, () => {
 			tesseraWritesAllowed: true,
 		})
 		vi.spyOn(pullRequestsRepository, 'find').mockResolvedValue(pullRequest)
-		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
-			baseSha: 'base-current',
-			headSha: 'head-current',
-			mergeBaseSha: 'base-current',
-			commits: [],
-			files: [],
-			isTruncated: false,
-			commitsTruncated: false,
-			commitLimit: 500,
-			fileLimit: 300,
-		})
+		mockComparison('head-current')
 	})
 
 	afterEach(async () => {
@@ -313,21 +361,57 @@ describe(PullRequestThreadsService.name, () => {
 
 	test('marks a thread outdated when the current head moves', async () => {
 		vi.spyOn(threadsRepository, 'list').mockResolvedValue([thread])
-		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
-			baseSha: thread.baseSha ?? '',
-			headSha: 'moved-head',
-			mergeBaseSha: thread.baseSha ?? '',
-			commits: [],
-			files: [],
-			isTruncated: false,
-			commitsTruncated: false,
-			commitLimit: 500,
-			fileLimit: 300,
-		})
+		mockComparison('moved-head')
 
 		expect(
 			(await service.list(undefined, repositoryInput)).threads[0]?.outdated
 		).toBeTruthy()
+	})
+
+	test('keeps a thread current when the push left its file untouched', async () => {
+		vi.spyOn(threadsRepository, 'list').mockResolvedValue([thread])
+		mockComparison('moved-head', [
+			{
+				...changedFile,
+				baseBlobId: 'other-base-blob',
+				headBlobId: 'head-blob',
+			},
+		])
+
+		expect(
+			(await service.list(undefined, repositoryInput)).threads[0]
+		).toMatchObject({ outdated: false, currentAnchor: { endLine: 7 } })
+		expect(gitStorageClient.getRepositoryFileDiff).not.toHaveBeenCalled()
+	})
+
+	test('re-anchors a thread whose line moved within a changed file', async () => {
+		vi.spyOn(threadsRepository, 'list').mockResolvedValue([thread])
+		mockComparison('moved-head', [changedFile])
+		vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockResolvedValue(
+			fileDiff([
+				{ content: 'const other = 2', kind: 'context', newLine: 7 },
+				{ content: 'const value = 1', kind: 'addition', newLine: 11 },
+			])
+		)
+
+		expect(
+			(await service.list(undefined, repositoryInput)).threads[0]
+		).toMatchObject({
+			outdated: false,
+			currentAnchor: { side: 'right', startLine: 11, endLine: 11 },
+		})
+	})
+
+	test('marks a thread outdated once its line left the diff', async () => {
+		vi.spyOn(threadsRepository, 'list').mockResolvedValue([thread])
+		mockComparison('moved-head', [changedFile])
+		vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockResolvedValue(
+			fileDiff([{ content: 'const other = 2', kind: 'context', newLine: 7 }])
+		)
+
+		expect(
+			(await service.list(undefined, repositoryInput)).threads[0]
+		).toMatchObject({ outdated: true, currentAnchor: undefined })
 	})
 
 	test.each([

@@ -54,6 +54,9 @@ export const pullRequestThreads = pgTable(
 		anchorSha: text('anchor_sha'),
 		baseSha: text('base_sha'),
 		headSha: text('head_sha'),
+		/** The anchored file's blobs when the comment was written; an unchanged side still holds the same lines. */
+		baseBlobId: text('base_blob_id'),
+		headBlobId: text('head_blob_id'),
 		lineExcerpt: text('line_excerpt'),
 		resolvedAt: timestamp('resolved_at'),
 		resolvedByUserId: uuid('resolved_by_user_id')

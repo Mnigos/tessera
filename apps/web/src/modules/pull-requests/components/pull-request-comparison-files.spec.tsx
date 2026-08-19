@@ -391,6 +391,32 @@ describe(PullRequestComparisonFiles.name, () => {
 		).toBeTruthy()
 	})
 
+	test('flags a file the head moved on since the review and keeps it open', () => {
+		const changed = changedFile('src/changed.ts')
+		const settled = changedFile('src/settled.ts')
+		useViewedFilesQueryMock.mockReturnValue({
+			data: {
+				headSha: HEAD_SHA,
+				paths: ['src/changed.ts', 'src/settled.ts'],
+				changedSinceReviewPaths: ['src/changed.ts'],
+			},
+			isSuccess: true,
+			isError: false,
+		} as never)
+
+		renderFiles({ files: [changed, settled], viewerUserId: VIEWER_USER_ID })
+
+		expect(screen.getAllByTitle('Changed since your last review')).toHaveLength(
+			2
+		)
+		expect(fileHeader(changed.newPath).getAttribute('aria-expanded')).toBe(
+			'true'
+		)
+		expect(fileHeader(settled.newPath).getAttribute('aria-expanded')).toBe(
+			'false'
+		)
+	})
+
 	test('optimistically collapses a viewed file, disables repeat toggles, and rolls back errors', async () => {
 		const file = changedFile('src/index.ts')
 		const mutate = vi.fn()
@@ -420,6 +446,8 @@ describe(PullRequestComparisonFiles.name, () => {
 				expectedHeadSha: HEAD_SHA,
 				path: 'src/index.ts',
 				viewed: true,
+				baseBlobId: file.baseBlobId,
+				headBlobId: file.headBlobId,
 			},
 			expect.any(Object)
 		)

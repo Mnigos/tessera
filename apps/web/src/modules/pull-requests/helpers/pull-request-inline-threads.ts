@@ -20,7 +20,8 @@ export function toThreadLineExcerpt(content: string) {
 
 /**
  * Threads a diff line renders, a range being discussed under its last line only.
- * Outdated ones are excluded: their line may no longer exist in the diff.
+ * Lines come from the current anchor, which the server re-locates as the diff
+ * moves and withholds from a thread whose lines are gone.
  */
 export function getInlineThreadsForLine(
 	threads: PullRequestThread[],
@@ -29,9 +30,8 @@ export function getInlineThreadsForLine(
 ) {
 	return threads.filter(
 		thread =>
-			!thread.outdated &&
-			thread.anchor?.side === side &&
-			thread.anchor.endLine === line
+			thread.currentAnchor?.side === side &&
+			thread.currentAnchor.endLine === line
 	)
 }
 
@@ -42,10 +42,9 @@ export function isLineInsideInlineThread(
 ) {
 	return threads.some(
 		thread =>
-			!thread.outdated &&
-			thread.anchor?.side === side &&
-			thread.anchor.startLine <= line &&
-			line <= thread.anchor.endLine
+			thread.currentAnchor?.side === side &&
+			thread.currentAnchor.startLine <= line &&
+			line <= thread.currentAnchor.endLine
 	)
 }
 
@@ -101,9 +100,11 @@ export function getLeftoverInlineThreads(
 	return threads.filter(thread => {
 		if (thread.anchor === undefined) return false
 
+		const anchor = thread.currentAnchor
+
 		return (
-			thread.outdated ||
-			!renderedLines.has(`${thread.anchor.side}:${thread.anchor.endLine}`)
+			anchor === undefined ||
+			!renderedLines.has(`${anchor.side}:${anchor.endLine}`)
 		)
 	})
 }

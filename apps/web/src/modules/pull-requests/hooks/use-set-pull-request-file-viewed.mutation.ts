@@ -10,9 +10,16 @@ export function useSetPullRequestFileViewedMutation() {
 		orpcQuery.pullRequests.setFileViewed.mutationOptions({
 			mutationKey,
 			// The tick lands before the round trip so the file collapses under the pointer.
-			onMutate: async ({ path, viewed, ...input }) => {
+			onMutate: async ({
+				expectedHeadSha,
+				number,
+				path,
+				slug,
+				username,
+				viewed,
+			}) => {
 				const queryKey = orpcQuery.pullRequests.listViewedFiles.queryKey({
-					input,
+					input: { username, slug, number, expectedHeadSha },
 				})
 
 				await queryClient.cancelQueries({ queryKey })
@@ -32,7 +39,20 @@ export function useSetPullRequestFileViewedMutation() {
 
 				return { queryKey, previous }
 			},
-			// A rejected head means the ticked diff is gone, so the files view reloads.
+			// A tick keyed to the file's blobs outlives a push, so only a head the
+			// server answered from a newer commit still has to reload the diff.
+			onSuccess: async (
+				{ headSha },
+				{ username, slug, number, expectedHeadSha }
+			) => {
+				if (headSha === expectedHeadSha) return
+
+				await queryClient.invalidateQueries({
+					queryKey: orpcQuery.pullRequests.comparison.key({
+						input: { username, slug, number },
+					}),
+				})
+			},
 			onError: async (error, { username, slug, number }, context) => {
 				if (context)
 					queryClient.setQueryData(context.queryKey, context.previous)
@@ -43,14 +63,6 @@ export function useSetPullRequestFileViewedMutation() {
 					queryKey: orpcQuery.pullRequests.comparison.key({
 						input: { username, slug, number },
 					}),
-				})
-			},
-			// Only the last toggle still in flight refetches, so a slower one is not clobbered.
-			onSettled: async () => {
-				if (queryClient.isMutating({ mutationKey }) > 1) return
-
-				await queryClient.invalidateQueries({
-					queryKey: orpcQuery.pullRequests.listViewedFiles.key(),
 				})
 			},
 		})
