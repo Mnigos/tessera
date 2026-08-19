@@ -422,6 +422,9 @@ export const repositoryBrowserSummarySchema = z.object({
 	tags: z.array(repositoryTagRefSchema),
 	rootEntries: z.array(repositoryTreeEntrySchema),
 	readme: repositoryReadmeSchema.optional(),
+	commitCount: z.number().int().nonnegative(),
+	openPullRequestCount: z.number().int().nonnegative(),
+	collaboratorCount: z.number().int().nonnegative(),
 })
 export type RepositoryBrowserSummary = z.infer<
 	typeof repositoryBrowserSummarySchema

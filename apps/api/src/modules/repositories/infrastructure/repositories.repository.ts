@@ -4,6 +4,7 @@ import {
 	account,
 	and,
 	asc,
+	count,
 	type DrizzleTransaction,
 	eq,
 	inArray,
@@ -16,6 +17,7 @@ import {
 	ne,
 	or,
 	organization,
+	pullRequests,
 	repositories,
 	repositoryCollaborators,
 	repositoryExternalSources,
@@ -144,6 +146,11 @@ export interface UpsertGitHubExternalSourceParams extends RepositoryIdParams {
 
 interface ListPrivilegedUsersParams extends RepositoryIdParams {
 	limit: number
+}
+
+interface RepositoryBrowserCounts {
+	collaboratorCount: number
+	openPullRequestCount: number
 }
 
 export interface PrivilegedUserRow {
@@ -345,6 +352,31 @@ export class RepositoriesRepository {
 			.limit(1)
 
 		return row?.role
+	}
+
+	async countOpenPullRequestsAndCollaborators({
+		repositoryId,
+	}: RepositoryIdParams): Promise<RepositoryBrowserCounts> {
+		const [openPullRequests, collaborators] = await Promise.all([
+			this.db
+				.select({ count: count() })
+				.from(pullRequests)
+				.where(
+					and(
+						eq(pullRequests.repositoryId, repositoryId),
+						eq(pullRequests.state, 'open')
+					)
+				),
+			this.db
+				.select({ count: count() })
+				.from(repositoryCollaborators)
+				.where(eq(repositoryCollaborators.repositoryId, repositoryId)),
+		])
+
+		return {
+			openPullRequestCount: openPullRequests[0]?.count ?? 0,
+			collaboratorCount: collaborators[0]?.count ?? 0,
+		}
 	}
 
 	/**

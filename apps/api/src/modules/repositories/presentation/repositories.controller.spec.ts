@@ -334,6 +334,9 @@ describe(RepositoriesController.name, () => {
 				content: '# Tessera',
 				isTruncated: false,
 			},
+			commitCount: 12,
+			openPullRequestCount: 3,
+			collaboratorCount: 2,
 		}
 		const getBrowserSummarySpy = vi
 			.spyOn(repositoriesService, 'getBrowserSummary')
@@ -373,6 +376,9 @@ describe(RepositoriesController.name, () => {
 			tags: [],
 			rootEntries: [],
 			readme: undefined,
+			commitCount: 0,
+			openPullRequestCount: 0,
+			collaboratorCount: 0,
 		}
 		const getBrowserSummarySpy = vi
 			.spyOn(repositoriesService, 'getBrowserSummary')
@@ -663,6 +669,9 @@ describe(RepositoriesController.name, () => {
 					content: '# Tessera',
 					isTruncated: false,
 				},
+				commitCount: 12,
+				openPullRequestCount: 3,
+				collaboratorCount: 2,
 			})
 		).toEqual(
 			expect.not.objectContaining({
