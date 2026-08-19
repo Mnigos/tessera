@@ -7,9 +7,14 @@ export function useCreatePullRequestMutation() {
 	return useMutation(
 		orpcQuery.pullRequests.create.mutationOptions({
 			onSuccess: async () => {
-				await queryClient.invalidateQueries({
-					queryKey: orpcQuery.pullRequests.list.key(),
-				})
+				await Promise.all([
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.pullRequests.list.key(),
+					}),
+					queryClient.invalidateQueries({
+						queryKey: orpcQuery.repositories.getBrowserSummary.key(),
+					}),
+				])
 			},
 		})
 	)
