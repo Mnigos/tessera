@@ -402,9 +402,7 @@ describe('pull request review comparison', () => {
 		expect(onSelectedReviewIdChange).toHaveBeenCalledWith(LATEST_REVIEW.id)
 	})
 
-	test('names the reviewed and current commits and reads files between them', async () => {
-		const user = userEvent.setup()
-
+	test('names the reviewed and current commits and reads files between them', () => {
 		renderComparison({
 			selectedReviewId: VIEWER_REVIEW.id,
 			viewerUserId: VIEWER_USER_ID,
@@ -423,10 +421,6 @@ describe('pull request review comparison', () => {
 			REVIEW_HEAD_SHA.slice(0, 7)
 		)
 		expect(screen.getByTitle(CURRENT_HEAD_SHA)).toBeTruthy()
-
-		await user.click(
-			screen.getByRole('button', { name: CHANGED_FILE_BUTTON_NAME_REGEX })
-		)
 
 		// The expanded file is read between the reviewed commit and the current
 		// head, not between the pull request's own base and head.
@@ -494,9 +488,6 @@ describe('pull request review comparison', () => {
 
 		renderComparison({ selectedReviewId: VIEWER_REVIEW.id })
 
-		await user.click(
-			screen.getByRole('button', { name: CHANGED_FILE_BUTTON_NAME_REGEX })
-		)
 		// A left-side line is numbered against the merge base of the two heads, so
 		// there is nothing to anchor it to in the full diff.
 		expect(
@@ -536,7 +527,7 @@ describe('pull request review comparison', () => {
 		)
 	})
 
-	test('places canonical right-side threads and lists canonical left-side threads', async () => {
+	test('places canonical right-side threads and lists canonical left-side threads', () => {
 		useThreadsQueryMock.mockReturnValue({
 			data: {
 				threads: [REVIEWED_LINE_THREAD, CURRENT_LINE_THREAD],
@@ -549,13 +540,8 @@ describe('pull request review comparison', () => {
 			isLoading: false,
 			isError: false,
 		} as never)
-		const user = userEvent.setup()
 
 		renderComparison({ selectedReviewId: VIEWER_REVIEW.id })
-
-		await user.click(
-			screen.getByRole('button', { name: CHANGED_FILE_BUTTON_NAME_REGEX })
-		)
 
 		// Left line 4 of this diff is a different line from left line 4 of the pull
 		// request's own diff, so the comment is listed rather than placed there.

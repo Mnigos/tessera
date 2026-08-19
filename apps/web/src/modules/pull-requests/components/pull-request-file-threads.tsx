@@ -33,29 +33,27 @@ export function PullRequestDiffThreadRow({
 	onComposerDone,
 }: Readonly<PullRequestDiffThreadRowProps>) {
 	return (
-		<div className="px-4 py-3 font-sans text-sm">
-			<div className="flex max-w-3xl flex-col gap-3 whitespace-normal">
-				{threads.map(thread => (
-					<PullRequestThreadCard
-						key={thread.id}
-						number={number}
-						permissions={permissions}
-						slug={slug}
-						thread={thread}
-						username={username}
-					/>
-				))}
-				{anchor && (
-					<PullRequestDiffThreadComposer
-						anchor={anchor}
-						number={number}
-						onDone={onComposerDone}
-						permissions={permissions}
-						slug={slug}
-						username={username}
-					/>
-				)}
-			</div>
+		<div className="flex flex-col gap-2 whitespace-normal p-2 font-sans text-sm">
+			{threads.map(thread => (
+				<PullRequestThreadCard
+					key={thread.id}
+					number={number}
+					permissions={permissions}
+					slug={slug}
+					thread={thread}
+					username={username}
+				/>
+			))}
+			{anchor && (
+				<PullRequestDiffThreadComposer
+					anchor={anchor}
+					number={number}
+					onDone={onComposerDone}
+					permissions={permissions}
+					slug={slug}
+					username={username}
+				/>
+			)}
 		</div>
 	)
 }
@@ -118,7 +116,7 @@ function PullRequestDiffThreadComposer({
 	}
 
 	return (
-		<div className="flex flex-col gap-2 rounded-lg border border-border bg-card p-4">
+		<div className="flex flex-col gap-2 rounded-md border border-border bg-card p-3">
 			<h3 className="font-medium text-sm">Comment on {lines}</h3>
 			<PullRequestCommentComposer
 				error={createThreadMutation.error}
@@ -166,7 +164,7 @@ export function PullRequestOutdatedThreads({
 				<History aria-hidden className="size-4" />
 				{title} ({threads.length})
 			</h3>
-			<div className="flex max-w-3xl flex-col gap-3">
+			<div className="flex flex-col gap-3">
 				{threads.map(thread => (
 					<PullRequestThreadCard
 						key={thread.id}

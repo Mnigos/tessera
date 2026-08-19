@@ -130,6 +130,8 @@ const ALL_REVIEW_OUTCOMES: PullRequestReviewOutcome[] = [
 	'request_changes',
 ]
 
+const RENAMED_FILE_BUTTON_NAME_REGEX = /renamed src\/old\.ts → src\/new\.ts/
+
 const NO_REVIEW_VIEWER: PullRequestReviewViewer = {
 	allowedOutcomes: [],
 	canRequestReviewers: false,
@@ -526,7 +528,7 @@ describe('pull request threads', () => {
 		)
 	})
 
-	test('highlights every row in a range and renders its thread after the end line', async () => {
+	test('highlights every row in a range and renders its thread after the end line', () => {
 		const rangeThread = thread({
 			id: '00000000-0000-4000-8000-000000000020',
 			path: 'src/old.ts',
@@ -569,7 +571,6 @@ describe('pull request threads', () => {
 				],
 			},
 		} as never)
-		const user = userEvent.setup()
 		const { container } = render(
 			<PullRequestComparison
 				isGitHubAuthoritative={false}
@@ -581,10 +582,9 @@ describe('pull request threads', () => {
 			/>
 		)
 
-		await user.click(
+		expect(
 			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
-		)
-
+		).toBeTruthy()
 		expect(container.querySelectorAll('[data-commented="true"]')).toHaveLength(
 			3
 		)
@@ -1330,9 +1330,6 @@ describe('pull request threads', () => {
 		)
 
 		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
-		)
-		await user.click(
 			screen.getByRole('button', { name: 'Comment on original line 1' })
 		)
 		await user.type(
@@ -1573,9 +1570,6 @@ describe('pull request threads', () => {
 		)
 		const comparisonView = render(comparison())
 
-		await user.click(
-			screen.getByRole('button', { name: RENAMED_FILE_BUTTON_NAME_REGEX })
-		)
 		await user.click(
 			screen.getByRole('button', { name: 'Comment on original line 1' })
 		)

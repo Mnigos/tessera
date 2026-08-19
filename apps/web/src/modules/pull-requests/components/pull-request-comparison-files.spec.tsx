@@ -501,7 +501,7 @@ describe(PullRequestComparisonFiles.name, () => {
 		})
 	})
 
-	test('defers offscreen diffs, fetches after intersection, and creates only two observers', () => {
+	test('defers offscreen diffs, fetches after intersection, and creates one observer per band', () => {
 		window.IntersectionObserver =
 			ControlledIntersectionObserver as unknown as typeof IntersectionObserver
 		const files = [
@@ -512,7 +512,7 @@ describe(PullRequestComparisonFiles.name, () => {
 
 		renderFiles({ files })
 
-		expect(ControlledIntersectionObserver.instances).toHaveLength(2)
+		expect(ControlledIntersectionObserver.instances).toHaveLength(3)
 		expect(useFileDiffQueryMock).not.toHaveBeenCalled()
 
 		const preloadObserver = ControlledIntersectionObserver.instances.find(
@@ -577,16 +577,6 @@ describe(PullRequestComparisonFiles.name, () => {
 			name: 'Comment on line 1',
 		})
 		expect(preservedDraft.value).toBe('Keep this draft')
-	})
-
-	test('uses a zero-duration transition when reduced motion is requested', () => {
-		useReducedMotionMock.mockReturnValue(true)
-
-		renderFiles({ files: [changedFile('src/index.ts')] })
-
-		expect(
-			document.querySelector('[data-transition-duration="0"]')
-		).toBeTruthy()
 	})
 
 	test('hides viewed toggles for since-review comparisons', () => {

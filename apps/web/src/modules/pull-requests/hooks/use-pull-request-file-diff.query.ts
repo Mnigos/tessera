@@ -16,5 +16,7 @@ export function getPullRequestFileDiffQueryOptions(
 	return orpcQuery.pullRequests.fileDiff.queryOptions({
 		input,
 		enabled,
+		// The diff between two shas cannot change, so scrolling back never refetches.
+		staleTime: Number.POSITIVE_INFINITY,
 	})
 }
