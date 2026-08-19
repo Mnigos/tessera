@@ -671,7 +671,7 @@ export class PullRequestThreadsService {
 				)
 
 				for (const thread of pathThreads) {
-					const placement = relocatePullRequestThreadAnchor(thread, lines)
+					const placement = relocatePullRequestThreadAnchor(thread, lines, path)
 
 					if (placement) placements.set(thread.id, placement)
 				}

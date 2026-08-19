@@ -7,6 +7,7 @@ import {
 import { GitHubWriteThroughService } from '@modules/github-write-through'
 import { RepositoriesService } from '@modules/repositories'
 import { Test, type TestingModule } from '@nestjs/testing'
+import type { PullRequestChangedFileStatus } from '@repo/contracts'
 import { pullRequestThreadAnchorInputSchema } from '@repo/contracts'
 import type { PullRequest } from '@repo/db'
 import type {
@@ -138,7 +139,7 @@ const thread: PullRequestThreadReadModel = {
 }
 
 const changedFile = {
-	status: 'modified' as const,
+	status: 'modified' as PullRequestChangedFileStatus,
 	oldPath: 'src/index.ts',
 	newPath: 'src/index.ts',
 	baseBlobId: 'base-blob',
@@ -398,7 +399,29 @@ describe(PullRequestThreadsService.name, () => {
 			(await service.list(undefined, repositoryInput)).threads[0]
 		).toMatchObject({
 			outdated: false,
-			currentAnchor: { side: 'right', startLine: 11, endLine: 11 },
+			currentAnchor: {
+				path: 'src/index.ts',
+				side: 'right',
+				startLine: 11,
+				endLine: 11,
+			},
+		})
+	})
+
+	test('places a re-anchored thread in the file its path was renamed to', async () => {
+		vi.spyOn(threadsRepository, 'list').mockResolvedValue([thread])
+		mockComparison('moved-head', [
+			{ ...changedFile, status: 'renamed' as const, newPath: 'src/entry.ts' },
+		])
+		vi.spyOn(gitStorageClient, 'getRepositoryFileDiff').mockResolvedValue(
+			fileDiff([{ content: 'const value = 1', kind: 'addition', newLine: 11 }])
+		)
+
+		expect(
+			(await service.list(undefined, repositoryInput)).threads[0]
+		).toMatchObject({
+			outdated: false,
+			currentAnchor: { path: 'src/entry.ts', endLine: 11 },
 		})
 	})
 

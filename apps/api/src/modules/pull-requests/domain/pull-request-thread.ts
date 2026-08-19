@@ -98,6 +98,7 @@ export function classifyPullRequestThreadAnchor(
 	if (!anchor) return { kind: 'outdated' }
 
 	const placement = {
+		path: anchor.path,
 		side: anchor.side,
 		startLine: anchor.startLine,
 		endLine: anchor.endLine,
@@ -124,7 +125,7 @@ export function classifyPullRequestThreadAnchor(
 		anchor.side === 'left' ? file.baseBlobId : file.headBlobId
 
 	if (anchoredBlobId && anchoredBlobId === currentBlobId)
-		return { kind: 'current', placement }
+		return { kind: 'current', placement: { ...placement, path: file.newPath } }
 
 	return { kind: 'relocate', path: file.newPath }
 }
@@ -132,7 +133,8 @@ export function classifyPullRequestThreadAnchor(
 /** Finds the anchored line again by its own text, nearest match first so a duplicated line cannot drag the thread across the file. */
 export function relocatePullRequestThreadAnchor(
 	thread: PullRequestThreadReadModel,
-	lines: PullRequestThreadDiffLine[]
+	lines: PullRequestThreadDiffLine[],
+	path: string
 ): PullRequestThreadPlacement | undefined {
 	const anchor = toPullRequestThreadAnchor(thread)
 
@@ -159,6 +161,7 @@ export function relocatePullRequestThreadAnchor(
 	if (endLine === undefined) return undefined
 
 	return {
+		path,
 		side: anchor.side,
 		startLine: Math.max(1, endLine - (anchor.endLine - anchor.startLine)),
 		endLine,
