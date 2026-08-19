@@ -12,6 +12,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@repo/ui/components/select'
+import { cn } from '@repo/ui/utils'
 import {
 	formatPullRequestDate,
 	formatPullRequestShortSha,
@@ -21,6 +22,10 @@ import {
 	getDefaultPullRequestReviewId,
 	getPullRequestReviewLabel,
 } from '../helpers/pull-request-review'
+
+const SEGMENT_CLASSES =
+	'h-6 rounded-sm px-2.5 text-xs text-muted-foreground hover:bg-transparent hover:text-foreground'
+const SEGMENT_ON_CLASSES = 'bg-background text-foreground shadow-xs'
 
 interface PullRequestReviewComparisonSwitchProps {
 	reviews: readonly PullRequestReview[]
@@ -46,25 +51,25 @@ export function PullRequestReviewComparisonSwitch({
 	}
 
 	return (
-		<div className="flex min-w-0 flex-wrap items-center gap-2">
-			<fieldset className="flex flex-wrap items-center gap-1">
+		<div className="flex min-w-0 items-center gap-2">
+			<fieldset className="flex h-7 items-center rounded-md bg-secondary p-0.5">
 				<legend className="sr-only">Choose which changes to show</legend>
 				<Button
 					aria-pressed={!isSinceReview}
+					className={cn(SEGMENT_CLASSES, !isSinceReview && SEGMENT_ON_CLASSES)}
 					onClick={() => onSelectedReviewIdChange(undefined)}
-					size="sm"
-					variant={isSinceReview ? 'ghost' : 'secondary'}
+					variant="ghost"
 				>
 					Full diff
 				</Button>
 				<Button
 					aria-pressed={isSinceReview}
+					className={cn(SEGMENT_CLASSES, isSinceReview && SEGMENT_ON_CLASSES)}
 					disabled={!defaultReviewId}
 					onClick={() =>
 						onSelectedReviewIdChange(selectedReviewId ?? defaultReviewId)
 					}
-					size="sm"
-					variant={isSinceReview ? 'secondary' : 'ghost'}
+					variant="ghost"
 				>
 					Since review
 				</Button>
@@ -76,7 +81,7 @@ export function PullRequestReviewComparisonSwitch({
 				>
 					<SelectTrigger
 						aria-label="Review to compare against"
-						className="h-8 w-full max-w-96 justify-start sm:w-72"
+						className="h-7 w-full max-w-96 justify-start text-xs sm:w-64"
 					>
 						<SelectValue placeholder="Select a review" />
 					</SelectTrigger>

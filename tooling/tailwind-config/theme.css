@@ -49,6 +49,38 @@
   --sidebar-ring: oklch(0.62 0.13 75);
 
   --radius: 0.3rem;
+
+  /* The review rail file headers stick beneath. */
+  --review-rail-h: 2.75rem;
+
+  /* A change adds light; an absent counterpart takes it away. */
+  --diff-add-line: oklch(0.945 0.038 150);
+  --diff-add-gutter: oklch(0.89 0.07 150);
+  --diff-add-word: oklch(0.855 0.098 150);
+  --diff-add-marker: oklch(0.52 0.13 150);
+  --diff-del-line: oklch(0.945 0.032 28);
+  --diff-del-gutter: oklch(0.888 0.065 28);
+  --diff-del-word: oklch(0.855 0.092 28);
+  --diff-del-marker: oklch(0.53 0.18 28);
+
+  --diff-empty: oklch(0.93 0.006 85);
+  --diff-empty-hatch: oklch(0.9 0.007 85);
+
+  --diff-hunk: oklch(0.945 0.02 250);
+  --diff-hunk-fg: oklch(0.48 0.045 250);
+  --diff-hunk-action: oklch(0.52 0.14 250);
+
+  --diff-row-hover: oklch(0.96 0.006 85);
+  --diff-select: oklch(0.925 0.045 250);
+  --diff-select-edge: oklch(0.56 0.14 250);
+
+  /* Amber marks only what the reviewer owns. */
+  --diff-comment-edge: oklch(0.62 0.13 75);
+  --diff-comment-tint: oklch(0.965 0.02 80);
+
+  --diff-gutter-fg: oklch(0.56 0.014 80);
+  --diff-code-fg: oklch(0.24 0.012 80);
+  --diff-viewed-fg: oklch(0.6 0.012 80);
 }
 
 .dark {
@@ -94,6 +126,34 @@
   --sidebar-accent-foreground: oklch(0.92 0.012 85);
   --sidebar-border: oklch(0.29 0.011 80);
   --sidebar-ring: oklch(0.68 0.13 75);
+
+  --diff-add-line: oklch(0.225 0.038 150);
+  --diff-add-gutter: oklch(0.32 0.075 150);
+  --diff-add-word: oklch(0.36 0.095 150);
+  --diff-add-marker: oklch(0.78 0.14 150);
+  --diff-del-line: oklch(0.222 0.042 28);
+  --diff-del-gutter: oklch(0.318 0.09 28);
+  --diff-del-word: oklch(0.355 0.115 28);
+  --diff-del-marker: oklch(0.72 0.17 28);
+
+  /* Below --background, so an absent counterpart reads as a hole. */
+  --diff-empty: oklch(0.148 0.005 80);
+  --diff-empty-hatch: oklch(0.19 0.006 80);
+
+  --diff-hunk: oklch(0.235 0.022 250);
+  --diff-hunk-fg: oklch(0.66 0.04 250);
+  --diff-hunk-action: oklch(0.7 0.12 250);
+
+  --diff-row-hover: oklch(0.205 0.008 80);
+  --diff-select: oklch(0.285 0.05 250);
+  --diff-select-edge: oklch(0.62 0.13 250);
+
+  --diff-comment-edge: oklch(0.78 0.14 80);
+  --diff-comment-tint: oklch(0.205 0.018 80);
+
+  --diff-gutter-fg: oklch(0.52 0.012 80);
+  --diff-code-fg: oklch(0.93 0.01 85);
+  --diff-viewed-fg: oklch(0.48 0.01 80);
 }
 
 @theme inline {
@@ -143,6 +203,28 @@
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
 
+  --color-diff-add-line: var(--diff-add-line);
+  --color-diff-add-gutter: var(--diff-add-gutter);
+  --color-diff-add-word: var(--diff-add-word);
+  --color-diff-add-marker: var(--diff-add-marker);
+  --color-diff-del-line: var(--diff-del-line);
+  --color-diff-del-gutter: var(--diff-del-gutter);
+  --color-diff-del-word: var(--diff-del-word);
+  --color-diff-del-marker: var(--diff-del-marker);
+  --color-diff-empty: var(--diff-empty);
+  --color-diff-empty-hatch: var(--diff-empty-hatch);
+  --color-diff-hunk: var(--diff-hunk);
+  --color-diff-hunk-fg: var(--diff-hunk-fg);
+  --color-diff-hunk-action: var(--diff-hunk-action);
+  --color-diff-row-hover: var(--diff-row-hover);
+  --color-diff-select: var(--diff-select);
+  --color-diff-select-edge: var(--diff-select-edge);
+  --color-diff-comment-edge: var(--diff-comment-edge);
+  --color-diff-comment-tint: var(--diff-comment-tint);
+  --color-diff-gutter-fg: var(--diff-gutter-fg);
+  --color-diff-code-fg: var(--diff-code-fg);
+  --color-diff-viewed-fg: var(--diff-viewed-fg);
+
   --radius-sm: calc(var(--radius) * 0.6);
   --radius-md: calc(var(--radius) * 0.8);
   --radius-lg: var(--radius);
@@ -171,6 +253,16 @@
       height: 0;
     }
   }
+}
+
+/* A hatch says "nothing here", which a flat fill cannot. */
+@utility diff-empty-cell {
+  background-color: var(--diff-empty);
+  background-image: repeating-linear-gradient(
+    45deg,
+    color-mix(in oklab, var(--diff-empty-hatch) 30%, transparent) 0 2px,
+    transparent 2px 8px
+  );
 }
 
 @layer base {

@@ -5,6 +5,7 @@ import type {
 	PullRequestThreadSide,
 	SessionUser,
 } from '@repo/contracts'
+import { cn } from '@repo/ui/utils'
 import { useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
 import { isPullRequestStaleComparisonError } from '../helpers/get-pull-request-error-message'
@@ -23,13 +24,18 @@ import { usePullRequestFileSections } from '../hooks/use-pull-request-file-secti
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed-files.query'
 import { useSetPullRequestFileViewedMutation } from '../hooks/use-set-pull-request-file-viewed.mutation'
+import { PullRequestDiffRail } from './pull-request-diff-rail'
 import {
 	type PullRequestDiffAnchorComparison,
 	PullRequestFileDiffView,
 } from './pull-request-file-diff'
 import { PullRequestFileSection } from './pull-request-file-section'
 import { PullRequestOutdatedThreads } from './pull-request-file-threads'
-import { PullRequestFileTree } from './pull-request-file-tree'
+import {
+	PullRequestFileTree,
+	setPullRequestTreeOpen,
+	usePullRequestFileTreeLayout,
+} from './pull-request-file-tree'
 import { PullRequestsMessage } from './pull-requests-message'
 
 const ANCHORABLE_DIFF_SIDES = [
@@ -76,6 +82,8 @@ export function PullRequestComparisonFiles({
 }: Readonly<PullRequestComparisonFilesProps>) {
 	const prefetchFileDiff = usePrefetchPullRequestFileDiff()
 	const shouldReduceMotion = useReducedMotion()
+	const { isOpen: isTreeOpen, width: treeWidth } =
+		usePullRequestFileTreeLayout()
 	const {
 		activePath,
 		clearExpanded,
@@ -256,23 +264,21 @@ export function PullRequestComparisonFiles({
 			/>
 		</div>
 	)
-	const toolbar = (
-		<div className="flex min-h-9 flex-wrap items-center justify-between gap-x-4 gap-y-2">
-			<div className="flex min-w-0 flex-wrap items-center gap-x-4 gap-y-2">
-				{toolbarLead}
-				<p className="font-medium text-sm">
-					{viewedPaths
-						? `${viewedCount} / ${comparison.files.length} files viewed`
-						: `${comparison.files.length} changed files`}
-				</p>
-			</div>
-			{toolbarAction}
-		</div>
+	const rail = (
+		<PullRequestDiffRail
+			action={toolbarAction}
+			fileCount={comparison.files.length}
+			isTreeOpen={isTreeOpen}
+			lead={toolbarLead}
+			onToggleTree={() => setPullRequestTreeOpen(!isTreeOpen)}
+			viewedCount={viewedPaths ? viewedCount : undefined}
+		/>
 	)
-	const fileTree = (
+	const fileTree = (isResizable: boolean) => (
 		<PullRequestFileTree
 			activePath={activePath}
 			files={comparison.files}
+			isResizable={isResizable}
 			onPrefetch={prefetchFile}
 			onSelect={path =>
 				scrollToSection(path, shouldReduceMotion ? 'auto' : 'smooth')
@@ -284,7 +290,7 @@ export function PullRequestComparisonFiles({
 	if (comparison.files.length === 0)
 		return (
 			<div className="flex flex-col gap-3">
-				{(toolbarAction || toolbarLead) && toolbar}
+				{(toolbarAction || toolbarLead) && rail}
 				<PullRequestsMessage
 					description={
 						isSinceReview
@@ -316,53 +322,65 @@ export function PullRequestComparisonFiles({
 					Comments on already-reviewed lines are available in the full diff.
 				</p>
 			)}
-			{toolbar}
-			<details className="lg:hidden">
-				<summary className="cursor-pointer text-muted-foreground text-sm">
-					Files ({comparison.files.length})
-				</summary>
-				<div className="mt-2">{fileTree}</div>
-			</details>
-			<div className="lg:grid lg:grid-cols-[18.75rem_minmax(0,1fr)] lg:items-start lg:gap-6">
-				{/* The tree brings its own viewport-height scroller, so the column only pins it. */}
-				<aside className="hidden lg:sticky lg:top-4 lg:block lg:h-[calc(100vh-2rem)]">
-					{fileTree}
-				</aside>
-				<div className="flex min-w-0 flex-col gap-4">
-					{comparison.files.map(file => {
-						const path = getChangedFilePath(file)
-						const isViewed = viewedPaths?.has(path) ?? false
-						const isExpanded =
-							expansionOverrides[path] ??
-							!(isViewed || isLargeChangedFile(file))
+			{/* The rail sits flush on the diff it heads, so nothing separates them. */}
+			<div className="flex flex-col">
+				{rail}
+				<details className="mt-3 lg:hidden">
+					<summary className="cursor-pointer text-muted-foreground text-sm">
+						Files ({comparison.files.length})
+					</summary>
+					<div className="mt-2">{fileTree(false)}</div>
+				</details>
+				<div
+					className={cn('lg:items-start lg:gap-5', isTreeOpen && 'lg:grid')}
+					style={
+						isTreeOpen
+							? { gridTemplateColumns: `${treeWidth}px minmax(0,1fr)` }
+							: undefined
+					}
+				>
+					{/* The tree brings its own viewport-height scroller, so the column only pins it. */}
+					{isTreeOpen && (
+						<aside className="hidden lg:sticky lg:top-[calc(var(--review-rail-h)+0.5rem)] lg:block lg:h-[calc(100vh-var(--review-rail-h)-1rem)]">
+							{fileTree(true)}
+						</aside>
+					)}
+					<div className="flex min-w-0 flex-col divide-y divide-border">
+						{comparison.files.map(file => {
+							const path = getChangedFilePath(file)
+							const isViewed = viewedPaths?.has(path) ?? false
+							const isExpanded =
+								expansionOverrides[path] ??
+								!(isViewed || isLargeChangedFile(file))
 
-						return (
-							<PullRequestFileSection
-								canMarkViewed={isViewedStateKnown}
-								displayPath={
-									file.status === 'renamed'
-										? `${file.oldPath} → ${file.newPath}`
-										: path
-								}
-								file={file}
-								isExpanded={isExpanded}
-								isNearViewport={nearViewportPaths.includes(path)}
-								isViewed={isViewed}
-								isViewedPending={pendingViewedPaths.includes(path)}
-								key={`${file.oldPath}:${file.newPath}`}
-								onPrefetch={prefetchFile}
-								onRegisterNode={registerSectionNode}
-								onToggleExpanded={setExpanded}
-								onToggleViewed={toggleViewed}
-								path={path}
-							>
-								{isExpanded && fileDiffViews.get(path)}
-							</PullRequestFileSection>
-						)
-					})}
-					{outdatedThreads}
+							return (
+								<PullRequestFileSection
+									canMarkViewed={isViewedStateKnown}
+									displayPath={
+										file.status === 'renamed'
+											? `${file.oldPath} → ${file.newPath}`
+											: path
+									}
+									file={file}
+									isExpanded={isExpanded}
+									isNearViewport={nearViewportPaths.includes(path)}
+									isViewed={isViewed}
+									isViewedPending={pendingViewedPaths.includes(path)}
+									key={`${file.oldPath}:${file.newPath}`}
+									onPrefetch={prefetchFile}
+									onRegisterNode={registerSectionNode}
+									onToggleExpanded={setExpanded}
+									onToggleViewed={toggleViewed}
+									path={path}
+								>
+									{isExpanded && fileDiffViews.get(path)}
+								</PullRequestFileSection>
+							)
+						})}
+					</div>
 				</div>
 			</div>
+			{outdatedThreads}
 		</div>
 	)
 }

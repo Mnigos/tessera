@@ -51,7 +51,7 @@ export function PullRequestNavigation({
 }: Readonly<PullRequestNavigationProps>) {
 	return (
 		<nav aria-label="Pull request details">
-			<ul className={tabsListClassName}>
+			<ul className={cn(tabsListClassName, 'h-9')}>
 				{PULL_REQUEST_NAVIGATION.map(item => {
 					const isActive = item.tab === tab
 
@@ -62,6 +62,7 @@ export function PullRequestNavigation({
 								aria-current={isActive ? 'page' : undefined}
 								className={cn(
 									tabsTriggerClassName,
+									'py-1',
 									isActive && 'border-primary text-primary'
 								)}
 								params={{ username, slug, number }}

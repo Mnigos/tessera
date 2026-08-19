@@ -1860,6 +1860,7 @@ describe(RepositoriesService.name, () => {
 		})
 		expect(highlightRepositoryBlobPreview).toHaveBeenCalledWith({
 			content: 'console.log("hi")',
+			objectId: 'blob123',
 			path: 'src/index.ts',
 		})
 	})

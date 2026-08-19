@@ -179,8 +179,8 @@ function PullRequestDetailContent({
 	const isFromGitHub = pullRequest.provider === 'github'
 
 	return (
-		<section className="flex flex-col gap-6">
-			<header className="flex flex-col gap-3">
+		<section className="flex flex-col gap-3">
+			<header className="flex flex-col gap-1.5">
 				{isEditing ? (
 					<PullRequestEditForm
 						onDone={() => setIsEditing(false)}
@@ -190,13 +190,32 @@ function PullRequestDetailContent({
 					/>
 				) : (
 					<>
-						<h1 className="font-semibold text-3xl tracking-normal">
-							{pullRequest.title}{' '}
-							<span className="font-normal text-muted-foreground">
-								#{displayNumber}
-							</span>
-						</h1>
-						<div className="flex flex-wrap items-center gap-3 text-muted-foreground text-sm">
+						<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+							<h1 className="min-w-0 font-semibold text-xl tracking-normal">
+								{pullRequest.title}{' '}
+								<span className="font-normal text-muted-foreground">
+									#{displayNumber}
+								</span>
+							</h1>
+							{canWrite && (
+								<div className="flex flex-wrap items-center gap-2">
+									<Button
+										onClick={() => setIsEditing(true)}
+										size="sm"
+										variant="outline"
+									>
+										<Pencil className="size-4" />
+										Edit
+									</Button>
+									<PullRequestLifecycleActions
+										pullRequest={pullRequest}
+										slug={slug}
+										username={username}
+									/>
+								</div>
+							)}
+						</div>
+						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">
 							<PullRequestStateBadge state={pullRequest.state} />
 							<span className="inline-flex min-w-0 max-w-full items-center gap-1">
 								<PullRequestBranchLabel name={pullRequest.targetBranch} />
@@ -226,37 +245,22 @@ function PullRequestDetailContent({
 								/>
 							)}
 							{isFromGitHub && <PullRequestGitHubBadge sourceUrl={sourceUrl} />}
-						</div>
-						{canWrite && (
-							<div className="flex flex-wrap items-start gap-2">
-								<Button
-									onClick={() => setIsEditing(true)}
-									size="sm"
-									variant="outline"
-								>
-									<Pencil className="size-4" />
-									Edit
-								</Button>
-								<PullRequestLifecycleActions
-									pullRequest={pullRequest}
-									slug={slug}
-									username={username}
+							{isGitHubAuthoritative && (
+								<PullRequestGitHubWriteThroughNote
+									isFromGitHub={isFromGitHub}
 								/>
-							</div>
-						)}
+							)}
+						</div>
 					</>
 				)}
-				{isGitHubAuthoritative && (
-					<PullRequestGitHubWriteThroughNote isFromGitHub={isFromGitHub} />
-				)}
+				<PullRequestNavigation
+					changedFilesCount={diffStats?.changedFiles}
+					number={String(pullRequest.number)}
+					slug={slug}
+					tab={tab}
+					username={username}
+				/>
 			</header>
-			<PullRequestNavigation
-				changedFilesCount={diffStats?.changedFiles}
-				number={String(pullRequest.number)}
-				slug={slug}
-				tab={tab}
-				username={username}
-			/>
 			{tab === 'overview' ? (
 				<PullRequestOverview
 					canReadSyncHealth={canReadSyncHealth}

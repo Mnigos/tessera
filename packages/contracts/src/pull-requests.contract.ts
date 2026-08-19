@@ -489,8 +489,7 @@ const pullRequestDiffAnchorSchema = z.object({
 const pullRequestDiffLineSchema = z.object({
 	kind: z.enum(['addition', 'context', 'deletion']),
 	content: z.string(),
-	lightHtml: z.string().optional(),
-	darkHtml: z.string().optional(),
+	html: z.string().optional(),
 	old: pullRequestDiffAnchorSchema.optional(),
 	new: pullRequestDiffAnchorSchema.optional(),
 })

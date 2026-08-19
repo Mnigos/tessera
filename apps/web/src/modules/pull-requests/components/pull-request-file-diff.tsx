@@ -706,24 +706,7 @@ function DiffSide({
 function HighlightedDiffContent({
 	line,
 }: Readonly<{ line: PullRequestDiffLine }>) {
-	return (
-		<>
-			{line.lightHtml ? (
-				<span
-					className="dark:hidden"
-					dangerouslySetInnerHTML={{ __html: line.lightHtml }}
-				/>
-			) : (
-				<span className="dark:hidden">{line.content}</span>
-			)}
-			{line.darkHtml ? (
-				<span
-					className="hidden dark:inline"
-					dangerouslySetInnerHTML={{ __html: line.darkHtml }}
-				/>
-			) : (
-				<span className="hidden dark:inline">{line.content}</span>
-			)}
-		</>
-	)
+	if (!line.html) return line.content
+
+	return <span dangerouslySetInnerHTML={{ __html: line.html }} data-shiki="" />
 }

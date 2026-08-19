@@ -84,7 +84,7 @@ function RepositoryRoute() {
 	return (
 		<main
 			className={cn(
-				'mx-auto flex w-full flex-col gap-6 px-4 py-6 sm:px-6 sm:py-8',
+				'mx-auto flex w-full flex-col gap-3 px-4 py-4 sm:px-6',
 				isFullWidth ? 'max-w-none' : 'max-w-6xl'
 			)}
 		>

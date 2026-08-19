@@ -1,7 +1,7 @@
 import { highlightSourceCode } from './source-code-highlighting'
 
 describe(highlightSourceCode.name, () => {
-	test('highlights complete source in both themes and escapes markup', async () => {
+	test('highlights complete source with per-theme variables and escapes markup', async () => {
 		const highlighted = await highlightSourceCode({
 			path: 'src/example.ts',
 			content: 'const value = "<unsafe>"',
@@ -12,8 +12,7 @@ describe(highlightSourceCode.name, () => {
 			lines: [
 				{
 					number: 1,
-					lightHtml: expect.stringContaining('&lt;unsafe&gt;'),
-					darkHtml: expect.stringContaining('&lt;unsafe&gt;'),
+					html: expect.stringContaining('&lt;unsafe&gt;'),
 				},
 			],
 		})

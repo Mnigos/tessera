@@ -6,3 +6,14 @@
 body {
 	margin: 0;
 }
+
+/* Dual-theme shiki tokens ship once; the active theme picks which variable resolves. */
+[data-shiki] [style*="--shiki-"] {
+	color: var(--shiki-light);
+	background-color: var(--shiki-light-bg);
+}
+
+.dark [data-shiki] [style*="--shiki-"] {
+	color: var(--shiki-dark);
+	background-color: var(--shiki-dark-bg);
+}

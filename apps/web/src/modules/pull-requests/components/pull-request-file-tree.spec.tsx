@@ -38,10 +38,9 @@ describe(PullRequestFileTree.name, () => {
 
 		expect(row).toBeTruthy()
 		expect(row?.getAttribute('aria-current')).toBe('true')
-		expect(row?.className).toContain('opacity-60')
+		expect(row?.className).toContain('text-diff-viewed-fg')
 		expect(screen.getByText('modified')).toBeTruthy()
-		expect(screen.getByText('+3')).toBeTruthy()
-		expect(screen.getByText('−2')).toBeTruthy()
+		expect(screen.getByTitle('+3 −2')).toBeTruthy()
 		expect(row?.querySelector('svg')).toBeTruthy()
 	})
 

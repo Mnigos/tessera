@@ -2,6 +2,7 @@ import { highlightSourceCode } from '~/shared/helpers/source-code-highlighting'
 
 export interface HighlightRepositoryBlobPreviewParams {
 	content: string
+	objectId?: string
 	path: string
 }
 
@@ -18,11 +19,12 @@ export interface HighlightedRepositoryBlobPreview {
 
 export async function highlightRepositoryBlobPreview({
 	content,
+	objectId,
 	path,
 }: HighlightRepositoryBlobPreviewParams): Promise<
 	HighlightedRepositoryBlobPreview | undefined
 > {
-	const highlighted = await highlightSourceCode({ content, path })
+	const highlighted = await highlightSourceCode({ content, objectId, path })
 
 	if (!highlighted) return undefined
 
@@ -32,7 +34,7 @@ export async function highlightRepositoryBlobPreview({
 			startLine: 1,
 			lines: highlighted.lines.map(line => ({
 				number: line.number,
-				html: line.lightHtml,
+				html: line.html,
 			})),
 		},
 	}
