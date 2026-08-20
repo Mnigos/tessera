@@ -706,6 +706,8 @@ describe('GitHub write-through integration', () => {
 			body: '',
 			state,
 			draft: false,
+			labels: [],
+			assignees: [],
 			author: actor,
 			mergedBy: state === 'merged' ? actor : undefined,
 			mergeCommitSha: state === 'merged' ? 'provider-get-sha' : undefined,

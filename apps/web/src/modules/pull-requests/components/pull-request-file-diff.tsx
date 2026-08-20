@@ -295,9 +295,10 @@ function FileDiff({
 					Diff truncated at {diff.patchLimitBytes.toLocaleString()} bytes.
 				</p>
 			)}
+			{/* An inline-size container, so a thread row can size itself to the scrollport rather than the code. */}
 			<div
 				className={cn(
-					"font-mono text-[13px] leading-[22px] [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none] [tab-size:2]",
+					"font-mono text-[13px] leading-[22px] [container-type:inline-size] [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none] [tab-size:2]",
 					!isWrapped && 'overflow-x-auto'
 				)}
 				data-diff-code
@@ -692,6 +693,13 @@ const UNIFIED_GRID_CLASSES =
 // A composer stretched across an unwrapped 4,000 px row is unreadable.
 const THREAD_CELL_CLASSES = 'min-w-0 max-w-5xl'
 
+/**
+ * Discussion is measured against the scrollport rather than the code, and stays
+ * pinned to its left edge, so scrolling a wide diff sideways can never push a
+ * thread or an open composer past the fold.
+ */
+const THREAD_ROW_CLASSES = 'sticky left-0 w-[100cqw]'
+
 function SplitDiffRowView({
 	context,
 	isLeftCommented,
@@ -747,11 +755,8 @@ function DiffThreadRowView({
 		const slot = row.left ?? row.right
 
 		return (
-			<div className={UNIFIED_GRID_CLASSES} data-thread-ids={threadIds}>
-				<div
-					className={cn('col-span-3', THREAD_CELL_CLASSES)}
-					data-thread-side={slot?.side}
-				>
+			<div className={THREAD_ROW_CLASSES} data-thread-ids={threadIds}>
+				<div className={THREAD_CELL_CLASSES} data-thread-side={slot?.side}>
 					<PullRequestDiffThreadRow
 						anchor={row.left ? leftAnchor : rightAnchor}
 						number={number}
@@ -768,9 +773,12 @@ function DiffThreadRowView({
 
 	return (
 		// Discussion sits under the column it belongs to, as a split diff reads.
-		<div className={SPLIT_GRID_CLASSES} data-thread-ids={threadIds}>
+		<div
+			className={cn('grid grid-cols-2', THREAD_ROW_CLASSES)}
+			data-thread-ids={threadIds}
+		>
 			<div
-				className={cn('col-span-2 border-border border-r', THREAD_CELL_CLASSES)}
+				className={cn('border-border border-r', THREAD_CELL_CLASSES)}
 				data-thread-side="left"
 			>
 				{row.left && (
@@ -785,10 +793,7 @@ function DiffThreadRowView({
 					/>
 				)}
 			</div>
-			<div
-				className={cn('col-span-2', THREAD_CELL_CLASSES)}
-				data-thread-side="right"
-			>
+			<div className={THREAD_CELL_CLASSES} data-thread-side="right">
 				{row.right && (
 					<PullRequestDiffThreadRow
 						anchor={rightAnchor}

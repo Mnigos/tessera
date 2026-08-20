@@ -90,14 +90,16 @@ export function SelectContent({
 }: Readonly<SelectContentProps>) {
 	return (
 		<SelectPrimitive.Portal>
+			{/* The positioner is the placed element, so it is the only one a z-index can lift. */}
 			<SelectPrimitive.Positioner
 				align={align}
+				className="z-50"
 				side={side}
 				sideOffset={sideOffset}
 			>
 				<SelectPrimitive.Popup
 					className={cn(
-						'relative z-50 max-h-96 min-w-32 overflow-hidden rounded-md border border-border bg-card text-foreground shadow-md outline-hidden transition-all duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0',
+						'relative max-h-96 min-w-32 overflow-hidden rounded-md border border-border bg-card text-foreground shadow-md outline-hidden transition-all duration-150 data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0',
 						className
 					)}
 					data-slot="select-content"

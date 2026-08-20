@@ -260,6 +260,21 @@ export const pullRequestDiffStatsSchema = z.object({
 })
 export type PullRequestDiffStats = z.infer<typeof pullRequestDiffStatsSchema>
 
+export const pullRequestLabelSchema = z.object({
+	name: z.string().min(1),
+	/** GitHub's six-digit hex colour, without the leading `#`. */
+	color: z.string().min(1),
+	description: z.string().optional(),
+})
+export type PullRequestLabel = z.infer<typeof pullRequestLabelSchema>
+
+export const pullRequestAssigneeSchema = z.object({
+	login: z.string().min(1),
+	avatarUrl: z.url().optional(),
+	htmlUrl: z.url().optional(),
+})
+export type PullRequestAssignee = z.infer<typeof pullRequestAssigneeSchema>
+
 export const pullRequestSchema = z.object({
 	id: pullRequestIdSchema,
 	repositoryId: z.uuid().brand<'repository_id'>(),
@@ -299,6 +314,9 @@ export const pullRequestSchema = z.object({
 			mergedByUsername: z.string().min(1).optional(),
 			/** The number the pull request carries on GitHub, which routing never uses. */
 			externalNumber: z.number().int().positive().optional(),
+			// GitHub owns both lists; Tessera mirrors them and never writes them back.
+			labels: z.array(pullRequestLabelSchema).optional(),
+			assignees: z.array(pullRequestAssigneeSchema).optional(),
 		})
 		.optional(),
 })

@@ -11,15 +11,12 @@ import type {
 	PullRequestReviewViewer,
 	SessionUser,
 } from '@repo/contracts'
-import { Card } from '@repo/ui/components/card'
-import { cn } from '@repo/ui/utils'
-import { MarkdownContent } from '@/shared/components/markdown-content'
 import { getPullRequestReviewContext } from '../helpers/pull-request-review'
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
-import { PullRequestChecksPanel } from './pull-request-checks-panel'
-import { PullRequestMergePanel } from './pull-request-merge-panel'
+import { PullRequestDescriptionComment } from './pull-request-description-comment'
+import { PullRequestMergeBox } from './pull-request-merge-box'
 import { PullRequestPendingReviewBanner } from './pull-request-pending-review-banner'
-import { PullRequestReviewersPanel } from './pull-request-reviewers-panel'
+import { PullRequestSidebar } from './pull-request-sidebar'
 import { PullRequestTimeline } from './pull-request-timeline'
 
 interface PullRequestOverviewProps {
@@ -42,6 +39,10 @@ interface PullRequestOverviewProps {
 	canReadSyncHealth: boolean
 }
 
+/**
+ * The conversation: the description as its first comment, everything that has
+ * happened since, and the merge box that closes it — with the sidebar beside.
+ */
 export function PullRequestOverview({
 	username,
 	slug,
@@ -62,52 +63,22 @@ export function PullRequestOverview({
 	canReadSyncHealth,
 }: Readonly<PullRequestOverviewProps>) {
 	const number = String(pullRequest.number)
-	const isOpen = pullRequest.state === 'open'
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
 
 	// The reviewed head is whichever comparison the viewer is reading, never a
 	// freshly resolved one: a review must never cover unseen commits.
 	const headSha = threadsQuery.data?.comparison.headSha
 	const review = getPullRequestReviewContext(reviewViewer, viewerPendingReview)
-	const hasReviewers =
-		reviewerRequests.length > 0 ||
-		effectiveReviewStates.length > 0 ||
-		reviewViewer.canRequestReviewers ||
-		reviewViewer.allowedOutcomes.length > 0
 
 	return (
-		<div
-			className={cn(
-				'flex flex-col gap-6',
-				hasReviewers &&
-					'lg:grid lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-start lg:gap-8'
-			)}
-		>
-			<div className="flex min-w-0 flex-col gap-6">
-				<Card className="gap-2">
-					<h2 className="font-semibold text-base tracking-normal">
-						Description
-					</h2>
-					{pullRequest.body ? (
-						<MarkdownContent>{pullRequest.body}</MarkdownContent>
-					) : (
-						<p className="text-muted-foreground text-sm italic">
-							No description provided.
-						</p>
-					)}
-				</Card>
-				<PullRequestChecksPanel
-					checksSummary={checksSummary}
-					number={number}
-					slug={slug}
-					username={username}
-				/>
+		<div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:gap-8">
+			<div className="flex min-w-0 flex-1 flex-col gap-4">
 				{viewerPendingReview && (
 					<PullRequestPendingReviewBanner
 						allowedOutcomes={reviewViewer.allowedOutcomes}
 						headSha={headSha}
 						isGitHubAuthoritative={isGitHubAuthoritative}
-						isOpen={isOpen}
+						isOpen={pullRequest.state === 'open'}
 						number={number}
 						pendingReview={viewerPendingReview}
 						slug={slug}
@@ -119,40 +90,51 @@ export function PullRequestOverview({
 					events={events}
 					isFromGitHub={isFromGitHub}
 					isGitHubAuthoritative={isGitHubAuthoritative}
+					leading={
+						<PullRequestDescriptionComment
+							author={findPullRequestAuthor(events)}
+							canWrite={canWrite}
+							pullRequest={pullRequest}
+							slug={slug}
+							username={username}
+						/>
+					}
 					number={number}
 					review={review}
 					reviews={reviews}
 					slug={slug}
+					trailing={
+						<PullRequestMergeBox
+							canWrite={canWrite}
+							checksSummary={checksSummary}
+							isGitHubAuthoritative={isGitHubAuthoritative}
+							mergeQueue={mergeQueue}
+							pullRequest={pullRequest}
+							slug={slug}
+							username={username}
+						/>
+					}
 					username={username}
 					viewerUserId={viewerUserId}
 				/>
-				{canWrite && (
-					<PullRequestMergePanel
-						isGitHubAuthoritative={isGitHubAuthoritative}
-						mergeQueue={mergeQueue}
-						pullRequest={pullRequest}
-						slug={slug}
-						username={username}
-					/>
-				)}
 			</div>
-			{hasReviewers && (
-				<aside className="flex flex-col gap-4 lg:sticky lg:top-6">
-					<PullRequestReviewersPanel
-						effectiveReviewStates={effectiveReviewStates}
-						headSha={headSha}
-						isGitHubAuthoritative={isGitHubAuthoritative}
-						isOpen={isOpen}
-						number={number}
-						pendingCommentCount={viewerPendingReview?.commentCount}
-						reviewerCandidates={reviewerCandidates}
-						reviewerRequests={reviewerRequests}
-						slug={slug}
-						username={username}
-						viewer={reviewViewer}
-					/>
-				</aside>
-			)}
+			<PullRequestSidebar
+				effectiveReviewStates={effectiveReviewStates}
+				headSha={headSha}
+				isGitHubAuthoritative={isGitHubAuthoritative}
+				pendingCommentCount={viewerPendingReview?.commentCount}
+				pullRequest={pullRequest}
+				reviewerCandidates={reviewerCandidates}
+				reviewerRequests={reviewerRequests}
+				reviewViewer={reviewViewer}
+				slug={slug}
+				username={username}
+			/>
 		</div>
 	)
+}
+
+/** The identity the opening event kept, which carries an avatar and a profile. */
+function findPullRequestAuthor(events: readonly PullRequestEvent[]) {
+	return events.find(event => event.type === 'opened')?.actor
 }

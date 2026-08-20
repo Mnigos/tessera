@@ -948,6 +948,8 @@ describe('GitHub sync operations integration', () => {
 			body: '',
 			state: 'open',
 			draft: false,
+			labels: [],
+			assignees: [],
 			author: {
 				nodeId: 'actor-marta',
 				numericId: 500n,

@@ -26,14 +26,16 @@ export function PopoverContent({
 }: Readonly<PopoverContentProps>) {
 	return (
 		<PopoverPrimitive.Portal>
+			{/* The positioner is the placed element, so it is the only one a z-index can lift. */}
 			<PopoverPrimitive.Positioner
 				align={align}
+				className="z-50"
 				side={side}
 				sideOffset={sideOffset}
 			>
 				<PopoverPrimitive.Popup
 					className={cn(
-						'z-50 w-fit origin-center rounded-xl border border-border bg-card p-2 text-foreground shadow-sm outline-hidden transition-all duration-150',
+						'w-fit origin-center rounded-xl border border-border bg-card p-2 text-foreground shadow-sm outline-hidden transition-all duration-150',
 						'data-ending-style:scale-95 data-starting-style:scale-95',
 						'data-ending-style:opacity-0 data-starting-style:opacity-0',
 						className

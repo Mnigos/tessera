@@ -31,21 +31,23 @@ export function TooltipContent({
 }: Readonly<TooltipContentProps>) {
 	return (
 		<TooltipPrimitive.Portal>
+			{/* The positioner is the placed element, so it is the only one a z-index can lift. */}
 			<TooltipPrimitive.Positioner
 				align={align}
+				className="z-50"
 				side={side}
 				sideOffset={sideOffset}
 			>
 				<TooltipPrimitive.Popup
 					className={cn(
-						'z-50 origin-center overflow-hidden rounded-md bg-card px-3 py-1.5 text-foreground text-xs transition-all data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0',
+						'origin-center overflow-hidden rounded-md bg-card px-3 py-1.5 text-foreground text-xs transition-all data-ending-style:scale-95 data-starting-style:scale-95 data-ending-style:opacity-0 data-starting-style:opacity-0',
 						className
 					)}
 					data-slot="tooltip-content"
 					{...props}
 				>
 					{children}
-					<TooltipPrimitive.Arrow className="z-50 size-2.5 rotate-45 rounded-xs bg-card fill-popover" />
+					<TooltipPrimitive.Arrow className="size-2.5 rotate-45 rounded-xs bg-card fill-popover" />
 				</TooltipPrimitive.Popup>
 			</TooltipPrimitive.Positioner>
 		</TooltipPrimitive.Portal>
