@@ -895,6 +895,8 @@ describe('GitHub checks sync integration', () => {
 			body: 'Renames the value',
 			state: 'open',
 			draft: false,
+			labels: [],
+			assignees: [],
 			author: authorActor,
 			sourceBranch: 'feature',
 			targetBranch: 'main',

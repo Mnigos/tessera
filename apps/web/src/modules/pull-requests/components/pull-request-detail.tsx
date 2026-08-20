@@ -35,7 +35,7 @@ import { usePullRequestActivityQuery } from '../hooks/use-pull-request-activity.
 import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
-import { PullRequestEditForm } from './pull-request-edit-form'
+import { PullRequestTitleEditForm } from './pull-request-edit-form'
 import { PullRequestGitHubBadge } from './pull-request-github-badge'
 import { PullRequestGitHubWriteThroughNote } from './pull-request-github-write-through-note'
 import { PullRequestLifecycleActions } from './pull-request-lifecycle-actions'
@@ -174,7 +174,7 @@ function PullRequestDetailContent({
 	tab,
 	reviewSelection,
 }: Readonly<PullRequestDetailContentProps>) {
-	const [isEditing, setIsEditing] = useState(false)
+	const [isEditingTitle, setIsEditingTitle] = useState(false)
 	const sourceUrl = pullRequest.github?.htmlUrl
 	const displayNumber = toPullRequestDisplayNumber(pullRequest)
 	const { diffStats } = pullRequest
@@ -185,9 +185,9 @@ function PullRequestDetailContent({
 	return (
 		<section className="flex flex-col gap-3">
 			<header className="flex flex-col gap-1.5">
-				{isEditing ? (
-					<PullRequestEditForm
-						onDone={() => setIsEditing(false)}
+				{isEditingTitle ? (
+					<PullRequestTitleEditForm
+						onDone={() => setIsEditingTitle(false)}
 						pullRequest={pullRequest}
 						slug={slug}
 						username={username}
@@ -195,28 +195,31 @@ function PullRequestDetailContent({
 				) : (
 					<>
 						<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
-							<h1 className="min-w-0 font-semibold text-xl tracking-normal">
-								{pullRequest.title}{' '}
-								<span className="font-normal text-muted-foreground">
-									#{displayNumber}
-								</span>
-							</h1>
-							{canWrite && (
-								<div className="flex flex-wrap items-center gap-2">
+							<div className="flex min-w-0 items-center gap-1">
+								<h1 className="min-w-0 font-semibold text-xl tracking-normal">
+									{pullRequest.title}{' '}
+									<span className="font-normal text-muted-foreground">
+										#{displayNumber}
+									</span>
+								</h1>
+								{canWrite && (
 									<Button
-										onClick={() => setIsEditing(true)}
-										size="sm"
-										variant="outline"
+										aria-label="Edit title"
+										className="size-7 shrink-0 text-muted-foreground"
+										onClick={() => setIsEditingTitle(true)}
+										size="icon"
+										variant="ghost"
 									>
-										<Pencil className="size-4" />
-										Edit
+										<Pencil />
 									</Button>
-									<PullRequestLifecycleActions
-										pullRequest={pullRequest}
-										slug={slug}
-										username={username}
-									/>
-								</div>
+								)}
+							</div>
+							{canWrite && (
+								<PullRequestLifecycleActions
+									pullRequest={pullRequest}
+									slug={slug}
+									username={username}
+								/>
 							)}
 						</div>
 						<div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-muted-foreground text-xs">

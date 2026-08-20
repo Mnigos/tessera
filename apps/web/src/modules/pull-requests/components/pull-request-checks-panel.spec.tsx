@@ -1,5 +1,5 @@
 import { type Check, type ChecksSummary, checkIdSchema } from '@repo/contracts'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { usePullRequestChecksQuery } from '../hooks/use-pull-request-checks.query'
 import { PullRequestChecksPanel } from './pull-request-checks-panel'
 
@@ -14,6 +14,7 @@ const DETAILS_REGEX = /Details/
 const EARLIER_COMMIT_REGEX = /earlier commit/
 const REQUIRED_BY_BRANCH_PROTECTION_REGEX = /Required by branch protection/
 const NOTHING_TO_SHOW_REGEX = /on this commit yet/
+const CHECKS_ROLLUP_NAME = /checks/i
 const HEAD_SHA = 'a'.repeat(40)
 const EMPTY_COUNTS = {
 	queued: 0,
@@ -58,13 +59,20 @@ const CHECK: Check = {
 	observedAt: new Date('2026-08-08T10:00:00Z'),
 }
 
+// The rollup row is the whole section until a reader asks for the list.
+function expandChecks() {
+	fireEvent.click(screen.getByRole('button', { name: CHECKS_ROLLUP_NAME }))
+}
+
 describe(PullRequestChecksPanel.name, () => {
 	afterEach(() => vi.resetAllMocks())
 
 	test('renders no panel and never fetches without a summary', () => {
 		render(<PullRequestChecksPanel number="1" slug="notes" username="marta" />)
 
-		expect(screen.queryByText('Checks')).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: CHECKS_ROLLUP_NAME })
+		).toBeNull()
 		expect(useChecksQueryMock).not.toHaveBeenCalled()
 	})
 
@@ -84,7 +92,9 @@ describe(PullRequestChecksPanel.name, () => {
 			/>
 		)
 
-		expect(screen.queryByText('Checks')).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: CHECKS_ROLLUP_NAME })
+		).toBeNull()
 	})
 
 	test('keeps the panel up while a checkless read is still in flight', () => {
@@ -104,6 +114,7 @@ describe(PullRequestChecksPanel.name, () => {
 				username="marta"
 			/>
 		)
+		expandChecks()
 
 		expect(container.querySelector('.animate-pulse')).toBeTruthy()
 	})
@@ -125,6 +136,7 @@ describe(PullRequestChecksPanel.name, () => {
 				username="marta"
 			/>
 		)
+		expandChecks()
 
 		expect(screen.getByRole('alert')).toBeTruthy()
 	})
@@ -149,8 +161,9 @@ describe(PullRequestChecksPanel.name, () => {
 				username="marta"
 			/>
 		)
+		expandChecks()
 
-		expect(screen.getByText('Checks')).toBeTruthy()
+		expect(screen.getByText('No checks have reported')).toBeTruthy()
 		expect(screen.getByText('ci/build')).toBeTruthy()
 		expect(screen.getByText('Not reported')).toBeTruthy()
 		expect(screen.getByText(REQUIRED_BY_BRANCH_PROTECTION_REGEX)).toBeTruthy()
@@ -177,6 +190,7 @@ describe(PullRequestChecksPanel.name, () => {
 				username="marta"
 			/>
 		)
+		expandChecks()
 
 		const rows = screen.getAllByRole('listitem')
 
@@ -222,6 +236,7 @@ describe(PullRequestChecksPanel.name, () => {
 		const { container, rerender } = render(
 			<PullRequestChecksPanel {...props} />
 		)
+		expandChecks()
 		expect(container.querySelector('.animate-pulse')).toBeTruthy()
 
 		useChecksQueryMock.mockReturnValue({
@@ -257,6 +272,7 @@ describe(PullRequestChecksPanel.name, () => {
 				username="marta"
 			/>
 		)
+		expandChecks()
 
 		expect(screen.getByText('build')).toBeTruthy()
 		expect(screen.getByText('Failed').getAttribute('title')).toBe(

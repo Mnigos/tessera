@@ -19,6 +19,14 @@ export const gitHubActorSchema = z.object({
 	html_url: z.url().nullish(),
 })
 
+const LEADING_HASH = /^#/
+
+export const gitHubLabelSchema = z.object({
+	name: z.string().min(1),
+	color: z.string().min(1),
+	description: z.string().nullish(),
+})
+
 export const gitHubDiffSideSchema = z.enum(['LEFT', 'RIGHT'])
 const gitHubSubjectTypeSchema = z.enum(['line', 'file'])
 
@@ -32,6 +40,8 @@ export const gitHubPullRequestSchema = z.object({
 	state: z.enum(['open', 'closed']),
 	draft: z.boolean().nullish(),
 	user: gitHubActorSchema,
+	labels: z.array(gitHubLabelSchema).nullish(),
+	assignees: z.array(gitHubActorSchema).nullish(),
 	merged_at: z.string().nullish(),
 	merged_by: gitHubActorSchema.nullish(),
 	merge_commit_sha: z.string().nullish(),
@@ -111,6 +121,17 @@ export function toGitHubSyncPullRequest(
 		state: mergedAt ? 'merged' : pullRequest.state,
 		draft: pullRequest.draft ?? false,
 		author: toGitHubSyncActor(pullRequest.user),
+		labels: (pullRequest.labels ?? []).map(label => ({
+			name: label.name,
+			// GitHub writes the colour bare; a stray `#` would break `#${color}`.
+			color: label.color.replace(LEADING_HASH, ''),
+			description: label.description ?? undefined,
+		})),
+		assignees: (pullRequest.assignees ?? []).map(assignee => ({
+			login: assignee.login,
+			avatarUrl: assignee.avatar_url ?? undefined,
+			htmlUrl: assignee.html_url ?? undefined,
+		})),
 		mergedBy: pullRequest.merged_by
 			? toGitHubSyncActor(pullRequest.merged_by)
 			: undefined,

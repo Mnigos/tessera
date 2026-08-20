@@ -5,7 +5,7 @@ import type {
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Skeleton } from '@repo/ui/components/skeleton'
-import { useState } from 'react'
+import { type ReactNode, useState } from 'react'
 import { useGitHubSyncHealthQuery } from '@/modules/repositories/hooks/use-github-sync-health.query'
 import {
 	getPullRequestReviewComposerLabel,
@@ -50,6 +50,10 @@ interface PullRequestTimelineProps {
 	 * the notice it drives is only ever asked for on their behalf.
 	 */
 	canReadSyncHealth: boolean
+	/** The description comment, which opens the conversation as its first entry. */
+	leading?: ReactNode
+	/** The merge box, which closes the conversation just above the composer. */
+	trailing?: ReactNode
 }
 
 export function PullRequestTimeline({
@@ -63,6 +67,8 @@ export function PullRequestTimeline({
 	isFromGitHub,
 	isGitHubAuthoritative,
 	canReadSyncHealth,
+	leading,
+	trailing,
 }: Readonly<PullRequestTimelineProps>) {
 	const threadsQuery = usePullRequestThreadsQuery({ username, slug, number })
 	// Provenance and authority both have to hold: a native pull request frozen by
@@ -87,22 +93,43 @@ export function PullRequestTimeline({
 		threadsQuery.data?.threads ?? []
 	)
 
+	const hasNoActivity =
+		entries.length === 0 && !(threadsQuery.isLoading || threadsQuery.isError)
+
 	return (
-		<section className="flex flex-col gap-3">
-			<div className="flex flex-wrap items-center justify-between gap-2">
-				<h2 className="font-semibold text-base tracking-normal">Activity</h2>
-				<PullRequestGitHubRefresh
-					number={number}
-					slug={slug}
-					username={username}
-				/>
-			</div>
+		<section aria-label="Conversation" className="flex flex-col gap-3">
 			<PullRequestTimelineSyncNotice
 				syncHealth={syncHealthQuery.data?.syncHealth}
 			/>
-			{entries.length === 0 &&
-			!threadsQuery.isLoading &&
-			!threadsQuery.isError ? (
+			<ol className="flex flex-col gap-3">
+				{leading && <li>{leading}</li>}
+				{entries.map(entry => (
+					<li key={entry.id}>
+						{entry.type === 'thread' && (
+							<PullRequestThreadCard
+								number={number}
+								permissions={permissions}
+								slug={slug}
+								thread={entry.thread}
+								username={username}
+							/>
+						)}
+						{entry.type === 'event' &&
+							(entry.event.type === 'review_submitted' ? (
+								<PullRequestReviewEventCard
+									event={entry.event}
+									number={number}
+									review={findPullRequestReview(entry.event, reviews)}
+									slug={slug}
+									username={username}
+								/>
+							) : (
+								<PullRequestEventRow event={entry.event} />
+							))}
+					</li>
+				))}
+			</ol>
+			{hasNoActivity && (
 				<p className="text-muted-foreground text-sm italic">
 					{/* Emptiness on a projection is never evidence of absence: GitHub may
 					    hold activity that has not arrived, and "No activity yet" would
@@ -111,34 +138,6 @@ export function PullRequestTimeline({
 						? 'No activity has synchronized from GitHub yet.'
 						: 'No activity yet.'}
 				</p>
-			) : (
-				<ol className="flex flex-col gap-3">
-					{entries.map(entry => (
-						<li key={entry.id}>
-							{entry.type === 'thread' && (
-								<PullRequestThreadCard
-									number={number}
-									permissions={permissions}
-									slug={slug}
-									thread={entry.thread}
-									username={username}
-								/>
-							)}
-							{entry.type === 'event' &&
-								(entry.event.type === 'review_submitted' ? (
-									<PullRequestReviewEventCard
-										event={entry.event}
-										number={number}
-										review={findPullRequestReview(entry.event, reviews)}
-										slug={slug}
-										username={username}
-									/>
-								) : (
-									<PullRequestEventRow event={entry.event} />
-								))}
-						</li>
-					))}
-				</ol>
 			)}
 			{threadsQuery.isLoading && <Skeleton className="h-24" />}
 			{threadsQuery.isError && (
@@ -155,6 +154,15 @@ export function PullRequestTimeline({
 					</Button>
 				</div>
 			)}
+			{/* Collapses out of the column entirely when there is no mirror to refresh. */}
+			<div className="flex justify-end empty:hidden">
+				<PullRequestGitHubRefresh
+					number={number}
+					slug={slug}
+					username={username}
+				/>
+			</div>
+			{trailing}
 			{permissions.canComment && (
 				<PullRequestTimelineComposer
 					key={permissions.review ? 'with-review' : 'without-review'}

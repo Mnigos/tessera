@@ -197,6 +197,13 @@
       "when": 1787175618922,
       "tag": "0028_pull_request_review_submissions",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1787185626204,
+      "tag": "0029_github_labels_and_assignees",
+      "breakpoints": true
     }
   ]
 }

@@ -12,6 +12,7 @@ import {
 	check,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -43,6 +44,24 @@ export type GitHubWebhookDeliveryId = Brand<
 	'github_webhook_delivery_id'
 >
 export type GitHubSyncAttemptId = Brand<string, 'github_sync_attempt_id'>
+
+/**
+ * Labels and assignees are GitHub's own display data: it owns their lifecycle,
+ * Tessera never edits them, and nothing joins on them. They travel as snapshots
+ * rather than tables so a rename on GitHub is one overwrite, not a migration.
+ */
+export interface GitHubPullRequestLabel {
+	name: string
+	/** GitHub's six-digit hex colour, stored without the leading `#`. */
+	color: string
+	description?: string
+}
+
+export interface GitHubPullRequestAssignee {
+	login: string
+	avatarUrl?: string
+	htmlUrl?: string
+}
 
 /**
  * How one attempt ended. `partial` is a run that finalized without reconciling
@@ -337,6 +356,8 @@ export const gitHubPullRequestMappings = pgTable(
 		headSha: text('head_sha').notNull(),
 		baseSha: text('base_sha').notNull(),
 		draft: boolean('draft').default(false).notNull(),
+		labels: jsonb('labels').$type<GitHubPullRequestLabel[]>(),
+		assignees: jsonb('assignees').$type<GitHubPullRequestAssignee[]>(),
 		providerCreatedAt: timestamp('provider_created_at').notNull(),
 		providerUpdatedAt: timestamp('provider_updated_at').notNull(),
 		providerClosedAt: timestamp('provider_closed_at'),

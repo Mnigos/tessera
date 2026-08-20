@@ -999,6 +999,8 @@ function createPullRequestReconciliation(number: number) {
 		body: '',
 		state: 'open' as const,
 		draft: false,
+		labels: [],
+		assignees: [],
 		author: {
 			nodeId: 'author-node',
 			numericId: 7n,

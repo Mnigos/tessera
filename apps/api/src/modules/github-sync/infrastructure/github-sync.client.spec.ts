@@ -38,6 +38,19 @@ function createPullRequest(number: number, updatedAt: string) {
 			login: 'marta',
 			type: 'User',
 		},
+		labels: [
+			{ name: 'bug', color: 'd73a4a', description: 'Something is broken' },
+		],
+		assignees: [
+			{
+				id: 8,
+				node_id: 'assignee-node',
+				login: 'ines',
+				type: 'User',
+				avatar_url: 'https://avatars.githubusercontent.com/u/8',
+				html_url: 'https://github.com/ines',
+			},
+		],
 		merged_at: null,
 		merged_by: null,
 		merge_commit_sha: null,
@@ -181,6 +194,32 @@ describe(GitHubSyncClient.name, () => {
 
 		expect(reconciliation.pullRequests).toEqual([
 			expect.objectContaining({ number: 3 }),
+		])
+	})
+
+	test('carries the labels and assignees GitHub reports', async () => {
+		graphql.mockResolvedValue({ repository: {} })
+		paginate.mockResolvedValue([createPullRequest(4, '2026-07-29T12:00:00Z')])
+
+		const client = new GitHubSyncClient()
+		const reconciliation = await client.getRepositoryReconciliation({
+			accessToken: 'installation-token',
+			externalRepositoryId: 456n,
+		})
+
+		expect(reconciliation.pullRequests).toEqual([
+			expect.objectContaining({
+				labels: [
+					{ name: 'bug', color: 'd73a4a', description: 'Something is broken' },
+				],
+				assignees: [
+					{
+						login: 'ines',
+						avatarUrl: 'https://avatars.githubusercontent.com/u/8',
+						htmlUrl: 'https://github.com/ines',
+					},
+				],
+			}),
 		])
 	})
 

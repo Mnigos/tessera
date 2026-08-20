@@ -169,6 +169,7 @@ describe(PullRequestReviewersPanel.name, () => {
 			/>
 		)
 
+		await user.click(screen.getByRole('button', { name: 'Manage reviewers' }))
 		await user.type(screen.getByLabelText('Request a review'), 'Exact.User-7')
 		const requestButton = screen.getByRole('button', { name: 'Request review' })
 		fireEvent.submit(requestButton.closest('form') ?? requestButton)
@@ -213,6 +214,9 @@ describe(PullRequestReviewersPanel.name, () => {
 			/>
 		)
 
+		const user = userEvent.setup()
+		await user.click(screen.getByRole('button', { name: 'Manage reviewers' }))
+
 		expect(screen.getByRole('status').textContent).toBe(
 			GITHUB_SYNC_DELAYED_MESSAGE
 		)
@@ -223,7 +227,6 @@ describe(PullRequestReviewersPanel.name, () => {
 		expect(
 			screen.getByRole<HTMLButtonElement>('button', { name: 'jan' }).disabled
 		).toBeFalsy()
-		const user = userEvent.setup()
 		await user.type(screen.getByLabelText('Request a review'), 'anna')
 		const requestButton = screen.getByRole('button', { name: 'Request review' })
 		fireEvent.submit(requestButton.closest('form') ?? requestButton)
@@ -256,6 +259,9 @@ describe(PullRequestReviewersPanel.name, () => {
 			/>
 		)
 
+		expect(
+			screen.queryByRole('button', { name: 'Manage reviewers' })
+		).toBeNull()
 		expect(screen.queryByLabelText('Request a review')).toBeNull()
 		expect(
 			screen.queryByRole('button', { name: 'Remove review request for jan' })

@@ -20,6 +20,24 @@ export interface GitHubSyncRepository {
 	defaultBranch: string
 }
 
+export interface GitHubSyncPullRequestLabel {
+	name: string
+	/** GitHub's six-digit hex colour, without the leading `#`. */
+	color: string
+	description?: string
+}
+
+/**
+ * An assignee travels as a display snapshot rather than a `GitHubSyncActor`
+ * because nothing resolves it to an account, and its numeric id is a bigint
+ * that could not survive the jsonb column it is stored in.
+ */
+export interface GitHubSyncPullRequestAssignee {
+	login: string
+	avatarUrl?: string
+	htmlUrl?: string
+}
+
 export interface GitHubSyncPullRequest {
 	nodeId: string
 	numericId: bigint
@@ -30,6 +48,8 @@ export interface GitHubSyncPullRequest {
 	state: 'open' | 'closed' | 'merged'
 	draft: boolean
 	author: GitHubSyncActor
+	labels: GitHubSyncPullRequestLabel[]
+	assignees: GitHubSyncPullRequestAssignee[]
 	mergedBy?: GitHubSyncActor
 	mergeCommitSha?: string
 	sourceBranch: string

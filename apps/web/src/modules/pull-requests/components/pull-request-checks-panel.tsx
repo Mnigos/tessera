@@ -1,7 +1,8 @@
 import type { Check, ChecksSummary, RequiredContext } from '@repo/contracts'
-import { Card } from '@repo/ui/components/card'
 import { Skeleton } from '@repo/ui/components/skeleton'
 import { cn } from '@repo/ui/utils'
+import { ChevronDown } from 'lucide-react'
+import { useState } from 'react'
 import {
 	getCheckRollupDescription,
 	getCheckRollupPresentation,
@@ -23,15 +24,39 @@ interface PullRequestChecksPanelProps {
 	checksSummary?: ChecksSummary
 }
 
+/** What a settled — or still unsettled — checks read knows about the rows. */
+export interface PullRequestChecksReadState {
+	isLoading: boolean
+	isError: boolean
+	data?: { missingRequiredContexts?: RequiredContext[] }
+}
+
 /**
- * Results reported on the pull request's head, and the requirements nothing
- * reported at all.
+ * Whether there is a checks section to draw at all.
  *
  * A rollup of `none` is no longer reason enough to render nothing: a protected
  * branch requiring a check that never ran is the emptiest possible rollup and
- * the most important thing this panel can say. So the read happens either way
- * and the panel disappears only once it knows there is genuinely nothing —
- * neither a result nor an unmet requirement — to show.
+ * the most important thing this section can say. So the read happens either way
+ * and the section disappears only once it knows there is genuinely nothing —
+ * neither a result nor an unmet requirement — to show. Exported because the
+ * merge box has to decide whether it has any row above the merge at all.
+ */
+export function hasPullRequestChecksSection(
+	checksSummary: ChecksSummary | undefined,
+	{ isLoading, isError, data }: PullRequestChecksReadState
+) {
+	if (!checksSummary) return false
+
+	if (checksSummary.overall !== 'none') return true
+
+	return (
+		isLoading || isError || (data?.missingRequiredContexts?.length ?? 0) > 0
+	)
+}
+
+/**
+ * Results reported on the pull request's head, and the requirements nothing
+ * reported at all — one row in the merge box, expandable into the full list.
  */
 export function PullRequestChecksPanel({
 	checksSummary,
@@ -62,41 +87,38 @@ function ChecksPanel({
 		number,
 		expectedHeadSha: checksSummary.headSha,
 	})
+	const [isExpanded, setIsExpanded] = useState(false)
 	const rollup = getCheckRollupPresentation(checksSummary.overall)
 	const missingRequiredContexts =
 		checksQuery.data?.missingRequiredContexts ?? []
 
-	// Nothing reported and nothing required: there is no panel to draw. Only a
-	// settled read can establish that, though. While it is still in flight the
-	// requirements are unknown rather than absent, and a read that failed leaves
-	// them unknown for good — on a pull request with no results of its own those
-	// requirements are the whole of what this panel had to say, so vanishing
-	// would read as "nothing is required" when nobody knows that yet.
-	if (
-		checksSummary.overall === 'none' &&
-		!(
-			checksQuery.isLoading ||
-			checksQuery.isError ||
-			missingRequiredContexts.length > 0
-		)
-	)
-		return null
+	if (!hasPullRequestChecksSection(checksSummary, checksQuery)) return null
 
 	return (
-		<Card className="gap-0 p-0">
-			<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-3">
-				<div className="flex min-w-0 items-center gap-2">
-					<h2 className="font-semibold text-base tracking-normal">Checks</h2>
-					<span
-						className={cn(
-							'inline-flex items-center gap-1.5 text-sm',
-							rollup.iconClassName
-						)}
-					>
-						<rollup.icon aria-hidden className="size-4 shrink-0" />
+		<div className="flex flex-col">
+			<div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 px-4 py-3">
+				<button
+					aria-expanded={isExpanded}
+					className="-mx-1 flex min-w-0 items-center gap-2 rounded-md px-1 py-0.5 text-left hover:bg-muted/50"
+					onClick={() => setIsExpanded(expanded => !expanded)}
+					type="button"
+				>
+					<rollup.icon
+						aria-hidden
+						className={cn('size-4 shrink-0', rollup.iconClassName)}
+					/>
+					<span className="truncate font-medium text-sm">{rollup.label}</span>
+					<span className="truncate text-muted-foreground text-sm">
 						{getCheckRollupDescription(checksSummary)}
 					</span>
-				</div>
+					<ChevronDown
+						aria-hidden
+						className={cn(
+							'size-4 shrink-0 text-muted-foreground transition-transform',
+							isExpanded && 'rotate-180'
+						)}
+					/>
+				</button>
 				<ChecksPanelMeta
 					// The warning is about the rows rendered below, so it follows the
 					// read that produced them. The summary travelled with the pull
@@ -109,13 +131,15 @@ function ChecksPanel({
 					lastResultAt={checksSummary.lastResultAt}
 				/>
 			</div>
-			<ChecksPanelBody
-				checks={checksQuery.data?.checks}
-				isError={checksQuery.isError}
-				isLoading={checksQuery.isLoading}
-				missingRequiredContexts={missingRequiredContexts}
-			/>
-		</Card>
+			{isExpanded && (
+				<ChecksPanelBody
+					checks={checksQuery.data?.checks}
+					isError={checksQuery.isError}
+					isLoading={checksQuery.isLoading}
+					missingRequiredContexts={missingRequiredContexts}
+				/>
+			)}
+		</div>
 	)
 }
 
