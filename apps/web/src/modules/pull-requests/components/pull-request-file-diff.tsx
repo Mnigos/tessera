@@ -231,6 +231,8 @@ function FileDiff({
 		[dispatchSelection]
 	)
 	const onSelect = permissions.canComment ? dispatchSelection : undefined
+	// A split row owes each side half the scrollport, so only a unified diff may outgrow it.
+	const isSideScrolled = !isWrapped && view === 'unified'
 	const rowContext = useMemo<DiffRowContext>(
 		() => ({
 			isWrapped,
@@ -299,7 +301,7 @@ function FileDiff({
 			<div
 				className={cn(
 					"font-mono text-[13px] leading-[22px] [container-type:inline-size] [font-feature-settings:'liga'_0,'calt'_0] [font-variant-ligatures:none] [tab-size:2]",
-					!isWrapped && 'overflow-x-auto'
+					isSideScrolled && 'overflow-x-auto'
 				)}
 				data-diff-code
 				style={
@@ -309,8 +311,8 @@ function FileDiff({
 					} as CSSProperties
 				}
 			>
-				{/* Unwrapped code sets the width, so every row scrolls as one block. */}
-				<div className={cn(!isWrapped && 'w-max min-w-full')}>
+				{/* A unified diff's code sets the width, so every row scrolls as one block. */}
+				<div className={cn(isSideScrolled && 'w-max min-w-full')}>
 					<DiffRowList
 						anchorComparison={anchorComparison}
 						commentedKeys={commentedKeys}
@@ -985,17 +987,23 @@ function DiffGutter({
 	)
 }
 
+// The mask rides the line alone, so clipping a split half leaves its tint edge to edge.
+const CLIPPED_CODE_CLASSES =
+	'block overflow-hidden [mask-image:linear-gradient(to_right,black_calc(100%-1.5rem),transparent)] [mask-repeat:no-repeat]'
+
 interface DiffCodeProps {
 	line?: PullRequestDiffLine
 	tone: DiffLineTone
 	side: PullRequestThreadSide
 	isSelected: boolean
 	isWrapped: boolean
+	isClipped?: boolean
 	hasBorder?: boolean
 }
 
 function DiffCode({
 	hasBorder,
+	isClipped,
 	isSelected,
 	isWrapped,
 	line,
@@ -1030,7 +1038,14 @@ function DiffCode({
 					{sign}
 				</span>
 			)}
-			{line && <HighlightedDiffContent line={line} />}
+			{line &&
+				(isClipped ? (
+					<span className={CLIPPED_CODE_CLASSES}>
+						<HighlightedDiffContent line={line} />
+					</span>
+				) : (
+					<HighlightedDiffContent line={line} />
+				))}
 		</span>
 	)
 }
@@ -1070,6 +1085,7 @@ function DiffSide({
 			/>
 			<DiffCode
 				hasBorder={side === 'left'}
+				isClipped={!isWrapped}
 				isSelected={isSelected}
 				isWrapped={isWrapped}
 				line={line}
