@@ -8,7 +8,7 @@ import {
 	getPullRequestReviewLabel,
 } from './pull-request-review'
 
-const submittedAt = new Date('2026-08-08T10:00:00.000Z')
+const SUBMITTED_AT = new Date('2026-08-08T10:00:00.000Z')
 const VIEWER: PullRequestReviewViewer = {
 	allowedOutcomes: ['comment', 'approve', 'request_changes'],
 	canRequestReviewers: true,
@@ -31,7 +31,7 @@ function review(
 		outcome,
 		body: '',
 		headSha: 'a'.repeat(40),
-		submittedAt,
+		submittedAt: SUBMITTED_AT,
 	}
 }
 
