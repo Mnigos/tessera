@@ -10,6 +10,7 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { repositoryBrowserSummarySchema } from '@repo/contracts'
 import { eq, sql } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
@@ -101,24 +102,6 @@ interface RepositoryTreeEntryResponseBody {
 	mode: string
 }
 
-interface RepositoryBrowserSummaryResponseBody extends RepositoryResponseBody {
-	isEmpty: boolean
-	defaultBranch: string
-	selectedRef?: RepositoryRefResponseBody
-	branches: RepositoryBranchRefResponseBody[]
-	tags: RepositoryTagRefResponseBody[]
-	rootEntries: RepositoryTreeEntryResponseBody[]
-	readme?: {
-		filename: string
-		objectId: string
-		content: string
-		isTruncated: boolean
-	}
-	commitCount: number
-	openPullRequestCount: number
-	collaboratorCount: number
-}
-
 interface RepositoryBranchRefResponseBody {
 	type: 'branch'
 	name: string
@@ -132,10 +115,6 @@ interface RepositoryTagRefResponseBody {
 	qualifiedName: string
 	target: string
 }
-
-type RepositoryRefResponseBody =
-	| RepositoryBranchRefResponseBody
-	| RepositoryTagRefResponseBody
 
 interface RepositoryTreeResponseBody extends RepositoryResponseBody {
 	ref: string
@@ -1015,7 +994,7 @@ describe('Repositories integration', () => {
 		)
 
 		const response = await getBrowserSummary('marta', 'notes')
-		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+		const body = repositoryBrowserSummarySchema.parse(await response.json())
 
 		expect(response.status).toBe(200)
 		expect(body).toMatchObject({
@@ -1083,7 +1062,7 @@ describe('Repositories integration', () => {
 		await createRepository({ name: 'Notes', slug: 'notes' }, headers)
 
 		const response = await getBrowserSummary('marta', 'notes', headers)
-		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+		const body = repositoryBrowserSummarySchema.parse(await response.json())
 
 		expect(response.status).toBe(200)
 		expect(body).toMatchObject({
@@ -1185,7 +1164,7 @@ describe('Repositories integration', () => {
 		const response = await getBrowserSummary('marta', 'notes', undefined, {
 			ref: 'develop',
 		})
-		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+		const body = repositoryBrowserSummarySchema.parse(await response.json())
 
 		expect(response.status).toBe(200)
 		expect(body.selectedRef).toEqual({
@@ -1232,7 +1211,7 @@ describe('Repositories integration', () => {
 		const response = await getBrowserSummary('marta', 'notes', undefined, {
 			ref: 'v1.0.0',
 		})
-		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+		const body = repositoryBrowserSummarySchema.parse(await response.json())
 
 		expect(response.status).toBe(200)
 		expect(body.selectedRef).toEqual({
@@ -1291,7 +1270,7 @@ describe('Repositories integration', () => {
 		})
 
 		const response = await getBrowserSummary('marta', 'notes')
-		const body = (await response.json()) as RepositoryBrowserSummaryResponseBody
+		const body = repositoryBrowserSummarySchema.parse(await response.json())
 
 		expect(response.status).toBe(200)
 		expect(body).toMatchObject({
