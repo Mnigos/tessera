@@ -18,9 +18,13 @@ async function bootstrap() {
 		skipBodyParserFor: ['/api/auth'],
 	})
 
-	// Git smart-http streams its own pack encoding; compressing it breaks clients.
+	// Git smart-http and the auth handler write their own responses; compressing them breaks both.
 	adapter.hono.use(async (context, next) => {
-		if (context.req.path.includes('.git/')) return await next()
+		if (
+			context.req.path.includes('.git/') ||
+			context.req.path.startsWith('/api/auth')
+		)
+			return await next()
 
 		return await compress()(context, next)
 	})
