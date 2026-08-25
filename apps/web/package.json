@@ -33,10 +33,12 @@
     "lucide-react": "catalog:",
     "motion": "catalog:",
     "nitro": "catalog:",
-    "react-icons": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",
+    "react-icons": "catalog:",
     "react-markdown": "^10.1.0",
+    "rehype-raw": "^7.0.0",
+    "rehype-sanitize": "^6.0.0",
     "remark-gfm": "^4.0.1",
     "tailwindcss": "catalog:",
     "zod": "catalog:"
