@@ -32,6 +32,7 @@ import {
 } from '../helpers/pull-request-review'
 import { usePullRequestQuery } from '../hooks/use-pull-request.query'
 import { usePullRequestActivityQuery } from '../hooks/use-pull-request-activity.query'
+import { usePullRequestGitHubAutoRefresh } from '../hooks/use-pull-request-github-auto-refresh'
 import { PullRequestBranchLabel } from './pull-request-branch-label'
 import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestDiffStatsBadge } from './pull-request-diff-stats-badge'
@@ -71,7 +72,14 @@ export function PullRequestDetail({
 	})
 	// Polled from here rather than from a tab, so the page keeps itself current
 	// whether the reader is on the conversation or in the files.
-	usePullRequestActivityQuery({ username, slug, number }, Boolean(data))
+	const activityQuery = usePullRequestActivityQuery(
+		{ username, slug, number },
+		Boolean(data)
+	)
+	usePullRequestGitHubAutoRefresh(
+		{ username, slug, number },
+		Boolean(activityQuery.data?.mirror)
+	)
 
 	if (isLoading)
 		return (
