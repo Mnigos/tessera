@@ -8,6 +8,7 @@ import type {
 	PullRequestReviewId,
 	PullRequestReviewOutcome,
 	PullRequestReviewViewer,
+	PullRequestThread,
 	SessionUser,
 } from '@repo/contracts'
 import {
@@ -334,4 +335,26 @@ export function getPullRequestReviewEventPayload(
 	if (payload && 'reviewId' in payload) return payload
 
 	return undefined
+}
+
+/**
+ * The inline threads a review submitted, in the order a reader walks the diff:
+ * by file, then by line. A thread belongs to the review that opened it, which
+ * is what its first comment records.
+ */
+export function getPullRequestReviewThreads(
+	threads: PullRequestThread[],
+	reviewId: PullRequestReviewId
+): PullRequestThread[] {
+	return threads
+		.filter(
+			thread =>
+				thread.kind === 'inline' && thread.comments[0]?.reviewId === reviewId
+		)
+		.sort(
+			(first, second) =>
+				(first.anchor?.path ?? '').localeCompare(second.anchor?.path ?? '') ||
+				(first.anchor?.startLine ?? 0) - (second.anchor?.startLine ?? 0) ||
+				first.id.localeCompare(second.id)
+		)
 }

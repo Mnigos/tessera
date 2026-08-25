@@ -563,6 +563,8 @@ export type PullRequestThreadAnchor = z.infer<
 export const pullRequestCommentSchema = z.object({
 	id: pullRequestCommentIdSchema,
 	threadId: pullRequestThreadIdSchema,
+	/** The review this comment was submitted under, which is what nests its thread beneath that review in the timeline. */
+	reviewId: pullRequestReviewIdSchema.optional(),
 	author: pullRequestActorSchema,
 	body: z.string(),
 	state: pullRequestCommentStateSchema,

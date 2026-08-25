@@ -19,7 +19,6 @@ import { useCreatePullRequestThreadMutation } from '../hooks/use-create-pull-req
 import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.query'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestEventRow } from './pull-request-event-row'
-import { PullRequestGitHubRefresh } from './pull-request-github-refresh'
 import { PullRequestReviewEventCard } from './pull-request-review-event-card'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimelineSyncNotice } from './pull-request-timeline-sync-notice'
@@ -119,8 +118,10 @@ export function PullRequestTimeline({
 								<PullRequestReviewEventCard
 									event={entry.event}
 									number={number}
+									permissions={permissions}
 									review={findPullRequestReview(entry.event, reviews)}
 									slug={slug}
+									threads={threadsQuery.data?.threads}
 									username={username}
 								/>
 							) : (
@@ -154,14 +155,6 @@ export function PullRequestTimeline({
 					</Button>
 				</div>
 			)}
-			{/* Collapses out of the column entirely when there is no mirror to refresh. */}
-			<div className="flex justify-end empty:hidden">
-				<PullRequestGitHubRefresh
-					number={number}
-					slug={slug}
-					username={username}
-				/>
-			</div>
 			{trailing}
 			{permissions.canComment && (
 				<PullRequestTimelineComposer
