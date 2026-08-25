@@ -6,7 +6,10 @@ import {
 	GitHubSyncQueue,
 } from './infrastructure/github-sync.queue'
 
-// Separate from GitHubSyncModule so repositories can enqueue without a cycle.
+// RepositoriesService enqueues syncs, but it cannot get the queue from
+// GitHubSyncModule: that module already depends on RepositoriesModule (via
+// PullRequestsModule), so importing it back would be a circular import.
+// Keeping the queue in this standalone module lets both sides import it.
 @Module({
 	imports: [BullModule.registerQueue({ name: GITHUB_SYNC_QUEUE_NAME })],
 	providers: [

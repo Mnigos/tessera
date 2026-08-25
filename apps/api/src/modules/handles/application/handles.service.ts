@@ -23,7 +23,8 @@ export class HandlesService {
 			this.organizationsRepository.findBySlug({ slug: handle }),
 		])
 
-		// A handle both namespaces still hold belongs to the user until TES-61.
+		// Usernames and organization slugs are separate namespaces, so both can
+		// hold the same handle; the user wins.
 		if (profileUser)
 			return {
 				owner: {

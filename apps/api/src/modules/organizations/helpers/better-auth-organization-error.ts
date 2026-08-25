@@ -28,76 +28,77 @@ const ORGANIZATION_INVITATION_CONSTRAINTS = new Set([
 	'invitation_pending_email_unique',
 ])
 
-type OrganizationErrorFactory = (context: Record<string, unknown>) => unknown
+type OrganizationErrorClass = new (context?: Record<string, unknown>) => unknown
 
-const ORGANIZATION_ERROR_BY_CODE = new Map<string, OrganizationErrorFactory>([
-	[ORGANIZATION_SLUG_TAKEN_BY_USER_CODE, toSlugTakenError],
-	['ORGANIZATION_ALREADY_EXISTS', toSlugTakenError],
-	['ORGANIZATION_SLUG_ALREADY_TAKEN', toSlugTakenError],
-	['ORGANIZATION_NOT_FOUND', toOrganizationNotFoundError],
-	['USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION', toOrganizationNotFoundError],
-	['YOU_ARE_NOT_A_MEMBER_OF_THIS_ORGANIZATION', toOrganizationNotFoundError],
-	['MEMBER_NOT_FOUND', context => new OrganizationMemberNotFoundError(context)],
+const ORGANIZATION_ERROR_BY_CODE = new Map<string, OrganizationErrorClass>([
+	[ORGANIZATION_SLUG_TAKEN_BY_USER_CODE, OrganizationSlugTakenError],
+	['ORGANIZATION_ALREADY_EXISTS', OrganizationSlugTakenError],
+	['ORGANIZATION_SLUG_ALREADY_TAKEN', OrganizationSlugTakenError],
+	['ORGANIZATION_NOT_FOUND', OrganizationNotFoundError],
+	['USER_IS_NOT_A_MEMBER_OF_THE_ORGANIZATION', OrganizationNotFoundError],
+	['YOU_ARE_NOT_A_MEMBER_OF_THIS_ORGANIZATION', OrganizationNotFoundError],
+	['MEMBER_NOT_FOUND', OrganizationMemberNotFoundError],
+	['INVITATION_NOT_FOUND', OrganizationInvitationNotFoundError],
+	['FAILED_TO_RETRIEVE_INVITATION', OrganizationInvitationNotFoundError],
 	[
-		'INVITATION_NOT_FOUND',
-		context => new OrganizationInvitationNotFoundError(context),
+		'YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER',
+		OrganizationLastOwnerError,
 	],
 	[
-		'FAILED_TO_RETRIEVE_INVITATION',
-		context => new OrganizationInvitationNotFoundError(context),
+		'YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER',
+		OrganizationLastOwnerError,
 	],
-	['YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER', toLastOwnerError],
-	['YOU_CANNOT_LEAVE_THE_ORGANIZATION_WITHOUT_AN_OWNER', toLastOwnerError],
 	[
 		'USER_IS_ALREADY_A_MEMBER_OF_THIS_ORGANIZATION',
-		context => new OrganizationMemberAlreadyExistsError(context),
+		OrganizationMemberAlreadyExistsError,
 	],
 	[
 		'USER_IS_ALREADY_INVITED_TO_THIS_ORGANIZATION',
-		context => new OrganizationInvitationPendingError(context),
+		OrganizationInvitationPendingError,
 	],
 	[
 		'YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION',
-		context => new OrganizationInvitationEmailMismatchError(context),
+		OrganizationInvitationEmailMismatchError,
 	],
-	['INVITATION_LIMIT_REACHED', toLimitReachedError],
-	['ORGANIZATION_MEMBERSHIP_LIMIT_REACHED', toLimitReachedError],
-	['YOU_ARE_NOT_ALLOWED_TO_ACCESS_THIS_ORGANIZATION', toPermissionDeniedError],
-	['YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION', toPermissionDeniedError],
-	['YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION', toPermissionDeniedError],
-	['YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_MEMBER', toPermissionDeniedError],
-	['YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_ORGANIZATION', toPermissionDeniedError],
+	['INVITATION_LIMIT_REACHED', OrganizationLimitReachedError],
+	['ORGANIZATION_MEMBERSHIP_LIMIT_REACHED', OrganizationLimitReachedError],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_ACCESS_THIS_ORGANIZATION',
+		OrganizationPermissionDeniedError,
+	],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_CANCEL_THIS_INVITATION',
+		OrganizationPermissionDeniedError,
+	],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_CREATE_A_NEW_ORGANIZATION',
+		OrganizationPermissionDeniedError,
+	],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_MEMBER',
+		OrganizationPermissionDeniedError,
+	],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_DELETE_THIS_ORGANIZATION',
+		OrganizationPermissionDeniedError,
+	],
 	[
 		'YOU_ARE_NOT_ALLOWED_TO_INVITE_USERS_TO_THIS_ORGANIZATION',
-		toPermissionDeniedError,
+		OrganizationPermissionDeniedError,
 	],
 	[
 		'YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE',
-		toPermissionDeniedError,
+		OrganizationPermissionDeniedError,
 	],
-	['YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_MEMBER', toPermissionDeniedError],
-	['YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_ORGANIZATION', toPermissionDeniedError],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_MEMBER',
+		OrganizationPermissionDeniedError,
+	],
+	[
+		'YOU_ARE_NOT_ALLOWED_TO_UPDATE_THIS_ORGANIZATION',
+		OrganizationPermissionDeniedError,
+	],
 ])
-
-function toSlugTakenError(context: Record<string, unknown>) {
-	return new OrganizationSlugTakenError(context)
-}
-
-function toOrganizationNotFoundError(context: Record<string, unknown>) {
-	return new OrganizationNotFoundError(context)
-}
-
-function toLastOwnerError(context: Record<string, unknown>) {
-	return new OrganizationLastOwnerError(context)
-}
-
-function toLimitReachedError(context: Record<string, unknown>) {
-	return new OrganizationLimitReachedError(context)
-}
-
-function toPermissionDeniedError(context: Record<string, unknown>) {
-	return new OrganizationPermissionDeniedError(context)
-}
 
 export function toOrganizationApiError(
 	error: unknown,
@@ -116,9 +117,9 @@ export function toOrganizationApiError(
 
 	const code = error.body?.code
 	const errorContext = { ...context, reason: code ?? error.status }
-	const toCodedError = code ? ORGANIZATION_ERROR_BY_CODE.get(code) : undefined
+	const CodedError = code ? ORGANIZATION_ERROR_BY_CODE.get(code) : undefined
 
-	if (toCodedError) return toCodedError(errorContext)
+	if (CodedError) return new CodedError(errorContext)
 
 	switch (error.status) {
 		case 'BAD_REQUEST':
