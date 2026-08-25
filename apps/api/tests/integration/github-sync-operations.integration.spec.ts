@@ -5,6 +5,7 @@ import { GitStorageClient, GitStorageModule } from '@config/git-storage'
 import { RPCModule } from '@config/rpc'
 import { AuthModule } from '@modules/auth'
 import { ChecksModule } from '@modules/checks'
+import { GitHubSyncQueueModule } from '@modules/github-sync'
 import { GitHubSyncProcessor } from '@modules/github-sync/application/github-sync.processor'
 import { GitHubSyncReplayService } from '@modules/github-sync/application/github-sync-replay.service'
 import { GitHubSyncExternalServiceError } from '@modules/github-sync/domain/github-sync.errors'
@@ -171,6 +172,14 @@ describe('GitHub sync operations integration', () => {
 					commitLimit: 500,
 					fileLimit: 300,
 				}),
+			})
+			// The real module registers a Bull queue and worker; without a Bull
+			// root config in this module tree that registration cannot boot.
+			.overrideModule(GitHubSyncQueueModule)
+			.useModule({
+				module: class GitHubSyncQueueStubModule {},
+				providers: [{ provide: GitHubSyncQueue, useValue: { enqueue } }],
+				exports: [GitHubSyncQueue],
 			})
 			.compile()
 
