@@ -2,6 +2,8 @@
 
 import { cn } from '@repo/ui/utils'
 import ReactMarkdown, { type Components } from 'react-markdown'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
 import remarkGfm from 'remark-gfm'
 
 interface MarkdownContentProps {
@@ -17,14 +19,19 @@ export function MarkdownContent({
 		<div className={cn('min-w-0', className)}>
 			<ReactMarkdown
 				components={markdownComponents}
+				rehypePlugins={rehypePlugins}
 				remarkPlugins={[remarkGfm]}
-				skipHtml
 			>
 				{children}
 			</ReactMarkdown>
 		</div>
 	)
 }
+
+// Raw HTML is parsed so GitHub-flavored bodies keep their <details> sections
+// collapsed instead of spilling out; the sanitizer's default schema is
+// GitHub's own, which keeps synced third-party content inert.
+const rehypePlugins = [rehypeRaw, rehypeSanitize]
 
 const markdownComponents: Components = {
 	a: ({ children, node: _node, ...props }) => (
@@ -53,6 +60,14 @@ const markdownComponents: Components = {
 			{children}
 		</code>
 	),
+	details: ({ children, node: _node, ...props }) => (
+		<details
+			{...props}
+			className="my-3 text-sm leading-6 [&[open]>summary]:mb-2"
+		>
+			{children}
+		</details>
+	),
 	h1: ({ children, node: _node, ...props }) => (
 		<h1 {...props} className="mb-4 font-semibold text-2xl tracking-normal">
 			{children}
@@ -71,8 +86,23 @@ const markdownComponents: Components = {
 			{children}
 		</h3>
 	),
-	li: ({ children, node: _node, ...props }) => (
-		<li {...props} className="pl-1">
+	img: ({ node: _node, ...props }) => (
+		// biome-ignore lint/a11y/useAltText: alt comes from the markdown source
+		// biome-ignore lint/correctness/useImageSize: dimensions come from the markdown source
+		<img {...props} className="inline-block max-w-full align-text-bottom" />
+	),
+	input: ({ node: _node, ...props }) => (
+		<input {...props} className="mr-1.5 size-3.5 align-middle accent-primary" />
+	),
+	li: ({ children, className, node: _node, ...props }) => (
+		<li
+			{...props}
+			className={cn(
+				'pl-1',
+				className,
+				className?.includes('task-list-item') && 'list-none'
+			)}
+		>
 			{children}
 		</li>
 	),
@@ -85,6 +115,11 @@ const markdownComponents: Components = {
 		<p {...props} className="my-3 text-sm leading-6 first:mt-0 last:mb-0">
 			{children}
 		</p>
+	),
+	summary: ({ children, node: _node, ...props }) => (
+		<summary {...props} className="cursor-pointer select-none font-medium">
+			{children}
+		</summary>
 	),
 	pre: ({ children, node: _node, ...props }) => (
 		<pre
