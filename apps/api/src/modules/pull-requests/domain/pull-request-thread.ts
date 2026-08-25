@@ -48,6 +48,7 @@ export function toPullRequestCommentOutput(
 	return {
 		id: comment.id,
 		threadId: comment.threadId,
+		reviewId: comment.reviewId ?? undefined,
 		author: requirePullRequestActorOutput(
 			comment.author,
 			'pull request comment author'

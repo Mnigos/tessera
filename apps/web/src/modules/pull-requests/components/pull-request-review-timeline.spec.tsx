@@ -2,6 +2,7 @@ import type {
 	PullRequestEvent,
 	PullRequestReview,
 	PullRequestReviewerRequest,
+	PullRequestThread,
 } from '@repo/contracts'
 import { render, screen } from '@testing-library/react'
 import type { AnchorHTMLAttributes, ReactNode } from 'react'
@@ -25,6 +26,51 @@ vi.mock('@tanstack/react-router', () => ({
 			{children}
 		</a>
 	),
+}))
+
+vi.mock('../hooks/use-reply-pull-request-thread.mutation', () => ({
+	useReplyPullRequestThreadMutation: () => ({
+		error: null,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
+vi.mock('../hooks/use-resolve-pull-request-thread.mutation', () => ({
+	useResolvePullRequestThreadMutation: () => ({
+		error: null,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
+vi.mock('../hooks/use-unresolve-pull-request-thread.mutation', () => ({
+	useUnresolvePullRequestThreadMutation: () => ({
+		error: null,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
+vi.mock('../hooks/use-edit-pull-request-comment.mutation', () => ({
+	useEditPullRequestCommentMutation: () => ({
+		error: null,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
+}))
+
+vi.mock('../hooks/use-delete-pull-request-comment.mutation', () => ({
+	useDeletePullRequestCommentMutation: () => ({
+		error: null,
+		isPending: false,
+		mutate: vi.fn(),
+		reset: vi.fn(),
+	}),
 }))
 
 const createdAt = new Date('2026-08-08T10:00:00.000Z')
@@ -164,5 +210,83 @@ describe('pull request review timeline', () => {
 		expect(container.textContent).toContain(
 			'Pull request review requested by marta'
 		)
+	})
+
+	test('nests the review\u2019s own inline threads under its card and leaves the rest out', () => {
+		const reviewId = crypto.randomUUID() as PullRequestReview['id']
+		const otherReviewId = crypto.randomUUID() as PullRequestReview['id']
+		const reviewEvent = event('review_submitted', {
+			reviewId,
+			outcome: 'request_changes',
+			headSha: 'a'.repeat(40),
+		})
+		const review: PullRequestReview = {
+			id: reviewId,
+			reviewer: { key: 'github:octo', provider: 'github', username: 'octo' },
+			state: 'submitted',
+			outcome: 'request_changes',
+			body: 'Actionable comments posted: 1',
+			headSha: 'a'.repeat(40),
+			submittedAt: createdAt,
+		}
+		const thread = (ownerReviewId: PullRequestReview['id'], body: string) => {
+			const threadId = crypto.randomUUID() as PullRequestThread['id']
+
+			return {
+				id: threadId,
+				kind: 'inline',
+				anchor: {
+					path: 'src/index.ts',
+					side: 'right',
+					startLine: 3,
+					endLine: 3,
+					anchorSha: 'a'.repeat(40),
+					baseSha: 'b'.repeat(40),
+					headSha: 'a'.repeat(40),
+					lineExcerpt: 'const value = 1',
+				},
+				outdated: false,
+				createdAt,
+				comments: [
+					{
+						id: crypto.randomUUID() as PullRequestThread['comments'][number]['id'],
+						threadId,
+						reviewId: ownerReviewId,
+						author: {
+							key: 'github:octo',
+							provider: 'github',
+							username: 'octo',
+						},
+						body,
+						state: 'published',
+						createdAt,
+					},
+				],
+			} as PullRequestThread
+		}
+
+		render(
+			<PullRequestReviewEventCard
+				event={reviewEvent}
+				number="1"
+				permissions={{
+					canComment: false,
+					canResolveAnyThread: false,
+					canDeleteAnyComment: false,
+					isGitHubAuthoritative: true,
+				}}
+				review={review}
+				slug="notes"
+				threads={[
+					thread(reviewId, 'Validate SENTRY_DSN as a URL.'),
+					thread(otherReviewId, 'A different review wrote this.'),
+				]}
+				username="marta"
+			/>
+		)
+
+		expect(screen.getByText('Validate SENTRY_DSN as a URL.')).toBeTruthy()
+		expect(screen.getByText('src/index.ts:3')).toBeTruthy()
+		expect(screen.queryByText('A different review wrote this.')).toBeNull()
 	})
 })

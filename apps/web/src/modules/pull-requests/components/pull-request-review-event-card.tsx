@@ -1,4 +1,8 @@
-import type { PullRequestEvent, PullRequestReview } from '@repo/contracts'
+import type {
+	PullRequestEvent,
+	PullRequestReview,
+	PullRequestThread,
+} from '@repo/contracts'
 import { cn } from '@repo/ui/utils'
 import { Link } from '@tanstack/react-router'
 import { GitCompareArrows, MessageSquare } from 'lucide-react'
@@ -10,9 +14,12 @@ import {
 import {
 	getPullRequestReviewEventPayload,
 	getPullRequestReviewOutcomePresentation,
+	getPullRequestReviewThreads,
 } from '../helpers/pull-request-review'
+import type { PullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestSourceLink } from './pull-request-source-link'
+import { PullRequestThreadCard } from './pull-request-thread-card'
 
 interface PullRequestReviewEventCardProps {
 	username: string
@@ -20,6 +27,9 @@ interface PullRequestReviewEventCardProps {
 	number: string
 	event: PullRequestEvent
 	review?: PullRequestReview
+	/** Every thread on the pull request; the card keeps the ones this review submitted. */
+	threads?: PullRequestThread[]
+	permissions?: PullRequestThreadPermissions
 }
 
 export function PullRequestReviewEventCard({
@@ -28,12 +38,16 @@ export function PullRequestReviewEventCard({
 	number,
 	event,
 	review,
+	threads,
+	permissions,
 }: Readonly<PullRequestReviewEventCardProps>) {
 	const outcome = getPullRequestReviewEventPayload(event)?.outcome
 	const presentation = outcome
 		? getPullRequestReviewOutcomePresentation(outcome)
 		: undefined
 	const OutcomeIcon = presentation?.icon ?? MessageSquare
+	const reviewThreads =
+		review && threads ? getPullRequestReviewThreads(threads, review.id) : []
 
 	return (
 		<div
@@ -71,6 +85,22 @@ export function PullRequestReviewEventCard({
 				</time>
 			</div>
 			{review?.body && <MarkdownContent>{review.body}</MarkdownContent>}
+			{permissions && reviewThreads.length > 0 && (
+				<ol className="flex flex-col gap-2">
+					{reviewThreads.map(thread => (
+						<li key={thread.id}>
+							<PullRequestThreadCard
+								number={number}
+								permissions={permissions}
+								shouldShowAnchor
+								slug={slug}
+								thread={thread}
+								username={username}
+							/>
+						</li>
+					))}
+				</ol>
+			)}
 			{review && (
 				<div className="flex flex-wrap items-center gap-3">
 					<Link
