@@ -8,13 +8,6 @@ vi.mock('../hooks/use-pull-request-activity.query', () => ({
 	usePullRequestActivityQuery: () => ({ data: undefined }),
 }))
 
-vi.mock('../hooks/use-refresh-pull-request-github.mutation', () => ({
-	useRefreshPullRequestGitHubMutation: () => ({
-		isPending: false,
-		mutate: vi.fn(),
-	}),
-}))
-
 vi.mock('@/modules/repositories/hooks/use-github-sync-health.query', () => ({
 	useGitHubSyncHealthQuery: vi.fn(),
 }))

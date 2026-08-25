@@ -31,11 +31,8 @@ vi.mock('../hooks/use-pull-request-activity.query', () => ({
 	usePullRequestActivityQuery: () => ({ data: undefined }),
 }))
 
-vi.mock('../hooks/use-refresh-pull-request-github.mutation', () => ({
-	useRefreshPullRequestGitHubMutation: () => ({
-		isPending: false,
-		mutate: vi.fn(),
-	}),
+vi.mock('../hooks/use-pull-request-github-auto-refresh', () => ({
+	usePullRequestGitHubAutoRefresh: () => undefined,
 }))
 
 vi.mock('@tanstack/react-router', () => ({
