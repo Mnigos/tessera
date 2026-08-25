@@ -453,7 +453,7 @@ describe('Pull requests integration', () => {
 		})
 	})
 
-	test('keeps GitHub numbers in provider mappings and allocates local route numbers', async () => {
+	test('adopts GitHub numbers for synchronized pull requests and reserves them on the counter', async () => {
 		const headers = await createUserAndRepository({ visibility: 'public' })
 		await createPullRequest(
 			'marta',
@@ -479,8 +479,8 @@ describe('Pull requests integration', () => {
 		const synchronizedPullRequest: GitHubSyncPullRequest = {
 			nodeId: 'github-pull-request-node',
 			numericId: 101n,
-			number: 1,
-			htmlUrl: 'https://github.com/tessera-org/notes/pull/1',
+			number: 7,
+			htmlUrl: 'https://github.com/tessera-org/notes/pull/7',
 			title: 'Synchronized pull request',
 			body: '',
 			state: 'open',
@@ -517,18 +517,30 @@ describe('Pull requests integration', () => {
 			})
 		).toEqual([
 			{ provider: 'tessera', number: 1 },
-			{ provider: 'github', number: 2 },
+			{ provider: 'github', number: 7 },
 		])
 		expect(
 			await db.query.gitHubPullRequestMappings.findFirst({
 				columns: { externalNumber: true },
 			})
-		).toEqual({ externalNumber: 1 })
+		).toEqual({ externalNumber: 7 })
 		expect(
-			await (await getPullRequest('marta', 'notes', 2)).json()
+			await (await getPullRequest('marta', 'notes', 7)).json()
 		).toMatchObject({
-			pullRequest: { number: 2, github: { externalNumber: 1 } },
+			pullRequest: { number: 7, github: { externalNumber: 7 } },
 		})
+
+		const nativeAfterSync = await createPullRequest(
+			'marta',
+			'notes',
+			{
+				sourceBranch: 'feature-two',
+				targetBranch: 'main',
+				title: 'Allocated past the reserved GitHub number',
+			},
+			headers
+		)
+		expect(await nativeAfterSync.json()).toMatchObject({ number: 8 })
 	})
 
 	test.each([
