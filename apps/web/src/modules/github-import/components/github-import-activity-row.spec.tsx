@@ -80,14 +80,14 @@ describe('GitHubImportActivityRow', () => {
 	})
 
 	test.each([
-		'pending',
-		'running',
-		'succeeded',
-		'failed',
-	] as const)('renders the %s status badge', status => {
+		['pending', 'Queued'],
+		['running', 'Running'],
+		['succeeded', 'Completed'],
+		['failed', 'Failed'],
+	] as const)('renders the %s status badge', (status, label) => {
 		render(<GitHubImportActivityRow import={getImport({ status })} />)
 
-		expect(screen.getByText(status)).toBeTruthy()
+		expect(screen.getByText(label)).toBeTruthy()
 	})
 
 	test('links succeeded imports to the imported repository', () => {
@@ -102,7 +102,7 @@ describe('GitHubImportActivityRow', () => {
 			/>
 		)
 
-		const openLink = screen.getByRole('link', { name: 'Open' })
+		const openLink = screen.getByRole('link', { name: 'Open repository' })
 
 		expect(openLink.getAttribute('href')).toBe('/mnigos/tessera')
 	})
@@ -118,7 +118,7 @@ describe('GitHubImportActivityRow', () => {
 			/>
 		)
 
-		expect(screen.queryByRole('link', { name: 'Open' })).toBeNull()
+		expect(screen.queryByRole('link', { name: 'Open repository' })).toBeNull()
 	})
 
 	test('shows the failure reason on failed imports', () => {

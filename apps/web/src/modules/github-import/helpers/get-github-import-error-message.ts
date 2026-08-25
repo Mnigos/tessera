@@ -1,4 +1,5 @@
 import { isGitHubAccessError } from './is-github-access-error'
+import { isGitHubImportSourceConflictError } from './is-github-import-source-conflict-error'
 
 export function getGitHubImportErrorMessage(
 	error: unknown,
@@ -7,11 +8,12 @@ export function getGitHubImportErrorMessage(
 	if (isGitHubAccessError(error))
 		return 'Reconnect GitHub with repository access, then try again.'
 
+	if (isGitHubImportSourceConflictError(error))
+		return 'This GitHub repository already has an active import.'
+
 	if (error && typeof error === 'object' && 'message' in error) {
 		const message = String(error.message)
 
-		if (message.includes('github repository import source'))
-			return 'This GitHub repository already has an active import.'
 		if (message.includes('github repository import target slug'))
 			return 'A repository with this target slug already exists.'
 		if (message.includes('github repository import is not retryable'))
