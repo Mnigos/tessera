@@ -127,10 +127,73 @@ describe('GitHubImportActivity', () => {
 		)
 
 		expect(screen.getByText('Recent imports')).toBeTruthy()
-		expect(screen.getByText('pending')).toBeTruthy()
-		expect(screen.getByText('running')).toBeTruthy()
-		expect(screen.getByText('succeeded')).toBeTruthy()
-		expect(screen.getByText('failed')).toBeTruthy()
+		expect(screen.getByText('Queued')).toBeTruthy()
+		expect(screen.getByText('Running')).toBeTruthy()
+		expect(screen.getByText('Completed')).toBeTruthy()
+		expect(screen.getByText('Failed')).toBeTruthy()
+	})
+
+	test('elevates the queued session imports and links the finished state', () => {
+		render(
+			<GitHubImportActivity
+				imports={[
+					getImport({
+						id: 'older' as GitHubRepositoryImport['id'],
+						targetSlug: 'older' as GitHubRepositoryImport['targetSlug'],
+						status: 'succeeded',
+					}),
+					getImport({
+						id: 'queued-a' as GitHubRepositoryImport['id'],
+						targetSlug: 'queued-a' as GitHubRepositoryImport['targetSlug'],
+						status: 'succeeded',
+						repositoryId:
+							'b2c3d4e5-f6a7-4890-9abc-1234567890ab' as GitHubRepositoryImport['repositoryId'],
+					}),
+					getImport({
+						id: 'queued-b' as GitHubRepositoryImport['id'],
+						targetSlug: 'queued-b' as GitHubRepositoryImport['targetSlug'],
+						status: 'failed',
+					}),
+				]}
+				isError={false}
+				isLoading={false}
+				queuedImportIds={['queued-a', 'queued-b']}
+				username="mnigos"
+			/>
+		)
+
+		expect(screen.getByText('Import progress')).toBeTruthy()
+		expect(
+			screen.getByText('All imports finished — some need a retry.')
+		).toBeTruthy()
+		expect(
+			screen
+				.getByRole('link', { name: 'View all your repositories' })
+				.getAttribute('href')
+		).toBe('/profile/mnigos')
+		expect(screen.getAllByText(TARGET_LABEL_PATTERN)[0]?.textContent).toBe(
+			'Target: queued-a'
+		)
+	})
+
+	test('highlights the row that already has an active import', () => {
+		const { container } = render(
+			<GitHubImportActivity
+				conflictSourceGithubIds={['1']}
+				imports={[getImport()]}
+				isError={false}
+				isLoading={false}
+			/>
+		)
+
+		expect(
+			container.querySelector('[data-github-import-source="1"]')?.className
+		).toContain('ring-primary/40')
+		expect(
+			screen.getByText(
+				'This GitHub repository is already importing — follow its progress here.'
+			)
+		).toBeTruthy()
 	})
 
 	test('surfaces the completion link for succeeded imports with an owner', () => {
@@ -150,7 +213,7 @@ describe('GitHubImportActivity', () => {
 		)
 
 		expect(
-			screen.getByRole('link', { name: 'Open' }).getAttribute('href')
+			screen.getByRole('link', { name: 'Open repository' }).getAttribute('href')
 		).toBe('/mnigos/tessera')
 	})
 

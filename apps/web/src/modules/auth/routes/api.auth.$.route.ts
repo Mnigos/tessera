@@ -12,6 +12,12 @@ const HOP_BY_HOP_HEADERS = new Set([
 	'upgrade',
 ])
 
+// fetch hands us a decompressed body, so encoding headers no longer describe it.
+const DECOMPRESSED_RESPONSE_HEADERS = new Set([
+	'content-encoding',
+	'content-length',
+])
+
 interface CookieReadableHeaders {
 	getSetCookie?: () => string[]
 }
@@ -67,6 +73,8 @@ function getForwardedHeaders(headers: Headers) {
 		if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()) && name !== 'host')
 			forwardedHeaders.set(name, value)
 
+	forwardedHeaders.set('accept-encoding', 'identity')
+
 	return forwardedHeaders
 }
 
@@ -74,9 +82,18 @@ function getResponseHeaders(headers: Headers) {
 	const responseHeaders = new Headers()
 	const readableHeaders = headers as Headers & CookieReadableHeaders
 
-	for (const [name, value] of headers)
-		if (!HOP_BY_HOP_HEADERS.has(name.toLowerCase()) && name !== 'set-cookie')
+	for (const [name, value] of headers) {
+		const lowered = name.toLowerCase()
+
+		if (
+			!(
+				HOP_BY_HOP_HEADERS.has(lowered) ||
+				DECOMPRESSED_RESPONSE_HEADERS.has(lowered)
+			) &&
+			lowered !== 'set-cookie'
+		)
 			responseHeaders.set(name, value)
+	}
 
 	for (const cookie of readableHeaders.getSetCookie?.() ?? [])
 		responseHeaders.append('set-cookie', cookie)
