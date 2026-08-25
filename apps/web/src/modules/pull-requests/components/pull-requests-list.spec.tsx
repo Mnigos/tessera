@@ -147,6 +147,29 @@ describe(PullRequestsList.name, () => {
 		render(
 			<PullRequestsList
 				onSelectedStateChange={vi.fn()}
+				selectedState="open"
+				slug="notes"
+				username="marta"
+			/>
+		)
+
+		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
+	})
+
+	test('hides the new pull request action on a writable GitHub mirror', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: {
+				authority: 'github',
+				pullRequests: [PULL_REQUEST],
+				viewerRole: 'write',
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(
+			<PullRequestsList
+				onSelectedStateChange={vi.fn()}
+				selectedState="open"
 				slug="notes"
 				username="marta"
 			/>

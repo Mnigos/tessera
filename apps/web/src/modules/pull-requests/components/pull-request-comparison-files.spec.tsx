@@ -19,6 +19,7 @@ import { usePullRequestThreadsQuery } from '../hooks/use-pull-request-threads.qu
 import { usePullRequestViewedFilesQuery } from '../hooks/use-pull-request-viewed-files.query'
 import { useSetPullRequestFileViewedMutation } from '../hooks/use-set-pull-request-file-viewed.mutation'
 import { PullRequestComparisonFiles } from './pull-request-comparison-files'
+import { PullRequestDiffSelectionProvider } from './pull-request-diff-selection-context'
 
 vi.mock('@/modules/auth/hooks/use-auth', () => ({
 	useAuth: () => ({ user: undefined }),
@@ -219,16 +220,22 @@ function renderFiles({
 	const data = comparison(files, baseSha, headSha)
 
 	return render(
-		<PullRequestComparisonFiles
-			anchorComparison={data}
-			comparison={data}
-			isSinceReview={isSinceReview}
-			number="7"
-			review={{ canSubmitReview: true, hasPendingReview: true }}
-			slug="notes"
-			username="marta"
-			viewerUserId={viewerUserId}
-		/>
+		<PullRequestDiffSelectionProvider>
+			<PullRequestComparisonFiles
+				anchorComparison={data}
+				comparison={data}
+				isGitHubAuthoritative={false}
+				isSinceReview={isSinceReview}
+				number="7"
+				review={{
+					allowedOutcomes: ['comment', 'approve', 'request_changes'],
+					hasPendingReview: true,
+				}}
+				slug="notes"
+				username="marta"
+				viewerUserId={viewerUserId}
+			/>
+		</PullRequestDiffSelectionProvider>
 	)
 }
 
@@ -376,14 +383,17 @@ describe(PullRequestComparisonFiles.name, () => {
 			isError: false,
 		} as never)
 		rendered.rerender(
-			<PullRequestComparisonFiles
-				anchorComparison={comparison(files)}
-				comparison={comparison(files)}
-				number="7"
-				slug="notes"
-				username="marta"
-				viewerUserId={VIEWER_USER_ID}
-			/>
+			<PullRequestDiffSelectionProvider>
+				<PullRequestComparisonFiles
+					anchorComparison={comparison(files)}
+					comparison={comparison(files)}
+					isGitHubAuthoritative={false}
+					number="7"
+					slug="notes"
+					username="marta"
+					viewerUserId={VIEWER_USER_ID}
+				/>
+			</PullRequestDiffSelectionProvider>
 		)
 
 		expect(screen.getByText('1 / 2 files viewed')).toBeTruthy()
@@ -601,14 +611,20 @@ describe(PullRequestComparisonFiles.name, () => {
 			NEXT_HEAD_SHA
 		)
 		rendered.rerender(
-			<PullRequestComparisonFiles
-				anchorComparison={nextComparison}
-				comparison={nextComparison}
-				number="7"
-				review={{ canSubmitReview: true, hasPendingReview: true }}
-				slug="notes"
-				username="marta"
-			/>
+			<PullRequestDiffSelectionProvider>
+				<PullRequestComparisonFiles
+					anchorComparison={nextComparison}
+					comparison={nextComparison}
+					isGitHubAuthoritative={false}
+					number="7"
+					review={{
+						allowedOutcomes: ['comment', 'approve', 'request_changes'],
+						hasPendingReview: true,
+					}}
+					slug="notes"
+					username="marta"
+				/>
+			</PullRequestDiffSelectionProvider>
 		)
 
 		expect(fileHeader(second.newPath).getAttribute('aria-expanded')).toBe(
