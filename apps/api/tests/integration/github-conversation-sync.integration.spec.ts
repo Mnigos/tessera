@@ -7,6 +7,7 @@ import { GlobalExceptionFilter, RPCModule } from '@config/rpc'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import { ChecksModule } from '@modules/checks'
+import { GitHubSyncQueueModule } from '@modules/github-sync'
 import { GitHubSyncProcessor } from '@modules/github-sync/application/github-sync.processor'
 import { GitHubWebhookService } from '@modules/github-sync/application/github-webhook.service'
 import { GitHubAppAuthService } from '@modules/github-sync/infrastructure/github-app-auth.service'
@@ -288,6 +289,14 @@ describe('GitHub conversation sync integration', () => {
 					commitLimit: 500,
 					fileLimit: 300,
 				}),
+			})
+			// The real module registers a Bull queue and worker; without a Bull
+			// root config in this module tree that registration cannot boot.
+			.overrideModule(GitHubSyncQueueModule)
+			.useModule({
+				module: class GitHubSyncQueueStubModule {},
+				providers: [{ provide: GitHubSyncQueue, useValue: { enqueue } }],
+				exports: [GitHubSyncQueue],
 			})
 			.compile()
 

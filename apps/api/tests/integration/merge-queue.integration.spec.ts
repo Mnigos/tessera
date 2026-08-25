@@ -7,6 +7,8 @@ import { status } from '@grpc/grpc-js'
 import { HonoAdapter } from '@mnigos/platform-hono'
 import { AuthModule } from '@modules/auth'
 import { BranchProtectionModule } from '@modules/branch-protection'
+import { GitHubSyncQueueModule } from '@modules/github-sync'
+import { GitHubSyncQueue } from '@modules/github-sync/infrastructure/github-sync.queue'
 import { PullRequestsModule } from '@modules/pull-requests'
 import { MergeQueueProcessor } from '@modules/pull-requests/application/merge-queue.processor'
 import { MergeQueueService } from '@modules/pull-requests/application/merge-queue.service'
@@ -216,6 +218,16 @@ describe('Merge queue integration', () => {
 				mergeRepositoryRefs,
 				findMergeReceipt,
 				checkRepositoryMergeability,
+			})
+			// The real module registers a Bull queue and worker; without a Bull
+			// root config in this module tree that registration cannot boot.
+			.overrideModule(GitHubSyncQueueModule)
+			.useModule({
+				module: class GitHubSyncQueueStubModule {},
+				providers: [
+					{ provide: GitHubSyncQueue, useValue: { enqueue: vi.fn() } },
+				],
+				exports: [GitHubSyncQueue],
 			})
 			.compile()
 
