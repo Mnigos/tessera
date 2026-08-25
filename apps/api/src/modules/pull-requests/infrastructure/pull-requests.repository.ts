@@ -1358,19 +1358,20 @@ export class PullRequestsRepository {
 			repositoryId,
 		}: Pick<ReconcileGitHubPullRequestParams, 'pullRequest' | 'repositoryId'>
 	): Promise<PullRequestId> {
-		const number = await this.allocatePullRequestNumber(
+		// A mirrored pull request keeps GitHub's number; the counter is only
+		// pushed past it so a later local allocation can never collide.
+		await this.reservePullRequestNumber(
 			transaction,
-			repositoryId
+			repositoryId,
+			pullRequest.number
 		)
-		if (!number)
-			throw new Error('failed to allocate synchronized pull request number')
 
 		const [createdPullRequest] = await transaction
 			.insert(pullRequests)
 			.values({
 				repositoryId,
 				provider: 'github',
-				number,
+				number: pullRequest.number,
 				sourceBranch: pullRequest.sourceBranch,
 				targetBranch: pullRequest.targetBranch,
 				openingBaseSha: pullRequest.baseSha,
@@ -1453,6 +1454,22 @@ export class PullRequestsRepository {
 			})
 
 		return counter ? counter.nextNumber - 1 : undefined
+	}
+
+	private async reservePullRequestNumber(
+		transaction: PullRequestDatabase,
+		repositoryId: RepositoryId,
+		number: number
+	): Promise<void> {
+		await transaction
+			.insert(repositoryPullRequestCounters)
+			.values({ repositoryId, nextNumber: number + 1 })
+			.onConflictDoUpdate({
+				target: repositoryPullRequestCounters.repositoryId,
+				set: {
+					nextNumber: sql`greatest(${repositoryPullRequestCounters.nextNumber}, ${number + 1})`,
+				},
+			})
 	}
 
 	private async createGitHubEvent(

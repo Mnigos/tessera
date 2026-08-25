@@ -166,6 +166,7 @@ describe(PullRequestsRepository.name, () => {
 		counterConflictMock.mockResolvedValue(undefined)
 		counterValuesMock.mockReturnValue({
 			onConflictDoNothing: counterConflictMock,
+			onConflictDoUpdate: counterConflictMock,
 		})
 		pullRequestReturningMock.mockResolvedValue([pullRequest])
 		pullRequestValuesMock.mockReturnValue({
@@ -347,6 +348,28 @@ describe(PullRequestsRepository.name, () => {
 		const [, tiebreak] = selectOrderByMock.mock.calls[0] ?? []
 		expect(new PgDialect().sqlToQuery(tiebreak).sql).toBe(
 			`case when "pull_request_events"."type" = 'merge_bypassed' then 0 else 1 end`
+		)
+	})
+
+	test('creates a synchronized pull request under GitHub’s own number and reserves it on the counter', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([])
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: gitHubPullRequest,
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		expect(pullRequestValuesMock).toHaveBeenCalledWith(
+			expect.objectContaining({ number: gitHubPullRequest.number })
+		)
+		expect(counterValuesMock).toHaveBeenCalledWith(
+			expect.objectContaining({
+				repositoryId,
+				nextNumber: gitHubPullRequest.number + 1,
+			})
 		)
 	})
 
