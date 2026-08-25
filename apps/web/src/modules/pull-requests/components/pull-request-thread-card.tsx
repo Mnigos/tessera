@@ -190,20 +190,7 @@ function PullRequestThreadHeader({
 	if (!(thread.resolved || thread.outdated || shouldShowAnchor)) return null
 
 	return (
-		<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-			{thread.resolved && (
-				<span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
-					<Check aria-hidden className="size-3.5" />
-					Resolved by
-					<PullRequestActorLabel actor={thread.resolved.by} />
-				</span>
-			)}
-			{thread.outdated && (
-				<span className="inline-flex items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-400 text-xs">
-					<History aria-hidden className="size-3.5" />
-					Outdated
-				</span>
-			)}
+		<div className="flex items-center gap-2">
 			{shouldShowAnchor && thread.anchor && (
 				<span
 					className="min-w-0 truncate font-mono text-muted-foreground text-xs"
@@ -212,8 +199,21 @@ function PullRequestThreadHeader({
 					{toAnchorLabel(thread.anchor)}
 				</span>
 			)}
+			{thread.resolved && (
+				<span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
+					<Check aria-hidden className="size-3.5" />
+					Resolved by
+					<PullRequestActorLabel actor={thread.resolved.by} />
+				</span>
+			)}
+			{thread.outdated && (
+				<span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-400 text-xs">
+					<History aria-hidden className="size-3.5" />
+					Outdated
+				</span>
+			)}
 			<Button
-				className="ml-auto"
+				className="ml-auto h-6 shrink-0 px-2 text-muted-foreground text-xs"
 				onClick={onToggleExpanded}
 				size="sm"
 				variant="ghost"

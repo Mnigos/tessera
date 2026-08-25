@@ -64,13 +64,15 @@ export function PullRequestReviewEventCard({
 						presentation?.iconClassName ?? 'text-muted-foreground'
 					)}
 				/>
-				<span className="font-medium text-sm">
+				<span className="flex min-w-0 items-center gap-1.5 font-medium text-sm">
 					{event.actor ? (
 						<PullRequestActorLabel actor={event.actor} />
 					) : (
 						event.actorUsername
-					)}{' '}
-					{presentation?.timelineLabel ?? 'left a review'}
+					)}
+					<span className="whitespace-nowrap">
+						{presentation?.timelineLabel ?? 'left a review'}
+					</span>
 				</span>
 				{review?.state === 'dismissed' && (
 					<span className="inline-flex items-center rounded-full border border-border px-2 py-0.5 text-muted-foreground text-xs">

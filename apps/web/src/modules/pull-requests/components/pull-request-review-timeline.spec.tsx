@@ -129,7 +129,8 @@ describe('pull request review timeline', () => {
 			/>
 		)
 
-		expect(screen.getByText(`marta ${label}`)).toBeTruthy()
+		expect(screen.getByText('marta')).toBeTruthy()
+		expect(screen.getByText(label)).toBeTruthy()
 		expect(screen.getByText('Important review').tagName).toBe('STRONG')
 		expect(container.firstElementChild?.className).toContain(className)
 		// The card is the entry point into the files view for exactly this review.
@@ -170,7 +171,8 @@ describe('pull request review timeline', () => {
 			/>
 		)
 
-		expect(screen.getByText('marta left a review')).toBeTruthy()
+		expect(screen.getByText('marta')).toBeTruthy()
+		expect(screen.getByText('left a review')).toBeTruthy()
 		expect(screen.getByText('Dismissed')).toBeTruthy()
 	})
 

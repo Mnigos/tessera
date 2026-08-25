@@ -19,7 +19,13 @@ export function PullRequestActorLabel({
 }: Readonly<PullRequestActorLabelProps>) {
 	return (
 		<span
-			className={cn('inline-flex min-w-0 items-center gap-1.5', className)}
+			// align-middle keeps the name on the surrounding text's line when the
+			// label sits inside a sentence: the avatar image would otherwise donate
+			// its bottom edge as the baseline and lift the whole label.
+			className={cn(
+				'inline-flex min-w-0 items-center gap-1.5 align-middle',
+				className
+			)}
 			title={actor.username}
 		>
 			<PullRequestActorAvatar actor={actor} />
