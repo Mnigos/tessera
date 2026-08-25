@@ -64,8 +64,3 @@ apps/web/.content-collections/cache/
 
 # Content Collections
 .content-collections
-
-# Local Railway deploy overrides (swapped per service before railway up)
-/railway.json
-/railpack.json
-tooling/.railway-deploy-marker
