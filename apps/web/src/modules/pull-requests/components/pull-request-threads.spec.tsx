@@ -27,6 +27,10 @@ import { PullRequestComparison } from './pull-request-comparison'
 import { PullRequestThreadCard } from './pull-request-thread-card'
 import { PullRequestTimeline } from './pull-request-timeline'
 
+vi.mock('../hooks/use-pull-request-thread-excerpt.query', () => ({
+	usePullRequestThreadExcerptQuery: () => ({ data: undefined }),
+}))
+
 vi.mock('../hooks/use-pull-request-activity.query', () => ({
 	usePullRequestActivityQuery: () => ({ data: undefined }),
 }))

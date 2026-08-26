@@ -1,6 +1,7 @@
 import type { PullRequestThread } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { cn } from '@repo/ui/utils'
+import { Link } from '@tanstack/react-router'
 import { Check, History } from 'lucide-react'
 import { useState } from 'react'
 import {
@@ -19,6 +20,7 @@ import { PullRequestActorLabel } from './pull-request-actor-label'
 import { PullRequestComment } from './pull-request-comment'
 import { PullRequestCommentComposer } from './pull-request-comment-composer'
 import { PullRequestErrorMessage } from './pull-request-error-message'
+import { PullRequestThreadExcerpt } from './pull-request-thread-excerpt'
 
 interface PullRequestThreadCardProps {
 	username: string
@@ -27,6 +29,8 @@ interface PullRequestThreadCardProps {
 	thread: PullRequestThread
 	permissions: PullRequestThreadPermissions
 	shouldShowAnchor?: boolean
+	/** Makes the anchor label a link into the files view, landing on this thread. */
+	shouldLinkAnchor?: boolean
 }
 
 export function PullRequestThreadCard({
@@ -36,6 +40,7 @@ export function PullRequestThreadCard({
 	thread,
 	permissions,
 	shouldShowAnchor,
+	shouldLinkAnchor,
 }: Readonly<PullRequestThreadCardProps>) {
 	const [expandedOverride, setExpandedOverride] = useState<boolean>()
 	const [isReplying, setIsReplying] = useState(false)
@@ -106,19 +111,27 @@ export function PullRequestThreadCard({
 				'flex flex-col gap-2 rounded-md border border-border bg-card p-3',
 				thread.resolved && 'bg-muted/30'
 			)}
+			data-thread-ids={thread.id}
 		>
 			<PullRequestThreadHeader
 				isExpanded={isExpanded}
+				number={number}
 				onToggleExpanded={() => setExpandedOverride(!isExpanded)}
+				shouldLinkAnchor={shouldLinkAnchor}
 				shouldShowAnchor={shouldShowAnchor}
+				slug={slug}
 				thread={thread}
+				username={username}
 			/>
 			{isExpanded && (
 				<>
 					{shouldShowAnchor && thread.anchor && (
-						<pre className="overflow-x-auto rounded-md bg-muted px-3 py-2 font-mono text-muted-foreground text-xs">
-							{thread.anchor.lineExcerpt}
-						</pre>
+						<PullRequestThreadExcerpt
+							anchor={thread.anchor}
+							number={number}
+							slug={slug}
+							username={username}
+						/>
 					)}
 					<ol className="flex flex-col gap-3">
 						{thread.comments.map(comment => (
@@ -175,30 +188,50 @@ export function PullRequestThreadCard({
 }
 
 interface PullRequestThreadHeaderProps {
+	username: string
+	slug: string
+	number: string
 	thread: PullRequestThread
 	isExpanded: boolean
 	onToggleExpanded: () => void
 	shouldShowAnchor?: boolean
+	shouldLinkAnchor?: boolean
 }
 
 function PullRequestThreadHeader({
+	username,
+	slug,
+	number,
 	thread,
 	isExpanded,
 	onToggleExpanded,
 	shouldShowAnchor,
+	shouldLinkAnchor,
 }: Readonly<PullRequestThreadHeaderProps>) {
 	if (!(thread.resolved || thread.outdated || shouldShowAnchor)) return null
 
 	return (
 		<div className="flex items-center gap-2">
-			{shouldShowAnchor && thread.anchor && (
-				<span
-					className="min-w-0 truncate font-mono text-muted-foreground text-xs"
-					title={toAnchorLabel(thread.anchor)}
-				>
-					{toAnchorLabel(thread.anchor)}
-				</span>
-			)}
+			{shouldShowAnchor &&
+				thread.anchor &&
+				(shouldLinkAnchor ? (
+					<Link
+						className="min-w-0 truncate font-mono text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
+						params={{ username, slug, number }}
+						search={{ thread: thread.id }}
+						title={toAnchorLabel(thread.anchor)}
+						to="/$username/$slug/pulls/$number/files"
+					>
+						{toAnchorLabel(thread.anchor)}
+					</Link>
+				) : (
+					<span
+						className="min-w-0 truncate font-mono text-muted-foreground text-xs"
+						title={toAnchorLabel(thread.anchor)}
+					>
+						{toAnchorLabel(thread.anchor)}
+					</span>
+				))}
 			{thread.resolved && (
 				<span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
 					<Check aria-hidden className="size-3.5" />

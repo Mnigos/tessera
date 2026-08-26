@@ -94,6 +94,7 @@ export function PullRequestReviewEventCard({
 							<PullRequestThreadCard
 								number={number}
 								permissions={permissions}
+								shouldLinkAnchor
 								shouldShowAnchor
 								slug={slug}
 								thread={thread}

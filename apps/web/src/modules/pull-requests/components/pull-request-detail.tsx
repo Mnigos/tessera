@@ -10,6 +10,7 @@ import type {
 	PullRequestReviewerCandidate,
 	PullRequestReviewerRequest,
 	PullRequestReviewViewer,
+	PullRequestThread,
 	SessionUser,
 } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
@@ -55,6 +56,8 @@ interface PullRequestDetailProps {
 	number: string
 	tab: PullRequestDetailTab
 	reviewSelection?: PullRequestReviewSelection
+	/** A thread the files tab should scroll to and light up on arrival. */
+	threadJumpId?: PullRequestThread['id']
 }
 
 export function PullRequestDetail({
@@ -62,6 +65,7 @@ export function PullRequestDetail({
 	slug,
 	number,
 	tab,
+	threadJumpId,
 	reviewSelection,
 }: Readonly<PullRequestDetailProps>) {
 	const { user } = useAuth()
@@ -136,6 +140,7 @@ export function PullRequestDetail({
 			reviewViewer={data.viewer}
 			slug={slug}
 			tab={tab}
+			threadJumpId={threadJumpId}
 			username={username}
 			viewerPendingReview={data.viewerPendingReview}
 			viewerUserId={user?.id}
@@ -162,6 +167,7 @@ interface PullRequestDetailContentProps {
 	viewerUserId?: SessionUser['id']
 	tab: PullRequestDetailTab
 	reviewSelection?: PullRequestReviewSelection
+	threadJumpId?: PullRequestThread['id']
 }
 
 function PullRequestDetailContent({
@@ -183,6 +189,7 @@ function PullRequestDetailContent({
 	viewerUserId,
 	tab,
 	reviewSelection,
+	threadJumpId,
 }: Readonly<PullRequestDetailContentProps>) {
 	const [isEditingTitle, setIsEditingTitle] = useState(false)
 	const sourceUrl = pullRequest.github?.htmlUrl
@@ -311,6 +318,7 @@ function PullRequestDetailContent({
 					reviewViewer={reviewViewer}
 					slug={slug}
 					tab={tab}
+					threadJumpId={threadJumpId}
 					username={username}
 					viewerPendingReview={viewerPendingReview}
 					viewerUserId={viewerUserId}

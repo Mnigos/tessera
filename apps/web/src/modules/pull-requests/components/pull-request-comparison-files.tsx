@@ -8,6 +8,7 @@ import type {
 import { cn } from '@repo/ui/utils'
 import { useReducedMotion } from 'motion/react'
 import { type ReactNode, useCallback, useMemo, useRef, useState } from 'react'
+import { useMountEffect } from '@/shared/hooks/use-mount-effect'
 import { isPullRequestStaleComparisonError } from '../helpers/get-pull-request-error-message'
 import {
 	getChangedFilePath,
@@ -21,8 +22,10 @@ import type { PullRequestReviewContext } from '../helpers/pull-request-review'
 import { getPullRequestThreadPermissions } from '../helpers/pull-request-thread-permissions'
 import { usePrefetchPullRequestFileDiff } from '../hooks/use-prefetch-pull-request-file-diff'
 import {
+	flashPullRequestDiffLines,
 	type PullRequestDiffJump,
 	scrollToPullRequestDiffJump,
+	scrollToPullRequestThreadCard,
 } from '../hooks/use-pull-request-diff-jump'
 import { usePullRequestDiffViewOptions } from '../hooks/use-pull-request-diff-view-options'
 import { usePullRequestFileSections } from '../hooks/use-pull-request-file-sections'
@@ -81,6 +84,8 @@ interface PullRequestComparisonFilesProps {
 	toolbarAction?: (options: PullRequestToolbarActionOptions) => ReactNode
 	/** The comparison switch, which leads the toolbar row before the counter. */
 	toolbarLead?: ReactNode
+	/** A thread to reveal and light up once the files and threads have loaded. */
+	threadJumpId?: PullRequestThread['id']
 }
 
 export function PullRequestComparisonFiles({
@@ -95,6 +100,7 @@ export function PullRequestComparisonFiles({
 	isGitHubAuthoritative,
 	toolbarAction,
 	toolbarLead,
+	threadJumpId,
 }: Readonly<PullRequestComparisonFilesProps>) {
 	const prefetchFileDiff = usePrefetchPullRequestFileDiff()
 	const shouldReduceMotion = useReducedMotion()
@@ -400,6 +406,14 @@ export function PullRequestComparisonFiles({
 
 	return (
 		<div className="flex flex-col gap-3">
+			{threadJumpId && threadsQuery.isSuccess && (
+				<PullRequestThreadJumpOnce
+					key={threadJumpId}
+					onReveal={revealJump}
+					threadId={threadJumpId}
+					threads={threads}
+				/>
+			)}
 			{comparison.isTruncated && (
 				<PullRequestsMessage
 					description={`Only the first ${comparison.fileLimit} changed files are shown.`}
@@ -610,4 +624,46 @@ function PullRequestFileNotices({
 			)}
 		</>
 	)
+}
+
+interface PullRequestThreadJumpOnceProps {
+	threadId: PullRequestThread['id']
+	threads: PullRequestThread[]
+	onReveal: (jump: PullRequestDiffJump) => void
+}
+
+/**
+ * Executes the arrival jump a conversation anchor link asked for, once the
+ * threads are known: a placed thread reveals its diff row and lights up the
+ * anchored lines, an outdated one scrolls to its card in the discussions
+ * section instead.
+ */
+function PullRequestThreadJumpOnce({
+	threadId,
+	threads,
+	onReveal,
+}: Readonly<PullRequestThreadJumpOnceProps>) {
+	useMountEffect(() => {
+		const thread = threads.find(candidate => candidate.id === threadId)
+
+		if (!thread) return undefined
+
+		const placement = thread.currentAnchor
+
+		if (placement) {
+			onReveal({ kind: 'thread', path: placement.path, threadId })
+			flashPullRequestDiffLines(
+				placement.path,
+				placement.side,
+				placement.startLine,
+				placement.endLine
+			)
+		} else {
+			scrollToPullRequestThreadCard(threadId)
+		}
+
+		return undefined
+	})
+
+	return null
 }

@@ -9,6 +9,10 @@ import type { AnchorHTMLAttributes, ReactNode } from 'react'
 import { PullRequestEventRow } from './pull-request-event-row'
 import { PullRequestReviewEventCard } from './pull-request-review-event-card'
 
+vi.mock('../hooks/use-pull-request-thread-excerpt.query', () => ({
+	usePullRequestThreadExcerptQuery: () => ({ data: undefined }),
+}))
+
 vi.mock('@tanstack/react-router', () => ({
 	Link: ({
 		children,
