@@ -197,7 +197,7 @@ export class PullRequestsService {
 					),
 				})
 
-			const { additions, changedFiles, deletions } = pullRequest
+			const { additions, changedFiles, commitCount, deletions } = pullRequest
 
 			// GitHub reported the totals, so the list shows a diff before anyone opens it.
 			if (
@@ -212,6 +212,7 @@ export class PullRequestsService {
 					additions,
 					deletions,
 					changedFiles,
+					commitCount,
 					computedAt,
 				})
 			else if (reconciled.comparisonChanged)
@@ -1789,6 +1790,10 @@ export class PullRequestsService {
 			return undefined
 		}
 
+		// A truncated commit list cannot say how many there really are.
+		const commitCount = comparison.commitsTruncated
+			? undefined
+			: comparison.commits.length
 		const diffStats = {
 			additions: comparison.files.reduce(
 				(total, file) => total + file.additions,
@@ -1799,11 +1804,13 @@ export class PullRequestsService {
 				0
 			),
 			changedFiles: comparison.files.length,
+			commits: commitCount,
 		}
 
 		await this.pullRequestsRepository.writeDiffStats({
 			pullRequestId,
 			...diffStats,
+			commitCount,
 			computedAt,
 			// The files are diffed from the merge base, so that is what dates them.
 			baseSha: comparison.mergeBaseSha,

@@ -34,6 +34,7 @@ function pullRequest(
 		diffAdditions: null,
 		diffDeletions: null,
 		diffChangedFiles: null,
+		diffCommitCount: null,
 		diffStatsUpdatedAt: null,
 		createdAt,
 		updatedAt: createdAt,

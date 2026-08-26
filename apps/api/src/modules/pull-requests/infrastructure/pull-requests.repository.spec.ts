@@ -528,6 +528,7 @@ describe(PullRequestsRepository.name, () => {
 				diffAdditions: 12,
 				diffDeletions: 4,
 				diffChangedFiles: 3,
+				diffCommitCount: null,
 				diffStatsUpdatedAt: computedAt,
 			})
 		)
@@ -552,6 +553,7 @@ describe(PullRequestsRepository.name, () => {
 				diffAdditions: null,
 				diffDeletions: null,
 				diffChangedFiles: null,
+				diffCommitCount: null,
 				diffStatsUpdatedAt: null,
 			})
 		)

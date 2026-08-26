@@ -240,11 +240,25 @@ const REVIEW_THREADS_QUERY = `
 	}
 `
 
-const gitHubGraphQlDiffStatsSchema = z.object({
-	additions: z.number().int().nonnegative(),
-	deletions: z.number().int().nonnegative(),
-	changedFiles: z.number().int().nonnegative(),
-})
+const GITHUB_MERGEABLE_STATES = {
+	CONFLICTING: 'conflicting',
+	MERGEABLE: 'mergeable',
+	UNKNOWN: 'unknown',
+} as const
+
+const gitHubGraphQlDiffStatsSchema = z
+	.object({
+		additions: z.number().int().nonnegative(),
+		deletions: z.number().int().nonnegative(),
+		changedFiles: z.number().int().nonnegative(),
+		mergeable: z.enum(['CONFLICTING', 'MERGEABLE', 'UNKNOWN']),
+		commits: z.object({ totalCount: z.number().int().nonnegative() }),
+	})
+	.transform(({ commits, mergeable, ...stats }) => ({
+		...stats,
+		commitCount: commits.totalCount,
+		mergeableState: GITHUB_MERGEABLE_STATES[mergeable],
+	}))
 
 const gitHubDiffStatsResponseSchema = z.object({
 	repository: z
@@ -257,7 +271,7 @@ function buildDiffStatsQuery(numbers: number[]): string {
 	const fields = numbers
 		.map(
 			number =>
-				`${DIFF_STATS_ALIAS_PREFIX}${number}: pullRequest(number: ${number}) { additions deletions changedFiles }`
+				`${DIFF_STATS_ALIAS_PREFIX}${number}: pullRequest(number: ${number}) { additions deletions changedFiles mergeable commits { totalCount } }`
 		)
 		.join('\n\t\t\t')
 

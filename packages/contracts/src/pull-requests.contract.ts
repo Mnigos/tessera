@@ -257,6 +257,8 @@ export const pullRequestDiffStatsSchema = z.object({
 	additions: z.number().int().nonnegative(),
 	deletions: z.number().int().nonnegative(),
 	changedFiles: z.number().int().nonnegative(),
+	/** Absent where the source could not count them (a truncated comparison). */
+	commits: z.number().int().nonnegative().optional(),
 })
 export type PullRequestDiffStats = z.infer<typeof pullRequestDiffStatsSchema>
 
@@ -317,6 +319,10 @@ export const pullRequestSchema = z.object({
 			// GitHub owns both lists; Tessera mirrors them and never writes them back.
 			labels: z.array(pullRequestLabelSchema).optional(),
 			assignees: z.array(pullRequestAssigneeSchema).optional(),
+			/** GitHub's verdict on whether the branch merges cleanly, as of the last sync. */
+			mergeableState: z
+				.enum(['mergeable', 'conflicting', 'unknown'])
+				.optional(),
 		})
 		.optional(),
 })

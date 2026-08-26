@@ -13,6 +13,7 @@ interface PullRequestNavigationProps {
 	number: string
 	tab: PullRequestDetailTab
 	changedFilesCount?: number
+	commitsCount?: number
 }
 
 interface PullRequestNavigationItem {
@@ -48,6 +49,7 @@ export function PullRequestNavigation({
 	number,
 	tab,
 	changedFilesCount,
+	commitsCount,
 }: Readonly<PullRequestNavigationProps>) {
 	return (
 		<nav aria-label="Pull request details">
@@ -69,6 +71,11 @@ export function PullRequestNavigation({
 								to={item.to}
 							>
 								{item.label}
+								{item.tab === 'commits' && commitsCount !== undefined && (
+									<span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
+										{commitsCount}
+									</span>
+								)}
 								{item.tab === 'files' && changedFilesCount !== undefined && (
 									<span className="rounded-full bg-muted px-1.5 py-0.5 text-muted-foreground text-xs">
 										{changedFilesCount}

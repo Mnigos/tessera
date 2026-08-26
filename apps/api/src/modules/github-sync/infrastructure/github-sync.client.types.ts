@@ -66,6 +66,9 @@ export interface GitHubSyncPullRequest {
 	additions?: number
 	deletions?: number
 	changedFiles?: number
+	commitCount?: number
+	/** GitHub's verdict on whether the branch merges cleanly, read beside the totals. */
+	mergeableState?: 'mergeable' | 'conflicting' | 'unknown'
 }
 
 /**
