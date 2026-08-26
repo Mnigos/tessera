@@ -78,8 +78,54 @@ function flash(node: HTMLElement) {
  */
 export function scrollToPullRequestDiffJump(target: PullRequestDiffJump) {
 	requestPullRequestDiffJump(target)
+	revealAndFlash(toJumpSelector(target))
+}
 
-	const selector = toJumpSelector(target)
+/**
+ * Scrolls to a thread card wherever it sits — the outdated-discussions section
+ * holds threads no diff row carries, so this asks for the card itself instead
+ * of a row a windowed file would have to pin.
+ */
+export function scrollToPullRequestThreadCard(
+	threadId: PullRequestThread['id']
+) {
+	revealAndFlash(`[data-thread-ids~="${escapeAttributeValue(threadId)}"]`)
+}
+
+/** Briefly marks the anchored lines themselves, once the jump has revealed them. */
+export function flashPullRequestDiffLines(
+	path: string,
+	side: PullRequestThreadSide,
+	startLine: number,
+	endLine: number
+) {
+	const section = `[data-file-path="${escapeAttributeValue(path)}"]`
+	const deadline = Date.now() + REVEAL_DEADLINE_MS
+
+	function attempt() {
+		const nodes: HTMLElement[] = []
+
+		for (let line = startLine; line <= endLine; line += 1) {
+			const node = document.querySelector<HTMLElement>(
+				`${section} [data-side="${side}"][data-line="${line}"]`
+			)
+
+			if (node) nodes.push(node)
+		}
+
+		if (nodes.length === 0) {
+			if (Date.now() < deadline) requestAnimationFrame(attempt)
+
+			return
+		}
+
+		for (const node of nodes) flash(node)
+	}
+
+	requestAnimationFrame(attempt)
+}
+
+function revealAndFlash(selector: string) {
 	const deadline = Date.now() + REVEAL_DEADLINE_MS
 	const generation = ++revealGeneration
 

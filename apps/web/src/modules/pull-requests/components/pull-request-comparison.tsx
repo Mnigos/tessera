@@ -3,6 +3,7 @@ import type {
 	PullRequestPendingReview,
 	PullRequestReview,
 	PullRequestReviewViewer,
+	PullRequestThread,
 	SessionUser,
 } from '@repo/contracts'
 import { Card } from '@repo/ui/components/card'
@@ -36,6 +37,7 @@ interface PullRequestComparisonProps {
 	isGitHubAuthoritative: boolean
 	/** Absent on surfaces that carry no review selection in their URL. */
 	reviewSelection?: PullRequestReviewSelection
+	threadJumpId?: PullRequestThread['id']
 }
 
 export function PullRequestComparison({
@@ -50,6 +52,7 @@ export function PullRequestComparison({
 	viewerUserId,
 	reviewSelection,
 	isGitHubAuthoritative,
+	threadJumpId,
 }: Readonly<PullRequestComparisonProps>) {
 	const selectedReviewId = reviewSelection?.reviewId
 	const comparisonQuery = usePullRequestComparisonQuery(
@@ -110,6 +113,7 @@ export function PullRequestComparison({
 				number={number}
 				review={review}
 				slug={slug}
+				threadJumpId={threadJumpId}
 				toolbarAction={({ onJumpToFile }) => (
 					<PullRequestReviewChangesAction
 						headSha={comparisonQuery.data.headSha}

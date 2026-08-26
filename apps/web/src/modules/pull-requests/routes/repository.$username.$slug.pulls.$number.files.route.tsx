@@ -2,6 +2,7 @@ import { ORPCError, safe } from '@orpc/client'
 import {
 	type PullRequestReviewId,
 	pullRequestReviewIdSchema,
+	pullRequestThreadIdSchema,
 } from '@repo/contracts'
 import { createFileRoute, notFound } from '@tanstack/react-router'
 import { z } from 'zod'
@@ -17,6 +18,8 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
 	// contradictory.
 	validateSearch: z.object({
 		reviewId: pullRequestReviewIdSchema.optional(),
+		/** A thread to land on, carried by anchor links in the conversation. */
+		thread: pullRequestThreadIdSchema.optional(),
 	}),
 	loaderDeps: ({ search: { reviewId } }) => ({ reviewId }),
 	loader: async ({
@@ -61,7 +64,7 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/files')({
 
 function PullRequestFilesRoute() {
 	const { username, slug, number } = Route.useParams()
-	const { reviewId } = Route.useSearch()
+	const { reviewId, thread } = Route.useSearch()
 	const navigate = Route.useNavigate()
 
 	function handleSelectedReviewIdChange(
@@ -84,6 +87,7 @@ function PullRequestFilesRoute() {
 			}}
 			slug={slug}
 			tab="files"
+			threadJumpId={thread}
 			username={username}
 		/>
 	)
