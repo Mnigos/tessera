@@ -79,6 +79,7 @@ const pullRequest: PullRequestReadModel = {
 	diffAdditions: null,
 	diffDeletions: null,
 	diffChangedFiles: null,
+	diffCommitCount: null,
 	diffStatsUpdatedAt: null,
 	createdAt: new Date('2026-08-17T10:00:00Z'),
 	updatedAt: new Date('2026-08-17T10:00:00Z'),

@@ -96,6 +96,7 @@ const pullRequest: PullRequest = {
 	diffAdditions: null,
 	diffDeletions: null,
 	diffChangedFiles: null,
+	diffCommitCount: null,
 	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -493,6 +494,7 @@ describe(PullRequestsService.name, () => {
 			additions: 12,
 			deletions: 4,
 			changedFiles: 2,
+			commitCount: undefined,
 			computedAt: expect.any(Date),
 		})
 		expect(repository.clearDiffStats).not.toHaveBeenCalled()
@@ -537,6 +539,8 @@ describe(PullRequestsService.name, () => {
 			additions: 12,
 			deletions: 4,
 			changedFiles: 1,
+			commits: 0,
+			commitCount: 0,
 			computedAt: expect.any(Date),
 		})
 	})
@@ -1341,6 +1345,8 @@ describe(PullRequestsService.name, () => {
 			additions: 9,
 			deletions: 3,
 			changedFiles: 1,
+			commits: 0,
+			commitCount: 0,
 			computedAt: expect.any(Date),
 		})
 	})
@@ -1353,6 +1359,7 @@ describe(PullRequestsService.name, () => {
 			diffAdditions: 20,
 			diffDeletions: 5,
 			diffChangedFiles: 3,
+			diffCommitCount: null,
 			diffStatsUpdatedAt: createdAt,
 		})
 		vi.spyOn(gitStorageClient, 'compareRepositoryRefs').mockResolvedValue({
@@ -1486,6 +1493,8 @@ describe(PullRequestsService.name, () => {
 			additions: 0,
 			deletions: 0,
 			changedFiles: 0,
+			commits: 0,
+			commitCount: 0,
 			computedAt: expect.any(Date),
 		})
 	})

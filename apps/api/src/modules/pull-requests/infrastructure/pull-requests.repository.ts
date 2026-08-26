@@ -92,6 +92,7 @@ interface WriteDiffStatsParams {
 	additions: number
 	deletions: number
 	changedFiles: number
+	commitCount?: number
 	computedAt: Date
 }
 
@@ -238,6 +239,7 @@ export interface PullRequestReadModel extends PullRequest {
 		externalNumber?: number
 		labels?: GitHubPullRequestLabel[]
 		assignees?: GitHubPullRequestAssignee[]
+		mergeableState?: 'mergeable' | 'conflicting' | 'unknown'
 	}
 }
 
@@ -261,6 +263,7 @@ interface PullRequestReadRow extends PullRequest {
 	githubExternalNumber: number | null
 	githubLabels: GitHubPullRequestLabel[] | null
 	githubAssignees: GitHubPullRequestAssignee[] | null
+	githubMergeableState: 'mergeable' | 'conflicting' | 'unknown' | null
 }
 
 const PULL_REQUEST_COLUMNS = {
@@ -286,6 +289,7 @@ const PULL_REQUEST_COLUMNS = {
 	diffAdditions: pullRequests.diffAdditions,
 	diffDeletions: pullRequests.diffDeletions,
 	diffChangedFiles: pullRequests.diffChangedFiles,
+	diffCommitCount: pullRequests.diffCommitCount,
 	diffStatsUpdatedAt: pullRequests.diffStatsUpdatedAt,
 	createdAt: pullRequests.createdAt,
 	updatedAt: pullRequests.updatedAt,
@@ -299,6 +303,7 @@ const CLEARED_DIFF_STATS = {
 	diffAdditions: null,
 	diffDeletions: null,
 	diffChangedFiles: null,
+	diffCommitCount: null,
 	diffStatsUpdatedAt: null,
 	// Caching a diff is not a change to the pull request itself.
 	updatedAt: sql`${pullRequests.updatedAt}`,
@@ -330,6 +335,7 @@ const PULL_REQUEST_READ_COLUMNS = {
 	githubExternalNumber: gitHubPullRequestMappings.externalNumber,
 	githubLabels: gitHubPullRequestMappings.labels,
 	githubAssignees: gitHubPullRequestMappings.assignees,
+	githubMergeableState: gitHubPullRequestMappings.providerMergeableState,
 }
 
 @Injectable()
@@ -553,6 +559,7 @@ export class PullRequestsRepository {
 		additions,
 		baseSha,
 		changedFiles,
+		commitCount,
 		computedAt,
 		deletions,
 		headSha,
@@ -566,6 +573,7 @@ export class PullRequestsRepository {
 				diffAdditions: additions,
 				diffDeletions: deletions,
 				diffChangedFiles: changedFiles,
+				diffCommitCount: commitCount ?? null,
 				diffStatsUpdatedAt: computedAt,
 				updatedAt: sql`${pullRequests.updatedAt}`,
 			})
@@ -587,6 +595,8 @@ export class PullRequestsRepository {
 		pullRequest,
 		repositoryId,
 	}: ReconcileGitHubPullRequestParams): Promise<ReconciledGitHubPullRequest> {
+		const providerMergeableState = pullRequest.mergeableState ?? null
+
 		return await this.db.transaction(async transaction => {
 			await transaction.execute(
 				sql`select pg_advisory_xact_lock(hashtextextended(${pullRequest.nodeId}, 0))`
@@ -643,6 +653,7 @@ export class PullRequestsRepository {
 						draft: pullRequest.draft,
 						labels: pullRequest.labels,
 						assignees: pullRequest.assignees,
+						providerMergeableState,
 						providerCreatedAt: pullRequest.createdAt,
 						providerUpdatedAt: pullRequest.updatedAt,
 						providerClosedAt: pullRequest.closedAt,
@@ -664,6 +675,7 @@ export class PullRequestsRepository {
 							draft: pullRequest.draft,
 							labels: pullRequest.labels,
 							assignees: pullRequest.assignees,
+							providerMergeableState,
 							providerUpdatedAt: pullRequest.updatedAt,
 							providerClosedAt: pullRequest.closedAt ?? null,
 							providerMergedAt: pullRequest.mergedAt ?? null,
@@ -1553,6 +1565,7 @@ function toPullRequestReadModel(
 		diffAdditions: pullRequest.diffAdditions,
 		diffDeletions: pullRequest.diffDeletions,
 		diffChangedFiles: pullRequest.diffChangedFiles,
+		diffCommitCount: pullRequest.diffCommitCount,
 		diffStatsUpdatedAt: pullRequest.diffStatsUpdatedAt,
 		github:
 			pullRequest.githubNodeId &&
@@ -1572,6 +1585,7 @@ function toPullRequestReadModel(
 						// indistinguishable from a pull request GitHub labelled with nothing.
 						labels: pullRequest.githubLabels ?? [],
 						assignees: pullRequest.githubAssignees ?? [],
+						mergeableState: pullRequest.githubMergeableState ?? undefined,
 					}
 				: undefined,
 	}

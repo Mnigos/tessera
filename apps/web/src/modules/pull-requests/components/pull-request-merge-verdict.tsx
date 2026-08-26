@@ -6,7 +6,12 @@ import {
 } from '@repo/contracts'
 import type { MergeStrategy } from '@repo/domain'
 import { Button } from '@repo/ui/components/button'
-import { CheckCircle2, GitMerge, ShieldAlert } from 'lucide-react'
+import {
+	CheckCircle2,
+	GitMerge,
+	ShieldAlert,
+	TriangleAlert,
+} from 'lucide-react'
 import { type ReactElement, useState } from 'react'
 import { getMergeStrategyLabel } from '../helpers/merge-strategy'
 import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
@@ -82,17 +87,13 @@ export function PullRequestMergeVerdict({
 			</div>
 		)
 
-	// A mirrored pull request with no counterpart resolves no refs to merge.
-	if (
-		isGitHubAuthoritative &&
-		requirements.eligible &&
-		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
+	const gitHubGate = getGitHubMergeGate(
+		isGitHubAuthoritative,
+		requirements,
+		pullRequest
 	)
-		return (
-			<p className="text-sm">
-				{GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping}
-			</p>
-		)
+
+	if (gitHubGate) return gitHubGate
 
 	const mergeLabel = getMergeStrategyLabel(strategy)
 	// A squash always confirms its commit message, whether or not it is also
@@ -184,4 +185,43 @@ export function PullRequestMergeVerdict({
 				))}
 		</div>
 	)
+}
+
+/**
+ * What GitHub's own state already settles before requirements are worth
+ * showing: a mirrored pull request with no counterpart resolves no refs to
+ * merge, and a conflicting branch was refused before anyone clicks.
+ */
+function getGitHubMergeGate(
+	isGitHubAuthoritative: boolean,
+	requirements: MergeRequirements,
+	pullRequest: PullRequest
+): ReactElement | undefined {
+	if (!isGitHubAuthoritative) return undefined
+
+	if (
+		requirements.eligible &&
+		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
+	)
+		return (
+			<p className="text-sm">
+				{GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping}
+			</p>
+		)
+
+	if (pullRequest.github?.mergeableState === 'conflicting')
+		return (
+			<div className="flex flex-col gap-1.5">
+				<p className="inline-flex items-center gap-2 font-medium text-sm">
+					<TriangleAlert aria-hidden className="size-4 text-amber-500" />
+					This branch has conflicts that must be resolved
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Resolve the conflicts on GitHub or from the command line, then merge
+					here once the branch is clean.
+				</p>
+			</div>
+		)
+
+	return undefined
 }

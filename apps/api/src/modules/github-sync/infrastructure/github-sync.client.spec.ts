@@ -230,7 +230,13 @@ describe(GitHubSyncClient.name, () => {
 		])
 		graphql.mockResolvedValue({
 			repository: {
-				pr2: { additions: 12, deletions: 3, changedFiles: 2 },
+				pr2: {
+					additions: 12,
+					deletions: 3,
+					changedFiles: 2,
+					mergeable: 'CONFLICTING',
+					commits: { totalCount: 4 },
+				},
 				pr3: null,
 			},
 		})
@@ -242,7 +248,14 @@ describe(GitHubSyncClient.name, () => {
 			})
 
 		expect(pullRequests).toMatchObject([
-			{ number: 2, additions: 12, deletions: 3, changedFiles: 2 },
+			{
+				number: 2,
+				additions: 12,
+				deletions: 3,
+				changedFiles: 2,
+				commitCount: 4,
+				mergeableState: 'conflicting',
+			},
 			{ number: 3 },
 		])
 		expect(pullRequests[1]?.additions).toBeUndefined()

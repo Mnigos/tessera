@@ -358,6 +358,10 @@ export const gitHubPullRequestMappings = pgTable(
 		draft: boolean('draft').default(false).notNull(),
 		labels: jsonb('labels').$type<GitHubPullRequestLabel[]>(),
 		assignees: jsonb('assignees').$type<GitHubPullRequestAssignee[]>(),
+		/** GitHub's mergeability verdict as of the last sync; null before the first stats read. */
+		providerMergeableState: text('provider_mergeable_state').$type<
+			'mergeable' | 'conflicting' | 'unknown'
+		>(),
 		providerCreatedAt: timestamp('provider_created_at').notNull(),
 		providerUpdatedAt: timestamp('provider_updated_at').notNull(),
 		providerClosedAt: timestamp('provider_closed_at'),

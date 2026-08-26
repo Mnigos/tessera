@@ -45,6 +45,7 @@ export function toPullRequestOutput(
 						additions: pullRequest.diffAdditions,
 						deletions: pullRequest.diffDeletions,
 						changedFiles: pullRequest.diffChangedFiles,
+						commits: pullRequest.diffCommitCount ?? undefined,
 					},
 		github: 'github' in pullRequest ? pullRequest.github : undefined,
 	}

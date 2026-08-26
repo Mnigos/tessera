@@ -40,6 +40,7 @@ const pullRequest: PullRequest = {
 	diffAdditions: null,
 	diffDeletions: null,
 	diffChangedFiles: null,
+	diffCommitCount: null,
 	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
@@ -70,6 +71,7 @@ describe('pull request domain', () => {
 					diffAdditions: 12,
 					diffDeletions: 4,
 					diffChangedFiles: 3,
+					diffCommitCount: null,
 				},
 				'marta'
 			).diffStats
@@ -81,6 +83,7 @@ describe('pull request domain', () => {
 					diffAdditions: 12,
 					diffDeletions: null,
 					diffChangedFiles: 3,
+					diffCommitCount: null,
 				},
 				'marta'
 			).diffStats

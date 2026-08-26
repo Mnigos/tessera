@@ -248,6 +248,8 @@ export const pullRequests = pgTable(
 		diffAdditions: integer('diff_additions'),
 		diffDeletions: integer('diff_deletions'),
 		diffChangedFiles: integer('diff_changed_files'),
+		/** Outside the all-or-nothing stats check: a truncated comparison counts files but not commits. */
+		diffCommitCount: integer('diff_commit_count'),
 		diffStatsUpdatedAt: timestamp('diff_stats_updated_at'),
 		createdAt: timestamp('created_at').defaultNow().notNull(),
 		updatedAt: timestamp('updated_at')

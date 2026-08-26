@@ -281,6 +281,7 @@ function PullRequestDetailContent({
 				)}
 				<PullRequestNavigation
 					changedFilesCount={diffStats?.changedFiles}
+					commitsCount={diffStats?.commits}
 					number={String(pullRequest.number)}
 					slug={slug}
 					tab={tab}
