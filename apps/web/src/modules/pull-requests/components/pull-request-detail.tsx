@@ -76,9 +76,11 @@ export function PullRequestDetail({
 		{ username, slug, number },
 		Boolean(data)
 	)
+	// Only a signed-in reader may wake the reconciliation, so an anonymous
+	// visit stays quiet instead of collecting 401s in the console.
 	usePullRequestGitHubAutoRefresh(
 		{ username, slug, number },
-		Boolean(activityQuery.data?.mirror)
+		Boolean(user) && Boolean(activityQuery.data?.mirror)
 	)
 
 	if (isLoading)
