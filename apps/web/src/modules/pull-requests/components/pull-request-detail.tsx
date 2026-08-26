@@ -22,6 +22,7 @@ import {
 	canWriteRepository,
 	isRepositoryOwner,
 } from '@/modules/repositories/helpers/repository-viewer-role'
+import { ScrollToTopButton } from '@/shared/components/scroll-to-top-button'
 import { toPullRequestDisplayNumber } from '../helpers/pull-request-display-number'
 import {
 	formatPullRequestDate,
@@ -201,6 +202,7 @@ function PullRequestDetailContent({
 
 	return (
 		<section className="flex flex-col gap-3">
+			<ScrollToTopButton />
 			<header className="flex flex-col gap-1.5">
 				{isEditingTitle ? (
 					<PullRequestTitleEditForm
