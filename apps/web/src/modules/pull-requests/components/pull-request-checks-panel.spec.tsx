@@ -59,9 +59,11 @@ const CHECK: Check = {
 	observedAt: new Date('2026-08-08T10:00:00Z'),
 }
 
-// The rollup row is the whole section until a reader asks for the list.
+// Pending and failing summaries open themselves; only a settled one needs the click.
 function expandChecks() {
-	fireEvent.click(screen.getByRole('button', { name: CHECKS_ROLLUP_NAME }))
+	const toggle = screen.getByRole('button', { name: CHECKS_ROLLUP_NAME })
+
+	if (toggle.getAttribute('aria-expanded') === 'false') fireEvent.click(toggle)
 }
 
 describe(PullRequestChecksPanel.name, () => {
