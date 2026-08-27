@@ -691,7 +691,9 @@ describe('pull request threads', () => {
 			/>
 		)
 
-		await user.click(screen.getByRole('button', { name: 'Resolve' }))
+		await user.click(
+			screen.getByRole('button', { name: 'Resolve conversation' })
+		)
 
 		expect(screen.getByText('Please rename this')).toBeTruthy()
 	})
@@ -716,7 +718,9 @@ describe('pull request threads', () => {
 			<PullRequestThreadCard {...props} thread={openThread} />
 		)
 
-		await user.click(screen.getByRole('button', { name: 'Resolve' }))
+		await user.click(
+			screen.getByRole('button', { name: 'Resolve conversation' })
+		)
 		expect(screen.getByText('Collapse after refresh')).toBeTruthy()
 		rerender(
 			<PullRequestThreadCard
@@ -859,9 +863,11 @@ describe('pull request threads', () => {
 		)
 
 		expect(screen.queryByText('Collapsed body')).toBeNull()
-		await user.click(screen.getByRole('button', { name: 'Show 1 comment' }))
+		await user.click(screen.getByRole('button', { name: 'Show resolved' }))
 		expect(screen.getByText('Collapsed body')).toBeTruthy()
-		expect(screen.getByRole('button', { name: 'Unresolve' })).toBeTruthy()
+		expect(
+			screen.getByRole('button', { name: 'Unresolve conversation' })
+		).toBeTruthy()
 	})
 
 	test('hides all composers when server authority denies comments', () => {
@@ -1402,9 +1408,9 @@ describe('pull request threads', () => {
 		expect(Boolean(screen.queryByRole('button', { name: 'Reply' }))).toBe(
 			expected
 		)
-		expect(Boolean(screen.queryByRole('button', { name: 'Resolve' }))).toBe(
-			expected
-		)
+		expect(
+			Boolean(screen.queryByRole('button', { name: 'Resolve conversation' }))
+		).toBe(expected)
 	})
 
 	test('closes an open top-level reply when authority changes to GitHub', async () => {
@@ -1446,7 +1452,9 @@ describe('pull request threads', () => {
 			screen.queryByRole('textbox', { name: 'Reply to thread' })
 		).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Reply' })).toBeNull()
-		expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Resolve conversation' })
+		).toBeNull()
 	})
 
 	test('keeps an open inline reply when authority changes to GitHub', async () => {
@@ -1796,7 +1804,9 @@ describe('pull request threads', () => {
 		expect(screen.getByText('Pending')).toBeTruthy()
 		// Resolving writes a public event, so a thread that is still a private
 		// draft offers nothing to resolve.
-		expect(screen.queryByRole('button', { name: 'Resolve' })).toBeNull()
+		expect(
+			screen.queryByRole('button', { name: 'Resolve conversation' })
+		).toBeNull()
 	})
 })
 
