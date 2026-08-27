@@ -44,6 +44,7 @@ const pullRequest: PullRequest = {
 	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
+	lastActivityAt: createdAt,
 	closedAt: null,
 	mergedAt: null,
 }

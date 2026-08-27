@@ -20,6 +20,7 @@ import {
 import { Injectable, Logger } from '@nestjs/common'
 import type {
 	ChecksList,
+	ListPullRequestsResult,
 	MergeBlockingReason,
 	MergePullRequestResult,
 	MergeRequirements,
@@ -35,16 +36,13 @@ import type {
 	ParsedMergePullRequestInput,
 	ParsedRetargetPullRequestInput,
 	PullRequest,
-	PullRequestAuthority,
 	PullRequestComparison,
 	PullRequestDiffStats,
 	PullRequestFileDiff,
 	PullRequestFileLines,
-	PullRequestListItem,
 	PullRequestReviewComparison,
 	PullRequestReviewComparisonContext,
 	PullRequestReviewSummary,
-	RepositoryViewerRole,
 } from '@repo/contracts'
 import type { GitHubActorId, PullRequest as PullRequestEntity } from '@repo/db'
 import type {
@@ -87,6 +85,10 @@ import { toMergeBypassContext } from '../helpers/merge-bypass-context'
 import { toPullRequestAuthority } from '../helpers/pull-request-authority'
 import { getPullRequestComparisonRefs } from '../helpers/pull-request-comparison-refs'
 import {
+	decodePullRequestCursor,
+	encodePullRequestCursor,
+} from '../helpers/pull-request-cursor'
+import {
 	highlightPullRequestDiff,
 	highlightPullRequestFileLines,
 } from '../helpers/pull-request-diff-highlighting'
@@ -122,12 +124,6 @@ const EMPTY_REVIEW_SUMMARY: PullRequestReviewSummary = {
 	approvedCount: 0,
 	changeRequestCount: 0,
 	staleCount: 0,
-}
-
-export interface ListPullRequestsResult {
-	pullRequests: PullRequestListItem[]
-	authority: PullRequestAuthority
-	viewerRole: RepositoryViewerRole
 }
 
 interface MergeUnderLeaseParams {
@@ -300,7 +296,17 @@ export class PullRequestsService {
 
 	async list(
 		viewerUserId: UserId | undefined,
-		{ slug, state, username }: ParsedListPullRequestsInput
+		{
+			cursor,
+			direction,
+			draft,
+			limit,
+			q,
+			slug,
+			sort,
+			state,
+			username,
+		}: ParsedListPullRequestsInput
 	): Promise<ListPullRequestsResult> {
 		const { repositoryId, storagePath, tesseraWritesAllowed, viewerRole } =
 			await this.repositoriesService.getReadableRepositoryContext(
@@ -310,10 +316,17 @@ export class PullRequestsService {
 					slug,
 				}
 			)
-		const pullRequests = await this.pullRequestsRepository.list({
-			repositoryId,
-			state,
-		})
+		const ordering = { sort, direction }
+		const { hasAnyPullRequests, hasMore, pullRequests } =
+			await this.pullRequestsRepository.list({
+				repositoryId,
+				state,
+				draft,
+				q,
+				...ordering,
+				limit,
+				cursor: cursor ? decodePullRequestCursor(cursor, ordering) : undefined,
+			})
 		// Review staleness and check rollups both hang off the head each row points
 		// at, so the page resolves heads once and both summaries read from it.
 		const headRefs = await this.pullRequestHeadResolver.listHeadRefs({
@@ -332,6 +345,11 @@ export class PullRequestsService {
 			}),
 		])
 
+		// The last row of the page is where the next one resumes, carrying the sort
+		// key at the precision the database ordered by rather than the millisecond
+		// a serialized date would have rounded it to.
+		const lastPullRequest = pullRequests.at(-1)
+
 		return {
 			pullRequests: pullRequests.map(pullRequest => ({
 				...toPullRequestOutput(pullRequest, username),
@@ -339,6 +357,17 @@ export class PullRequestsService {
 					reviewSummaries.get(pullRequest.id) ?? EMPTY_REVIEW_SUMMARY,
 				checksSummary: checksSummaries.get(pullRequest.id),
 			})),
+			nextCursor:
+				hasMore && lastPullRequest
+					? encodePullRequestCursor(
+							{
+								value: lastPullRequest.sortValue,
+								number: lastPullRequest.number,
+							},
+							ordering
+						)
+					: undefined,
+			hasAnyPullRequests,
 			authority: toPullRequestAuthority(tesseraWritesAllowed),
 			viewerRole,
 		}

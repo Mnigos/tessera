@@ -150,6 +150,8 @@ describe(PullRequestsController.name, () => {
 	test('delegates anonymous list requests', async () => {
 		const output = {
 			pullRequests: [{ ...pullRequest, reviewSummary }],
+			nextCursor: undefined,
+			hasAnyPullRequests: true,
 			authority: 'tessera' as const,
 			viewerRole: 'read' as const,
 		}

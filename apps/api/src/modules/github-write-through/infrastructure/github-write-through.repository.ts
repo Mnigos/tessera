@@ -8,6 +8,7 @@ import type {
 	GitHubSyncReviewOutcome,
 } from '@modules/github-sync/infrastructure/github-sync.client.types'
 import { toTombstonedNodeId } from '@modules/github-sync/infrastructure/github-sync-conversations.repository'
+import { touchPullRequestActivity } from '@modules/pull-requests/infrastructure/pull-request-activity.transactions'
 import { Injectable } from '@nestjs/common'
 import type { PullRequestThreadAnchor } from '@repo/contracts'
 import {
@@ -1203,6 +1204,11 @@ export class GitHubWriteThroughRepository {
 			externalKey,
 			actorId,
 			createdAt,
+		})
+
+		await touchPullRequestActivity(transaction, {
+			pullRequestIds: [pullRequestId],
+			occurredAt: createdAt,
 		})
 	}
 

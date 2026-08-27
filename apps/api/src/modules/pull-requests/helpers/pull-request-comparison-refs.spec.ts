@@ -38,6 +38,7 @@ function pullRequest(
 		diffStatsUpdatedAt: null,
 		createdAt,
 		updatedAt: createdAt,
+		lastActivityAt: createdAt,
 		closedAt: null,
 		mergedAt: null,
 		...overrides,
