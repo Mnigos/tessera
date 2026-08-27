@@ -1,61 +1,87 @@
 import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
-import { Link } from '@tanstack/react-router'
-import { GitPullRequest, Plus } from 'lucide-react'
+import { cn } from '@repo/ui/utils'
 import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
-import { usePullRequestsListQuery } from '../hooks/use-pull-requests-list.query'
-import { PullRequestListItem } from './pull-request-list-item'
-import { PullRequestsMessage } from './pull-requests-message'
 import {
-	type PullRequestStateFilterValue,
-	PullRequestsStateFilter,
-} from './pull-requests-state-filter'
+	PULL_REQUESTS_LIST_DEFAULT_FILTERS,
+	type PullRequestsListFilters,
+	type PullRequestsListSearch,
+	toListPullRequestsInput,
+} from '../helpers/pull-requests-list-search'
+import { usePullRequestsListQuery } from '../hooks/use-pull-requests-list.query'
+import { NewPullRequestLink } from './new-pull-request-link'
+import { PullRequestListItem } from './pull-request-list-item'
+import { PullRequestsListControls } from './pull-requests-list-controls'
+import { PullRequestsMessage } from './pull-requests-message'
+import { PullRequestsPagination } from './pull-requests-pagination'
+import { PullRequestsStateFilter } from './pull-requests-state-filter'
 
 interface PullRequestsListProps {
 	username: string
 	slug: string
-	selectedState: PullRequestStateFilterValue
-	onSelectedStateChange: (state: PullRequestStateFilterValue) => void
+	search: PullRequestsListSearch
+	onFiltersChange: (filters: Partial<PullRequestsListFilters>) => void
+	onPageChange: (cursor: string | undefined) => void
 }
 
 export function PullRequestsList({
 	username,
 	slug,
-	selectedState,
-	onSelectedStateChange,
+	search,
+	onFiltersChange,
+	onPageChange,
 }: Readonly<PullRequestsListProps>) {
-	const { data, isError, isLoading } = usePullRequestsListQuery({
-		username,
-		slug,
-		state: selectedState === 'all' ? undefined : selectedState,
-	})
+	const { data, isError, isLoading, isPlaceholderData } =
+		usePullRequestsListQuery(toListPullRequestsInput(username, slug, search))
+	const canCreatePullRequest =
+		canWriteRepository(data?.viewerRole) && data?.authority !== 'github'
 
 	return (
 		<section className="flex flex-col gap-4">
-			<header className="flex flex-wrap items-center justify-between gap-3">
-				<PullRequestsStateFilter
-					onSelectedStateChange={onSelectedStateChange}
-					selectedState={selectedState}
-				/>
-				{canWriteRepository(data?.viewerRole) &&
-					data?.authority !== 'github' && (
-						<Link
-							className="inline-flex h-8 items-center justify-center gap-2 rounded-md bg-primary px-3 font-medium text-primary-foreground text-xs transition-colors hover:bg-primary/90"
-							params={{ username, slug }}
-							to="/$username/$slug/pulls/new"
-						>
-							<Plus aria-hidden className="size-4" />
-							New pull request
-						</Link>
+			<header className="flex flex-col gap-3">
+				<div className="flex flex-wrap items-center justify-between gap-3">
+					<PullRequestsStateFilter
+						onSelectedStateChange={state => onFiltersChange({ state })}
+						selectedState={search.state}
+					/>
+					{canCreatePullRequest && (
+						<NewPullRequestLink slug={slug} username={username} />
 					)}
+				</div>
+				<PullRequestsListControls
+					filters={search}
+					onFiltersChange={onFiltersChange}
+				/>
 			</header>
-			<PullRequestsListContent
-				isError={isError}
-				isLoading={isLoading}
-				pullRequests={data?.pullRequests}
-				slug={slug}
-				username={username}
-			/>
+			{/* The rows already on screen stay put while the next page loads, so a
+			    keystroke never collapses the list back to a skeleton. */}
+			<div
+				aria-busy={isPlaceholderData}
+				className={cn(
+					'flex flex-col gap-4 transition-opacity duration-150',
+					isPlaceholderData && 'opacity-60'
+				)}
+			>
+				<PullRequestsListContent
+					canCreatePullRequest={canCreatePullRequest}
+					hasAnyPullRequests={data?.hasAnyPullRequests}
+					isError={isError}
+					isLoading={isLoading}
+					onClearFilters={() =>
+						onFiltersChange(PULL_REQUESTS_LIST_DEFAULT_FILTERS)
+					}
+					pullRequests={data?.pullRequests}
+					slug={slug}
+					username={username}
+				/>
+				<PullRequestsPagination
+					busy={isPlaceholderData}
+					cursor={search.cursor}
+					nextCursor={data?.nextCursor}
+					onPageChange={onPageChange}
+				/>
+			</div>
 		</section>
 	)
 }
@@ -65,6 +91,9 @@ interface PullRequestsListContentProps {
 	slug: string
 	isError: boolean
 	isLoading: boolean
+	canCreatePullRequest: boolean
+	hasAnyPullRequests?: boolean
+	onClearFilters: () => void
 	pullRequests?: PullRequestListItemData[]
 }
 
@@ -73,6 +102,9 @@ function PullRequestsListContent({
 	slug,
 	isError,
 	isLoading,
+	canCreatePullRequest,
+	hasAnyPullRequests,
+	onClearFilters,
 	pullRequests,
 }: Readonly<PullRequestsListContentProps>) {
 	if (isLoading) return <PullRequestsListLoadingState />
@@ -93,14 +125,32 @@ function PullRequestsListContent({
 			/>
 		)
 
+	// An empty repository and an empty result look alike, so the answer to
+	// "is there anything here at all" is what decides which one is said.
+	if (pullRequests.length === 0 && hasAnyPullRequests)
+		return (
+			<PullRequestsMessage
+				action={
+					<Button onClick={onClearFilters} size="sm" variant="outline">
+						Clear filters
+					</Button>
+				}
+				description="No pull request in this repository matches the current search and filters."
+				title="No pull requests match"
+			/>
+		)
+
 	if (pullRequests.length === 0)
 		return (
-			<Card className="flex flex-col items-center gap-2 p-8 text-center">
-				<GitPullRequest aria-hidden className="size-6 text-muted-foreground" />
-				<p className="text-muted-foreground text-sm">
-					No pull requests match this filter.
-				</p>
-			</Card>
+			<PullRequestsMessage
+				action={
+					canCreatePullRequest ? (
+						<NewPullRequestLink slug={slug} username={username} />
+					) : undefined
+				}
+				description="Open a pull request to propose changes from one branch into another."
+				title="No pull requests yet"
+			/>
 		)
 
 	return (
