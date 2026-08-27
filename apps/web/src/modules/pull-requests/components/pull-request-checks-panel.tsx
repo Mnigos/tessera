@@ -87,7 +87,11 @@ function ChecksPanel({
 		number,
 		expectedHeadSha: checksSummary.headSha,
 	})
-	const [isExpanded, setIsExpanded] = useState(false)
+	// Settled checks fold away; running or failing ones are what the reader came
+	// to watch, so those open the panel on arrival.
+	const [isExpanded, setIsExpanded] = useState(
+		checksSummary.overall === 'pending' || checksSummary.overall === 'failure'
+	)
 	const rollup = getCheckRollupPresentation(checksSummary.overall)
 	const missingRequiredContexts =
 		checksQuery.data?.missingRequiredContexts ?? []
