@@ -366,10 +366,13 @@ describe(PullRequestsRepository.name, () => {
 		).toHaveLength(6)
 	})
 
-	test.each(['12', '#12'])('adds an exact number predicate for %s', async q => {
+	test.each([
+		'12',
+		'#12',
+	])('adds an exact number predicate for %s', async searchQuery => {
 		await repository.list({
 			repositoryId,
-			q,
+			q: searchQuery,
 			sort: 'created',
 			direction: 'desc',
 			limit: 25,

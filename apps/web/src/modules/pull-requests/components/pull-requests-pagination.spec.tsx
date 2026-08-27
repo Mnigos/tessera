@@ -42,9 +42,6 @@ describe(PullRequestsPagination.name, () => {
 		).toBe(true)
 	})
 
-	// Busy only guards "Next": its cursor came from the rows being replaced and
-	// would page from the wrong position. The first page is a fixed destination
-	// no staleness can invalidate, so it stays available as the way out.
 	test('keeps first-page navigation available while a page is busy', () => {
 		render(
 			<PullRequestsPagination

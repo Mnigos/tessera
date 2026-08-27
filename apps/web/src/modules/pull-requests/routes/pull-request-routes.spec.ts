@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { routes } from '@/routes'
+import { pullRequestsListSearchSchema } from '../helpers/pull-requests-list-search'
 import { Route as commitsRoute } from './repository.$username.$slug.pulls.$number.commits.route'
 import { Route as filesRoute } from './repository.$username.$slug.pulls.$number.files.route'
 import { Route as overviewRoute } from './repository.$username.$slug.pulls.$number.index.route'
@@ -40,17 +41,13 @@ describe('pull request routes', () => {
 	})
 
 	test('parses pull request list search defaults, query text, and cursors', () => {
-		const searchSchema = pullsRoute.options.validateSearch as unknown as {
-			parse: (search: unknown) => unknown
-		}
-
-		expect(searchSchema.parse({})).toEqual({
+		expect(pullRequestsListSearchSchema.parse({})).toEqual({
 			state: 'open',
 			sort: 'created',
 			direction: 'desc',
 		})
 		expect(
-			searchSchema.parse({
+			pullRequestsListSearchSchema.parse({
 				state: 'all',
 				draft: 'only',
 				q: '  review  ',
@@ -66,7 +63,7 @@ describe('pull request routes', () => {
 			direction: 'asc',
 			cursor: 'next-page',
 		})
-		expect(searchSchema.parse({ q: '   ' })).toEqual({
+		expect(pullRequestsListSearchSchema.parse({ q: '   ' })).toEqual({
 			state: 'open',
 			q: undefined,
 			sort: 'created',
@@ -80,11 +77,7 @@ describe('pull request routes', () => {
 		['sort', 'number'],
 		['direction', 'sideways'],
 	] as const)('rejects an invalid %s search value', (key, value) => {
-		const searchSchema = pullsRoute.options.validateSearch as unknown as {
-			parse: (search: unknown) => unknown
-		}
-
-		expect(() => searchSchema.parse({ [key]: value })).toThrow()
+		expect(() => pullRequestsListSearchSchema.parse({ [key]: value })).toThrow()
 	})
 
 	test('resets the cursor for filters and preserves explicit page navigation', () => {

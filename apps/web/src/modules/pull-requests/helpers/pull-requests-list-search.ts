@@ -1,18 +1,33 @@
-import type {
-	ListPullRequestsInput,
-	PullRequestDraftFilter,
-	PullRequestSort,
-	PullRequestSortDirection,
-	PullRequestState,
+import {
+	type ListPullRequestsInput,
+	PULL_REQUESTS_SEARCH_MAX_LENGTH,
+	type PullRequestDraftFilter,
+	type PullRequestSort,
+	type PullRequestSortDirection,
+	type PullRequestState,
+	pullRequestDraftFilterSchema,
+	pullRequestSortDirectionSchema,
+	pullRequestSortSchema,
+	pullRequestStateSchema,
 } from '@repo/contracts'
+import { z } from 'zod'
 
-/**
- * The list widens the contract's state filter with `all`, which is the absence
- * of a state rather than a state of its own.
- */
 export type PullRequestStateFilterValue = PullRequestState | 'all'
 
-/** Everything the pull request list reads out of the URL. */
+export const pullRequestsListSearchSchema = z.object({
+	state: pullRequestStateSchema.or(z.literal('all')).default('open'),
+	draft: pullRequestDraftFilterSchema.optional(),
+	q: z
+		.string()
+		.trim()
+		.max(PULL_REQUESTS_SEARCH_MAX_LENGTH)
+		.optional()
+		.transform(query => (query ? query : undefined)),
+	sort: pullRequestSortSchema.default('created'),
+	direction: pullRequestSortDirectionSchema.default('desc'),
+	cursor: z.string().optional(),
+})
+
 export interface PullRequestsListSearch {
 	state: PullRequestStateFilterValue
 	draft?: PullRequestDraftFilter
@@ -22,10 +37,8 @@ export interface PullRequestsListSearch {
 	cursor?: string
 }
 
-/** The parts a control can change; the page is never one of them. */
 export type PullRequestsListFilters = Omit<PullRequestsListSearch, 'cursor'>
 
-/** What the list shows when the URL says nothing, and what "clear filters" restores. */
 export const PULL_REQUESTS_LIST_DEFAULT_FILTERS: PullRequestsListFilters = {
 	state: 'open',
 	draft: undefined,
@@ -34,7 +47,6 @@ export const PULL_REQUESTS_LIST_DEFAULT_FILTERS: PullRequestsListFilters = {
 	direction: 'desc',
 }
 
-/** The URL shape, where an omitted value means the default rather than a missing one. */
 export interface PullRequestsListSearchParams {
 	state?: PullRequestStateFilterValue
 	draft?: PullRequestDraftFilter
@@ -44,11 +56,6 @@ export interface PullRequestsListSearchParams {
 	cursor?: string
 }
 
-/**
- * The query string a search should be addressed by. Every value that matches its
- * default is dropped, so the untouched list carries no query string at all and a
- * shared link only ever names what was actually chosen.
- */
 export function toPullRequestsListSearchParams(
 	search: PullRequestsListSearch
 ): PullRequestsListSearchParams {
@@ -69,10 +76,6 @@ export function toPullRequestsListSearchParams(
 	}
 }
 
-/**
- * The list request a search describes. The loader and the rendered list both
- * build it here, so a prefetched page and the page on screen share a cache key.
- */
 export function toListPullRequestsInput(
 	username: string,
 	slug: string,

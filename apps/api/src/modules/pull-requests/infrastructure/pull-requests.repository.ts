@@ -1185,11 +1185,15 @@ export class PullRequestsRepository {
 		payload,
 		pullRequestId,
 	}: RecordMergeBlockedParams): Promise<void> {
-		await this.createEvent(this.db, {
-			pullRequestId,
-			actorUserId,
-			type: 'merge_blocked',
-			payload,
+		// createEvent writes the event and the activity mark; only a transaction
+		// keeps the pair from committing halfway.
+		await this.db.transaction(async tx => {
+			await this.createEvent(tx, {
+				pullRequestId,
+				actorUserId,
+				type: 'merge_blocked',
+				payload,
+			})
 		})
 	}
 
