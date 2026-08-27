@@ -11,6 +11,7 @@ import type {
 	GitHubSyncFailureClass,
 	GitHubWebhookDeliveryId,
 	RepositoryExternalSourceId,
+	RepositorySyncProgress,
 } from '@repo/db'
 import {
 	and,
@@ -1749,6 +1750,24 @@ export class GitHubSyncRepository {
 
 			return requestedSource
 		})
+	}
+
+	/**
+	 * What the run holding the lease is doing right now. Fire-and-forget from the
+	 * worker's point of view: progress is display data, never coordination.
+	 */
+	async writeSyncProgress(
+		repositoryId: RepositoryId,
+		progress: Omit<RepositorySyncProgress, 'updatedAt'> | null
+	): Promise<void> {
+		await this.db
+			.update(repositoryExternalSources)
+			.set({
+				syncProgress: progress
+					? { ...progress, updatedAt: new Date().toISOString() }
+					: null,
+			})
+			.where(eq(repositoryExternalSources.repositoryId, repositoryId))
 	}
 
 	async requestDueReconciliations({

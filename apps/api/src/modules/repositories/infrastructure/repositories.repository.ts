@@ -187,6 +187,7 @@ const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {
 	sourceDefaultBranch: repositoryExternalSources.sourceDefaultBranch,
 	mirrorMode: repositoryExternalSources.mirrorMode,
 	syncStatus: repositoryExternalSources.syncStatus,
+	syncProgress: repositoryExternalSources.syncProgress,
 	lastSyncStartedAt: repositoryExternalSources.lastSyncStartedAt,
 	lastSyncSucceededAt: repositoryExternalSources.lastSyncSucceededAt,
 	lastSyncFailedAt: repositoryExternalSources.lastSyncFailedAt,

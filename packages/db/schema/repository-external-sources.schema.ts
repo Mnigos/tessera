@@ -6,6 +6,7 @@ import {
 	check,
 	index,
 	integer,
+	jsonb,
 	pgEnum,
 	pgTable,
 	text,
@@ -104,6 +105,17 @@ export const repositoryExternalSourceGitHubPushBackStatusEnum = pgEnum(
 	['idle', 'running', 'succeeded', 'failed']
 )
 
+/**
+ * What one running reconciliation is doing, stage by stage. `current`/`total`
+ * only exist on stages that iterate; a stage without them is simply underway.
+ */
+export interface RepositorySyncProgress {
+	stage: 'listing' | 'repository' | 'pull_requests' | 'conversations' | 'checks'
+	current?: number
+	total?: number
+	updatedAt: string
+}
+
 export const repositoryExternalSources = pgTable(
 	'repository_external_sources',
 	{
@@ -136,6 +148,8 @@ export const repositoryExternalSources = pgTable(
 		syncStatus: repositoryExternalSourceSyncStatusEnum('sync_status')
 			.notNull()
 			.default('pending'),
+		/** What the running sync is doing right now; null whenever no run holds the lease. */
+		syncProgress: jsonb('sync_progress').$type<RepositorySyncProgress>(),
 		lastSyncStartedAt: timestamp('last_sync_started_at'),
 		lastSyncSucceededAt: timestamp('last_sync_succeeded_at'),
 		lastSyncFailedAt: timestamp('last_sync_failed_at'),

@@ -1,6 +1,7 @@
 import type {
 	RepositorySyncHealth,
 	RepositorySyncHealthState,
+	RepositorySyncProgressOutput,
 } from '@repo/contracts'
 import {
 	CircleCheck,
@@ -121,6 +122,30 @@ const RATE_LIMITED_PRESENTATION: RepositorySyncHealthPresentation = {
 	isQuiet: false,
 }
 
+const SYNC_PROGRESS_STAGE_LABELS: Record<
+	RepositorySyncProgressOutput['stage'],
+	string
+> = {
+	listing: 'Reading what changed on GitHub',
+	repository: 'Fetching the repository',
+	pull_requests: 'Syncing pull requests',
+	conversations: 'Syncing comments and reviews',
+	checks: 'Syncing checks',
+}
+
+/** The running stage as a sentence fragment, with counts where the stage iterates. */
+export function formatSyncProgress(
+	progress: RepositorySyncProgressOutput
+): string {
+	const label = SYNC_PROGRESS_STAGE_LABELS[progress.stage]
+
+	if (progress.current !== undefined && progress.total !== undefined)
+		return `${label} ${Math.min(progress.current + 1, progress.total)}/${progress.total}`
+	if (progress.total !== undefined) return `${label} (${progress.total})`
+
+	return label
+}
+
 export function getRepositorySyncHealthPresentation(
 	syncHealth: RepositorySyncHealth
 ): RepositorySyncHealthPresentation {
@@ -131,6 +156,14 @@ export function getRepositorySyncHealthPresentation(
 		return RATE_LIMITED_PRESENTATION
 
 	const presentation = SYNC_HEALTH_PRESENTATIONS[syncHealth.state]
+
+	// A run that reports where it is deserves better copy than "queued or in
+	// progress" — the stage is the description.
+	if (syncHealth.state === 'pending' && syncHealth.progress)
+		return {
+			...presentation,
+			description: `${formatSyncProgress(syncHealth.progress)}…`,
+		}
 
 	if (syncHealth.state !== 'blocked') return presentation
 
