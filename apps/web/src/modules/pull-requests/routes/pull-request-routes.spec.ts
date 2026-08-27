@@ -2,8 +2,8 @@ import { fireEvent, render, screen } from '@testing-library/react'
 import { createElement } from 'react'
 import { routes } from '@/routes'
 import { pullRequestsListSearchSchema } from '../helpers/pull-requests-list-search'
+import { Route as filesRoute } from './repository.$username.$slug.pulls.$number.changes.route'
 import { Route as commitsRoute } from './repository.$username.$slug.pulls.$number.commits.route'
-import { Route as filesRoute } from './repository.$username.$slug.pulls.$number.files.route'
 import { Route as overviewRoute } from './repository.$username.$slug.pulls.$number.index.route'
 import { Route as pullsRoute } from './repository.$username.$slug.pulls.route'
 
@@ -33,7 +33,7 @@ vi.mock('../components/pull-requests-list', () => ({
 
 const REVIEW_ID = '00000000-0000-4000-8000-000000000011'
 const PULL_REQUEST_PATHS = ['/pulls', '/pulls/new', '/pulls/$number']
-const PULL_REQUEST_DETAIL_PATHS = ['index', '/commits', '/files']
+const PULL_REQUEST_DETAIL_PATHS = ['index', '/commits', '/changes', '/files']
 
 describe('pull request routes', () => {
 	afterEach(() => {

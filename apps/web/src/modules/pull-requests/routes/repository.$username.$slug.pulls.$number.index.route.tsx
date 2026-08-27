@@ -20,7 +20,7 @@ export const Route = createFileRoute('/$username/$slug/pulls/$number/')({
 
 		if (search.tab === 'files')
 			throw redirect({
-				to: '/$username/$slug/pulls/$number/files',
+				to: '/$username/$slug/pulls/$number/changes',
 				params,
 			})
 

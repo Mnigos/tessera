@@ -22,7 +22,7 @@ interface PullRequestNavigationItem {
 	to:
 		| '/$username/$slug/pulls/$number'
 		| '/$username/$slug/pulls/$number/commits'
-		| '/$username/$slug/pulls/$number/files'
+		| '/$username/$slug/pulls/$number/changes'
 }
 
 const PULL_REQUEST_NAVIGATION: PullRequestNavigationItem[] = [
@@ -39,7 +39,7 @@ const PULL_REQUEST_NAVIGATION: PullRequestNavigationItem[] = [
 	{
 		label: 'Files changed',
 		tab: 'files',
-		to: '/$username/$slug/pulls/$number/files',
+		to: '/$username/$slug/pulls/$number/changes',
 	},
 ]
 

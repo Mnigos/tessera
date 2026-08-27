@@ -58,6 +58,11 @@ export const routes = rootRoute('routes/__root.tsx', [
 						'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.commits.route.tsx'
 					),
 					route(
+						'/changes',
+						'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.changes.route.tsx'
+					),
+					// The tab lived at /files before the rename; old links redirect.
+					route(
 						'/files',
 						'modules/pull-requests/routes/repository.$username.$slug.pulls.$number.files.route.tsx'
 					),

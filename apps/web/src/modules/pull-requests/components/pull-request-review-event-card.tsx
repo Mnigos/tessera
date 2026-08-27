@@ -110,7 +110,7 @@ export function PullRequestReviewEventCard({
 						className="inline-flex items-center gap-1 text-muted-foreground text-xs hover:underline"
 						params={{ username, slug, number }}
 						search={{ reviewId: review.id }}
-						to="/$username/$slug/pulls/$number/files"
+						to="/$username/$slug/pulls/$number/changes"
 					>
 						<GitCompareArrows aria-hidden className="size-3" />
 						View changes since this review

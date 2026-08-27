@@ -257,7 +257,7 @@ function PullRequestReviewerRow({
 							? `The review was left against ${entry.headSha}`
 							: undefined
 					}
-					to="/$username/$slug/pulls/$number/files"
+					to="/$username/$slug/pulls/$number/changes"
 				>
 					<GitCompareArrows aria-hidden className="size-3" />
 					View changes since
