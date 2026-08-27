@@ -256,6 +256,14 @@ export const pullRequests = pgTable(
 			.defaultNow()
 			.$onUpdate(() => new Date())
 			.notNull(),
+		/**
+		 * When anything last happened on the pull request, as the "recent activity"
+		 * ordering reads it. `updatedAt` only moves when the row itself is written —
+		 * an edit or a synchronization — so a pull request that collected a dozen
+		 * comments and reviews would sort as untouched. This moves whenever a pull
+		 * request event is recorded.
+		 */
+		lastActivityAt: timestamp('last_activity_at').defaultNow().notNull(),
 		closedAt: timestamp('closed_at'),
 		mergedAt: timestamp('merged_at'),
 	},
@@ -276,6 +284,28 @@ export const pullRequests = pgTable(
 			.on(table.repositoryId, table.sourceBranch)
 			.where(sql`${table.state} = 'open' and ${table.provider} = 'tessera'`),
 		index('pull_requests_author_user_id_idx').on(table.authorUserId),
+		// One composite per sort key, each ending in the number the keyset
+		// pagination breaks ties on, so a page is one index range scan whichever
+		// ordering was asked for.
+		index('pull_requests_repository_created_at_number_idx').on(
+			table.repositoryId,
+			table.createdAt,
+			table.number
+		),
+		index('pull_requests_repository_updated_at_number_idx').on(
+			table.repositoryId,
+			table.updatedAt,
+			table.number
+		),
+		index('pull_requests_repository_last_activity_at_number_idx').on(
+			table.repositoryId,
+			table.lastActivityAt,
+			table.number
+		),
+		// Search carries no index of its own: the predicate is one OR spanning row
+		// columns and joined author logins, and a disjunction with un-indexable
+		// arms cannot be served by indexes on the others. Every search is instead
+		// a scan of the rows the repository-scoped composite indexes narrow to.
 		check('pull_requests_number_check', sql`${table.number} > 0`),
 		check(
 			'pull_requests_distinct_branches_check',
