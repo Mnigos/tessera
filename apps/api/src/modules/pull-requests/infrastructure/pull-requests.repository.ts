@@ -596,6 +596,11 @@ export class PullRequestsRepository {
 		repositoryId,
 	}: ReconcileGitHubPullRequestParams): Promise<ReconciledGitHubPullRequest> {
 		const providerMergeableState = pullRequest.mergeableState ?? null
+		// A failed stats read leaves no verdict; the one already stored outlives
+		// it rather than being erased by a blind write.
+		const preservedMergeableState =
+			pullRequest.mergeableState ??
+			sql`${gitHubPullRequestMappings.providerMergeableState}`
 
 		return await this.db.transaction(async transaction => {
 			await transaction.execute(
@@ -675,7 +680,7 @@ export class PullRequestsRepository {
 							draft: pullRequest.draft,
 							labels: pullRequest.labels,
 							assignees: pullRequest.assignees,
-							providerMergeableState,
+							providerMergeableState: preservedMergeableState,
 							providerUpdatedAt: pullRequest.updatedAt,
 							providerClosedAt: pullRequest.closedAt ?? null,
 							providerMergedAt: pullRequest.mergedAt ?? null,

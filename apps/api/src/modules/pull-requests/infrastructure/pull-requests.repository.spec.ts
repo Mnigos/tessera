@@ -417,6 +417,43 @@ describe(PullRequestsRepository.name, () => {
 		expect(cursor.params).toContain('moved-head')
 	})
 
+	test('keeps the stored mergeability verdict when a stats read brought none', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([{ pullRequestId, repositoryId }])
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: gitHubPullRequest,
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		const [upsert] = mappingConflictMock.mock.calls.at(0) ?? []
+		const preserved = new PgDialect().sqlToQuery(
+			upsert.set.providerMergeableState
+		)
+
+		// No verdict in the payload means the column keeps what it holds instead
+		// of being blanked by the write.
+		expect(preserved.sql).toContain('provider_mergeable_state')
+	})
+
+	test('stores the mergeability verdict a stats read reported', async () => {
+		selectLimitMock.mockReturnValue({ for: selectForMock })
+		selectForMock.mockResolvedValue([{ pullRequestId, repositoryId }])
+
+		await repository.reconcileGitHubPullRequest({
+			repositoryId,
+			pullRequest: { ...gitHubPullRequest, mergeableState: 'conflicting' },
+			authorActorId: gitHubActorId,
+			pendingEvents: [],
+		})
+
+		const [upsert] = mappingConflictMock.mock.calls.at(0) ?? []
+
+		expect(upsert.set.providerMergeableState).toBe('conflicting')
+	})
+
 	test('stores the labels and assignees GitHub reports on the mapping', async () => {
 		selectLimitMock.mockReturnValue({ for: selectForMock })
 		selectForMock.mockResolvedValue([{ pullRequestId, repositoryId }])

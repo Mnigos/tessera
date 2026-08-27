@@ -199,16 +199,8 @@ function getGitHubMergeGate(
 ): ReactElement | undefined {
 	if (!isGitHubAuthoritative) return undefined
 
-	if (
-		requirements.eligible &&
-		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
-	)
-		return (
-			<p className="text-sm">
-				{GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping}
-			</p>
-		)
-
+	// The conflict wins over a missing mapping: GitHub named a concrete reason
+	// the person can act on, and the mapping message would bury it.
 	if (pullRequest.github?.mergeableState === 'conflicting')
 		return (
 			<div className="flex flex-col gap-1.5">
@@ -221,6 +213,16 @@ function getGitHubMergeGate(
 					here once the branch is clean.
 				</p>
 			</div>
+		)
+
+	if (
+		requirements.eligible &&
+		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
+	)
+		return (
+			<p className="text-sm">
+				{GITHUB_WRITE_REJECTED_MESSAGES.missing_mapping}
+			</p>
 		)
 
 	return undefined
