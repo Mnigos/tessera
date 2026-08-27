@@ -31,6 +31,18 @@ const CHANGES_BADGE_REGEX = /requested changes/
 const STALE_BADGE_REGEX = /stale/
 const ANY_REVIEW_BADGE_REGEX =
 	/approved|requested changes|awaiting review|stale/
+const DEFAULT_SEARCH = {
+	state: 'all',
+	sort: 'created',
+	direction: 'desc',
+} as const
+const LIST_PROPS = {
+	onFiltersChange: vi.fn(),
+	onPageChange: vi.fn(),
+	search: DEFAULT_SEARCH,
+	slug: 'notes',
+	username: 'marta',
+}
 const PULL_REQUEST = pullRequestListItemSchema.parse({
 	reviewSummary: {
 		requestedCount: 1,
@@ -66,13 +78,7 @@ describe(PullRequestsList.name, () => {
 			isLoading: true,
 			isError: false,
 		} as never)
-		const props = {
-			username: 'marta',
-			slug: 'notes',
-			onSelectedStateChange: vi.fn(),
-			selectedState: 'all' as const,
-		}
-		const { rerender } = render(<PullRequestsList {...props} />)
+		const { rerender } = render(<PullRequestsList {...LIST_PROPS} />)
 		expect(document.querySelector('.animate-pulse')).toBeTruthy()
 
 		usePullRequestsListQueryMock.mockReturnValue({
@@ -80,32 +86,76 @@ describe(PullRequestsList.name, () => {
 			isLoading: false,
 			isError: true,
 		} as never)
-		rerender(<PullRequestsList {...props} />)
+		rerender(<PullRequestsList {...LIST_PROPS} />)
 		expect(screen.getByText('Pull requests could not be loaded')).toBeTruthy()
 
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [], viewerRole: 'read' },
+			data: { pullRequests: [], hasAnyPullRequests: true, viewerRole: 'read' },
 			isLoading: false,
 			isError: false,
 		} as never)
-		rerender(<PullRequestsList {...props} />)
-		expect(screen.getByText('No pull requests match this filter.')).toBeTruthy()
+		rerender(<PullRequestsList {...LIST_PROPS} />)
+		expect(screen.getByText('No pull requests match')).toBeTruthy()
+
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: { pullRequests: [], hasAnyPullRequests: false, viewerRole: 'read' },
+			isLoading: false,
+			isError: false,
+		} as never)
+		rerender(<PullRequestsList {...LIST_PROPS} />)
+		expect(screen.getByText('No pull requests yet')).toBeTruthy()
+	})
+
+	test('clears every filter from a no-match state', async () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: { pullRequests: [], hasAnyPullRequests: true, viewerRole: 'read' },
+			isLoading: false,
+			isError: false,
+		} as never)
+		const onFiltersChange = vi.fn()
+		const user = userEvent.setup()
+		render(
+			<PullRequestsList
+				{...LIST_PROPS}
+				onFiltersChange={onFiltersChange}
+				search={{
+					state: 'closed',
+					draft: 'only',
+					q: 'missing',
+					sort: 'activity',
+					direction: 'asc',
+				}}
+			/>
+		)
+
+		await user.click(screen.getByRole('button', { name: 'Clear filters' }))
+
+		expect(onFiltersChange).toHaveBeenCalledWith({
+			state: 'open',
+			draft: undefined,
+			q: undefined,
+			sort: 'created',
+			direction: 'desc',
+		})
 	})
 
 	test('renders metadata, write action, and state filter behavior', async () => {
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [PULL_REQUEST], viewerRole: 'write' },
+			data: {
+				pullRequests: [PULL_REQUEST],
+				hasAnyPullRequests: true,
+				viewerRole: 'write',
+			},
 			isLoading: false,
 			isError: false,
 		} as never)
-		const onSelectedStateChange = vi.fn()
+		const onFiltersChange = vi.fn()
 		const user = userEvent.setup()
 		render(
 			<PullRequestsList
-				onSelectedStateChange={onSelectedStateChange}
-				selectedState="open"
-				slug="notes"
-				username="marta"
+				{...LIST_PROPS}
+				onFiltersChange={onFiltersChange}
+				search={{ ...DEFAULT_SEARCH, state: 'open' }}
 			/>
 		)
 
@@ -113,21 +163,39 @@ describe(PullRequestsList.name, () => {
 		expect(screen.getByText('by marta')).toBeTruthy()
 		expect(screen.getByRole('link', { name: 'New pull request' })).toBeTruthy()
 		await user.click(screen.getByRole('button', { name: 'Closed' }))
-		expect(onSelectedStateChange).toHaveBeenCalledWith('closed')
+		expect(onFiltersChange).toHaveBeenCalledWith({ state: 'closed' })
 	})
 
 	test('hides the new pull request action for read-only viewers', () => {
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [PULL_REQUEST], viewerRole: 'read' },
+			data: {
+				pullRequests: [PULL_REQUEST],
+				hasAnyPullRequests: true,
+				viewerRole: 'read',
+			},
+			isLoading: false,
+			isError: false,
+		} as never)
+		render(<PullRequestsList {...LIST_PROPS} />)
+
+		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
+	})
+
+	test('hides the new pull request action on a writable GitHub mirror', () => {
+		usePullRequestsListQueryMock.mockReturnValue({
+			data: {
+				authority: 'github',
+				pullRequests: [PULL_REQUEST],
+				hasAnyPullRequests: true,
+				viewerRole: 'write',
+			},
 			isLoading: false,
 			isError: false,
 		} as never)
 		render(
 			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="all"
-				slug="notes"
-				username="marta"
+				{...LIST_PROPS}
+				search={{ ...DEFAULT_SEARCH, state: 'open' }}
 			/>
 		)
 
@@ -139,6 +207,7 @@ describe(PullRequestsList.name, () => {
 			data: {
 				authority: 'github',
 				pullRequests: [PULL_REQUEST],
+				hasAnyPullRequests: true,
 				viewerRole: 'write',
 			},
 			isLoading: false,
@@ -146,32 +215,8 @@ describe(PullRequestsList.name, () => {
 		} as never)
 		render(
 			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="open"
-				slug="notes"
-				username="marta"
-			/>
-		)
-
-		expect(screen.queryByRole('link', { name: 'New pull request' })).toBeNull()
-	})
-
-	test('hides the new pull request action on a writable GitHub mirror', () => {
-		usePullRequestsListQueryMock.mockReturnValue({
-			data: {
-				authority: 'github',
-				pullRequests: [PULL_REQUEST],
-				viewerRole: 'write',
-			},
-			isLoading: false,
-			isError: false,
-		} as never)
-		render(
-			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="open"
-				slug="notes"
-				username="marta"
+				{...LIST_PROPS}
+				search={{ ...DEFAULT_SEARCH, state: 'open' }}
 			/>
 		)
 
@@ -180,18 +225,15 @@ describe(PullRequestsList.name, () => {
 
 	test('renders non-zero review summary badges and omits zero counts', () => {
 		usePullRequestsListQueryMock.mockReturnValue({
-			data: { pullRequests: [PULL_REQUEST], viewerRole: 'read' },
+			data: {
+				pullRequests: [PULL_REQUEST],
+				hasAnyPullRequests: true,
+				viewerRole: 'read',
+			},
 			isLoading: false,
 			isError: false,
 		} as never)
-		render(
-			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="all"
-				slug="notes"
-				username="marta"
-			/>
-		)
+		render(<PullRequestsList {...LIST_PROPS} />)
 
 		expect(screen.getByTitle('1 approved')).toBeTruthy()
 		expect(screen.getByTitle('1 awaiting review')).toBeTruthy()
@@ -213,19 +255,13 @@ describe(PullRequestsList.name, () => {
 						},
 					},
 				],
+				hasAnyPullRequests: true,
 				viewerRole: 'read',
 			},
 			isLoading: false,
 			isError: false,
 		} as never)
-		render(
-			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="all"
-				slug="notes"
-				username="marta"
-			/>
-		)
+		render(<PullRequestsList {...LIST_PROPS} />)
 
 		expect(screen.queryByTitle(ANY_REVIEW_BADGE_REGEX)).toBeNull()
 	})
@@ -250,20 +286,14 @@ describe(PullRequestsList.name, () => {
 						},
 					},
 				],
+				hasAnyPullRequests: true,
 				viewerRole: 'read',
 			},
 			isLoading: false,
 			isError: false,
 		} as never)
 
-		render(
-			<PullRequestsList
-				onSelectedStateChange={vi.fn()}
-				selectedState="all"
-				slug="notes"
-				username="marta"
-			/>
-		)
+		render(<PullRequestsList {...LIST_PROPS} />)
 
 		expect(screen.getByText('#77')).toBeTruthy()
 		expect(screen.getByText(filesLabel)).toBeTruthy()

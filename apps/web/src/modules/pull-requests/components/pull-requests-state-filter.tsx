@@ -1,7 +1,5 @@
-import type { PullRequestState } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
-
-export type PullRequestStateFilterValue = PullRequestState | 'all'
+import type { PullRequestStateFilterValue } from '../helpers/pull-requests-list-search'
 
 interface PullRequestStateFilterOption {
 	label: string
