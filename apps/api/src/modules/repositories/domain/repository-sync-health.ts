@@ -28,6 +28,9 @@ const REAUTHORIZABLE_CODES: ReadonlySet<RepositorySyncHealthCode> = new Set([
 	'repository_unavailable',
 ])
 
+/** A run heartbeats progress far more often than this; silence this long is death. */
+const STALE_PROGRESS_MS = 3 * 60 * 1000
+
 export interface RepositorySyncHealthFacts {
 	syncStatus: 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked'
 	syncProgress?: RepositorySyncProgress
@@ -62,10 +65,15 @@ export function toRepositorySyncHealth(
 
 	return {
 		state,
-		// Progress only means something while a run is on the row; a leftover from
-		// a crashed run would otherwise show as a frozen bar.
+		// Progress only means something while a run is on the row. A killed
+		// worker writes no cleanup, so anything that has not moved in minutes is
+		// a leftover, not a run — the row reads as plainly pending instead of as
+		// a frozen bar.
 		progress:
-			state === 'pending' && facts.syncProgress
+			state === 'pending' &&
+			facts.syncProgress &&
+			now.getTime() - Date.parse(facts.syncProgress.updatedAt) <
+				STALE_PROGRESS_MS
 				? {
 						stage: facts.syncProgress.stage,
 						current: facts.syncProgress.current,
