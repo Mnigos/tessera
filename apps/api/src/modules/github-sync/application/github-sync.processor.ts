@@ -9,6 +9,7 @@ import type {
 	GitHubSyncAttemptId,
 	GitHubSyncAttemptStatus,
 	GitHubSyncFailureClass,
+	RepositorySyncProgress,
 } from '@repo/db'
 import type { RepositoryId } from '@repo/domain'
 import { type Job, UnrecoverableError } from 'bullmq'
@@ -131,6 +132,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				startedAt,
 			})
 
+			await this.writeProgress(claim, { stage: 'listing' })
 			const installationToken =
 				await this.gitHubAppAuthService.getInstallationToken(
 					claim.externalInstallationId
@@ -142,6 +144,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 					updatedAfter: claim.pullRequestSyncCursorAt,
 				})
 			await this.requireHeartbeat(claim)
+			await this.writeProgress(claim, { stage: 'repository' })
 			const mirrorToken = await this.gitHubAppAuthService.getInstallationToken(
 				claim.externalInstallationId
 			)
@@ -158,6 +161,10 @@ export class GitHubSyncProcessor extends WorkerHost {
 			)
 			const pendingEvents =
 				await this.gitHubSyncRepository.listPendingPullRequestEvents(claim)
+			await this.writeProgress(claim, {
+				stage: 'pull_requests',
+				total: reconciliation.pullRequests.length,
+			})
 			await this.pullRequestsService.reconcileGitHubPullRequests({
 				repositoryId: claim.repositoryId,
 				pullRequests: reconciliation.pullRequests,
@@ -174,6 +181,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 				storagePath: importResult.storagePath,
 			})
 			await this.observeRateLimit(claim, reconciliation.rateLimit)
+			await this.writeProgress(claim, { stage: 'checks' })
 			const { isComplete, projectedShas } = await this.projectChecks({
 				accessToken: mirrorToken.token,
 				claim,
@@ -220,6 +228,27 @@ export class GitHubSyncProcessor extends WorkerHost {
 			})
 		} catch (error) {
 			await this.failRun({ attemptId, claim, error, startedAt })
+		} finally {
+			// However the run ended, nothing is in progress anymore.
+			await this.writeProgress(claim, null)
+		}
+	}
+
+	/** Progress is display data; a run never fails because a write of it did. */
+	private async writeProgress(
+		claim: GitHubSyncClaim,
+		progress: Omit<RepositorySyncProgress, 'updatedAt'> | null
+	): Promise<void> {
+		try {
+			await this.gitHubSyncRepository.writeSyncProgress(
+				claim.repositoryId,
+				progress
+			)
+		} catch (error) {
+			this.logger.warn(
+				`Sync progress for repository ${claim.repositoryId} could not be written`,
+				error
+			)
 		}
 	}
 
@@ -494,6 +523,11 @@ export class GitHubSyncProcessor extends WorkerHost {
 
 		for (const target of targets) {
 			await this.requireHeartbeat(claim)
+			await this.writeProgress(claim, {
+				stage: 'conversations',
+				current: projectedNumbers.length,
+				total: targets.length,
+			})
 
 			const conversation =
 				await this.gitHubSyncClient.getPullRequestConversation({

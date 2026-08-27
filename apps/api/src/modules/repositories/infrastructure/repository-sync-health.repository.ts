@@ -117,6 +117,7 @@ export class RepositorySyncHealthRepository {
 		const [facts] = await this.db
 			.select({
 				syncStatus: repositoryExternalSources.syncStatus,
+				syncProgress: repositoryExternalSources.syncProgress,
 				lastSyncSucceededAt: repositoryExternalSources.lastSyncSucceededAt,
 				syncFailureCode: repositoryExternalSources.syncFailureCode,
 				syncFailureReason: repositoryExternalSources.syncFailureReason,
@@ -155,6 +156,7 @@ export class RepositorySyncHealthRepository {
 
 		return {
 			syncStatus: facts.syncStatus,
+			syncProgress: facts.syncProgress ?? undefined,
 			lastSyncSucceededAt: facts.lastSyncSucceededAt ?? undefined,
 			syncFailureCode: facts.syncFailureCode ?? undefined,
 			syncFailureReason: facts.syncFailureReason ?? undefined,
