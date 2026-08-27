@@ -22,6 +22,7 @@ import { ExternalServiceError } from '~/shared/errors'
 import { mockUserId } from '~/shared/test-utils'
 import { RepositoryMergeInProgressError } from '../domain/merge-queue.errors'
 import {
+	InvalidPullRequestCursorError,
 	PullRequestAlreadyOpenError,
 	PullRequestFileContentNotFoundError,
 	PullRequestInvalidBranchesError,
@@ -33,6 +34,7 @@ import {
 	PullRequestStateConflictError,
 } from '../domain/pull-request.errors'
 import { PullRequestReviewNotFoundError } from '../domain/pull-request-review.errors'
+import { decodePullRequestCursor } from '../helpers/pull-request-cursor'
 import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
 import { MergeQueueRepository } from '../infrastructure/merge-queue.repository'
 import {
@@ -100,6 +102,7 @@ const pullRequest: PullRequest = {
 	diffStatsUpdatedAt: null,
 	createdAt,
 	updatedAt: createdAt,
+	lastActivityAt: createdAt,
 	closedAt: null,
 	mergedAt: null,
 }
@@ -628,18 +631,110 @@ describe(PullRequestsService.name, () => {
 	})
 
 	test('lists readable repository pull requests by state', async () => {
-		const listSpy = vi
-			.spyOn(repository, 'list')
-			.mockResolvedValue([pullRequest])
+		const listSpy = vi.spyOn(repository, 'list').mockResolvedValue({
+			pullRequests: [
+				{ ...pullRequest, sortValue: '2026-07-11 00:00:00.000000' },
+			],
+			hasMore: false,
+			hasAnyPullRequests: true,
+		})
 
 		const result = await service.list(undefined, {
 			...repositoryInput,
 			state: 'open',
+			q: undefined,
+			sort: 'created',
+			direction: 'desc',
+			limit: 25,
 		})
 
 		expect(result.pullRequests).toHaveLength(1)
 		expect(result.viewerRole).toBe('write')
-		expect(listSpy).toHaveBeenCalledWith({ repositoryId, state: 'open' })
+		expect(result.hasAnyPullRequests).toBe(true)
+		// A page that is not full ends the sequence, so there is nothing to resume from.
+		expect(result.nextCursor).toBeUndefined()
+		expect(listSpy).toHaveBeenCalledWith({
+			repositoryId,
+			state: 'open',
+			draft: undefined,
+			q: undefined,
+			sort: 'created',
+			direction: 'desc',
+			limit: 25,
+			cursor: undefined,
+		})
+	})
+
+	test('builds the next cursor from the last visible row', async () => {
+		vi.spyOn(repository, 'list').mockResolvedValue({
+			pullRequests: [
+				{ ...pullRequest, sortValue: '2026-07-11 00:00:00.000001' },
+				{
+					...pullRequest,
+					number: 2,
+					sortValue: '2026-07-11 00:00:00.000002',
+				},
+			],
+			hasMore: true,
+			hasAnyPullRequests: true,
+		})
+
+		const result = await service.list(undefined, {
+			...repositoryInput,
+			state: undefined,
+			q: undefined,
+			sort: 'activity',
+			direction: 'asc',
+			limit: 2,
+		})
+
+		expect(result.nextCursor).toBeDefined()
+		expect(
+			decodePullRequestCursor(result.nextCursor ?? '', {
+				sort: 'activity',
+				direction: 'asc',
+			})
+		).toEqual({ value: '2026-07-11 00:00:00.000002', number: 2 })
+	})
+
+	test('propagates an invalid cursor without listing repository rows', async () => {
+		const listSpy = vi.spyOn(repository, 'list')
+
+		await expect(
+			service.list(undefined, {
+				...repositoryInput,
+				state: undefined,
+				q: undefined,
+				sort: 'created',
+				direction: 'desc',
+				limit: 25,
+				cursor: 'not-a-cursor',
+			})
+		).rejects.toBeInstanceOf(InvalidPullRequestCursorError)
+		expect(listSpy).not.toHaveBeenCalled()
+	})
+
+	test('passes through an empty repository result', async () => {
+		vi.spyOn(repository, 'list').mockResolvedValue({
+			pullRequests: [],
+			hasMore: false,
+			hasAnyPullRequests: false,
+		})
+
+		expect(
+			await service.list(undefined, {
+				...repositoryInput,
+				state: undefined,
+				q: undefined,
+				sort: 'created',
+				direction: 'desc',
+				limit: 25,
+			})
+		).toMatchObject({
+			pullRequests: [],
+			hasAnyPullRequests: false,
+			nextCursor: undefined,
+		})
 	})
 
 	test('gets a pull request with lifecycle events', async () => {

@@ -1,4 +1,5 @@
 import { Database } from '@config/database'
+import { touchPullRequestActivity } from '@modules/pull-requests/infrastructure/pull-request-activity.transactions'
 import { Injectable } from '@nestjs/common'
 import type {
 	DrizzleTransaction,
@@ -1429,6 +1430,11 @@ export class GitHubSyncConversationsRepository {
 			actorId,
 			deliveryId,
 			createdAt,
+		})
+
+		await touchPullRequestActivity(transaction, {
+			pullRequestIds: [target.pullRequestId],
+			occurredAt: createdAt,
 		})
 	}
 

@@ -3,6 +3,11 @@ import type { GitHubSyncPullRequest } from '@modules/github-sync/infrastructure/
 import type { GitHubPendingPullRequestEvent } from '@modules/github-sync/infrastructure/github-sync.repository'
 import { Injectable } from '@nestjs/common'
 import type {
+	PullRequestDraftFilter,
+	PullRequestSort,
+	PullRequestSortDirection,
+} from '@repo/contracts'
+import type {
 	GitHubActorId,
 	GitHubPullRequestAssignee,
 	GitHubPullRequestLabel,
@@ -17,6 +22,7 @@ import {
 	gitHubActors,
 	gitHubPullRequestEventMappings,
 	gitHubPullRequestMappings,
+	ilike,
 	inArray,
 	isNull,
 	lte,
@@ -42,16 +48,23 @@ import type {
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
-import { alias } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
+import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import type { PullRequestActorReadModel } from '../domain/pull-request-actor'
 import type { PullRequestPushRefUpdate } from '../domain/pull-request-push.schema'
+import type { PullRequestCursor } from '../helpers/pull-request-cursor'
 import type { PullRequestMergeRequest } from '../helpers/pull-request-merge-request'
+import {
+	toPullRequestNumberQuery,
+	toPullRequestSearchPattern,
+} from '../helpers/pull-request-search'
 import {
 	completeMergeQueueEntry,
 	findActiveMergeQueueState,
 	holdsRepositoryMergeLease,
 	removeActiveMergeQueueEntry,
 } from './merge-queue.transactions'
+import { touchPullRequestActivity } from './pull-request-activity.transactions'
 
 interface RepositoryParams {
 	repositoryId: RepositoryId
@@ -63,7 +76,42 @@ interface PullRequestNumberParams extends RepositoryParams {
 
 interface ListParams extends RepositoryParams {
 	state?: PullRequest['state']
+	draft?: PullRequestDraftFilter
+	/** Free text matched across the row's own fields and its author's login. */
+	q?: string
+	sort: PullRequestSort
+	direction: PullRequestSortDirection
+	limit: number
+	/** Where the previous page stopped; absent for the first page. */
+	cursor?: PullRequestCursor
 }
+
+/**
+ * A list row carrying the value it was ordered by, rendered at the precision
+ * Postgres stores it with. A `Date` would round the microseconds away, and the
+ * cursor built from it would then either repeat or skip every row sharing a
+ * millisecond with the last one on the page.
+ */
+export interface PullRequestListReadModel extends PullRequestReadModel {
+	sortValue: string
+}
+
+export interface PullRequestListPage {
+	pullRequests: PullRequestListReadModel[]
+	/** Whether a further page exists under this same ordering. */
+	hasMore: boolean
+	/**
+	 * Whether the repository holds any pull request at all, filters ignored —
+	 * what separates "nothing matched" from "nothing has been opened yet".
+	 */
+	hasAnyPullRequests: boolean
+}
+
+const SORT_COLUMNS = {
+	created: pullRequests.createdAt,
+	updated: pullRequests.updatedAt,
+	activity: pullRequests.lastActivityAt,
+} as const satisfies Record<PullRequestSort, PgColumn>
 
 interface CreateParams extends RepositoryParams {
 	authorUserId: UserId
@@ -293,6 +341,7 @@ const PULL_REQUEST_COLUMNS = {
 	diffStatsUpdatedAt: pullRequests.diffStatsUpdatedAt,
 	createdAt: pullRequests.createdAt,
 	updatedAt: pullRequests.updatedAt,
+	lastActivityAt: pullRequests.lastActivityAt,
 	closedAt: pullRequests.closedAt,
 	mergedAt: pullRequests.mergedAt,
 }
@@ -377,34 +426,103 @@ export class PullRequestsRepository {
 		})
 	}
 
+	/**
+	 * One page of a repository's pull requests, ordered by the requested sort key
+	 * and paginated by keyset rather than by offset: the composite indexes make
+	 * every page a single range scan, and rows opened while someone reads page one
+	 * cannot shift page two out from under them.
+	 */
 	async list({
+		cursor,
+		direction,
+		draft,
+		limit,
+		q,
 		repositoryId,
+		sort,
 		state,
-	}: ListParams): Promise<PullRequestReadModel[]> {
-		const conditions = [eq(pullRequests.repositoryId, repositoryId)]
+	}: ListParams): Promise<PullRequestListPage> {
+		const sortColumn = SORT_COLUMNS[sort]
+		const conditions: (SQL | undefined)[] = [
+			eq(pullRequests.repositoryId, repositoryId),
+		]
 
 		if (state) conditions.push(eq(pullRequests.state, state))
 
-		const rows = await this.db
-			.select(PULL_REQUEST_READ_COLUMNS)
-			.from(pullRequests)
-			.leftJoin(authorUser, eq(authorUser.id, pullRequests.authorUserId))
-			.leftJoin(
-				gitHubPullRequestMappings,
-				eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+		// Only a mirrored pull request can be a draft, so an unmapped row is not
+		// one; `only` therefore excludes every native pull request by construction.
+		if (draft === 'only')
+			conditions.push(eq(gitHubPullRequestMappings.draft, true))
+		else if (draft === 'exclude')
+			conditions.push(
+				or(
+					isNull(gitHubPullRequestMappings.draft),
+					eq(gitHubPullRequestMappings.draft, false)
+				)
 			)
-			.leftJoin(
-				authorGitHubActor,
-				eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
-			)
-			.leftJoin(
-				mergedByGitHubActor,
-				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
-			)
-			.where(and(...conditions))
-			.orderBy(desc(pullRequests.createdAt), desc(pullRequests.number))
 
-		return rows.map(toPullRequestReadModel)
+		const search = q ? toPullRequestSearchCondition(q) : undefined
+
+		if (search) conditions.push(search)
+
+		// A row comparison rather than the disjunction it expands to: it is what
+		// the index can satisfy in one scan, and the tie-breaker is only correct
+		// while it points the same way the sort key does.
+		if (cursor)
+			conditions.push(
+				direction === 'desc'
+					? sql`(${sortColumn}, ${pullRequests.number}) < (${cursor.value}::timestamp, ${cursor.number})`
+					: sql`(${sortColumn}, ${pullRequests.number}) > (${cursor.value}::timestamp, ${cursor.number})`
+			)
+
+		const order = direction === 'desc' ? desc : asc
+		// One row past the page, purely to learn whether a next page exists.
+		const [rows, hasAnyPullRequests] = await Promise.all([
+			this.db
+				.select({
+					...PULL_REQUEST_READ_COLUMNS,
+					sortValue: sql<string>`to_char(${sortColumn}, 'YYYY-MM-DD HH24:MI:SS.US')`,
+				})
+				.from(pullRequests)
+				.leftJoin(authorUser, eq(authorUser.id, pullRequests.authorUserId))
+				.leftJoin(
+					gitHubPullRequestMappings,
+					eq(gitHubPullRequestMappings.pullRequestId, pullRequests.id)
+				)
+				.leftJoin(
+					authorGitHubActor,
+					eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
+				)
+				.leftJoin(
+					mergedByGitHubActor,
+					eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
+				)
+				.where(and(...conditions))
+				.orderBy(order(sortColumn), order(pullRequests.number))
+				.limit(limit + 1),
+			this.hasAnyPullRequests(repositoryId),
+		])
+
+		return {
+			pullRequests: rows.slice(0, limit).map(row => ({
+				...toPullRequestReadModel(row),
+				sortValue: row.sortValue,
+			})),
+			hasMore: rows.length > limit,
+			hasAnyPullRequests,
+		}
+	}
+
+	private async hasAnyPullRequests(
+		repositoryId: RepositoryId
+	): Promise<boolean> {
+		const [existing] = await this.db
+			.select({ id: pullRequests.id })
+			.from(pullRequests)
+			.where(eq(pullRequests.repositoryId, repositoryId))
+			.limit(1)
+
+		return existing !== undefined
 	}
 
 	async find({
@@ -1251,7 +1369,17 @@ export class PullRequestsRepository {
 						],
 						where: sql`${pullRequestEvents.idempotencyKey} is not null`,
 					})
-					.returning({ id: pullRequestEvents.id })
+					.returning({
+						id: pullRequestEvents.id,
+						pullRequestId: pullRequestEvents.pullRequestId,
+					})
+
+				// Only the pull requests that actually took an event: a redelivery
+				// conflicts its rows away and has moved nothing.
+				await touchPullRequestActivity(tx, {
+					pullRequestIds: events.map(event => event.pullRequestId),
+					occurredAt,
+				})
 
 				createdEvents += events.length
 			}
@@ -1321,6 +1449,9 @@ export class PullRequestsRepository {
 		}
 	) {
 		await db.insert(pullRequestEvents).values(params)
+		await touchPullRequestActivity(db, {
+			pullRequestIds: [params.pullRequestId],
+		})
 	}
 
 	private async lockPullRequest(
@@ -1399,6 +1530,9 @@ export class PullRequestsRepository {
 				mergeCommitSha: pullRequest.mergeCommitSha,
 				createdAt: pullRequest.createdAt,
 				updatedAt: pullRequest.updatedAt,
+				// Seeded rather than defaulted: a first sync of a long-dormant pull
+				// request would otherwise land at the top of the activity ordering.
+				lastActivityAt: pullRequest.updatedAt,
 				closedAt: pullRequest.closedAt,
 				mergedAt: pullRequest.mergedAt,
 			})
@@ -1434,6 +1568,9 @@ export class PullRequestsRepository {
 				state: pullRequest.state,
 				mergeCommitSha: pullRequest.mergeCommitSha ?? null,
 				updatedAt: pullRequest.updatedAt,
+				// A mirror's own events are backfilled piecemeal, so GitHub's update
+				// time is the only activity signal every reconciled row carries.
+				lastActivityAt: sql`greatest(${pullRequests.lastActivityAt}, ${pullRequest.updatedAt.toISOString()}::timestamp)`,
 				closedAt: pullRequest.closedAt ?? null,
 				mergedAt: pullRequest.mergedAt ?? null,
 			})
@@ -1527,6 +1664,11 @@ export class PullRequestsRepository {
 
 		if (!event) throw new Error('failed to create synchronized GitHub event')
 
+		await touchPullRequestActivity(transaction, {
+			pullRequestIds: [pullRequestId],
+			occurredAt: createdAt,
+		})
+
 		await transaction.insert(gitHubPullRequestEventMappings).values({
 			pullRequestEventId: event.id,
 			externalKey,
@@ -1535,6 +1677,34 @@ export class PullRequestsRepository {
 			createdAt,
 		})
 	}
+}
+
+/**
+ * Everything one search term can match: the pull request's own text and
+ * branches, its author's login under either provider, and — when the term reads
+ * as a number — that number exactly, which substring matching alone would find
+ * only by accident.
+ *
+ * The whole disjunction is matched by scan rather than by index: an OR is only
+ * index-served when every arm is, and the author arms live on joined tables no
+ * pull_requests index can cover. The repository-scoped composite predicate has
+ * already narrowed the rows the scan reads.
+ */
+function toPullRequestSearchCondition(query: string): SQL | undefined {
+	const pattern = toPullRequestSearchPattern(query)
+	const matches = [
+		ilike(pullRequests.title, pattern),
+		ilike(pullRequests.body, pattern),
+		ilike(pullRequests.sourceBranch, pattern),
+		ilike(pullRequests.targetBranch, pattern),
+		ilike(authorUser.username, pattern),
+		ilike(authorGitHubActor.login, pattern),
+	]
+	const number = toPullRequestNumberQuery(query)
+
+	if (number !== undefined) matches.push(eq(pullRequests.number, number))
+
+	return or(...matches)
 }
 
 function toPullRequestReadModel(
@@ -1563,6 +1733,7 @@ function toPullRequestReadModel(
 		mergeActorUserId: pullRequest.mergeActorUserId,
 		createdAt: pullRequest.createdAt,
 		updatedAt: pullRequest.updatedAt,
+		lastActivityAt: pullRequest.lastActivityAt,
 		closedAt: pullRequest.closedAt,
 		mergedAt: pullRequest.mergedAt,
 		diffStatsBaseSha: pullRequest.diffStatsBaseSha,

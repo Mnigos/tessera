@@ -35,6 +35,22 @@ export class PullRequestPushNotificationInvalidError extends BadRequestError {
 	}
 }
 
+/**
+ * The continuation token is the server's own, so a rejected one is always a
+ * client that built or held onto something it should not have: a hand-written
+ * token, a truncated one, or a page-two cursor replayed under a different sort
+ * or direction, where the keyset it encodes points at nothing meaningful.
+ */
+export class InvalidPullRequestCursorError extends BadRequestError {
+	constructor(context?: Record<string, unknown>) {
+		super(
+			'pull request cursor',
+			context,
+			'The page cursor is no longer valid. Reload the list.'
+		)
+	}
+}
+
 export class PullRequestNoChangesError extends BadRequestError {
 	constructor(context?: Record<string, unknown>) {
 		super(

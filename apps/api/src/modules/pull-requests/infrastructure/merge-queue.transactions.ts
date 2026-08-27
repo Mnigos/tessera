@@ -18,6 +18,7 @@ import type {
 	RepositoryId,
 	UserId,
 } from '@repo/domain'
+import { touchPullRequestActivity } from './pull-request-activity.transactions'
 
 /**
  * States an entry still belongs to the queue in. `paused` is one of them: the
@@ -252,6 +253,8 @@ export async function removeActiveMergeQueueEntry(
 		type: 'queue_removed',
 		payload: { queueEntryId: entry.id, position: entry.position, reason },
 	})
+
+	await touchPullRequestActivity(tx, { pullRequestIds: [pullRequestId] })
 
 	return entry
 }

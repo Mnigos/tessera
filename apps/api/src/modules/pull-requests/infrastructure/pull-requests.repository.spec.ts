@@ -4,6 +4,7 @@ import { Test, type TestingModule } from '@nestjs/testing'
 import type { GitHubActorId } from '@repo/db'
 import {
 	asc,
+	desc,
 	gitHubPullRequestMappings,
 	mergeQueueEntries,
 	pullRequestEvents,
@@ -64,8 +65,10 @@ const pullRequest = {
 	mergeActorUserId: null,
 	createdAt,
 	updatedAt: createdAt,
+	lastActivityAt: createdAt,
 	closedAt: null,
 	mergedAt: null,
+	sortValue: '2026-07-11 00:00:00.000000',
 	githubNodeId: null,
 	githubHtmlUrl: null,
 	githubDraft: null,
@@ -118,6 +121,7 @@ describe(PullRequestsRepository.name, () => {
 	const selectLeftJoinMock = vi.fn()
 	const selectWhereMock = vi.fn()
 	const selectOrderByMock = vi.fn()
+	const selectOrderByLimitMock = vi.fn()
 	const selectLimitMock = vi.fn()
 	const selectForMock = vi.fn()
 	const insertMock = vi.fn()
@@ -147,7 +151,15 @@ describe(PullRequestsRepository.name, () => {
 	const executeMock = vi.fn()
 
 	beforeEach(async () => {
-		selectOrderByMock.mockResolvedValue([pullRequest])
+		// `orderBy` both ends a query and continues into `limit`/`for` depending on
+		// the caller, so it answers as all three at once.
+		selectOrderByLimitMock.mockResolvedValue([pullRequest])
+		selectOrderByMock.mockReturnValue(
+			Object.assign(Promise.resolve([pullRequest]), {
+				limit: selectOrderByLimitMock,
+				for: selectForMock,
+			})
+		)
 		selectLimitMock.mockResolvedValue([pullRequest])
 		selectForMock.mockResolvedValue([pullRequest])
 		selectWhereMock.mockReturnValue({
@@ -290,16 +302,133 @@ describe(PullRequestsRepository.name, () => {
 		})
 	})
 
-	test('lists repository pull requests', async () => {
-		expect(await repository.list({ repositoryId, state: 'open' })).toEqual([
-			expect.objectContaining({
-				id: pullRequestId,
-				provider: 'tessera',
-				authorUsername: 'marta',
-				github: undefined,
-			}),
-		])
+	test('lists a page of repository pull requests', async () => {
+		expect(
+			await repository.list({
+				repositoryId,
+				state: 'open',
+				sort: 'created',
+				direction: 'desc',
+				limit: 25,
+			})
+		).toEqual({
+			pullRequests: [
+				expect.objectContaining({
+					id: pullRequestId,
+					provider: 'tessera',
+					authorUsername: 'marta',
+					github: undefined,
+					sortValue: '2026-07-11 00:00:00.000000',
+				}),
+			],
+			hasMore: false,
+			hasAnyPullRequests: true,
+		})
 		expect(selectOrderByMock).toHaveBeenCalled()
+		// One row past the page, which is how the next page is detected.
+		expect(selectOrderByLimitMock).toHaveBeenCalledWith(26)
+	})
+
+	test.each([
+		['only', '"draft" = $', [true]],
+		['exclude', '"draft" is null', [false]],
+	] as const)('builds the %s draft predicate', async (draft, sqlFragment, params) => {
+		await repository.list({
+			repositoryId,
+			draft,
+			sort: 'created',
+			direction: 'desc',
+			limit: 25,
+		})
+
+		const [condition] = selectWhereMock.mock.calls[0] ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).toContain(sqlFragment)
+		expect(query.params).toEqual(expect.arrayContaining([...params]))
+	})
+
+	test('searches text fields without adding a number predicate', async () => {
+		await repository.list({
+			repositoryId,
+			q: 'feature branch',
+			sort: 'created',
+			direction: 'desc',
+			limit: 25,
+		})
+
+		const [condition] = selectWhereMock.mock.calls[0] ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).not.toContain('"number" =')
+		expect(
+			query.params.filter(param => param === '%feature branch%')
+		).toHaveLength(6)
+	})
+
+	test.each(['12', '#12'])('adds an exact number predicate for %s', async q => {
+		await repository.list({
+			repositoryId,
+			q,
+			sort: 'created',
+			direction: 'desc',
+			limit: 25,
+		})
+
+		const [condition] = selectWhereMock.mock.calls[0] ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).toContain('"number" =')
+		expect(query.params).toContain(12)
+	})
+
+	test.each([
+		['desc', '<', desc] as const,
+		['asc', '>', asc] as const,
+	])('builds a %s cursor row comparison and matching order', async (direction, comparison, order) => {
+		const cursor = {
+			value: '2026-07-11 00:00:00.123456',
+			number: 7,
+		}
+
+		await repository.list({
+			repositoryId,
+			sort: 'updated',
+			direction,
+			limit: 2,
+			cursor,
+		})
+
+		const [condition] = selectWhereMock.mock.calls[0] ?? []
+		const query = new PgDialect().sqlToQuery(condition)
+
+		expect(query.sql).toContain(`) ${comparison} (`)
+		expect(query.params).toEqual(
+			expect.arrayContaining([repositoryId, cursor.value, cursor.number])
+		)
+		expect(selectOrderByMock).toHaveBeenCalledWith(
+			order(pullRequests.updatedAt),
+			order(pullRequests.number)
+		)
+		expect(selectOrderByLimitMock).toHaveBeenCalledWith(3)
+	})
+
+	test('reads one extra row and removes it from a full page', async () => {
+		selectOrderByLimitMock.mockResolvedValue([
+			pullRequest,
+			{ ...pullRequest, id: '00000000-0000-4000-8000-000000000045' },
+			{ ...pullRequest, id: '00000000-0000-4000-8000-000000000046' },
+		])
+
+		expect(
+			await repository.list({
+				repositoryId,
+				sort: 'activity',
+				direction: 'asc',
+				limit: 2,
+			})
+		).toMatchObject({ pullRequests: [{}, {}], hasMore: true })
+		expect(selectOrderByLimitMock).toHaveBeenCalledWith(3)
 	})
 
 	test('finds a repository-scoped pull request number', async () => {

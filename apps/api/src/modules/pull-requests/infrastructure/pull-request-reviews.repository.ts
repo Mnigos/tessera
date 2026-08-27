@@ -43,6 +43,7 @@ import type {
 } from '@repo/domain'
 import { alias, type PgColumn } from 'drizzle-orm/pg-core'
 import type { PullRequestActorReadModel } from '../domain/pull-request-actor'
+import { touchPullRequestActivity } from './pull-request-activity.transactions'
 
 interface PullRequestParams {
 	pullRequestId: PullRequestId
@@ -1068,6 +1069,10 @@ export class PullRequestReviewsRepository {
 		}
 	) {
 		await db.insert(pullRequestEvents).values(params)
+
+		await touchPullRequestActivity(db, {
+			pullRequestIds: [params.pullRequestId],
+		})
 	}
 }
 

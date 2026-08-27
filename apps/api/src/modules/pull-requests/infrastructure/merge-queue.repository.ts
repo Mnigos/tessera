@@ -41,6 +41,7 @@ import {
 	requestMergeQueueWakeup,
 	USER_REMOVABLE_MERGE_QUEUE_STATES,
 } from './merge-queue.transactions'
+import { touchPullRequestActivity } from './pull-request-activity.transactions'
 
 /** Why an entry is leaving the queue, which is also who asked for it. */
 export type MergeQueueRemovalReason = 'user' | 'admin' | 'closed' | 'merged'
@@ -410,6 +411,8 @@ export class MergeQueueRepository {
 				payload: { queueEntryId: entry.id, position, enqueuedHeadSha },
 			})
 
+			await touchPullRequestActivity(tx, { pullRequestIds: [pullRequestId] })
+
 			return {
 				status: 'enqueued',
 				entry,
@@ -493,6 +496,8 @@ export class MergeQueueRepository {
 				type: 'queue_resumed',
 				payload: { queueEntryId: entry.id, position },
 			})
+
+			await touchPullRequestActivity(tx, { pullRequestIds: [pullRequestId] })
 
 			return {
 				entry,
@@ -673,6 +678,8 @@ export class MergeQueueRepository {
 					evaluatedHeadSha,
 				},
 			})
+
+			await touchPullRequestActivity(tx, { pullRequestIds: [pullRequestId] })
 
 			return true
 		})
