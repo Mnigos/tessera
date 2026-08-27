@@ -2,7 +2,7 @@ import type { PullRequestThread } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { cn } from '@repo/ui/utils'
 import { Link } from '@tanstack/react-router'
-import { Check, History } from 'lucide-react'
+import { Check, ChevronRight, History } from 'lucide-react'
 import { useState } from 'react'
 import {
 	getPullRequestReviewComposerActions,
@@ -125,6 +125,13 @@ export function PullRequestThreadCard({
 			/>
 			{isExpanded && (
 				<>
+					{thread.resolved && (
+						<p className="inline-flex items-center gap-1.5 text-muted-foreground text-xs">
+							<Check aria-hidden className="size-3.5 text-emerald-500" />
+							<PullRequestActorLabel actor={thread.resolved.by} />
+							marked this conversation as resolved
+						</p>
+					)}
 					{shouldShowAnchor && thread.anchor && (
 						<PullRequestThreadExcerpt
 							anchor={thread.anchor}
@@ -210,51 +217,72 @@ function PullRequestThreadHeader({
 }: Readonly<PullRequestThreadHeaderProps>) {
 	if (!(thread.resolved || thread.outdated || shouldShowAnchor)) return null
 
+	const anchorLabel = thread.anchor && toAnchorLabel(thread.anchor)
+
 	return (
-		<div className="flex items-center gap-2">
+		<div className="flex min-w-0 items-center gap-2">
+			<button
+				aria-expanded={isExpanded}
+				aria-label={isExpanded ? 'Collapse thread' : 'Expand thread'}
+				className="-m-1 shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted/50 hover:text-foreground"
+				onClick={onToggleExpanded}
+				type="button"
+			>
+				<ChevronRight
+					aria-hidden
+					className={cn(
+						'size-4 transition-transform',
+						isExpanded && 'rotate-90'
+					)}
+				/>
+			</button>
 			{shouldShowAnchor &&
-				thread.anchor &&
+				anchorLabel &&
 				(shouldLinkAnchor ? (
 					<Link
 						className="min-w-0 truncate font-mono text-muted-foreground text-xs underline-offset-4 hover:text-foreground hover:underline"
 						params={{ username, slug, number }}
 						search={{ thread: thread.id }}
-						title={toAnchorLabel(thread.anchor)}
+						title={anchorLabel}
 						to="/$username/$slug/pulls/$number/files"
 					>
-						{toAnchorLabel(thread.anchor)}
+						{anchorLabel}
 					</Link>
 				) : (
 					<span
 						className="min-w-0 truncate font-mono text-muted-foreground text-xs"
-						title={toAnchorLabel(thread.anchor)}
+						title={anchorLabel}
 					>
-						{toAnchorLabel(thread.anchor)}
+						{anchorLabel}
 					</span>
 				))}
-			{thread.resolved && (
-				<span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-0.5 font-medium text-emerald-400 text-xs">
-					<Check aria-hidden className="size-3.5" />
-					Resolved by
-					<PullRequestActorLabel actor={thread.resolved.by} />
-				</span>
-			)}
 			{thread.outdated && (
 				<span className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-amber-500/30 bg-amber-500/10 px-2.5 py-0.5 font-medium text-amber-400 text-xs">
 					<History aria-hidden className="size-3.5" />
 					Outdated
 				</span>
 			)}
-			<Button
-				className="ml-auto h-6 shrink-0 px-2 text-muted-foreground text-xs"
-				onClick={onToggleExpanded}
-				size="sm"
-				variant="ghost"
-			>
-				{isExpanded
-					? 'Hide'
-					: `Show ${thread.comments.length} ${thread.comments.length === 1 ? 'comment' : 'comments'}`}
-			</Button>
+			{thread.resolved ? (
+				<Button
+					className="ml-auto h-6 shrink-0 px-2 text-xs"
+					onClick={onToggleExpanded}
+					size="sm"
+					variant="outline"
+				>
+					{isExpanded ? 'Hide resolved' : 'Show resolved'}
+				</Button>
+			) : (
+				<Button
+					className="ml-auto h-6 shrink-0 px-2 text-muted-foreground text-xs"
+					onClick={onToggleExpanded}
+					size="sm"
+					variant="ghost"
+				>
+					{isExpanded
+						? 'Hide'
+						: `Show ${thread.comments.length} ${thread.comments.length === 1 ? 'comment' : 'comments'}`}
+				</Button>
+			)}
 		</div>
 	)
 }
@@ -290,7 +318,7 @@ function PullRequestThreadActions({
 					size="sm"
 					variant="ghost"
 				>
-					{isResolved ? 'Unresolve' : 'Resolve'}
+					{isResolved ? 'Unresolve conversation' : 'Resolve conversation'}
 				</Button>
 			)}
 		</div>
