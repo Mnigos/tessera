@@ -181,7 +181,6 @@ export class GitHubSyncProcessor extends WorkerHost {
 				storagePath: importResult.storagePath,
 			})
 			await this.observeRateLimit(claim, reconciliation.rateLimit)
-			await this.writeProgress(claim, { stage: 'checks' })
 			const { isComplete, projectedShas } = await this.projectChecks({
 				accessToken: mirrorToken.token,
 				claim,
@@ -607,9 +606,16 @@ export class GitHubSyncProcessor extends WorkerHost {
 		})
 		const projectedShas: string[] = []
 		let isComplete = true
+		let reconciledCount = 0
 
 		for (const sha of targets) {
 			await this.requireHeartbeat(claim)
+			await this.writeProgress(claim, {
+				stage: 'checks',
+				current: reconciledCount,
+				total: targets.length,
+			})
+			reconciledCount += 1
 
 			try {
 				const { outcome, snapshot } = await this.findChecksSnapshot({
