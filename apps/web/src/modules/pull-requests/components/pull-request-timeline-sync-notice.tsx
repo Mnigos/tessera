@@ -15,10 +15,26 @@ interface PullRequestTimelineSyncNoticeProps {
  * synchronized pull request would train people to stop reading it, and the
  * whole value of this notice is that its presence means something.
  */
+/**
+ * A mirror that synchronized this recently is fresh for every practical
+ * purpose; runs churn constantly on an active repository (every CI check event
+ * queues one), and announcing each of them would make the banner wallpaper.
+ */
+const FRESH_ENOUGH_SECONDS = 180
+
 export function PullRequestTimelineSyncNotice({
 	syncHealth,
 }: Readonly<PullRequestTimelineSyncNoticeProps>) {
 	if (!syncHealth || syncHealth.state === 'healthy') return null
+	// Routine catch-up on a fresh mirror is not worth interrupting a reader:
+	// the banner speaks for a first backfill, a mirror actually behind, and
+	// every state worse than pending.
+	if (
+		syncHealth.state === 'pending' &&
+		syncHealth.freshnessLagSeconds !== undefined &&
+		syncHealth.freshnessLagSeconds < FRESH_ENOUGH_SECONDS
+	)
+		return null
 
 	const presentation = getRepositorySyncHealthPresentation(syncHealth)
 
