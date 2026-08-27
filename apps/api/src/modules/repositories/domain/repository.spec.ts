@@ -82,6 +82,7 @@ describe('repository domain mapper', () => {
 				sourceDefaultBranch: 'main',
 				mirrorMode: 'github_to_tessera',
 				syncStatus: 'succeeded',
+				syncProgress: null,
 				lastSyncStartedAt: new Date('2026-05-12T00:00:00Z'),
 				lastSyncSucceededAt: new Date('2026-05-12T00:01:00Z'),
 				lastSyncFailedAt: null,

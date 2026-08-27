@@ -4,7 +4,7 @@ import type {
 	RepositorySyncHealthState,
 } from '@repo/contracts'
 import { repositorySyncHealthCodeSchema } from '@repo/contracts'
-import type { GitHubSyncAttemptStatus } from '@repo/db'
+import type { GitHubSyncAttemptStatus, RepositorySyncProgress } from '@repo/db'
 
 /**
  * A mirror is stale once it has gone this many reconciliation intervals without
@@ -30,6 +30,7 @@ const REAUTHORIZABLE_CODES: ReadonlySet<RepositorySyncHealthCode> = new Set([
 
 export interface RepositorySyncHealthFacts {
 	syncStatus: 'pending' | 'running' | 'succeeded' | 'failed' | 'blocked'
+	syncProgress?: RepositorySyncProgress
 	lastSyncSucceededAt?: Date
 	syncFailureCode?: string
 	syncFailureReason?: string
@@ -61,6 +62,16 @@ export function toRepositorySyncHealth(
 
 	return {
 		state,
+		// Progress only means something while a run is on the row; a leftover from
+		// a crashed run would otherwise show as a frozen bar.
+		progress:
+			state === 'pending' && facts.syncProgress
+				? {
+						stage: facts.syncProgress.stage,
+						current: facts.syncProgress.current,
+						total: facts.syncProgress.total,
+					}
+				: undefined,
 		freshnessLagSeconds: toLagSeconds(facts.lastSyncSucceededAt, now),
 		deliveryLagSeconds: toLagSeconds(facts.oldestPendingDeliveryAt, now),
 		pendingDeliveryCount: facts.pendingDeliveryCount,

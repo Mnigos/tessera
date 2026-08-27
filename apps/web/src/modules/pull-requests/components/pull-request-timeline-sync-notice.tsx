@@ -1,5 +1,8 @@
 import type { RepositorySyncHealth } from '@repo/contracts'
-import { getRepositorySyncHealthPresentation } from '@/modules/repositories/helpers/repository-sync-health'
+import {
+	formatSyncProgress,
+	getRepositorySyncHealthPresentation,
+} from '@/modules/repositories/helpers/repository-sync-health'
 
 interface PullRequestTimelineSyncNoticeProps {
 	syncHealth?: RepositorySyncHealth
@@ -50,8 +53,9 @@ export function PullRequestTimelineSyncNotice({
 				<span className="font-medium text-foreground">
 					{presentation.label}.
 				</span>{' '}
-				GitHub data may not be fully synchronized, so this activity can be
-				incomplete.
+				{syncHealth.progress
+					? `${formatSyncProgress(syncHealth.progress)}… This page updates as it lands.`
+					: 'GitHub data may not be fully synchronized, so this activity can be incomplete.'}
 			</span>
 		</output>
 	)
