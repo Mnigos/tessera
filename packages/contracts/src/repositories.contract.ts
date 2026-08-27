@@ -81,8 +81,25 @@ export type RepositorySyncHealthCode = z.infer<
 	typeof repositorySyncHealthCodeSchema
 >
 
+export const repositorySyncProgressSchema = z.object({
+	stage: z.enum([
+		'listing',
+		'repository',
+		'pull_requests',
+		'conversations',
+		'checks',
+	]),
+	current: z.number().int().nonnegative().optional(),
+	total: z.number().int().nonnegative().optional(),
+})
+export type RepositorySyncProgressOutput = z.infer<
+	typeof repositorySyncProgressSchema
+>
+
 export const repositorySyncHealthSchema = z.object({
 	state: repositorySyncHealthStateSchema,
+	/** What the running reconciliation is doing right now, while one runs. */
+	progress: repositorySyncProgressSchema.optional(),
 	/** How long ago the last successful reconciliation finished. */
 	freshnessLagSeconds: z.number().int().nonnegative().optional(),
 	/** How long the oldest unprocessed delivery has been waiting. */
