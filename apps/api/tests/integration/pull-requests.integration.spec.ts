@@ -15,23 +15,37 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
-import { eq } from '@repo/db'
+import {
+	PULL_REQUESTS_MAX_PAGE_SIZE,
+	PULL_REQUESTS_SEARCH_MAX_LENGTH,
+	repositorySlugSchema,
+} from '@repo/contracts'
+import { eq, sql } from '@repo/db'
 import { db } from '@repo/db/client'
 import {
 	account,
 	gitHubActors,
 	gitHubPullRequestMappings,
 	mergeQueueEntries,
+	pullRequestComments,
 	pullRequestEvents,
 	pullRequestMergeIntents,
+	pullRequestReviewerRequests,
+	pullRequestReviews,
 	pullRequests,
+	pullRequestThreads,
 	repositories,
 	repositoryExternalSources,
 	repositoryPullRequestCounters,
 	session,
 	user,
 } from '@repo/db/schema'
-import type { MergeQueueState, RepositoryId } from '@repo/domain'
+import type {
+	MergeQueueState,
+	PullRequestId,
+	RepositoryId,
+	UserId,
+} from '@repo/domain'
 import { makeSignature } from 'better-auth/crypto'
 import { migrate } from 'drizzle-orm/postgres-js/migrator'
 
@@ -57,7 +71,7 @@ interface PullRequestResponseBody {
 	id: string
 	repositoryId: string
 	number: number
-	authorUserId: string
+	authorUserId?: string
 	authorUsername: string
 	sourceBranch: string
 	targetBranch: string
@@ -71,6 +85,27 @@ interface PullRequestResponseBody {
 	closedAt?: string
 	mergedAt?: string
 	diffStats?: { additions: number; deletions: number; changedFiles: number }
+}
+
+interface PullRequestListResponseBody {
+	pullRequests: PullRequestResponseBody[]
+	nextCursor?: string
+	hasAnyPullRequests: boolean
+}
+
+interface ControlledPullRequestInput {
+	repositoryId: RepositoryId
+	authorUserId?: UserId
+	number: number
+	provider?: 'github' | 'tessera'
+	sourceBranch?: string
+	targetBranch?: string
+	title?: string
+	body?: string
+	state?: 'closed' | 'open'
+	createdAt?: string
+	updatedAt?: string
+	lastActivityAt?: string
 }
 
 interface ErrorResponseBody {
@@ -450,6 +485,546 @@ describe('Pull requests integration', () => {
 				diffStats: { additions: 12, deletions: 4, changedFiles: 1 },
 			},
 			events: [{ type: 'opened' }],
+		})
+	})
+
+	describe('pull request discovery', () => {
+		test('walks from the first through the last page without skipping microsecond-distinct rows', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+
+			for (const number of [5, 1, 4, 2, 3])
+				await insertControlledPullRequest({
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+					number,
+					createdAt: `2026-08-27 10:00:00.00000${number}`,
+				})
+
+			const collectedNumbers: number[] = []
+			const seenCursors: (string | undefined)[] = []
+			let cursor: string | undefined
+
+			do {
+				const page = await listPullRequestsBody('marta', 'notes', {
+					sort: 'created',
+					direction: 'asc',
+					limit: 2,
+					cursor,
+				})
+
+				collectedNumbers.push(
+					...page.pullRequests.map(pullRequest => pullRequest.number)
+				)
+				seenCursors.push(page.nextCursor)
+				cursor = page.nextCursor
+			} while (cursor)
+
+			expect(collectedNumbers).toEqual([1, 2, 3, 4, 5])
+			expect(new Set(collectedNumbers).size).toBe(5)
+			expect(seenCursors[0]).toEqual(expect.any(String))
+			expect(seenCursors.at(-1)).toBeUndefined()
+		})
+
+		test('does not issue a cursor when the result fits the limit exactly', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+
+			await Promise.all(
+				[1, 2].map(number =>
+					insertControlledPullRequest({
+						repositoryId: repository.id,
+						authorUserId: owner.id,
+						number,
+						createdAt: `2026-08-27 10:00:0${number}.000000`,
+					})
+				)
+			)
+
+			const page = await listPullRequestsBody('marta', 'notes', { limit: 2 })
+
+			expect(page).toMatchObject({
+				pullRequests: [{ number: 2 }, { number: 1 }],
+			})
+			// Checked on its own: the serialized body omits the key entirely, and
+			// toMatchObject would insist on a present `nextCursor: undefined`.
+			expect(page.nextCursor).toBeUndefined()
+		})
+
+		test.each([
+			['created', 'asc', [1, 2, 3]],
+			['created', 'desc', [3, 2, 1]],
+			['updated', 'asc', [1, 2, 3]],
+			['updated', 'desc', [3, 2, 1]],
+			['activity', 'asc', [1, 2, 3]],
+			['activity', 'desc', [3, 2, 1]],
+		] as const)('breaks %s timestamp ties by number in %s order', async (sort, direction, expectedNumbers) => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+
+			for (const number of [3, 1, 2])
+				await insertControlledPullRequest({
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+					number,
+					createdAt: '2026-08-27 10:00:00.123456',
+					updatedAt: '2026-08-27 10:00:00.123456',
+					lastActivityAt: '2026-08-27 10:00:00.123456',
+				})
+
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						sort,
+						direction,
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual(expectedNumbers)
+		})
+
+		test.each([
+			['created', [2, 3, 1]],
+			['updated', [1, 3, 2]],
+			['activity', [2, 1, 3]],
+		] as const)('orders by the %s sort key', async (sort, expectedNumbers) => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			const timestamps = [
+				['01', '03', '02'],
+				['03', '01', '03'],
+				['02', '02', '01'],
+			] as const
+
+			await Promise.all(
+				timestamps.map(([created, updated, activity], index) =>
+					insertControlledPullRequest({
+						repositoryId: repository.id,
+						authorUserId: owner.id,
+						number: index + 1,
+						createdAt: `2026-08-${created} 10:00:00.000000`,
+						updatedAt: `2026-08-${updated} 10:00:00.000000`,
+						lastActivityAt: `2026-08-${activity} 10:00:00.000000`,
+					})
+				)
+			)
+
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						sort,
+						direction: 'desc',
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual(expectedNumbers)
+		})
+
+		test('combines state, draft, and search filters', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			const actorId = await createGitHubActor('octocat')
+			const draftPullRequestId = await insertControlledPullRequest({
+				repositoryId: repository.id,
+				number: 1,
+				provider: 'github',
+				title: 'Release needle',
+			})
+			const readyPullRequestId = await insertControlledPullRequest({
+				repositoryId: repository.id,
+				number: 2,
+				provider: 'github',
+				title: 'Release needle',
+			})
+			const closedDraftPullRequestId = await insertControlledPullRequest({
+				repositoryId: repository.id,
+				number: 3,
+				provider: 'github',
+				title: 'Release needle',
+				state: 'closed',
+			})
+			await insertControlledPullRequest({
+				repositoryId: repository.id,
+				authorUserId: owner.id,
+				number: 4,
+				title: 'Release needle',
+			})
+			await Promise.all([
+				createGitHubMapping(
+					repository.id,
+					draftPullRequestId,
+					actorId,
+					1,
+					true
+				),
+				createGitHubMapping(
+					repository.id,
+					readyPullRequestId,
+					actorId,
+					2,
+					false
+				),
+				createGitHubMapping(
+					repository.id,
+					closedDraftPullRequestId,
+					actorId,
+					3,
+					true
+				),
+			])
+
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						state: 'closed',
+						draft: 'only',
+						q: 'needle',
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual([3])
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						state: 'open',
+						draft: 'exclude',
+						q: 'needle',
+						direction: 'asc',
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual([2, 4])
+		})
+
+		test('searches numbers, text fields, and native or GitHub actor authors', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			const actorId = await createGitHubActor('octocat')
+			const rows = [
+				{ number: 12, title: 'Numbered pull request' },
+				{ number: 13, title: 'Title token' },
+				{ number: 14, body: 'Body token' },
+				{ number: 15, sourceBranch: 'source-token' },
+				{ number: 16, targetBranch: 'target-token' },
+			] as const
+
+			for (const row of rows)
+				await insertControlledPullRequest({
+					...row,
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+				})
+
+			const githubPullRequestId = await insertControlledPullRequest({
+				repositoryId: repository.id,
+				number: 17,
+				provider: 'github',
+			})
+			await createGitHubMapping(
+				repository.id,
+				githubPullRequestId,
+				actorId,
+				17,
+				false
+			)
+
+			for (const q of ['12', '#12'])
+				expect(
+					(
+						await listPullRequestsBody('marta', 'notes', { q })
+					).pullRequests.map(pullRequest => pullRequest.number)
+				).toEqual([12])
+
+			for (const [q, number] of [
+				['title token', 13],
+				['body token', 14],
+				['source-token', 15],
+				['target-token', 16],
+				['octocat', 17],
+			] as const)
+				expect(
+					(
+						await listPullRequestsBody('marta', 'notes', { q })
+					).pullRequests.map(pullRequest => pullRequest.number)
+				).toEqual([number])
+
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', { q: 'marta' })
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual([16, 15, 14, 13, 12])
+		})
+
+		test.each([
+			['%', 1],
+			['_', 2],
+		] as const)('matches the LIKE wildcard %s literally', async (q, number) => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			await Promise.all([
+				insertControlledPullRequest({
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+					number: 1,
+					title: '100% complete',
+				}),
+				insertControlledPullRequest({
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+					number: 2,
+					title: 'under_score',
+				}),
+				insertControlledPullRequest({
+					repositoryId: repository.id,
+					authorUserId: owner.id,
+					number: 3,
+					title: 'ordinary',
+				}),
+			])
+
+			expect(
+				(await listPullRequestsBody('marta', 'notes', { q })).pullRequests.map(
+					pullRequest => pullRequest.number
+				)
+			).toEqual([number])
+		})
+
+		test('rejects malformed cursors and cursors replayed under another ordering', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			await Promise.all(
+				[1, 2].map(number =>
+					insertControlledPullRequest({
+						repositoryId: repository.id,
+						authorUserId: owner.id,
+						number,
+					})
+				)
+			)
+			const firstPage = await listPullRequestsBody('marta', 'notes', {
+				limit: 1,
+			})
+			const cursor = firstPage.nextCursor
+			if (!cursor) throw new Error('Expected a continuation cursor')
+
+			expect(
+				(await listPullRequests('marta', 'notes', { cursor: 'malformed' }))
+					.status
+			).toBe(400)
+			expect(
+				(
+					await listPullRequests('marta', 'notes', {
+						cursor,
+						sort: 'updated',
+					})
+				).status
+			).toBe(400)
+			expect(
+				(
+					await listPullRequests('marta', 'notes', {
+						cursor,
+						direction: 'asc',
+					})
+				).status
+			).toBe(400)
+		})
+
+		test.each([
+			0,
+			-1,
+			PULL_REQUESTS_MAX_PAGE_SIZE + 1,
+		])('rejects an invalid page limit of %i', async limit => {
+			await createUserAndRepository({ visibility: 'public' })
+
+			expect((await listPullRequests('marta', 'notes', { limit })).status).toBe(
+				400
+			)
+		})
+
+		test('rejects an over-long search query', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+
+			expect(
+				(
+					await listPullRequests('marta', 'notes', {
+						q: 'q'.repeat(PULL_REQUESTS_SEARCH_MAX_LENGTH + 1),
+					})
+				).status
+			).toBe(400)
+		})
+
+		test('keeps a cursor scoped to the repository being listed', async () => {
+			const headers = await createUserAndRepository({ visibility: 'public' })
+			const firstRepository = await getRepositoryRow()
+			const owner = await getUserRow()
+			await Promise.all([
+				insertControlledPullRequest({
+					repositoryId: firstRepository.id,
+					authorUserId: owner.id,
+					number: 1,
+					createdAt: '2026-08-03 10:00:00.000000',
+				}),
+				insertControlledPullRequest({
+					repositoryId: firstRepository.id,
+					authorUserId: owner.id,
+					number: 2,
+					createdAt: '2026-08-02 10:00:00.000000',
+				}),
+			])
+			const firstPage = await listPullRequestsBody('marta', 'notes', {
+				limit: 1,
+			})
+			const cursor = firstPage.nextCursor
+			if (!cursor) throw new Error('Expected a continuation cursor')
+
+			expect(
+				(
+					await createRepository(
+						{ name: 'Archive', slug: 'archive', visibility: 'public' },
+						headers
+					)
+				).status
+			).toBe(200)
+			const secondRepository = await getRepositoryRow('archive')
+			await insertControlledPullRequest({
+				repositoryId: secondRepository.id,
+				authorUserId: owner.id,
+				number: 1,
+				createdAt: '2026-08-01 10:00:00.000000',
+			})
+
+			const secondRepositoryPage = await listPullRequestsBody(
+				'marta',
+				'archive',
+				{ cursor }
+			)
+			expect(secondRepositoryPage.pullRequests).toEqual([
+				expect.objectContaining({
+					repositoryId: secondRepository.id,
+					number: 1,
+				}),
+			])
+		})
+
+		test('distinguishes an empty repository from a filtered no-match', async () => {
+			await createUserAndRepository({ visibility: 'public' })
+			expect(await listPullRequestsBody('marta', 'notes')).toMatchObject({
+				pullRequests: [],
+				hasAnyPullRequests: false,
+			})
+
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			await insertControlledPullRequest({
+				repositoryId: repository.id,
+				authorUserId: owner.id,
+				number: 1,
+				title: 'Existing',
+			})
+
+			expect(
+				await listPullRequestsBody('marta', 'notes', { q: 'missing' })
+			).toMatchObject({ pullRequests: [], hasAnyPullRequests: true })
+		})
+
+		test.each([
+			'comment',
+			'review',
+			'event',
+		] as const)('moves an old pull request to the top when a %s lands', async activityKind => {
+			const headers = await createUserAndRepository({ visibility: 'public' })
+			const repository = await getRepositoryRow()
+			const owner = await getUserRow()
+			await insertControlledPullRequest({
+				repositoryId: repository.id,
+				authorUserId: owner.id,
+				number: 1,
+				sourceBranch: 'feature',
+				lastActivityAt: '2026-08-01 10:00:00.000000',
+			})
+			await insertControlledPullRequest({
+				repositoryId: repository.id,
+				authorUserId: owner.id,
+				number: 2,
+				sourceBranch: 'feature-two',
+				lastActivityAt: '2026-08-02 10:00:00.000000',
+			})
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						sort: 'activity',
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual([2, 1])
+
+			let response: Response
+
+			if (activityKind === 'comment')
+				response = await request(
+					'http://localhost/repositories/marta/notes/pulls/1/threads',
+					'POST',
+					headers,
+					{ body: 'Fresh comment' }
+				)
+			else if (activityKind === 'review') {
+				// A submission must name the pull request's current head as a real
+				// SHA: the contract refuses the suite's placeholder ref targets.
+				const reviewHeadSha = 'b'.repeat(40)
+				gitStorageListRepositoryRefs.mockResolvedValue({
+					branches: [
+						{
+							type: 'branch',
+							name: 'main',
+							qualifiedName: 'refs/heads/main',
+							target: 'base-sha',
+						},
+						{
+							type: 'branch',
+							name: 'feature',
+							qualifiedName: 'refs/heads/feature',
+							target: reviewHeadSha,
+						},
+					],
+					tags: [],
+				})
+				const reviewerHeaders = await createIntegrationSessionHeaders({
+					username: 'reviewer',
+					email: 'reviewer@example.com',
+				})
+				const requested = await request(
+					'http://localhost/repositories/marta/notes/pulls/1/reviewers',
+					'POST',
+					headers,
+					{ reviewerUsername: 'reviewer' }
+				)
+				expect(requested.status).toBe(200)
+				response = await request(
+					'http://localhost/repositories/marta/notes/pulls/1/reviews',
+					'POST',
+					reviewerHeaders,
+					{ outcome: 'approve', expectedHeadSha: reviewHeadSha }
+				)
+			} else
+				response = await transitionPullRequest(
+					'marta',
+					'notes',
+					1,
+					'close',
+					headers
+				)
+
+			expect(response.status).toBe(200)
+			expect(
+				(
+					await listPullRequestsBody('marta', 'notes', {
+						sort: 'activity',
+					})
+				).pullRequests.map(pullRequest => pullRequest.number)
+			).toEqual([1, 2])
 		})
 	})
 
@@ -1606,16 +2181,124 @@ describe('Pull requests integration', () => {
 		return headers
 	}
 
-	async function getRepositoryRow(): Promise<{ id: RepositoryId }> {
-		const repository = await db.query.repositories.findFirst()
+	async function getRepositoryRow(
+		slug = 'notes'
+	): Promise<{ id: RepositoryId }> {
+		const repository = await db.query.repositories.findFirst({
+			where: eq(repositories.slug, repositorySlugSchema.parse(slug)),
+		})
 
 		if (!repository) throw new Error('Failed to find repository')
 
 		return repository
 	}
 
+	async function getUserRow(username = 'marta'): Promise<{ id: UserId }> {
+		const foundUser = await db.query.user.findFirst({
+			where: eq(user.username, username),
+		})
+
+		if (!foundUser) throw new Error('Failed to find integration user')
+
+		return foundUser
+	}
+
+	async function insertControlledPullRequest({
+		repositoryId,
+		authorUserId,
+		number,
+		provider = 'tessera',
+		sourceBranch = `feature-${number}`,
+		targetBranch = 'main',
+		title = `Pull request ${number}`,
+		body = '',
+		state = 'open',
+		createdAt = `2026-08-${String(number).padStart(2, '0')} 10:00:00.000000`,
+		updatedAt = createdAt,
+		lastActivityAt = updatedAt,
+	}: ControlledPullRequestInput): Promise<PullRequestId> {
+		const [pullRequest] = await db
+			.insert(pullRequests)
+			.values({
+				repositoryId,
+				authorUserId,
+				provider,
+				number,
+				sourceBranch,
+				targetBranch,
+				openingBaseSha: 'base-sha',
+				openingHeadSha: 'head-sha',
+				title,
+				body,
+				state,
+				closedAt:
+					state === 'closed' ? new Date('2026-08-28T10:00:00Z') : undefined,
+			})
+			.returning({ id: pullRequests.id })
+
+		if (!pullRequest)
+			throw new Error('Failed to insert controlled pull request')
+
+		await db.execute(sql`
+			update pull_requests
+			set created_at = ${createdAt}::timestamp,
+				updated_at = ${updatedAt}::timestamp,
+				last_activity_at = ${lastActivityAt}::timestamp
+			where id = ${pullRequest.id}
+		`)
+
+		return pullRequest.id
+	}
+
+	async function createGitHubActor(login: string) {
+		const [actor] = await db
+			.insert(gitHubActors)
+			.values({
+				externalNodeId: `actor-${login}`,
+				externalNumericId: 999n,
+				login,
+				type: 'user',
+			})
+			.returning({ id: gitHubActors.id })
+
+		if (!actor) throw new Error('Failed to create GitHub actor')
+
+		return actor.id
+	}
+
+	async function createGitHubMapping(
+		repositoryId: RepositoryId,
+		pullRequestId: PullRequestId,
+		authorActorId: Awaited<ReturnType<typeof createGitHubActor>>,
+		number: number,
+		draft: boolean
+	) {
+		const providerTimestamp = new Date('2026-08-27T10:00:00Z')
+
+		await db.insert(gitHubPullRequestMappings).values({
+			repositoryId,
+			pullRequestId,
+			externalNodeId: `pull-request-${repositoryId}-${number}`,
+			externalNumericId: BigInt(number),
+			externalNumber: number,
+			htmlUrl: `https://github.com/marta/notes/pull/${number}`,
+			authorActorId,
+			baseRepositoryNodeId: `repository-${repositoryId}`,
+			headSha: 'head-sha',
+			baseSha: 'base-sha',
+			draft,
+			providerCreatedAt: providerTimestamp,
+			providerUpdatedAt: providerTimestamp,
+			lastSyncedAt: providerTimestamp,
+		})
+	}
+
 	async function resetIntegrationDatabase() {
 		await db.delete(pullRequestEvents)
+		await db.delete(pullRequestReviewerRequests)
+		await db.delete(pullRequestComments)
+		await db.delete(pullRequestThreads)
+		await db.delete(pullRequestReviews)
 		await db.delete(pullRequests)
 		await db.delete(gitHubPullRequestMappings)
 		await db.delete(gitHubActors)
@@ -1645,11 +2328,36 @@ describe('Pull requests integration', () => {
 		)
 	}
 
-	function listPullRequests(username: string, slug: string, headers?: Headers) {
+	function listPullRequests(
+		username: string,
+		slug: string,
+		search: Record<string, number | string | undefined> = {},
+		headers?: Headers
+	) {
+		const searchParams = new URLSearchParams()
+
+		for (const [key, value] of Object.entries(search))
+			if (value !== undefined) searchParams.set(key, String(value))
+
+		const query = searchParams.size > 0 ? `?${searchParams}` : ''
+
 		return adapter.hono.request(
-			`http://localhost/repositories/${username}/${slug}/pulls`,
+			`http://localhost/repositories/${username}/${slug}/pulls${query}`,
 			{ headers }
 		)
+	}
+
+	async function listPullRequestsBody(
+		username: string,
+		slug: string,
+		search: Record<string, number | string | undefined> = {}
+	): Promise<PullRequestListResponseBody> {
+		const response = await listPullRequests(username, slug, search)
+
+		if (response.status !== 200)
+			throw new Error(`Failed to list pull requests: ${response.status}`)
+
+		return (await response.json()) as PullRequestListResponseBody
 	}
 
 	function getPullRequest(
