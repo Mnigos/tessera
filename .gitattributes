@@ -3,3 +3,4 @@ tests/snapshots/**/*.snap linguist-generated
 dist linguist-generated
 packages/db/migrations/meta/** linguist-generated
 apps/web/src/routeTree.gen.ts linguist-generated
+packages/db/migrations/meta/** linguist-generated=true
