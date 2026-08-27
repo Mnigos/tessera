@@ -7,6 +7,36 @@ body {
 	margin: 0;
 }
 
+/*
+ * Scrollbars in the design system's own voice: thin, borderless, and quiet
+ * until hovered. The standard properties cover Chrome and Firefox and win over
+ * the -webkit rules where both exist; Safari keeps its overlay bars, which
+ * already stay out of the way.
+ */
+* {
+	scrollbar-width: thin;
+	scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+	width: 8px;
+	height: 8px;
+}
+
+*::-webkit-scrollbar-track,
+*::-webkit-scrollbar-corner {
+	background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+	background: var(--border);
+	border-radius: 9999px;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+	background: var(--muted-foreground);
+}
+
 /* Dual-theme shiki tokens ship once; the active theme picks which variable resolves. */
 [data-shiki] [style*="--shiki-"] {
 	color: var(--shiki-light);

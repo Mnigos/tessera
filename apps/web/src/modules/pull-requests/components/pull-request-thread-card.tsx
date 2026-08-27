@@ -244,7 +244,7 @@ function PullRequestThreadHeader({
 						params={{ username, slug, number }}
 						search={{ thread: thread.id }}
 						title={anchorLabel}
-						to="/$username/$slug/pulls/$number/files"
+						to="/$username/$slug/pulls/$number/changes"
 					>
 						{anchorLabel}
 					</Link>

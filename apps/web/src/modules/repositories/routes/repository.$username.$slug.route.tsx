@@ -14,7 +14,7 @@ import {
 import { isRepositoryNotReadyError } from '../helpers/repository-storage-readiness'
 import { useRepositoryBrowserSummaryQuery } from '../hooks/use-repository-browser-summary.query'
 
-const PULL_REQUEST_FILES_ROUTE_ID = '/$username/$slug/pulls/$number/files'
+const PULL_REQUEST_FILES_ROUTE_ID = '/$username/$slug/pulls/$number/changes'
 
 export const Route = createFileRoute('/$username/$slug')({
 	validateSearch: z.object({
