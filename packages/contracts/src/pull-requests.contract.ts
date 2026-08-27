@@ -89,6 +89,28 @@ export type MergeQueueEntryId = z.infer<typeof mergeQueueEntryIdSchema>
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
 
+/**
+ * `activity` orders by the last recorded pull request activity — comments,
+ * reviews, lifecycle events — not by the row's own `updatedAt`, which only
+ * moves for edits and synchronization.
+ */
+export const pullRequestSortSchema = z.enum(['created', 'updated', 'activity'])
+export type PullRequestSort = z.infer<typeof pullRequestSortSchema>
+
+export const pullRequestSortDirectionSchema = z.enum(['asc', 'desc'])
+export type PullRequestSortDirection = z.infer<
+	typeof pullRequestSortDirectionSchema
+>
+
+/**
+ * Draft is filtered by name rather than by boolean so a GET query string never
+ * has to coerce `"false"`. Absent means both drafts and non-drafts.
+ */
+export const pullRequestDraftFilterSchema = z.enum(['only', 'exclude'])
+export type PullRequestDraftFilter = z.infer<
+	typeof pullRequestDraftFilterSchema
+>
+
 export const mergeQueueStateSchema = z.enum(mergeQueueStates)
 export type MergeQueueState = z.infer<typeof mergeQueueStateSchema>
 
@@ -897,6 +919,23 @@ export const pullRequestListItemSchema = pullRequestSchema.extend({
 })
 export type PullRequestListItem = z.infer<typeof pullRequestListItemSchema>
 
+export const listPullRequestsResultSchema = z.object({
+	pullRequests: z.array(pullRequestListItemSchema),
+	/** Present exactly when another page exists under the same ordering. */
+	nextCursor: z.string().optional(),
+	/**
+	 * Whether the repository holds any pull requests at all, regardless of the
+	 * filters applied — what tells an empty result "nothing matched" apart from
+	 * "nothing exists yet".
+	 */
+	hasAnyPullRequests: z.boolean(),
+	authority: pullRequestAuthoritySchema,
+	viewerRole: repositoryViewerRoleSchema,
+})
+export type ListPullRequestsResult = z.infer<
+	typeof listPullRequestsResultSchema
+>
+
 const repositoryPullRequestsInputSchema = z.object({
 	username: z.string().min(1),
 	slug: repositorySlugSchema,
@@ -921,9 +960,38 @@ export type ParsedCreatePullRequestInput = z.infer<
 	typeof createPullRequestInputSchema
 >
 
+export const PULL_REQUESTS_PAGE_SIZE = 25
+export const PULL_REQUESTS_MAX_PAGE_SIZE = 50
+/** Bounds the opaque cursor, which encodes one timestamp and one number. */
+export const PULL_REQUESTS_CURSOR_MAX_LENGTH = 512
+export const PULL_REQUESTS_SEARCH_MAX_LENGTH = 200
+
 export const listPullRequestsInputSchema =
 	repositoryPullRequestsInputSchema.extend({
 		state: pullRequestStateSchema.optional(),
+		draft: pullRequestDraftFilterSchema.optional(),
+		/**
+		 * Matches number, title, body, source branch, target branch, and author
+		 * login, case-insensitively. A query of only digits (optionally prefixed
+		 * with `#`) additionally matches the pull request number exactly.
+		 */
+		q: refuseNul(z.string().trim().max(PULL_REQUESTS_SEARCH_MAX_LENGTH))
+			.optional()
+			.transform(query => (query ? query : undefined)),
+		sort: pullRequestSortSchema.default('created'),
+		direction: pullRequestSortDirectionSchema.default('desc'),
+		limit: z.coerce
+			.number()
+			.int()
+			.min(1)
+			.max(PULL_REQUESTS_MAX_PAGE_SIZE)
+			.default(PULL_REQUESTS_PAGE_SIZE),
+		/**
+		 * Opaque continuation token from a previous page's `nextCursor`. Only
+		 * meaningful with the same sort and direction it was issued under; the
+		 * server refuses one issued under different ordering.
+		 */
+		cursor: z.string().min(1).max(PULL_REQUESTS_CURSOR_MAX_LENGTH).optional(),
 	})
 export type ListPullRequestsInput = z.input<typeof listPullRequestsInputSchema>
 export type ParsedListPullRequestsInput = z.infer<
@@ -1364,13 +1432,7 @@ export const pullRequestsContract = {
 			path: '/repositories/{username}/{slug}/pulls',
 		})
 		.input(listPullRequestsInputSchema)
-		.output(
-			z.object({
-				pullRequests: z.array(pullRequestListItemSchema),
-				authority: pullRequestAuthoritySchema,
-				viewerRole: repositoryViewerRoleSchema,
-			})
-		),
+		.output(listPullRequestsResultSchema),
 	get: oc
 		.route({
 			method: 'GET',
