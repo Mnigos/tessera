@@ -345,9 +345,6 @@ export class PullRequestsService {
 			}),
 		])
 
-		// The last row of the page is where the next one resumes, carrying the sort
-		// key at the precision the database ordered by rather than the millisecond
-		// a serialized date would have rounded it to.
 		const lastPullRequest = pullRequests.at(-1)
 
 		return {

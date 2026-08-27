@@ -89,11 +89,6 @@ export type MergeQueueEntryId = z.infer<typeof mergeQueueEntryIdSchema>
 export const pullRequestStateSchema = z.enum(['open', 'closed', 'merged'])
 export type PullRequestState = z.infer<typeof pullRequestStateSchema>
 
-/**
- * `activity` orders by the last recorded pull request activity — comments,
- * reviews, lifecycle events — not by the row's own `updatedAt`, which only
- * moves for edits and synchronization.
- */
 export const pullRequestSortSchema = z.enum(['created', 'updated', 'activity'])
 export type PullRequestSort = z.infer<typeof pullRequestSortSchema>
 

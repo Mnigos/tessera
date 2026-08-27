@@ -7,14 +7,6 @@ import {
 import { z } from 'zod'
 import { InvalidPullRequestCursorError } from '../domain/pull-request.errors'
 
-/**
- * Where a page left off, as the keyset predicate reads it.
- *
- * The timestamp stays text at Postgres's own microsecond precision rather than
- * becoming a `Date`: JavaScript only keeps milliseconds, and a cursor rounded to
- * the millisecond would either skip rows or serve them twice whenever two pull
- * requests share a sort key to within a thousandth of a second.
- */
 export interface PullRequestCursor {
 	value: string
 	number: number

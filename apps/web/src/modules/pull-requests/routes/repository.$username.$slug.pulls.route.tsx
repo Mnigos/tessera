@@ -1,36 +1,16 @@
 import { ORPCError, safe } from '@orpc/client'
-import {
-	PULL_REQUESTS_SEARCH_MAX_LENGTH,
-	pullRequestDraftFilterSchema,
-	pullRequestSortDirectionSchema,
-	pullRequestSortSchema,
-	pullRequestStateSchema,
-} from '@repo/contracts'
 import { createFileRoute, notFound, redirect } from '@tanstack/react-router'
-import { z } from 'zod'
 import { PullRequestsList } from '../components/pull-requests-list'
 import {
 	type PullRequestsListFilters,
+	pullRequestsListSearchSchema,
 	toListPullRequestsInput,
 	toPullRequestsListSearchParams,
 } from '../helpers/pull-requests-list-search'
 import { getPullRequestsListQueryOptions } from '../hooks/use-pull-requests-list.query'
 
 export const Route = createFileRoute('/$username/$slug/pulls')({
-	validateSearch: z.object({
-		state: pullRequestStateSchema.or(z.literal('all')).default('open'),
-		draft: pullRequestDraftFilterSchema.optional(),
-		q: z
-			.string()
-			.trim()
-			.max(PULL_REQUESTS_SEARCH_MAX_LENGTH)
-			.optional()
-			// A `q=` left behind by an emptied box is no search at all.
-			.transform(query => (query ? query : undefined)),
-		sort: pullRequestSortSchema.default('created'),
-		direction: pullRequestSortDirectionSchema.default('desc'),
-		cursor: z.string().optional(),
-	}),
+	validateSearch: pullRequestsListSearchSchema,
 	loaderDeps: ({ search: { state, draft, q, sort, direction, cursor } }) => ({
 		state,
 		draft,
