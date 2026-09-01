@@ -143,14 +143,15 @@ describe(GitHubImportService.name, () => {
 			})
 		const listRepositoriesSpy = vi
 			.spyOn(githubOctokitClient, 'listRepositories')
-			.mockResolvedValue([repository])
+			.mockResolvedValue({ repositories: [repository], nextPage: 2 })
 
-		expect(await githubImportService.listRepositories(mockUserId)).toEqual([
-			repository,
-		])
+		expect(
+			await githubImportService.listRepositories(mockUserId, { page: 1 })
+		).toEqual({ repositories: [repository], nextPage: 2 })
 		expect(findGitHubAccountSpy).toHaveBeenCalledWith({ userId: mockUserId })
 		expect(listRepositoriesSpy).toHaveBeenCalledWith({
 			accessToken: 'github-token',
+			page: 1,
 		})
 	})
 
@@ -160,9 +161,13 @@ describe(GitHubImportService.name, () => {
 			scope: 'repo',
 			accessTokenExpiresAt: null,
 		})
-		vi.spyOn(githubOctokitClient, 'listRepositories').mockResolvedValue([])
+		vi.spyOn(githubOctokitClient, 'listRepositories').mockResolvedValue({
+			repositories: [],
+		})
 
-		expect(await githubImportService.listRepositories(mockUserId)).toEqual([])
+		expect(
+			await githubImportService.listRepositories(mockUserId, { page: 1 })
+		).toEqual({ repositories: [] })
 	})
 
 	test('rejects when the user has no GitHub account', async () => {
@@ -171,7 +176,7 @@ describe(GitHubImportService.name, () => {
 		)
 
 		await expect(
-			githubImportService.listRepositories(mockUserId)
+			githubImportService.listRepositories(mockUserId, { page: 1 })
 		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
 		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
 	})
@@ -184,7 +189,7 @@ describe(GitHubImportService.name, () => {
 		})
 
 		await expect(
-			githubImportService.listRepositories(mockUserId)
+			githubImportService.listRepositories(mockUserId, { page: 1 })
 		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
 		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
 	})
@@ -197,7 +202,7 @@ describe(GitHubImportService.name, () => {
 		})
 
 		await expect(
-			githubImportService.listRepositories(mockUserId)
+			githubImportService.listRepositories(mockUserId, { page: 1 })
 		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
 		expect(githubOctokitClient.listRepositories).not.toHaveBeenCalled()
 	})
@@ -210,13 +215,14 @@ describe(GitHubImportService.name, () => {
 		})
 		const listRepositoriesSpy = vi
 			.spyOn(githubOctokitClient, 'listRepositories')
-			.mockResolvedValue([repository])
+			.mockResolvedValue({ repositories: [repository] })
 
-		expect(await githubImportService.listRepositories(mockUserId)).toEqual([
-			repository,
-		])
+		expect(
+			await githubImportService.listRepositories(mockUserId, { page: 1 })
+		).toEqual({ repositories: [repository] })
 		expect(listRepositoriesSpy).toHaveBeenCalledWith({
 			accessToken: 'github-token',
+			page: 1,
 		})
 	})
 
@@ -228,13 +234,14 @@ describe(GitHubImportService.name, () => {
 		})
 		const listRepositoriesSpy = vi
 			.spyOn(githubOctokitClient, 'listRepositories')
-			.mockResolvedValue([repository])
+			.mockResolvedValue({ repositories: [repository] })
 
-		expect(await githubImportService.listRepositories(mockUserId)).toEqual([
-			repository,
-		])
+		expect(
+			await githubImportService.listRepositories(mockUserId, { page: 1 })
+		).toEqual({ repositories: [repository] })
 		expect(listRepositoriesSpy).toHaveBeenCalledWith({
 			accessToken: 'github-token',
+			page: 1,
 		})
 	})
 

@@ -12,11 +12,8 @@ export class GitHubImportController {
 	@Implement(contract.githubImport.listRepositories)
 	listRepositories(@Session() session: UserSession) {
 		return implement(contract.githubImport.listRepositories).handler(
-			async () => ({
-				repositories: await this.githubImportService.listRepositories(
-					session.user.id
-				),
-			})
+			({ input }) =>
+				this.githubImportService.listRepositories(session.user.id, input)
 		)
 	}
 

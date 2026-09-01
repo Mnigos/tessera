@@ -68,8 +68,28 @@ export type GetGitHubRepositoryImportInput = z.input<
 	typeof getGitHubRepositoryImportInputSchema
 >
 
+export const GITHUB_IMPORT_SEARCH_MAX_LENGTH = 200
+
+export const listGitHubImportRepositoriesInputSchema = z.object({
+	page: z.coerce.number().int().positive().default(1),
+	search: z
+		.string()
+		.trim()
+		.min(1)
+		.max(GITHUB_IMPORT_SEARCH_MAX_LENGTH)
+		.optional(),
+})
+export type ListGitHubImportRepositoriesInput = z.input<
+	typeof listGitHubImportRepositoriesInputSchema
+>
+export type ParsedListGitHubImportRepositoriesInput = z.infer<
+	typeof listGitHubImportRepositoriesInputSchema
+>
+
 export const githubImportRepositoriesOutputSchema = z.object({
 	repositories: z.array(githubImportRepositorySchema),
+	/** The page to continue from; absent once GitHub has nothing further. */
+	nextPage: z.number().int().positive().optional(),
 })
 export type GitHubImportRepositoriesOutput = z.infer<
 	typeof githubImportRepositoriesOutputSchema
@@ -78,6 +98,7 @@ export type GitHubImportRepositoriesOutput = z.infer<
 export const githubImportContract = {
 	listRepositories: oc
 		.route({ method: 'GET', path: '/github-import/repositories' })
+		.input(listGitHubImportRepositoriesInputSchema)
 		.output(githubImportRepositoriesOutputSchema),
 	createImport: oc
 		.route({ method: 'POST', path: '/github-import/imports' })
