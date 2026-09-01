@@ -235,6 +235,7 @@ describe(GitHubSyncClient.name, () => {
 					deletions: 3,
 					changedFiles: 2,
 					mergeable: 'CONFLICTING',
+					canBeRebased: false,
 					commits: { totalCount: 4 },
 				},
 				pr3: null,
@@ -255,6 +256,7 @@ describe(GitHubSyncClient.name, () => {
 				changedFiles: 2,
 				commitCount: 4,
 				mergeableState: 'conflicting',
+				canBeRebased: false,
 			},
 			{ number: 3 },
 		])

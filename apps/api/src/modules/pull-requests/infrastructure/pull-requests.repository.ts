@@ -288,6 +288,7 @@ export interface PullRequestReadModel extends PullRequest {
 		labels?: GitHubPullRequestLabel[]
 		assignees?: GitHubPullRequestAssignee[]
 		mergeableState?: 'mergeable' | 'conflicting' | 'unknown'
+		canBeRebased?: boolean
 	}
 }
 
@@ -312,6 +313,7 @@ interface PullRequestReadRow extends PullRequest {
 	githubLabels: GitHubPullRequestLabel[] | null
 	githubAssignees: GitHubPullRequestAssignee[] | null
 	githubMergeableState: 'mergeable' | 'conflicting' | 'unknown' | null
+	githubCanBeRebased: boolean | null
 }
 
 const PULL_REQUEST_COLUMNS = {
@@ -385,6 +387,7 @@ const PULL_REQUEST_READ_COLUMNS = {
 	githubLabels: gitHubPullRequestMappings.labels,
 	githubAssignees: gitHubPullRequestMappings.assignees,
 	githubMergeableState: gitHubPullRequestMappings.providerMergeableState,
+	githubCanBeRebased: gitHubPullRequestMappings.providerCanBeRebased,
 }
 
 @Injectable()
@@ -714,11 +717,15 @@ export class PullRequestsRepository {
 		repositoryId,
 	}: ReconcileGitHubPullRequestParams): Promise<ReconciledGitHubPullRequest> {
 		const providerMergeableState = pullRequest.mergeableState ?? null
+		const providerCanBeRebased = pullRequest.canBeRebased ?? null
 		// A failed stats read leaves no verdict; the one already stored outlives
 		// it rather than being erased by a blind write.
 		const preservedMergeableState =
 			pullRequest.mergeableState ??
 			sql`${gitHubPullRequestMappings.providerMergeableState}`
+		const preservedCanBeRebased =
+			pullRequest.canBeRebased ??
+			sql`${gitHubPullRequestMappings.providerCanBeRebased}`
 
 		return await this.db.transaction(async transaction => {
 			await transaction.execute(
@@ -777,6 +784,7 @@ export class PullRequestsRepository {
 						labels: pullRequest.labels,
 						assignees: pullRequest.assignees,
 						providerMergeableState,
+						providerCanBeRebased,
 						providerCreatedAt: pullRequest.createdAt,
 						providerUpdatedAt: pullRequest.updatedAt,
 						providerClosedAt: pullRequest.closedAt,
@@ -799,6 +807,7 @@ export class PullRequestsRepository {
 							labels: pullRequest.labels,
 							assignees: pullRequest.assignees,
 							providerMergeableState: preservedMergeableState,
+							providerCanBeRebased: preservedCanBeRebased,
 							providerUpdatedAt: pullRequest.updatedAt,
 							providerClosedAt: pullRequest.closedAt ?? null,
 							providerMergedAt: pullRequest.mergedAt ?? null,
@@ -1766,6 +1775,7 @@ function toPullRequestReadModel(
 						labels: pullRequest.githubLabels ?? [],
 						assignees: pullRequest.githubAssignees ?? [],
 						mergeableState: pullRequest.githubMergeableState ?? undefined,
+						canBeRebased: pullRequest.githubCanBeRebased ?? undefined,
 					}
 				: undefined,
 	}
