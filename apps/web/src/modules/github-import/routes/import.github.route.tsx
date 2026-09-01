@@ -26,7 +26,12 @@ const UUID_LIST_REGEX =
 
 export const Route = createFileRoute('/import/github')({
 	validateSearch: z.object({
-		q: z.string().trim().min(1).max(GITHUB_IMPORT_SEARCH_MAX_LENGTH).optional(),
+		q: z
+			.string()
+			.trim()
+			.max(GITHUB_IMPORT_SEARCH_MAX_LENGTH)
+			.optional()
+			.transform(query => (query ? query : undefined)),
 		selectedRepositoryIds: z
 			.string()
 			.regex(/^\d+(,\d+)*$/)
@@ -58,8 +63,8 @@ function GitHubImportRoute() {
 		{ search: q },
 		isAuthenticated
 	)
-	const repositories =
-		repositoriesQuery.data?.pages.flatMap(page => page.repositories) ?? []
+	const pages = repositoriesQuery.data?.pages ?? []
+	const repositories = pages.flatMap(page => page.repositories)
 	const selection = useGitHubImportSelection(
 		selectedRepositoryIdsSearch,
 		repositories
@@ -163,6 +168,7 @@ function GitHubImportRoute() {
 			onReconnectGitHub={reconnectGitHub}
 			onSelectAllRepositories={selection.selectAllLoaded}
 			onToggleRepository={selection.toggleRepository}
+			pageCount={pages.length}
 			query={q ?? ''}
 			repositories={repositories}
 			selectedRepositories={selection.selectedRepositories}

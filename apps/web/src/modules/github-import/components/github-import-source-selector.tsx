@@ -29,6 +29,7 @@ interface GitHubImportSourceSelectorProps {
 	onReconnectGitHub?: () => void
 	onSelectAllRepositories: () => void
 	onToggleRepository: (repositoryId: string) => void
+	pageCount: number
 	query: string
 	repositories: GitHubImportRepository[]
 	selectedRepositories: GitHubImportRepository[]
@@ -51,6 +52,7 @@ export function GitHubImportSourceSelector({
 	onReconnectGitHub,
 	onSelectAllRepositories,
 	onToggleRepository,
+	pageCount,
 	query,
 	repositories,
 	selectedRepositories,
@@ -63,10 +65,14 @@ export function GitHubImportSourceSelector({
 			selectedRepositoryIdSet.has(repository.githubId)
 		)
 	const needsGitHubReconnect = isGitHubAccessError(error)
+	// A failed page or refetch keeps the loaded list unless GitHub access itself is broken.
+	const showsListError =
+		isError &&
+		(needsGitHubReconnect || isSearching || repositories.length === 0)
 
 	if (isLoading) return <GitHubImportLoadingState />
 
-	if (isError && !isFetchNextPageError)
+	if (showsListError)
 		return (
 			<GitHubImportMessage
 				action={
@@ -148,6 +154,7 @@ export function GitHubImportSourceSelector({
 						isSearching={isSearching}
 						loadedCount={repositories.length}
 						onLoadMore={onLoadMore}
+						pageCount={pageCount}
 						query={query}
 					/>
 				)}
@@ -157,6 +164,7 @@ export function GitHubImportSourceSelector({
 				isImporting={isImporting}
 				onContinue={onContinue}
 				repositories={selectedRepositories}
+				selectedCount={selectedRepositoryIds.length}
 			/>
 		</div>
 	)

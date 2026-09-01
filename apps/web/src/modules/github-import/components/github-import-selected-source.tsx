@@ -12,6 +12,7 @@ interface GitHubImportSelectedSourceProps {
 	isImporting: boolean
 	onContinue: () => void
 	repositories: GitHubImportRepository[]
+	selectedCount: number
 }
 
 export function GitHubImportSelectedSource({
@@ -19,8 +20,8 @@ export function GitHubImportSelectedSource({
 	isImporting,
 	onContinue,
 	repositories,
+	selectedCount,
 }: Readonly<GitHubImportSelectedSourceProps>) {
-	const repositoryCount = repositories.length
 	const firstRepository = repositories[0]
 
 	return (
@@ -30,8 +31,8 @@ export function GitHubImportSelectedSource({
 					Selected sources
 				</h2>
 				<p className="text-muted-foreground text-sm">
-					{repositoryCount > 0
-						? `${formatRepositoryCount(repositoryCount)} ready to import.`
+					{selectedCount > 0
+						? `${formatRepositoryCount(selectedCount)} ready to import.`
 						: 'Choose GitHub repositories to continue.'}
 				</p>
 			</div>
@@ -70,7 +71,7 @@ export function GitHubImportSelectedSource({
 			)}
 			<Button
 				className="w-full cursor-pointer transition duration-150 ease-out hover:-translate-y-px hover:bg-primary/90"
-				disabled={repositoryCount === 0 || isImporting}
+				disabled={selectedCount === 0 || isImporting}
 				onClick={onContinue}
 			>
 				{isImporting ? 'Importing...' : 'Continue'}

@@ -10,6 +10,7 @@ interface GitHubImportLoadStatusProps {
 	isSearching: boolean
 	loadedCount: number
 	onLoadMore: () => void
+	pageCount: number
 	query: string
 }
 
@@ -19,7 +20,7 @@ function getStatusText({
 	isFetchingNextPage,
 	isSearching,
 	loadedCount,
-}: Omit<GitHubImportLoadStatusProps, 'onLoadMore' | 'query'>) {
+}: Omit<GitHubImportLoadStatusProps, 'onLoadMore' | 'pageCount' | 'query'>) {
 	if (hasLoadMoreError) return 'Loading more failed.'
 	if (isSearching) return 'Searching...'
 	if (loadedCount === 0) return 'No matches yet. Scanning more repositories...'
@@ -35,8 +36,7 @@ function getStatusText({
 export function GitHubImportLoadStatus(
 	props: Readonly<GitHubImportLoadStatusProps>
 ) {
-	const { hasLoadMoreError, hasNextPage, loadedCount, onLoadMore, query } =
-		props
+	const { hasLoadMoreError, hasNextPage, onLoadMore, pageCount, query } = props
 
 	function observeSentinel(node: HTMLDivElement | null) {
 		if (!node) return
@@ -60,12 +60,12 @@ export function GitHubImportLoadStatus(
 					</Button>
 				)}
 			</div>
-			{/* Keyed per page and search so a still-visible sentinel re-observes and keeps loading. */}
+			{/* Keyed per fetched page and search so a still-visible sentinel re-observes, even when a page added no matches. */}
 			{hasNextPage && (
 				<div
 					aria-hidden
 					className="h-px"
-					key={`${query}:${loadedCount}`}
+					key={`${query}:${pageCount}`}
 					ref={observeSentinel}
 				/>
 			)}
