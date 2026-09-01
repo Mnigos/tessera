@@ -19,7 +19,7 @@ export function PullRequestsListControls({
 			<SearchInput
 				label="Search pull requests"
 				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
-				onQueryChange={q => onFiltersChange({ q })}
+				onQueryChange={nextQuery => onFiltersChange({ q: nextQuery })}
 				placeholder="Search by number, title, branch, or author"
 				query={filters.q ?? ''}
 			/>

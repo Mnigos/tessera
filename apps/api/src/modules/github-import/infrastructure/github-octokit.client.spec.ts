@@ -18,6 +18,8 @@ const repository: GitHubImportRepository = {
 	githubUrl: 'https://github.com/marta/tessera',
 }
 
+const NEXT_PAGE_LINK = '<https://api.github.com/user/repos?page=2>; rel="next"'
+
 function githubRepositoryResponse(id: number, fullName: string) {
 	const [ownerLogin = 'marta', name = 'tessera'] = fullName.split('/')
 
@@ -88,6 +90,7 @@ describe(GitHubOctokitClient.name, () => {
 			data: Array.from({ length: 50 }, (_, index) =>
 				githubRepositoryResponse(index + 1, `marta/repository-${index + 1}`)
 			),
+			headers: { link: NEXT_PAGE_LINK },
 		})
 
 		expect(
@@ -110,6 +113,24 @@ describe(GitHubOctokitClient.name, () => {
 			})
 		).toEqual({ repositories: [repository], nextPage: undefined })
 		expect(listForAuthenticatedUser).toHaveBeenCalledOnce()
+	})
+
+	test('stops after a full page that GitHub marks as the last one', async () => {
+		listForAuthenticatedUser.mockResolvedValueOnce({
+			data: Array.from({ length: 50 }, (_, index) =>
+				githubRepositoryResponse(index + 1, `marta/repository-${index + 1}`)
+			),
+			headers: {
+				link: '<https://api.github.com/user/repos?page=1>; rel="prev"',
+			},
+		})
+
+		expect(
+			await githubOctokitClient.listRepositories({
+				accessToken: 'github-token',
+				page: 2,
+			})
+		).toMatchObject({ nextPage: undefined })
 	})
 
 	test('scans four search pages in parallel and stops at the first short page', async () => {
@@ -170,6 +191,7 @@ describe(GitHubOctokitClient.name, () => {
 						`marta/repository-${page}-${index}`
 					)
 				),
+				headers: { link: NEXT_PAGE_LINK },
 			})
 		)
 
