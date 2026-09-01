@@ -60,8 +60,8 @@ export function GitHubImportLoadStatus(
 					</Button>
 				)}
 			</div>
-			{/* Keyed per fetched page and search so a still-visible sentinel re-observes, even when a page added no matches. */}
-			{hasNextPage && (
+			{/* Keyed per fetched page and search so a still-visible sentinel re-observes, even when a page added no matches. Hidden after a failure so only Retry re-requests. */}
+			{hasNextPage && !hasLoadMoreError && (
 				<div
 					aria-hidden
 					className="h-px"
