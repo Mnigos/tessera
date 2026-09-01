@@ -463,16 +463,6 @@ export class PullRequestsRepository {
 					eq(gitHubPullRequestMappings.draft, false)
 				)
 			)
-			.leftJoin(
-				authorGitHubActor,
-				eq(authorGitHubActor.id, gitHubPullRequestMappings.authorActorId)
-			)
-			.leftJoin(
-				mergedByGitHubActor,
-				eq(mergedByGitHubActor.id, gitHubPullRequestMappings.mergedByActorId)
-			)
-			.where(and(...conditions))
-			.orderBy(desc(pullRequests.createdAt), desc(pullRequests.number))
 
 		const search = q ? toPullRequestSearchCondition(q) : undefined
 

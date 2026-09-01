@@ -84,7 +84,7 @@ export function RepositoryNavigation({
 		select: state => state.matches.at(-1)?.routeId ?? '',
 	})
 	const activeSection = getRepositorySection(routeId)
-	const params = { username: owner.username, slug: repository.slug }
+	const params = { username: owner.handle, slug: repository.slug }
 	const items: RepositoryNavigationItem[] = [
 		{
 			icon: Code,

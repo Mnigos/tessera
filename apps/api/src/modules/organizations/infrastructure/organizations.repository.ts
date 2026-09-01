@@ -89,6 +89,22 @@ export class OrganizationsRepository {
 		return row
 	}
 
+	// Never waits: `run` needs a second pool connection, so waiters would starve it.
+	async withOrganizationLock<TResult>(
+		organizationId: OrganizationId,
+		run: () => Promise<TResult>
+	): Promise<TResult> {
+		return await this.db.transaction(async transaction => {
+			const [lock] = await transaction.execute<{ locked: boolean }>(
+				sql`select pg_try_advisory_xact_lock(hashtextextended(${`organization:${organizationId}`}, 0)) as locked`
+			)
+
+			if (!lock?.locked) throw new OrganizationBusyError({ organizationId })
+
+			return await run()
+		})
+	}
+
 	async findBySlug({
 		slug,
 	}: OrganizationSlugParams): Promise<Organization | undefined> {

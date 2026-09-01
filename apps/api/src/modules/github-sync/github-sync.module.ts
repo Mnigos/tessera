@@ -1,5 +1,6 @@
 import { ChecksModule } from '@modules/checks'
 import { PullRequestsModule } from '@modules/pull-requests'
+import { RepositoriesModule } from '@modules/repositories'
 import { Module } from '@nestjs/common'
 import { GitHubPullRequestRefreshService } from './application/github-pull-request-refresh.service'
 import { GitHubSyncProcessor } from './application/github-sync.processor'
@@ -16,8 +17,13 @@ import { GitHubPullRequestRefreshController } from './presentation/github-pull-r
 import { GitHubWebhookController } from './presentation/github-webhook.controller'
 
 @Module({
-	imports: [ChecksModule, PullRequestsModule, GitHubSyncQueueModule],
-	controllers: [GitHubWebhookController],
+	imports: [
+		ChecksModule,
+		PullRequestsModule,
+		RepositoriesModule,
+		GitHubSyncQueueModule,
+	],
+	controllers: [GitHubPullRequestRefreshController, GitHubWebhookController],
 	providers: [
 		GitHubPullRequestRefreshService,
 		GitHubWebhookService,
@@ -32,6 +38,7 @@ import { GitHubWebhookController } from './presentation/github-webhook.controlle
 	],
 	exports: [
 		GitHubSyncQueueModule,
+		GitHubPullRequestRefreshService,
 		GitHubSyncReplayService,
 		GitHubSyncRepository,
 	],

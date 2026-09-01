@@ -135,7 +135,8 @@ export function toGitHubSyncPullRequest(
 		mergedBy: pullRequest.merged_by
 			? toGitHubSyncActor(pullRequest.merged_by)
 			: undefined,
-		// Open pull requests carry GitHub's test-merge sha, which is not a merge.
+		// On open pull requests GitHub fills merge_commit_sha with a speculative
+		// "would it merge" commit, not a real merge — keep the sha only once merged.
 		mergeCommitSha: mergedAt
 			? (pullRequest.merge_commit_sha ?? undefined)
 			: undefined,

@@ -70,7 +70,7 @@ export function RepositorySourceSyncLine({
 }: Readonly<RepositorySourceSyncLineProps>) {
 	const isMirrored = repository.externalSource.mode === 'github_to_tessera'
 	const syncHealthQuery = useGitHubSyncHealthQuery(
-		{ slug: repository.slug, username: owner.username },
+		{ slug: repository.slug, username: owner.handle },
 		isOwner && isMirrored
 	)
 	const syncHealth = syncHealthQuery.data?.syncHealth
@@ -94,7 +94,7 @@ export function RepositorySourceSyncLine({
 			{!presentation.isQuiet && isOwner && (
 				<Link
 					className="underline hover:text-foreground"
-					params={{ username: owner.username, slug: repository.slug }}
+					params={{ username: owner.handle, slug: repository.slug }}
 					to="/$username/$slug/settings/github"
 				>
 					Sync details

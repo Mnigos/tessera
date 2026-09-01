@@ -10,17 +10,21 @@ import {
 import { getPullRequestsListQueryOptions } from '../hooks/use-pull-requests-list.query'
 
 export const Route = createFileRoute('/$username/$slug/pulls')({
-	validateSearch: z.object({
-		state: pullRequestStateSchema.or(z.literal('all')).default('open'),
+	validateSearch: pullRequestsListSearchSchema,
+	loaderDeps: ({ search: { state, draft, q, sort, direction, cursor } }) => ({
+		state,
+		draft,
+		q,
+		sort,
+		direction,
+		cursor,
 	}),
 	loader: async ({ context, deps, params: { username, slug } }) => {
 		const [error] = await safe(
 			context.queryClient.ensureQueryData(
-				getPullRequestsListQueryOptions({
-					username,
-					slug,
-					state: state === 'all' ? undefined : state,
-				})
+				getPullRequestsListQueryOptions(
+					toListPullRequestsInput(username, slug, deps)
+				)
 			)
 		)
 
@@ -57,7 +61,11 @@ function RepositoryPullRequestsRoute() {
 	const search = Route.useSearch()
 	const navigate = Route.useNavigate()
 
-	function handleSelectedStateChange(selectedState: PullRequestState | 'all') {
+	/**
+	 * A cursor is only valid for the ordering and the page it was issued under, so
+	 * changing what is being listed always starts again from the first page.
+	 */
+	function handleFiltersChange(filters: Partial<PullRequestsListFilters>) {
 		navigate({
 			search: previousSearch =>
 				toPullRequestsListSearchParams({

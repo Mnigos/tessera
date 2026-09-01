@@ -10,6 +10,7 @@ import { RepositoriesModule } from '@modules/repositories'
 import { type INestApplication, Logger, Module } from '@nestjs/common'
 import { APP_FILTER } from '@nestjs/core'
 import { Test, type TestingModule } from '@nestjs/testing'
+import { repositoryBrowserSummarySchema } from '@repo/contracts'
 import { eq, type GitHubInstallationId, sql } from '@repo/db'
 import { db } from '@repo/db/client'
 import {

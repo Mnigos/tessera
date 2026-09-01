@@ -1,4 +1,5 @@
 import type { PullRequestListItem as PullRequestListItemData } from '@repo/contracts'
+import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { cn } from '@repo/ui/utils'
 import { canWriteRepository } from '@/modules/repositories/helpers/repository-viewer-role'
@@ -13,16 +14,15 @@ import { NewPullRequestLink } from './new-pull-request-link'
 import { PullRequestListItem } from './pull-request-list-item'
 import { PullRequestsListControls } from './pull-requests-list-controls'
 import { PullRequestsMessage } from './pull-requests-message'
-import {
-	type PullRequestStateFilterValue,
-	PullRequestsStateFilter,
-} from './pull-requests-state-filter'
+import { PullRequestsPagination } from './pull-requests-pagination'
+import { PullRequestsStateFilter } from './pull-requests-state-filter'
 
 interface PullRequestsListProps {
 	username: string
 	slug: string
-	selectedState: PullRequestStateFilterValue
-	onSelectedStateChange: (state: PullRequestStateFilterValue) => void
+	search: PullRequestsListSearch
+	onFiltersChange: (filters: Partial<PullRequestsListFilters>) => void
+	onPageChange: (cursor: string | undefined) => void
 }
 
 export function PullRequestsList({
@@ -32,11 +32,10 @@ export function PullRequestsList({
 	onFiltersChange,
 	onPageChange,
 }: Readonly<PullRequestsListProps>) {
-	const { data, isError, isLoading } = usePullRequestsListQuery({
-		username,
-		slug,
-		state: selectedState === 'all' ? undefined : selectedState,
-	})
+	const { data, isError, isLoading, isPlaceholderData } =
+		usePullRequestsListQuery(toListPullRequestsInput(username, slug, search))
+	const canCreatePullRequest =
+		canWriteRepository(data?.viewerRole) && data?.authority !== 'github'
 
 	return (
 		<section className="flex flex-col gap-4">
