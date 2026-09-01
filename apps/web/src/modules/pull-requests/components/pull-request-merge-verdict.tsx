@@ -206,7 +206,7 @@ function getGitHubMergeGate(
 					This branch cannot be rebased
 				</p>
 				<p className="text-muted-foreground text-sm">
-					Its commits do not replay cleanly onto {pullRequest.targetBranch} —
+					Its commits do not replay cleanly onto {pullRequest.targetBranch},
 					usually because the branch contains merge commits. Switch the merge
 					method to a merge commit or a squash.
 				</p>

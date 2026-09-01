@@ -39,7 +39,7 @@ export const GITHUB_WRITE_REJECTED_MESSAGES = {
 	self_approval: 'GitHub does not allow approving your own pull request.',
 	unmergeable: 'GitHub reports this pull request cannot be merged right now.',
 	rebase_unmergeable:
-		'GitHub cannot rebase this branch — its commits do not replay cleanly, usually because it contains merge commits. Merge with a merge commit or a squash instead.',
+		'GitHub cannot rebase this branch. Its commits do not replay cleanly, usually because it contains merge commits. Merge with a merge commit or a squash instead.',
 	stale_head: 'The pull request changed on GitHub. Refresh and try again.',
 	invalid_anchor: 'GitHub could not place this comment on the current diff.',
 	fast_forward_unsupported:
