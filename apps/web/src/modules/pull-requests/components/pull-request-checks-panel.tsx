@@ -88,10 +88,17 @@ function ChecksPanel({
 		expectedHeadSha: checksSummary.headSha,
 	})
 	// Settled checks fold away; running or failing ones are what the reader came
-	// to watch, so those open the panel on arrival.
+	// to watch, so those open the panel on arrival — and again when a settled
+	// rollup turns active or failing under them.
 	const [isExpanded, setIsExpanded] = useState(
-		checksSummary.overall === 'pending' || checksSummary.overall === 'failure'
+		isCheckRollupWatchworthy(checksSummary.overall)
 	)
+	const [renderedOverall, setRenderedOverall] = useState(checksSummary.overall)
+
+	if (renderedOverall !== checksSummary.overall) {
+		setRenderedOverall(checksSummary.overall)
+		if (isCheckRollupWatchworthy(checksSummary.overall)) setIsExpanded(true)
+	}
 	const rollup = getCheckRollupPresentation(checksSummary.overall)
 	const missingRequiredContexts =
 		checksQuery.data?.missingRequiredContexts ?? []
@@ -233,4 +240,8 @@ function ChecksPanelBody({
 
 function toRequirementKey({ context, kind, providerAppId }: RequiredContext) {
 	return [context, kind ?? '', providerAppId ?? ''].join('\u0000')
+}
+
+function isCheckRollupWatchworthy(overall: ChecksSummary['overall']): boolean {
+	return overall === 'pending' || overall === 'failure'
 }

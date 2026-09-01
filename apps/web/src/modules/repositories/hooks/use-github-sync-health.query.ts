@@ -12,9 +12,13 @@ import { orpcQuery } from '@/lib/orpc/query'
 /** Fast enough to watch a run move, slow enough to cost nothing while one does. */
 const ACTIVE_SYNC_POLL_MS = 3000
 
-/** States describing work that is moving right now, which are worth watching. */
+/**
+ * Only `pending` means a run is queued or executing. `partial` describes a
+ * finished run that left work behind and can sit unchanged for as long as the
+ * scheduler pleases — polling it fast would never stop.
+ */
 function isSyncActive(syncHealth?: RepositorySyncHealth): boolean {
-	return syncHealth?.state === 'pending' || syncHealth?.state === 'partial'
+	return syncHealth?.state === 'pending'
 }
 
 /**

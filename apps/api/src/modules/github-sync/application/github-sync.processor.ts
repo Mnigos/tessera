@@ -241,6 +241,7 @@ export class GitHubSyncProcessor extends WorkerHost {
 		try {
 			await this.gitHubSyncRepository.writeSyncProgress(
 				claim.repositoryId,
+				claim.leaseOwner,
 				progress
 			)
 		} catch (error) {
