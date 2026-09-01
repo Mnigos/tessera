@@ -1758,6 +1758,7 @@ export class GitHubSyncRepository {
 	 */
 	async writeSyncProgress(
 		repositoryId: RepositoryId,
+		leaseOwner: string,
 		progress: Omit<RepositorySyncProgress, 'updatedAt'> | null
 	): Promise<void> {
 		await this.db
@@ -1767,7 +1768,14 @@ export class GitHubSyncRepository {
 					? { ...progress, updatedAt: new Date().toISOString() }
 					: null,
 			})
-			.where(eq(repositoryExternalSources.repositoryId, repositoryId))
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					// A worker that lost its lease has no run to report on; without
+					// this, its late writes would repaint or clear the new run's bar.
+					eq(repositoryExternalSources.syncLeaseOwner, leaseOwner)
+				)
+			)
 	}
 
 	async requestDueReconciliations({

@@ -277,6 +277,9 @@ describe('GitHub-authoritative merge panel', () => {
 
 		await chooseStrategy(user, 'Squash and merge')
 		await user.click(screen.getByRole('button', { name: 'Squash and merge' }))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm squash and merge' })
+		)
 
 		expect(screen.queryByRole('dialog')).toBeNull()
 		expect(mutate).toHaveBeenCalledWith(
@@ -400,6 +403,9 @@ describe(PullRequestMergePanel.name, () => {
 		renderPanel()
 
 		await user.click(screen.getByRole('button', MERGE_BUTTON))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm merge commit' })
+		)
 
 		expect(mutate).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -505,6 +511,9 @@ describe(PullRequestMergePanel.name, () => {
 		renderPanel()
 
 		await user.click(screen.getByRole('button', MERGE_BUTTON))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm merge commit' })
+		)
 
 		expect(refetch).toHaveBeenCalledOnce()
 	})
@@ -525,6 +534,9 @@ describe(PullRequestMergePanel.name, () => {
 		renderPanel()
 
 		await user.click(screen.getByRole('button', MERGE_BUTTON))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm merge commit' })
+		)
 
 		expect(refetch).not.toHaveBeenCalled()
 	})
@@ -715,6 +727,9 @@ describe('choosing a merge method', () => {
 
 		await chooseStrategy(user, 'Rebase and merge')
 		await user.click(screen.getByRole('button', { name: 'Rebase and merge' }))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm rebase and merge' })
+		)
 
 		expect(mutate).toHaveBeenCalledWith(
 			expect.objectContaining({ strategy: 'rebase' }),
@@ -785,6 +800,9 @@ describe('choosing a merge method', () => {
 		rerender()
 
 		await user.click(screen.getByRole('button', { name: 'Merge commit' }))
+		await user.click(
+			screen.getByRole('button', { name: 'Confirm merge commit' })
+		)
 
 		expect(mutate).toHaveBeenCalledWith(
 			expect.objectContaining({ strategy: 'merge_commit' }),

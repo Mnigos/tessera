@@ -66,6 +66,10 @@ export function PullRequestMergeVerdict({
 	strategy,
 }: Readonly<PullRequestMergeVerdictProps>) {
 	const [isSquashRequested, setIsSquashRequested] = useState(false)
+	// The first click only arms; the merge itself takes the confirming second
+	// one, and picking another method quietly disarms.
+	const [armedStrategy, setArmedStrategy] = useState<MergeStrategy>()
+	const isArmed = armedStrategy === strategy
 	// Derived rather than closed by hand: a merge that succeeded is done with the
 	// dialog, and one that failed needs it back exactly as it was left.
 	const isSquashDialogOpen = isSquashRequested && !hasMerged
@@ -141,15 +145,14 @@ export function PullRequestMergeVerdict({
 						</Button>
 					)
 				) : (
-					<Button
-						className="w-fit"
-						disabled={isPending}
-						onClick={() => onMerge({})}
-						size="sm"
-					>
-						<GitMerge className="size-4" />
-						{isPending ? 'Merging' : mergeLabel}
-					</Button>
+					<ArmedMergeButton
+						isArmed={isArmed}
+						isPending={isPending}
+						mergeLabel={mergeLabel}
+						onArm={() => setArmedStrategy(strategy)}
+						onDisarm={() => setArmedStrategy(undefined)}
+						onMerge={() => onMerge({})}
+					/>
 				)}
 			</div>
 		)
@@ -196,6 +199,22 @@ function getGitHubMergeGate(
 ): ReactElement | undefined {
 	if (!isGitHubAuthoritative) return undefined
 
+	// The conflict wins over a missing mapping: GitHub named a concrete reason
+	// the person can act on, and the mapping message would bury it.
+	if (pullRequest.github?.mergeableState === 'conflicting')
+		return (
+			<div className="flex flex-col gap-1.5">
+				<p className="inline-flex items-center gap-2 font-medium text-sm">
+					<TriangleAlert aria-hidden className="size-4 text-amber-500" />
+					This branch has conflicts that must be resolved
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Resolve the conflicts on GitHub or from the command line, then merge
+					here once the branch is clean.
+				</p>
+			</div>
+		)
+
 	// GitHub already knows the branch will not replay; the reader should learn
 	// it here, beside the method picker, not from a refused click.
 	if (strategy === 'rebase' && pullRequest.github?.canBeRebased === false)
@@ -213,22 +232,6 @@ function getGitHubMergeGate(
 			</div>
 		)
 
-	// The conflict wins over a missing mapping: GitHub named a concrete reason
-	// the person can act on, and the mapping message would bury it.
-	if (pullRequest.github?.mergeableState === 'conflicting')
-		return (
-			<div className="flex flex-col gap-1.5">
-				<p className="inline-flex items-center gap-2 font-medium text-sm">
-					<TriangleAlert aria-hidden className="size-4 text-amber-500" />
-					This branch has conflicts that must be resolved
-				</p>
-				<p className="text-muted-foreground text-sm">
-					Resolve the conflicts on GitHub or from the command line, then merge
-					here once the branch is clean.
-				</p>
-			</div>
-		)
-
 	if (
 		requirements.eligible &&
 		!(requirements.evaluatedBaseSha && requirements.evaluatedHeadSha)
@@ -240,4 +243,48 @@ function getGitHubMergeGate(
 		)
 
 	return undefined
+}
+
+interface ArmedMergeButtonProps {
+	isArmed: boolean
+	isPending: boolean
+	mergeLabel: string
+	onArm: () => void
+	onDisarm: () => void
+	onMerge: () => void
+}
+
+/** The first click arms; the merge takes the confirming second one. */
+function ArmedMergeButton({
+	isArmed,
+	isPending,
+	mergeLabel,
+	onArm,
+	onDisarm,
+	onMerge,
+}: Readonly<ArmedMergeButtonProps>) {
+	if (!isArmed)
+		return (
+			<Button className="w-fit" onClick={onArm} size="sm">
+				<GitMerge className="size-4" />
+				{mergeLabel}
+			</Button>
+		)
+
+	return (
+		<div className="flex flex-wrap items-center gap-2">
+			<Button
+				className="w-fit"
+				disabled={isPending}
+				onClick={onMerge}
+				size="sm"
+			>
+				<GitMerge className="size-4" />
+				{isPending ? 'Merging' : `Confirm ${mergeLabel.toLowerCase()}`}
+			</Button>
+			<Button disabled={isPending} onClick={onDisarm} size="sm" variant="ghost">
+				Cancel
+			</Button>
+		</div>
+	)
 }
