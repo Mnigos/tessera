@@ -14,6 +14,7 @@ import {
 
 const GITHUB_REPOSITORIES_PER_PAGE = 50
 const GITHUB_SEARCH_SCAN_PAGES = 4
+const NEXT_PAGE_LINK_REGEX = /rel="next"/
 
 interface ListRepositoriesParams
 	extends ParsedListGitHubImportRepositoriesInput {
@@ -74,6 +75,10 @@ export class GitHubOctokitClient {
 			const shortPageIndex = pages.findIndex(
 				rows => rows.length < GITHUB_REPOSITORIES_PER_PAGE
 			)
+			// GitHub sends rel="next" only when another page exists, so an exact multiple of 50 costs no empty request.
+			const hasNextPage =
+				shortPageIndex === -1 &&
+				NEXT_PAGE_LINK_REGEX.test(responses.at(-1)?.headers.link ?? '')
 
 			return {
 				repositories: (shortPageIndex === -1
@@ -85,7 +90,7 @@ export class GitHubOctokitClient {
 						({ full_name }) => !term || full_name.toLowerCase().includes(term)
 					)
 					.map(toImportRepository),
-				nextPage: shortPageIndex === -1 ? page + pageCount : undefined,
+				nextPage: hasNextPage ? page + pageCount : undefined,
 			}
 		} catch (error) {
 			throw this.mapRepositoryRequestError(error, 'listing')

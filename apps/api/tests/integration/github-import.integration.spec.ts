@@ -250,7 +250,12 @@ describe('GitHub import integration', () => {
 			[5, fullGitHubRepositoryPage(5)],
 		])
 		listForAuthenticatedUser.mockImplementation(({ page }: { page: number }) =>
-			Promise.resolve({ data: pages.get(page) ?? [] })
+			Promise.resolve({
+				data: pages.get(page) ?? [],
+				headers: {
+					link: '<https://api.github.com/user/repos?page=6>; rel="next"',
+				},
+			})
 		)
 
 		const response = await listGitHubImportRepositories(
