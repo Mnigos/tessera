@@ -102,7 +102,7 @@ describe('GitHub import integration', () => {
 	let moduleRef: TestingModule
 	let app: INestApplication
 	let adapter: HonoAdapter
-	let paginate: ReturnType<typeof vi.fn>
+	let listForAuthenticatedUser: ReturnType<typeof vi.fn>
 	let githubOctokitClient: GitHubOctokitClient
 	let enqueueRepositoryImport: ReturnType<typeof vi.fn>
 
@@ -114,15 +114,10 @@ describe('GitHub import integration', () => {
 
 		await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER })
 
-		paginate = vi.fn()
+		listForAuthenticatedUser = vi.fn()
 		githubOctokitClient = new GitHubOctokitClient()
 		vi.spyOn(githubOctokitClient, 'createForUser').mockReturnValue({
-			paginate,
-			rest: {
-				repos: {
-					listForAuthenticatedUser: vi.fn(),
-				},
-			},
+			rest: { repos: { listForAuthenticatedUser } },
 		} as never)
 		enqueueRepositoryImport = vi.fn().mockResolvedValue(undefined)
 		moduleRef = await Test.createTestingModule({
@@ -142,7 +137,7 @@ describe('GitHub import integration', () => {
 
 	beforeEach(async () => {
 		await resetIntegrationDatabase()
-		paginate.mockReset()
+		listForAuthenticatedUser.mockReset()
 		enqueueRepositoryImport.mockClear()
 		enqueueRepositoryImport.mockResolvedValue(undefined)
 	})
@@ -203,16 +198,13 @@ describe('GitHub import integration', () => {
 				githubUrl: 'https://github.com/marta/private-notes',
 			},
 		])
-		expect(paginate).toHaveBeenCalledWith(
-			expect.any(Function),
-			{
-				visibility: 'all',
-				sort: 'pushed',
-				direction: 'desc',
-				per_page: 100,
-			},
-			expect.any(Function)
-		)
+		expect(listForAuthenticatedUser).toHaveBeenCalledWith({
+			visibility: 'all',
+			sort: 'pushed',
+			direction: 'desc',
+			per_page: 50,
+			page: 1,
+		})
 	})
 
 	test('returns an empty list when GitHub returns no repositories', async () => {
@@ -271,7 +263,7 @@ describe('GitHub import integration', () => {
 			code: 'UNAUTHORIZED',
 			message: 'github import authentication required',
 		})
-		expect(paginate).not.toHaveBeenCalled()
+		expect(listForAuthenticatedUser).not.toHaveBeenCalled()
 	})
 
 	test('maps GitHub 401 failures to an auth error response', async () => {
@@ -283,7 +275,7 @@ describe('GitHub import integration', () => {
 			userId: integrationSession.userId,
 			accessToken: 'github-token',
 		})
-		paginate.mockRejectedValue({ status: 401 })
+		listForAuthenticatedUser.mockRejectedValue({ status: 401 })
 
 		const response = await listGitHubImportRepositories(
 			integrationSession.headers
@@ -306,7 +298,7 @@ describe('GitHub import integration', () => {
 			userId: integrationSession.userId,
 			accessToken: 'github-token',
 		})
-		paginate.mockRejectedValue({ status: 403 })
+		listForAuthenticatedUser.mockRejectedValue({ status: 403 })
 
 		const response = await listGitHubImportRepositories(
 			integrationSession.headers
@@ -532,8 +524,6 @@ describe('GitHub import integration', () => {
 	function mockGitHubRepositories(
 		repositories: (typeof publicRepository | typeof privateRepository)[]
 	) {
-		paginate.mockImplementation((_endpoint, _options, mapPage) =>
-			mapPage({ data: repositories }, vi.fn())
-		)
+		listForAuthenticatedUser.mockResolvedValue({ data: repositories })
 	}
 })
