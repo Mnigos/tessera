@@ -1,5 +1,6 @@
 import type { GitHubImportRepository } from '@repo/contracts'
 import { fireEvent, render, screen, within } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { isGitHubAccessError } from '../helpers/is-github-access-error'
 import { GitHubImportSourceSelector } from './github-import-source-selector'
 
@@ -26,6 +27,33 @@ const repositories: GitHubImportRepository[] = [
 ]
 const TESSERA_REPOSITORY_NAME_REGEX = /mnigos\/tessera/
 const TESSERA_PUSHED_DATE_REGEX = /Pushed May 12, 2026/
+
+function renderSelector(
+	overrides: Partial<ComponentProps<typeof GitHubImportSourceSelector>> = {}
+) {
+	return render(
+		<GitHubImportSourceSelector
+			hasNextPage={false}
+			isError={false}
+			isFetchingNextPage={false}
+			isFetchNextPageError={false}
+			isImporting={false}
+			isLoading={false}
+			isSearching={false}
+			onContinue={vi.fn()}
+			onLoadMore={vi.fn()}
+			onQueryChange={vi.fn()}
+			onSelectAllRepositories={vi.fn()}
+			onToggleRepository={vi.fn()}
+			pageCount={1}
+			query=""
+			repositories={repositories}
+			selectedRepositories={[]}
+			selectedRepositoryIds={[]}
+			{...overrides}
+		/>
+	)
+}
 
 describe('GitHubImportSourceSelector', () => {
 	test('shows loading state', () => {
@@ -226,6 +254,104 @@ describe('GitHubImportSourceSelector', () => {
 		expect(within(tesseraRow).getByText(TESSERA_PUSHED_DATE_REGEX)).toBeTruthy()
 		expect(screen.getByText('ludus/engine')).toBeTruthy()
 		expect(screen.getByText('trunk')).toBeTruthy()
+	})
+
+	test('renders and submits repository search', () => {
+		const onQueryChange = vi.fn()
+		renderSelector({ onQueryChange })
+		const input = screen.getByRole<HTMLInputElement>('textbox', {
+			name: 'Search repositories',
+		})
+
+		expect(input.maxLength).toBe(200)
+		fireEvent.change(input, { target: { value: 'ludus' } })
+		fireEvent.submit(input.closest('form') ?? input)
+
+		expect(onQueryChange).toHaveBeenCalledWith('ludus')
+	})
+
+	test('labels selection for all loaded repositories', () => {
+		const rendered = renderSelector()
+
+		expect(
+			screen.getByRole('button', { name: 'Select all loaded' })
+		).toBeTruthy()
+
+		rendered.rerender(
+			<GitHubImportSourceSelector
+				hasNextPage={false}
+				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
+				isImporting={false}
+				isLoading={false}
+				isSearching={false}
+				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
+				onSelectAllRepositories={vi.fn()}
+				onToggleRepository={vi.fn()}
+				pageCount={1}
+				query=""
+				repositories={repositories}
+				selectedRepositories={repositories}
+				selectedRepositoryIds={['1', '2']}
+			/>
+		)
+
+		expect(screen.getByRole('button', { name: 'Deselect loaded' })).toBeTruthy()
+	})
+
+	test('counts URL selection ids even when fewer repositories are resolved', () => {
+		renderSelector({
+			selectedRepositories: [repositories[0]],
+			selectedRepositoryIds: ['1', '404'],
+		})
+
+		expect(screen.getByText('2 selected')).toBeTruthy()
+		expect(screen.getByText('2 repositories ready to import.')).toBeTruthy()
+	})
+
+	test('shows a finished search empty state', () => {
+		renderSelector({ query: 'ludus', repositories: [] })
+
+		expect(screen.getByText('No repositories found')).toBeTruthy()
+		expect(screen.getByText('No repositories match "ludus".')).toBeTruthy()
+	})
+
+	test('keeps scanning without an empty message while search has more pages', () => {
+		renderSelector({
+			hasNextPage: true,
+			query: 'ludus',
+			repositories: [],
+		})
+
+		expect(
+			screen.getByText('No matches yet. Scanning more repositories...')
+		).toBeTruthy()
+		expect(screen.queryByText('No repositories found')).toBeNull()
+		expect(screen.queryByText('No repositories match "ludus".')).toBeNull()
+	})
+
+	test('keeps loaded repositories after a non-auth list error', () => {
+		renderSelector({ isError: true, error: { status: 500 } })
+
+		expect(screen.getByText('mnigos/tessera')).toBeTruthy()
+		expect(screen.queryByText('Repository list unavailable')).toBeNull()
+	})
+
+	test('shows reconnect state after an auth error with loaded repositories', () => {
+		renderSelector({ isError: true, error: { status: 401 } })
+
+		expect(screen.getByText('GitHub access needs attention')).toBeTruthy()
+		expect(screen.queryByText('mnigos/tessera')).toBeNull()
+	})
+
+	test('shows the error state when a search fails with loaded repositories', () => {
+		renderSelector({ isError: true, isSearching: true })
+
+		expect(screen.getByText('Repository list unavailable')).toBeTruthy()
+		expect(screen.queryByText('mnigos/tessera')).toBeNull()
 	})
 
 	test('selects multiple repositories through URL-backed callbacks', () => {
