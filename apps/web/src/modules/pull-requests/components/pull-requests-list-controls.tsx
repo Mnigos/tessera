@@ -1,6 +1,7 @@
+import { PULL_REQUESTS_SEARCH_MAX_LENGTH } from '@repo/contracts'
+import { SearchInput } from '@/shared/components/search-input'
 import type { PullRequestsListFilters } from '../helpers/pull-requests-list-search'
 import { PullRequestsDraftFilter } from './pull-requests-draft-filter'
-import { PullRequestsSearchInput } from './pull-requests-search-input'
 import { PullRequestsSortControl } from './pull-requests-sort-control'
 
 interface PullRequestsListControlsProps {
@@ -15,8 +16,11 @@ export function PullRequestsListControls({
 }: Readonly<PullRequestsListControlsProps>) {
 	return (
 		<div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-			<PullRequestsSearchInput
+			<SearchInput
+				label="Search pull requests"
+				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
 				onQueryChange={q => onFiltersChange({ q })}
+				placeholder="Search by number, title, branch, or author"
 				query={filters.q ?? ''}
 			/>
 			<div className="flex flex-wrap items-center gap-2">

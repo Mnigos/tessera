@@ -1,7 +1,11 @@
+import { PULL_REQUESTS_SEARCH_MAX_LENGTH } from '@repo/contracts'
 import { fireEvent, render, screen } from '@testing-library/react'
-import { PullRequestsSearchInput } from './pull-requests-search-input'
+import { SearchInput } from './search-input'
 
-describe(PullRequestsSearchInput.name, () => {
+const LABEL = 'Search pull requests'
+const PLACEHOLDER = 'Search by number, title, branch, or author'
+
+describe(SearchInput.name, () => {
 	afterEach(() => {
 		vi.useRealTimers()
 	})
@@ -9,8 +13,16 @@ describe(PullRequestsSearchInput.name, () => {
 	test('flushes a pending debounced search on Enter', () => {
 		vi.useFakeTimers()
 		const onQueryChange = vi.fn()
-		render(<PullRequestsSearchInput onQueryChange={onQueryChange} query="" />)
-		const input = screen.getByRole('textbox', { name: 'Search pull requests' })
+		render(
+			<SearchInput
+				label={LABEL}
+				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
+				onQueryChange={onQueryChange}
+				placeholder={PLACEHOLDER}
+				query=""
+			/>
+		)
+		const input = screen.getByRole('textbox', { name: LABEL })
 
 		fireEvent.change(input, { target: { value: '  review  ' } })
 		fireEvent.submit(input.closest('form') ?? input)
@@ -24,7 +36,13 @@ describe(PullRequestsSearchInput.name, () => {
 	test('clears the displayed and navigated query immediately', () => {
 		const onQueryChange = vi.fn()
 		render(
-			<PullRequestsSearchInput onQueryChange={onQueryChange} query="review" />
+			<SearchInput
+				label={LABEL}
+				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
+				onQueryChange={onQueryChange}
+				placeholder={PLACEHOLDER}
+				query="review"
+			/>
 		)
 
 		fireEvent.click(screen.getByRole('button', { name: 'Clear search' }))
@@ -37,16 +55,28 @@ describe(PullRequestsSearchInput.name, () => {
 		vi.useFakeTimers()
 		const onQueryChange = vi.fn()
 		const { rerender } = render(
-			<PullRequestsSearchInput onQueryChange={onQueryChange} query="" />
+			<SearchInput
+				label={LABEL}
+				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
+				onQueryChange={onQueryChange}
+				placeholder={PLACEHOLDER}
+				query=""
+			/>
 		)
-		const input = screen.getByRole('textbox', { name: 'Search pull requests' })
+		const input = screen.getByRole('textbox', { name: LABEL })
 
 		fireEvent.change(input, { target: { value: 'review ' } })
 		vi.advanceTimersByTime(300)
 		expect(onQueryChange).toHaveBeenCalledWith('review')
 
 		rerender(
-			<PullRequestsSearchInput onQueryChange={onQueryChange} query="review" />
+			<SearchInput
+				label={LABEL}
+				maxLength={PULL_REQUESTS_SEARCH_MAX_LENGTH}
+				onQueryChange={onQueryChange}
+				placeholder={PLACEHOLDER}
+				query="review"
+			/>
 		)
 		expect(screen.getByRole<HTMLInputElement>('textbox').value).toBe('review ')
 	})

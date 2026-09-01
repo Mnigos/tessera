@@ -1,4 +1,7 @@
-import type { GitHubRepositoryImport } from '@repo/contracts'
+import {
+	GITHUB_IMPORT_SEARCH_MAX_LENGTH,
+	type GitHubRepositoryImport,
+} from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { createFileRoute, Navigate, useNavigate } from '@tanstack/react-router'
 import { useState } from 'react'
@@ -10,10 +13,12 @@ import { GitHubImportActivity } from '../components/github-import-activity'
 import { GitHubImportLoadingState } from '../components/github-import-loading-state'
 import { GitHubImportMessage } from '../components/github-import-message'
 import { GitHubImportSourceSelector } from '../components/github-import-source-selector'
+import { parseIdList, serializeIdList } from '../helpers/id-list'
 import { isGitHubImportSourceConflictError } from '../helpers/is-github-import-source-conflict-error'
 import { scrollToGitHubImportActivity } from '../helpers/scroll-to-github-import-activity'
 import { useCreateGitHubImportMutation } from '../hooks/use-create-github-import.mutation'
 import { useGitHubImportRepositoriesQuery } from '../hooks/use-github-import-repositories.query'
+import { useGitHubImportSelection } from '../hooks/use-github-import-selection'
 import { useGitHubImportsQuery } from '../hooks/use-github-imports.query'
 
 const UUID_LIST_REGEX =
@@ -21,6 +26,7 @@ const UUID_LIST_REGEX =
 
 export const Route = createFileRoute('/import/github')({
 	validateSearch: z.object({
+		q: z.string().trim().min(1).max(GITHUB_IMPORT_SEARCH_MAX_LENGTH).optional(),
 		selectedRepositoryIds: z
 			.string()
 			.regex(/^\d+(,\d+)*$/)
@@ -41,13 +47,23 @@ export const Route = createFileRoute('/import/github')({
 
 function GitHubImportRoute() {
 	const {
+		q,
 		queuedImportIds: queuedImportIdsSearch,
 		selectedRepositoryIds: selectedRepositoryIdsSearch,
 	} = Route.useSearch()
 	const navigate = useNavigate({ from: '/import/github' })
 	const { isLoading: isAuthLoading, signIn, user } = useAuth()
 	const isAuthenticated = user != null
-	const repositoriesQuery = useGitHubImportRepositoriesQuery(isAuthenticated)
+	const repositoriesQuery = useGitHubImportRepositoriesQuery(
+		{ search: q },
+		isAuthenticated
+	)
+	const repositories =
+		repositoriesQuery.data?.pages.flatMap(page => page.repositories) ?? []
+	const selection = useGitHubImportSelection(
+		selectedRepositoryIdsSearch,
+		repositories
+	)
 	const importsQuery = useGitHubImportsQuery(isAuthenticated)
 	const createImportMutation = useCreateGitHubImportMutation()
 	const [importError, setImportError] = useState<unknown>()
@@ -56,47 +72,26 @@ function GitHubImportRoute() {
 	>([])
 	const [isImportingBatch, setIsImportingBatch] = useState(false)
 	const [isPickerExpanded, setIsPickerExpanded] = useState<boolean>()
-	const selectedRepositoryIds = parseIdList(selectedRepositoryIdsSearch)
 	const queuedImportIds = parseIdList(queuedImportIdsSearch)
 	const imports = importsQuery.data?.imports ?? []
 	const isImportSession = queuedImportIds.length > 0
 	const isPickerVisible =
-		isPickerExpanded ?? (!isImportSession || selectedRepositoryIds.length > 0)
+		isPickerExpanded ??
+		(!isImportSession || selection.selectedRepositoryIds.length > 0)
 	const completedImportTarget = getCompletedImportTarget(
 		imports,
 		queuedImportIds,
 		user?.username
 	)
 
-	function handleToggleRepository(repositoryId: string) {
+	function handleQueryChange(nextQuery: string | undefined) {
 		navigate({
-			search: previousSearch => ({
-				...previousSearch,
-				selectedRepositoryIds: serializeIdList(
-					toggleSelectedRepositoryId(selectedRepositoryIds, repositoryId)
-				),
-			}),
+			search: previousSearch => ({ ...previousSearch, q: nextQuery }),
 		})
 	}
 
-	function handleSelectAllRepositories() {
-		const repositoryIds =
-			repositoriesQuery.data?.repositories.map(
-				repository => repository.githubId
-			) ?? []
-		const allRepositoryIdsSelected =
-			repositoryIds.length > 0 &&
-			repositoryIds.every(repositoryId =>
-				selectedRepositoryIds.includes(repositoryId)
-			)
-		const nextRepositoryIds = allRepositoryIdsSelected ? [] : repositoryIds
-
-		navigate({
-			search: previousSearch => ({
-				...previousSearch,
-				selectedRepositoryIds: serializeIdList(nextRepositoryIds),
-			}),
-		})
+	function handleLoadMore() {
+		repositoriesQuery.fetchNextPage({ cancelRefetch: false })
 	}
 
 	async function handleContinue() {
@@ -111,7 +106,7 @@ function GitHubImportRoute() {
 		let firstImportError: unknown
 
 		try {
-			for (const githubId of selectedRepositoryIds) {
+			for (const githubId of selection.selectedRepositoryIds) {
 				try {
 					const { import: createdImport } =
 						await createImportMutation.mutateAsync({ githubId })
@@ -154,16 +149,24 @@ function GitHubImportRoute() {
 	const sourceSelector = (
 		<GitHubImportSourceSelector
 			error={repositoriesQuery.error}
+			hasNextPage={repositoriesQuery.hasNextPage}
 			importError={importError}
 			isError={repositoriesQuery.isError}
+			isFetchingNextPage={repositoriesQuery.isFetchingNextPage}
+			isFetchNextPageError={repositoriesQuery.isFetchNextPageError}
 			isImporting={isImportingBatch || createImportMutation.isPending}
 			isLoading={repositoriesQuery.isLoading}
+			isSearching={repositoriesQuery.isPlaceholderData}
 			onContinue={handleContinue}
+			onLoadMore={handleLoadMore}
+			onQueryChange={handleQueryChange}
 			onReconnectGitHub={reconnectGitHub}
-			onSelectAllRepositories={handleSelectAllRepositories}
-			onToggleRepository={handleToggleRepository}
-			repositories={repositoriesQuery.data?.repositories ?? []}
-			selectedRepositoryIds={selectedRepositoryIds}
+			onSelectAllRepositories={selection.selectAllLoaded}
+			onToggleRepository={selection.toggleRepository}
+			query={q ?? ''}
+			repositories={repositories}
+			selectedRepositories={selection.selectedRepositories}
+			selectedRepositoryIds={selection.selectedRepositoryIds}
 		/>
 	)
 	const importActivity = (
@@ -258,24 +261,4 @@ function getCompletedImportTarget(
 	if (queuedImport?.status !== 'succeeded' || !queuedImport.repositoryId) return
 
 	return { slug: queuedImport.targetSlug, username }
-}
-
-function parseIdList(ids?: string) {
-	return ids?.split(',') ?? []
-}
-
-function serializeIdList(ids: string[]) {
-	return ids.length > 0 ? ids.join(',') : undefined
-}
-
-function toggleSelectedRepositoryId(
-	selectedRepositoryIds: string[],
-	repositoryId: string
-) {
-	if (selectedRepositoryIds.includes(repositoryId))
-		return selectedRepositoryIds.filter(
-			selectedRepositoryId => selectedRepositoryId !== repositoryId
-		)
-
-	return [...selectedRepositoryIds, repositoryId]
 }

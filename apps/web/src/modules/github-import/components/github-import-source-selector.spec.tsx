@@ -31,13 +31,21 @@ describe('GitHubImportSourceSelector', () => {
 	test('shows loading state', () => {
 		render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={[]}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -49,13 +57,21 @@ describe('GitHubImportSourceSelector', () => {
 	test('shows generic error state', () => {
 		render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={[]}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -75,14 +91,22 @@ describe('GitHubImportSourceSelector', () => {
 					message: 'github import authentication required',
 					status: 401,
 				}}
+				hasNextPage={false}
 				isError
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onReconnectGitHub={onReconnectGitHub}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={[]}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -104,13 +128,21 @@ describe('GitHubImportSourceSelector', () => {
 					message: 'github import access denied',
 					status: 403,
 				}}
+				hasNextPage={false}
 				isError
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={[]}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -132,13 +164,21 @@ describe('GitHubImportSourceSelector', () => {
 	test('shows empty state', () => {
 		render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={[]}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -152,13 +192,21 @@ describe('GitHubImportSourceSelector', () => {
 	test('renders repository metadata', () => {
 		render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={repositories}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -180,13 +228,21 @@ describe('GitHubImportSourceSelector', () => {
 		const onToggleRepository = vi.fn()
 		const { rerender } = render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={onContinue}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={onSelectAllRepositories}
 				onToggleRepository={onToggleRepository}
+				query=""
 				repositories={repositories}
+				selectedRepositories={[]}
 				selectedRepositoryIds={[]}
 			/>
 		)
@@ -199,13 +255,21 @@ describe('GitHubImportSourceSelector', () => {
 
 		rerender(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={onContinue}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={onSelectAllRepositories}
 				onToggleRepository={onToggleRepository}
+				query=""
 				repositories={repositories}
+				selectedRepositories={repositories}
 				selectedRepositoryIds={['1', '2']}
 			/>
 		)
@@ -217,7 +281,7 @@ describe('GitHubImportSourceSelector', () => {
 		).toBe(false)
 		fireEvent.click(screen.getByRole('button', { name: 'Continue' }))
 		expect(onContinue).toHaveBeenCalledOnce()
-		fireEvent.click(screen.getByRole('button', { name: 'Clear all' }))
+		fireEvent.click(screen.getByRole('button', { name: 'Deselect loaded' }))
 		expect(onSelectAllRepositories).toHaveBeenCalledOnce()
 		expect(
 			screen
@@ -229,16 +293,24 @@ describe('GitHubImportSourceSelector', () => {
 	test('shows friendly import conflict messages', () => {
 		render(
 			<GitHubImportSourceSelector
+				hasNextPage={false}
 				importError={{
 					message: 'github repository import target slug already exists',
 				}}
 				isError={false}
+				isFetchingNextPage={false}
+				isFetchNextPageError={false}
 				isImporting={false}
 				isLoading={false}
+				isSearching={false}
 				onContinue={vi.fn()}
+				onLoadMore={vi.fn()}
+				onQueryChange={vi.fn()}
 				onSelectAllRepositories={vi.fn()}
 				onToggleRepository={vi.fn()}
+				query=""
 				repositories={repositories}
+				selectedRepositories={[repositories[0]]}
 				selectedRepositoryIds={['1']}
 			/>
 		)

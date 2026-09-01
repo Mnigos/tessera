@@ -2,6 +2,7 @@ import type { GitHubImportRepository } from '@repo/contracts'
 import { Button } from '@repo/ui/components/button'
 import { Card } from '@repo/ui/components/card'
 import { formatGitHubImportDate } from '../helpers/format-github-import-date'
+import { formatRepositoryCount } from '../helpers/format-repository-count'
 import { getGitHubImportErrorMessage } from '../helpers/get-github-import-error-message'
 
 const CREATE_IMPORT_ERROR_FALLBACK = 'GitHub import could not be queued.'
@@ -30,7 +31,7 @@ export function GitHubImportSelectedSource({
 				</h2>
 				<p className="text-muted-foreground text-sm">
 					{repositoryCount > 0
-						? `${repositoryCount} ${repositoryCount === 1 ? 'repository' : 'repositories'} ready to import.`
+						? `${formatRepositoryCount(repositoryCount)} ready to import.`
 						: 'Choose GitHub repositories to continue.'}
 				</p>
 			</div>
