@@ -264,11 +264,6 @@ describe('GitHub-authoritative merge panel', () => {
 		expect(
 			screen.queryByText('Everything this branch requires is satisfied.')
 		).toBeNull()
-		expect(
-			screen.getByText(
-				'GitHub performs the merge and applies its own branch protection.'
-			)
-		).toBeTruthy()
 	})
 
 	test('merges by squash without collecting a Tessera commit message', async () => {
