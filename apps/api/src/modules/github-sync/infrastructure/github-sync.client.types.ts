@@ -69,6 +69,8 @@ export interface GitHubSyncPullRequest {
 	commitCount?: number
 	/** GitHub's verdict on whether the branch merges cleanly, read beside the totals. */
 	mergeableState?: 'mergeable' | 'conflicting' | 'unknown'
+	/** Whether GitHub can replay the branch commit by commit; merge commits usually forbid it. */
+	canBeRebased?: boolean
 }
 
 /**

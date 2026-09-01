@@ -38,6 +38,8 @@ export const GITHUB_WRITE_REJECTED_MESSAGES = {
 		'This pull request is not linked to GitHub yet. Wait for the next sync.',
 	self_approval: 'GitHub does not allow approving your own pull request.',
 	unmergeable: 'GitHub reports this pull request cannot be merged right now.',
+	rebase_unmergeable:
+		'GitHub cannot rebase this branch — its commits do not replay cleanly, usually because it contains merge commits. Merge with a merge commit or a squash instead.',
 	stale_head: 'The pull request changed on GitHub. Refresh and try again.',
 	invalid_anchor: 'GitHub could not place this comment on the current diff.',
 	fast_forward_unsupported:
@@ -340,6 +342,8 @@ export const pullRequestSchema = z.object({
 			mergeableState: z
 				.enum(['mergeable', 'conflicting', 'unknown'])
 				.optional(),
+			/** Whether GitHub can replay the branch for a rebase merge, as of the last sync. */
+			canBeRebased: z.boolean().optional(),
 		})
 		.optional(),
 })

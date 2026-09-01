@@ -252,6 +252,7 @@ const gitHubGraphQlDiffStatsSchema = z
 		deletions: z.number().int().nonnegative(),
 		changedFiles: z.number().int().nonnegative(),
 		mergeable: z.enum(['CONFLICTING', 'MERGEABLE', 'UNKNOWN']),
+		canBeRebased: z.boolean(),
 		commits: z.object({ totalCount: z.number().int().nonnegative() }),
 	})
 	.transform(({ commits, mergeable, ...stats }) => ({
@@ -271,7 +272,7 @@ function buildDiffStatsQuery(numbers: number[]): string {
 	const fields = numbers
 		.map(
 			number =>
-				`${DIFF_STATS_ALIAS_PREFIX}${number}: pullRequest(number: ${number}) { additions deletions changedFiles mergeable commits { totalCount } }`
+				`${DIFF_STATS_ALIAS_PREFIX}${number}: pullRequest(number: ${number}) { additions deletions changedFiles mergeable canBeRebased commits { totalCount } }`
 		)
 		.join('\n\t\t\t')
 

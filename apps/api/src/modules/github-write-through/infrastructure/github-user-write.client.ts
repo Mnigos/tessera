@@ -497,24 +497,39 @@ export class GitHubUserWriteClient {
 		repo,
 		strategy,
 	}: MergePullRequestParams): Promise<string> {
-		const response = await this.request(
-			'merge',
-			async () =>
-				await this.createForUser(accessToken).rest.pulls.merge({
-					owner,
-					repo,
-					pull_number: pullRequestNumber,
-					sha: expectedHeadSha,
-					merge_method: MERGE_METHODS[strategy],
+		try {
+			const response = await this.request(
+				'merge',
+				async () =>
+					await this.createForUser(accessToken).rest.pulls.merge({
+						owner,
+						repo,
+						pull_number: pullRequestNumber,
+						sha: expectedHeadSha,
+						merge_method: MERGE_METHODS[strategy],
+					})
+			)
+			const result = gitHubMergeResultSchema.parse(response.data)
+
+			// GitHub answers 200 with `merged: false` when it declined the merge.
+			if (!(result.merged && result.sha))
+				throw new GitHubWriteRejectedError('unmergeable', { action: 'merge' })
+
+			return result.sha
+		} catch (error) {
+			// A rebase refusal has its own explanation: the branch does not replay,
+			// and switching strategy is the fix worth naming.
+			if (
+				strategy === 'rebase' &&
+				error instanceof GitHubWriteRejectedError &&
+				error.reason === 'unmergeable'
+			)
+				throw new GitHubWriteRejectedError('rebase_unmergeable', {
+					action: 'merge',
 				})
-		)
-		const result = gitHubMergeResultSchema.parse(response.data)
 
-		// GitHub answers 200 with `merged: false` when it declined the merge.
-		if (!(result.merged && result.sha))
-			throw new GitHubWriteRejectedError('unmergeable', { action: 'merge' })
-
-		return result.sha
+			throw error
+		}
 	}
 
 	async getPullRequest({

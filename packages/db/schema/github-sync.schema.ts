@@ -362,6 +362,8 @@ export const gitHubPullRequestMappings = pgTable(
 		providerMergeableState: text('provider_mergeable_state').$type<
 			'mergeable' | 'conflicting' | 'unknown'
 		>(),
+		/** Whether GitHub can replay the branch for a rebase merge; null before the first stats read. */
+		providerCanBeRebased: boolean('provider_can_be_rebased'),
 		providerCreatedAt: timestamp('provider_created_at').notNull(),
 		providerUpdatedAt: timestamp('provider_updated_at').notNull(),
 		providerClosedAt: timestamp('provider_closed_at'),

@@ -1,0 +1,1 @@
+ALTER TABLE "github_pull_request_mappings" ADD COLUMN "provider_can_be_rebased" boolean;

@@ -90,7 +90,8 @@ export function PullRequestMergeVerdict({
 	const gitHubGate = getGitHubMergeGate(
 		isGitHubAuthoritative,
 		requirements,
-		pullRequest
+		pullRequest,
+		strategy
 	)
 
 	if (gitHubGate) return gitHubGate
@@ -195,9 +196,27 @@ export function PullRequestMergeVerdict({
 function getGitHubMergeGate(
 	isGitHubAuthoritative: boolean,
 	requirements: MergeRequirements,
-	pullRequest: PullRequest
+	pullRequest: PullRequest,
+	strategy: MergeStrategy
 ): ReactElement | undefined {
 	if (!isGitHubAuthoritative) return undefined
+
+	// GitHub already knows the branch will not replay; the reader should learn
+	// it here, beside the method picker, not from a refused click.
+	if (strategy === 'rebase' && pullRequest.github?.canBeRebased === false)
+		return (
+			<div className="flex flex-col gap-1.5">
+				<p className="inline-flex items-center gap-2 font-medium text-sm">
+					<TriangleAlert aria-hidden className="size-4 text-amber-500" />
+					This branch cannot be rebased
+				</p>
+				<p className="text-muted-foreground text-sm">
+					Its commits do not replay cleanly onto {pullRequest.targetBranch} —
+					usually because the branch contains merge commits. Switch the merge
+					method to a merge commit or a squash.
+				</p>
+			</div>
+		)
 
 	// The conflict wins over a missing mapping: GitHub named a concrete reason
 	// the person can act on, and the mapping message would bury it.
