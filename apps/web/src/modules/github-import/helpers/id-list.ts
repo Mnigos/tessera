@@ -1,5 +1,5 @@
 export function parseIdList(ids?: string) {
-	return ids?.split(',') ?? []
+	return [...new Set(ids?.split(',') ?? [])]
 }
 
 export function serializeIdList(ids: string[]) {
