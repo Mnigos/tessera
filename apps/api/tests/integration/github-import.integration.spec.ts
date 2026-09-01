@@ -54,6 +54,7 @@ interface GitHubImportRepositoriesResponseBody {
 		pushedAt?: string
 		githubUrl: string
 	}[]
+	nextPage?: number
 }
 
 interface ErrorResponseBody {
@@ -61,6 +62,7 @@ interface ErrorResponseBody {
 	code: string
 	status: number
 	message: string
+	data?: unknown
 }
 
 interface CreateIntegrationUserOptions {
@@ -96,6 +98,30 @@ const privateRepository = {
 	pushed_at: null,
 	html_url: 'https://github.com/marta/private-notes',
 	private: true,
+}
+
+function githubRepositoryResponse(id: number, fullName: string) {
+	const [ownerLogin = 'marta', name = 'repository'] = fullName.split('/')
+
+	return {
+		...publicRepository,
+		id,
+		owner: { login: ownerLogin },
+		name,
+		full_name: fullName,
+		html_url: `https://github.com/${fullName}`,
+	}
+}
+
+function fullGitHubRepositoryPage(page: number, matchingFullName?: string) {
+	return Array.from({ length: 50 }, (_, index) =>
+		githubRepositoryResponse(
+			page * 100 + index,
+			index === 0 && matchingFullName
+				? matchingFullName
+				: `marta/repository-${page}-${index}`
+		)
+	)
 }
 
 describe('GitHub import integration', () => {
@@ -198,6 +224,7 @@ describe('GitHub import integration', () => {
 				githubUrl: 'https://github.com/marta/private-notes',
 			},
 		])
+		expect(listForAuthenticatedUser).toHaveBeenCalledOnce()
 		expect(listForAuthenticatedUser).toHaveBeenCalledWith({
 			visibility: 'all',
 			sort: 'pushed',
@@ -205,6 +232,88 @@ describe('GitHub import integration', () => {
 			per_page: 50,
 			page: 1,
 		})
+	})
+
+	test('passes page and search through four GitHub pages', async () => {
+		const integrationSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createGitHubAccount({
+			userId: integrationSession.userId,
+			accessToken: 'github-token',
+		})
+		const pages = new Map([
+			[2, fullGitHubRepositoryPage(2, 'marta/Notes')],
+			[3, fullGitHubRepositoryPage(3)],
+			[4, fullGitHubRepositoryPage(4, 'ludus/meeting-notes')],
+			[5, fullGitHubRepositoryPage(5)],
+		])
+		listForAuthenticatedUser.mockImplementation(({ page }: { page: number }) =>
+			Promise.resolve({ data: pages.get(page) ?? [] })
+		)
+
+		const response = await listGitHubImportRepositories(
+			integrationSession.headers,
+			'page=2&search=Notes'
+		)
+		const body = (await response.json()) as GitHubImportRepositoriesResponseBody
+
+		expect(response.status).toBe(200)
+		expect(body.repositories.map(repository => repository.fullName)).toEqual([
+			'marta/Notes',
+			'ludus/meeting-notes',
+		])
+		expect(body.nextPage).toBe(6)
+		expect(listForAuthenticatedUser).toHaveBeenCalledTimes(4)
+		expect(
+			listForAuthenticatedUser.mock.calls.map(([input]) => input.page)
+		).toEqual([2, 3, 4, 5])
+		for (const [index, page] of [2, 3, 4, 5].entries())
+			expect(listForAuthenticatedUser).toHaveBeenNthCalledWith(index + 1, {
+				visibility: 'all',
+				sort: 'pushed',
+				direction: 'desc',
+				per_page: 50,
+				page,
+			})
+	})
+
+	test.each([
+		'   ',
+		'x'.repeat(201),
+	])('rejects invalid search input %j', async search => {
+		const integrationSession = await createIntegrationSession({
+			username: 'marta',
+			email: 'marta@example.com',
+		})
+		await createGitHubAccount({
+			userId: integrationSession.userId,
+			accessToken: 'github-token',
+		})
+
+		const response = await listGitHubImportRepositories(
+			integrationSession.headers,
+			new URLSearchParams({ search }).toString()
+		)
+		const body = (await response.json()) as ErrorResponseBody
+
+		expect(response.status).toBe(400)
+		expect(body).toMatchObject({
+			defined: false,
+			code: 'BAD_REQUEST',
+			status: 400,
+			message: 'Input validation failed',
+			data: { issues: expect.any(Array) },
+		})
+		expect(Object.keys(body).sort()).toEqual([
+			'code',
+			'data',
+			'defined',
+			'message',
+			'status',
+		])
+		expect(listForAuthenticatedUser).not.toHaveBeenCalled()
 	})
 
 	test('returns an empty list when GitHub returns no repositories', async () => {
@@ -505,10 +614,15 @@ describe('GitHub import integration', () => {
 		await db.delete(user)
 	}
 
-	function listGitHubImportRepositories(headers?: Headers) {
-		return adapter.hono.request('http://localhost/github-import/repositories', {
-			headers,
-		})
+	function listGitHubImportRepositories(headers?: Headers, query?: string) {
+		const search = query ? `?${query}` : ''
+
+		return adapter.hono.request(
+			`http://localhost/github-import/repositories${search}`,
+			{
+				headers,
+			}
+		)
 	}
 
 	function retryGitHubImport(importId: RepositoryImportId, headers?: Headers) {

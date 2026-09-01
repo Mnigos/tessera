@@ -65,19 +65,22 @@ describe(GitHubImportController.name, () => {
 	test('delegates list repository requests to the service', async () => {
 		const listRepositoriesSpy = vi
 			.spyOn(githubImportService, 'listRepositories')
-			.mockResolvedValue({ repositories: [repository] })
+			.mockResolvedValue({ repositories: [repository], nextPage: 6 })
 
 		expect(
 			await githubImportController.listRepositories(session)['~orpc'].handler({
-				input: { page: 1 },
+				input: { page: 2, search: 'ludus' },
 				context: {},
 				path: ['githubImport', 'listRepositories'],
 				procedure: githubImportController.listRepositories(session),
 				lastEventId: undefined,
 				errors: {},
 			})
-		).toEqual({ repositories: [repository] })
-		expect(listRepositoriesSpy).toHaveBeenCalledWith(mockUserId, { page: 1 })
+		).toEqual({ repositories: [repository], nextPage: 6 })
+		expect(listRepositoriesSpy).toHaveBeenCalledWith(mockUserId, {
+			page: 2,
+			search: 'ludus',
+		})
 	})
 
 	test('delegates create import requests to the service', async () => {

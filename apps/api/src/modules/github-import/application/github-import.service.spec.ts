@@ -133,7 +133,7 @@ describe(GitHubImportService.name, () => {
 		vi.clearAllMocks()
 	})
 
-	test('lists GitHub repositories with a stored GitHub access token', async () => {
+	test('passes pagination and search to GitHub and returns the result as-is', async () => {
 		const findGitHubAccountSpy = vi
 			.spyOn(githubImportRepository, 'findGitHubAccount')
 			.mockResolvedValue({
@@ -146,12 +146,16 @@ describe(GitHubImportService.name, () => {
 			.mockResolvedValue({ repositories: [repository], nextPage: 2 })
 
 		expect(
-			await githubImportService.listRepositories(mockUserId, { page: 1 })
+			await githubImportService.listRepositories(mockUserId, {
+				page: 2,
+				search: 'ludus',
+			})
 		).toEqual({ repositories: [repository], nextPage: 2 })
 		expect(findGitHubAccountSpy).toHaveBeenCalledWith({ userId: mockUserId })
 		expect(listRepositoriesSpy).toHaveBeenCalledWith({
 			accessToken: 'github-token',
-			page: 1,
+			page: 2,
+			search: 'ludus',
 		})
 	})
 
