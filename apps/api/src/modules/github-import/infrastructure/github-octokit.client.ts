@@ -1,8 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Octokit } from '@octokit/rest'
 import type {
+	GitHubImportRepositoriesOutput,
 	GitHubImportRepository,
 	GitHubImportRepositoryVisibility,
+	ParsedListGitHubImportRepositoriesInput,
 } from '@repo/contracts'
 import {
 	GitHubImportAuthenticationError,
@@ -10,14 +12,16 @@ import {
 	GitHubImportForbiddenError,
 } from '../domain/github-import.errors'
 
-const GITHUB_REPOSITORIES_PER_PAGE = 100
-const GITHUB_REPOSITORIES_LIMIT = 100
+const GITHUB_REPOSITORIES_PER_PAGE = 50
+const GITHUB_SEARCH_SCAN_PAGES = 4
 
-interface ListRepositoriesParams {
+interface ListRepositoriesParams
+	extends ParsedListGitHubImportRepositoriesInput {
 	accessToken: string
 }
 
-interface GetRepositoryParams extends ListRepositoriesParams {
+interface GetRepositoryParams {
+	accessToken: string
 	githubId: string
 }
 
@@ -30,42 +34,59 @@ interface GitHubRepositoryVisibilityInput {
 	visibility?: string
 }
 
+interface GitHubRepositoryInput extends GitHubRepositoryVisibilityInput {
+	id: number
+	owner: { login: string }
+	name: string
+	full_name: string
+	default_branch: string
+	pushed_at?: string | null
+	html_url: string
+}
+
 @Injectable()
 export class GitHubOctokitClient {
 	private readonly logger = new Logger(GitHubOctokitClient.name)
 
+	// GitHub's search API cannot see collaborator or org repositories, so search filters the plain listing.
 	async listRepositories({
 		accessToken,
-	}: ListRepositoriesParams): Promise<GitHubImportRepository[]> {
+		page,
+		search,
+	}: ListRepositoriesParams): Promise<GitHubImportRepositoriesOutput> {
 		const octokit = this.createForUser(accessToken)
+		const pageCount = search ? GITHUB_SEARCH_SCAN_PAGES : 1
+		const term = search?.toLowerCase()
 
 		try {
-			const repositories = await octokit.paginate(
-				octokit.rest.repos.listForAuthenticatedUser,
-				{
-					visibility: 'all',
-					sort: 'pushed',
-					direction: 'desc',
-					per_page: GITHUB_REPOSITORIES_PER_PAGE,
-				},
-				(response, done) => {
-					done()
-					return response.data.slice(0, GITHUB_REPOSITORIES_LIMIT)
-				}
+			const responses = await Promise.all(
+				Array.from({ length: pageCount }, (_, index) =>
+					octokit.rest.repos.listForAuthenticatedUser({
+						visibility: 'all',
+						sort: 'pushed',
+						direction: 'desc',
+						per_page: GITHUB_REPOSITORIES_PER_PAGE,
+						page: page + index,
+					})
+				)
+			)
+			const pages = responses.map(response => response.data)
+			const shortPageIndex = pages.findIndex(
+				rows => rows.length < GITHUB_REPOSITORIES_PER_PAGE
 			)
 
-			return repositories.map(repository => ({
-				githubId: repository.id.toString(),
-				ownerLogin: repository.owner.login,
-				name: repository.name,
-				fullName: repository.full_name,
-				visibility: getRepositoryVisibility(repository),
-				defaultBranch: repository.default_branch,
-				pushedAt: repository.pushed_at
-					? new Date(repository.pushed_at)
-					: undefined,
-				githubUrl: repository.html_url,
-			}))
+			return {
+				repositories: (shortPageIndex === -1
+					? pages
+					: pages.slice(0, shortPageIndex + 1)
+				)
+					.flat()
+					.filter(
+						({ full_name }) => !term || full_name.toLowerCase().includes(term)
+					)
+					.map(toImportRepository),
+				nextPage: shortPageIndex === -1 ? page + pageCount : undefined,
+			}
 		} catch (error) {
 			throw this.mapRepositoryRequestError(error, 'listing')
 		}
@@ -85,18 +106,7 @@ export class GitHubOctokitClient {
 				}
 			)
 
-			return {
-				githubId: response.data.id.toString(),
-				ownerLogin: response.data.owner.login,
-				name: response.data.name,
-				fullName: response.data.full_name,
-				visibility: getRepositoryVisibility(response.data),
-				defaultBranch: response.data.default_branch,
-				pushedAt: response.data.pushed_at
-					? new Date(response.data.pushed_at)
-					: undefined,
-				githubUrl: response.data.html_url,
-			}
+			return toImportRepository(response.data)
 		} catch (error) {
 			throw this.mapRepositoryRequestError(error, 'fetching')
 		}
@@ -148,6 +158,21 @@ function isGitHubRequestError(
 	if (typeof error.status !== 'number') return false
 
 	return status === undefined || error.status === status
+}
+
+function toImportRepository(
+	repository: GitHubRepositoryInput
+): GitHubImportRepository {
+	return {
+		githubId: repository.id.toString(),
+		ownerLogin: repository.owner.login,
+		name: repository.name,
+		fullName: repository.full_name,
+		visibility: getRepositoryVisibility(repository),
+		defaultBranch: repository.default_branch,
+		pushedAt: repository.pushed_at ? new Date(repository.pushed_at) : undefined,
+		githubUrl: repository.html_url,
+	}
 }
 
 function getRepositoryVisibility({

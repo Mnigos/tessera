@@ -34,18 +34,16 @@ const githubRepositoryResponse = {
 
 describe(GitHubOctokitClient.name, () => {
 	let githubOctokitClient: GitHubOctokitClient
-	let paginate: ReturnType<typeof vi.fn>
+	let listForAuthenticatedUser: ReturnType<typeof vi.fn>
 	let request: ReturnType<typeof vi.fn>
-	const listForAuthenticatedUser = vi.fn()
 
 	beforeEach(() => {
 		vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
 		vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
-		paginate = vi.fn()
+		listForAuthenticatedUser = vi.fn()
 		request = vi.fn()
 		githubOctokitClient = new GitHubOctokitClient()
 		vi.spyOn(githubOctokitClient, 'createForUser').mockReturnValue({
-			paginate,
 			request,
 			rest: {
 				repos: {
@@ -60,33 +58,26 @@ describe(GitHubOctokitClient.name, () => {
 	})
 
 	test('lists repositories with the authenticated GitHub user client', async () => {
-		paginate.mockImplementation((_endpoint, _options, mapPage) => {
-			const done = vi.fn()
-			const repositories = mapPage({ data: [githubRepositoryResponse] }, done)
-
-			expect(done).toHaveBeenCalled()
-
-			return repositories
+		listForAuthenticatedUser.mockResolvedValue({
+			data: [githubRepositoryResponse],
 		})
 
 		expect(
 			await githubOctokitClient.listRepositories({
 				accessToken: 'github-token',
+				page: 1,
 			})
-		).toEqual([repository])
+		).toEqual({ repositories: [repository], nextPage: undefined })
 		expect(githubOctokitClient.createForUser).toHaveBeenCalledWith(
 			'github-token'
 		)
-		expect(paginate).toHaveBeenCalledWith(
-			listForAuthenticatedUser,
-			{
-				visibility: 'all',
-				sort: 'pushed',
-				direction: 'desc',
-				per_page: 100,
-			},
-			expect.any(Function)
-		)
+		expect(listForAuthenticatedUser).toHaveBeenCalledWith({
+			visibility: 'all',
+			sort: 'pushed',
+			direction: 'desc',
+			per_page: 50,
+			page: 1,
+		})
 	})
 
 	test('fetches a repository by string GitHub id without numeric coercion', async () => {
@@ -104,50 +95,65 @@ describe(GitHubOctokitClient.name, () => {
 	})
 
 	test('falls back to private visibility when GitHub omits visibility', async () => {
-		paginate.mockResolvedValue([
-			{
-				...githubRepositoryResponse,
-				visibility: undefined,
-				private: true,
-			},
-		])
+		listForAuthenticatedUser.mockResolvedValue({
+			data: [
+				{
+					...githubRepositoryResponse,
+					visibility: undefined,
+					private: true,
+				},
+			],
+		})
 
 		expect(
 			await githubOctokitClient.listRepositories({
 				accessToken: 'github-token',
+				page: 1,
 			})
-		).toEqual([repository])
+		).toEqual({ repositories: [repository], nextPage: undefined })
 	})
 
 	test('maps GitHub 401 responses to an authentication error', async () => {
-		paginate.mockRejectedValue({ status: 401 })
+		listForAuthenticatedUser.mockRejectedValue({ status: 401 })
 
 		await expect(
-			githubOctokitClient.listRepositories({ accessToken: 'github-token' })
+			githubOctokitClient.listRepositories({
+				accessToken: 'github-token',
+				page: 1,
+			})
 		).rejects.toBeInstanceOf(GitHubImportAuthenticationError)
 	})
 
 	test('maps GitHub 403 responses to a forbidden error', async () => {
-		paginate.mockRejectedValue({ status: 403 })
+		listForAuthenticatedUser.mockRejectedValue({ status: 403 })
 
 		await expect(
-			githubOctokitClient.listRepositories({ accessToken: 'github-token' })
+			githubOctokitClient.listRepositories({
+				accessToken: 'github-token',
+				page: 1,
+			})
 		).rejects.toBeInstanceOf(GitHubImportForbiddenError)
 	})
 
 	test('maps unexpected GitHub statuses to an external service error', async () => {
-		paginate.mockRejectedValue({ status: 500 })
+		listForAuthenticatedUser.mockRejectedValue({ status: 500 })
 
 		await expect(
-			githubOctokitClient.listRepositories({ accessToken: 'github-token' })
+			githubOctokitClient.listRepositories({
+				accessToken: 'github-token',
+				page: 1,
+			})
 		).rejects.toBeInstanceOf(GitHubImportExternalServiceError)
 	})
 
 	test('maps GitHub request failures to an external service error', async () => {
-		paginate.mockRejectedValue(new Error('socket closed'))
+		listForAuthenticatedUser.mockRejectedValue(new Error('socket closed'))
 
 		await expect(
-			githubOctokitClient.listRepositories({ accessToken: 'github-token' })
+			githubOctokitClient.listRepositories({
+				accessToken: 'github-token',
+				page: 1,
+			})
 		).rejects.toBeInstanceOf(GitHubImportExternalServiceError)
 	})
 })

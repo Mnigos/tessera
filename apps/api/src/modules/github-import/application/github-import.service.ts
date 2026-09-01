@@ -6,8 +6,10 @@ import { Injectable } from '@nestjs/common'
 import type {
 	CreateGitHubRepositoryImportInput,
 	GetGitHubRepositoryImportInput,
+	GitHubImportRepositoriesOutput,
 	GitHubImportRepository,
 	GitHubRepositoryImport,
+	ParsedListGitHubImportRepositoriesInput,
 } from '@repo/contracts'
 import type { RepositoryImportId } from '@repo/db'
 import type { RepositorySlug, UserId } from '@repo/domain'
@@ -46,11 +48,15 @@ export class GitHubImportService {
 		private readonly githubImportQueue: GitHubImportQueue
 	) {}
 
-	async listRepositories(userId: UserId): Promise<GitHubImportRepository[]> {
+	async listRepositories(
+		userId: UserId,
+		input: ParsedListGitHubImportRepositoriesInput
+	): Promise<GitHubImportRepositoriesOutput> {
 		const account = await this.requireGitHubAccount(userId)
 
 		return await this.githubOctokitClient.listRepositories({
 			accessToken: account.accessToken,
+			...input,
 		})
 	}
 
