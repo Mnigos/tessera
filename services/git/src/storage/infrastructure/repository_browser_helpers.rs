@@ -144,9 +144,21 @@ pub(super) fn parse_ls_tree_entries(
         });
     }
 
-    entries.sort_by(|left, right| left.name.cmp(&right.name));
+    entries.sort_by(|left, right| {
+        tree_entry_sort_rank(&left.kind)
+            .cmp(&tree_entry_sort_rank(&right.kind))
+            .then_with(|| left.name.cmp(&right.name))
+    });
 
     Ok(entries)
+}
+
+/// Directories and submodules list before files and symlinks, like every file browser.
+fn tree_entry_sort_rank(kind: &RepositoryTreeEntryKind) -> u8 {
+    match kind {
+        RepositoryTreeEntryKind::Directory | RepositoryTreeEntryKind::Submodule => 0,
+        RepositoryTreeEntryKind::File | RepositoryTreeEntryKind::Symlink => 1,
+    }
 }
 
 #[cfg(test)]
@@ -176,5 +188,25 @@ mod tests {
 
         assert_eq!(entries[0].name, "invalid-\u{fffd}.rs");
         assert_eq!(entries[0].path, "src/invalid-\u{fffd}.rs");
+    }
+
+    #[test]
+    fn parse_ls_tree_entries_lists_directories_before_files() {
+        let output = concat!(
+            "100644 blob 0123456789012345678901234567890123456789 12\tREADME.md\0",
+            "040000 tree 0123456789012345678901234567890123456789 -\tsrc\0",
+            "100644 blob 0123456789012345678901234567890123456789 3\tCargo.toml\0",
+            "040000 tree 0123456789012345678901234567890123456789 -\tapps\0",
+            "120000 blob 0123456789012345678901234567890123456789 7\tlink\0",
+            "160000 commit 0123456789012345678901234567890123456789 -\tvendor\0",
+        );
+
+        let entries = parse_ls_tree_entries(output.as_bytes(), "").unwrap();
+        let names: Vec<&str> = entries.iter().map(|entry| entry.name.as_str()).collect();
+
+        assert_eq!(
+            names,
+            ["apps", "src", "vendor", "Cargo.toml", "README.md", "link"]
+        );
     }
 }
