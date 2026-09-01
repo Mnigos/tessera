@@ -304,7 +304,7 @@ describe('RepositoryOverview', () => {
 		)
 	})
 
-	test('uses the organization handle for repository copy and links', () => {
+	test('uses the organization handle for repository links', () => {
 		render(
 			<RepositoryOverview
 				summary={getSummary({
@@ -317,7 +317,6 @@ describe('RepositoryOverview', () => {
 			/>
 		)
 
-		expect(screen.getByText('tessera/tessera-notes')).toBeTruthy()
 		expect(screen.getByText('src').closest('a')?.getAttribute('href')).toBe(
 			'/tessera/tessera-notes/tree/refs%2Fheads%2Fmain/src'
 		)

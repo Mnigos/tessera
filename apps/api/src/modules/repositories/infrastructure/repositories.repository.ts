@@ -117,6 +117,31 @@ export interface PrivilegedUserRow {
 	username: string | null
 }
 
+interface ViewerParams {
+	viewerUserId?: UserId
+}
+
+interface ListVisibleByUserParams extends ViewerParams {
+	ownerUserId: UserId
+	ownerOrganizationId?: never
+}
+
+interface ListVisibleByOrganizationParams extends ViewerParams {
+	ownerOrganizationId: OrganizationId
+	ownerUserId?: never
+}
+
+export type ListVisibleByOwnerParams =
+	| ListVisibleByUserParams
+	| ListVisibleByOrganizationParams
+
+export interface OwnedRepositoryListItem {
+	id: RepositoryId
+	name: RepositoryName
+	slug: RepositorySlug
+	visibility: RepositoryVisibility
+}
+
 type RepositoryDatabase = Database | DrizzleTransaction
 
 const REPOSITORY_EXTERNAL_SOURCE_COLUMNS = {

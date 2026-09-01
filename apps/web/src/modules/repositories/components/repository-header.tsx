@@ -29,7 +29,7 @@ export function RepositoryHeader({
 		<div className="flex flex-col gap-3">
 			<div className="flex flex-col gap-1">
 				<p className="truncate text-muted-foreground text-sm">
-					{owner.username}/{repository.slug}
+					{owner.handle}/{repository.slug}
 				</p>
 				<div className="flex flex-wrap items-center gap-x-3 gap-y-2">
 					<h1 className="min-w-0 truncate font-semibold text-3xl tracking-normal">

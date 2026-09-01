@@ -1,6 +1,6 @@
 {
-  "id": "aed8fe71-7361-409f-b492-ccfe0613aecc",
-  "prevId": "681249fb-adfa-4a5a-b1ee-0cbbdb1fe4ea",
+  "id": "f69630dc-806c-47d1-8452-e1e6e709ab95",
+  "prevId": "06427158-b269-4388-b0fd-08bb1ed97b29",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -4805,6 +4805,28 @@
         }
       },
       "indexes": {
+        "invitation_pending_email_unique": {
+          "name": "invitation_pending_email_unique",
+          "columns": [
+            {
+              "expression": "organization_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "lower(\"email\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"invitation\".\"status\" = 'pending'",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "invitation_email_idx": {
           "name": "invitation_email_idx",
           "columns": [
