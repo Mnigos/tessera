@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import type { z } from 'zod'
 import { authClient } from '@/lib/auth/client'
 import { useAuth } from '@/modules/auth/hooks/use-auth'
 import { useCreateGitHubImportMutation } from '../hooks/use-create-github-import.mutation'
@@ -30,6 +31,16 @@ vi.mock('../hooks/use-github-imports.query', () => ({
 }))
 
 describe('GitHubImportRoute', () => {
+	test('drops blank or over-long search queries instead of failing the route', () => {
+		const validateSearch = Route.options.validateSearch as z.ZodType
+
+		expect(validateSearch.parse({ q: ' ludus ' })).toEqual({ q: 'ludus' })
+		expect(validateSearch.parse({ q: '   ' })).toEqual({ q: undefined })
+		expect(validateSearch.parse({ q: 'x'.repeat(201) })).toEqual({
+			q: undefined,
+		})
+	})
+
 	test('states that GitHub imports remain personally owned', () => {
 		vi.mocked(useAuth).mockReturnValue({
 			isLoading: true,

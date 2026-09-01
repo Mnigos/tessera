@@ -31,6 +31,7 @@ export const Route = createFileRoute('/import/github')({
 			.trim()
 			.max(GITHUB_IMPORT_SEARCH_MAX_LENGTH)
 			.optional()
+			.catch(undefined)
 			.transform(query => (query ? query : undefined)),
 		selectedRepositoryIds: z
 			.string()
