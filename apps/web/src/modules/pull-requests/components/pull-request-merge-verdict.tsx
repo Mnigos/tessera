@@ -151,11 +151,6 @@ export function PullRequestMergeVerdict({
 						{isPending ? 'Merging' : mergeLabel}
 					</Button>
 				)}
-				{isGitHubAuthoritative && (
-					<p className="text-muted-foreground text-sm">
-						GitHub performs the merge and applies its own branch protection.
-					</p>
-				)}
 			</div>
 		)
 
