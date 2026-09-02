@@ -643,6 +643,9 @@ describe('GitHub import integration', () => {
 	function mockGitHubRepositories(
 		repositories: (typeof publicRepository | typeof privateRepository)[]
 	) {
-		listForAuthenticatedUser.mockResolvedValue({ data: repositories })
+		listForAuthenticatedUser.mockResolvedValue({
+			data: repositories,
+			headers: {},
+		})
 	}
 })

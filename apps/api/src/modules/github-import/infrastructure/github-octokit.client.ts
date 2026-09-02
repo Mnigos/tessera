@@ -75,7 +75,6 @@ export class GitHubOctokitClient {
 			const shortPageIndex = pages.findIndex(
 				rows => rows.length < GITHUB_REPOSITORIES_PER_PAGE
 			)
-			// GitHub sends rel="next" only when another page exists, so an exact multiple of 50 costs no empty request.
 			const hasNextPage =
 				shortPageIndex === -1 &&
 				NEXT_PAGE_LINK_REGEX.test(responses.at(-1)?.headers.link ?? '')
