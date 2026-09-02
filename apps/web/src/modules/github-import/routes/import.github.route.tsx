@@ -1,3 +1,4 @@
+import { safe } from '@orpc/client'
 import {
 	GITHUB_IMPORT_SEARCH_MAX_LENGTH,
 	type GitHubRepositoryImport,
@@ -17,9 +18,15 @@ import { parseIdList, serializeIdList } from '../helpers/id-list'
 import { isGitHubImportSourceConflictError } from '../helpers/is-github-import-source-conflict-error'
 import { scrollToGitHubImportActivity } from '../helpers/scroll-to-github-import-activity'
 import { useCreateGitHubImportMutation } from '../hooks/use-create-github-import.mutation'
-import { useGitHubImportRepositoriesQuery } from '../hooks/use-github-import-repositories.query'
+import {
+	getGitHubImportRepositoriesInfiniteOptions,
+	useGitHubImportRepositoriesQuery,
+} from '../hooks/use-github-import-repositories.query'
 import { useGitHubImportSelection } from '../hooks/use-github-import-selection'
-import { useGitHubImportsQuery } from '../hooks/use-github-imports.query'
+import {
+	getGitHubImportsQueryOptions,
+	useGitHubImportsQuery,
+} from '../hooks/use-github-imports.query'
 
 const UUID_LIST_REGEX =
 	/^[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12}(,[\da-f]{8}(-[\da-f]{4}){3}-[\da-f]{12})*$/i
@@ -39,6 +46,20 @@ export const Route = createFileRoute('/import/github')({
 			.optional(),
 		queuedImportIds: z.string().regex(UUID_LIST_REGEX).optional(),
 	}),
+	loaderDeps: ({ search: { q } }) => ({ q }),
+	// Prefetch failures are not route errors: the picker renders the reconnect or error state itself.
+	loader: async ({ context, deps: { q } }) => {
+		if (!context.user) return
+
+		await Promise.all([
+			safe(
+				context.queryClient.ensureInfiniteQueryData(
+					getGitHubImportRepositoriesInfiniteOptions({ search: q })
+				)
+			),
+			safe(context.queryClient.ensureQueryData(getGitHubImportsQueryOptions())),
+		])
+	},
 	head: () => ({
 		meta: [
 			{ title: 'Import from GitHub · detent' },
