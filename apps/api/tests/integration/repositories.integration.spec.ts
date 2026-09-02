@@ -618,6 +618,45 @@ describe('Repositories integration', () => {
 		})
 	})
 
+	test('binds an installation made before the import when enabling the mirror', async () => {
+		const actor = await createIntegrationUser('admin')
+		const organizationId = await createIntegrationOrganization('tessera')
+		await seedOrganizationMember(organizationId, actor.id, 'admin')
+		await createRepository(
+			{
+				name: 'Imported',
+				slug: 'imported',
+				owner: { kind: 'organization', organizationId },
+			},
+			actor.headers
+		)
+		const importedRepository = await getRepositoryRow('imported')
+		const installationId = await createIntegrationGitHubInstallation()
+		await createIntegrationExternalSource({
+			repositoryId: importedRepository.id,
+			mirrorMode: 'imported',
+			ownerLogin: 'Tessera',
+			slug: 'imported',
+		})
+
+		const enableResponse = await enableGitHubMirror(
+			'tessera',
+			'imported',
+			actor.headers
+		)
+		const [source] = await db
+			.select({
+				installationId: repositoryExternalSources.installationId,
+				mirrorMode: repositoryExternalSources.mirrorMode,
+			})
+			.from(repositoryExternalSources)
+			.where(eq(repositoryExternalSources.repositoryId, importedRepository.id))
+
+		expect(enableResponse.status).toBe(200)
+		expect(await enableResponse.json()).toEqual({ status: 'enabled' })
+		expect(source).toEqual({ installationId, mirrorMode: 'github_to_tessera' })
+	})
+
 	test('lets an organization admin use repository details and GitHub settings', async () => {
 		const actor = await createIntegrationUser('admin')
 		const organizationId = await createIntegrationOrganization('tessera')

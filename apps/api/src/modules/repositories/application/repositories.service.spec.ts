@@ -147,6 +147,7 @@ describe(RepositoriesService.name, () => {
 						completeImportedGitHubRepository: vi.fn(),
 						upsertGitHubExternalSource: vi.fn(),
 						findGitHubMirrorEnablement: vi.fn(),
+						linkGitHubInstallationByOwner: vi.fn().mockResolvedValue(false),
 						enableGitHubMirror: vi.fn(),
 						cutoverGitHubMirror: vi.fn(),
 						findCollaboratorRole: vi.fn(),
@@ -880,6 +881,39 @@ describe(RepositoriesService.name, () => {
 		expect(enableGitHubMirrorSpy).toHaveBeenCalledWith({
 			repositoryId: repository.id,
 		})
+		expect(gitHubSyncQueue.enqueue).toHaveBeenCalledWith(syncRequest)
+	})
+
+	test('binds an installation made before the import and enables mirroring', async () => {
+		vi.spyOn(repositoriesRepository, 'find').mockResolvedValue({
+			...repository,
+			storagePath: '/var/lib/tessera/repositories/repo.git',
+			externalSource: createGitHubExternalSource({ mirrorMode: 'imported' }),
+		})
+		vi.spyOn(
+			repositoriesRepository,
+			'findGitHubMirrorEnablement'
+		).mockResolvedValue({ mirrorMode: 'imported' })
+		const linkSpy = vi
+			.spyOn(repositoriesRepository, 'linkGitHubInstallationByOwner')
+			.mockResolvedValue(true)
+		const syncRequest = {
+			repositoryId: repository.id,
+			authorityGeneration: 1,
+			requestedSyncVersion: 3,
+		}
+		vi.spyOn(repositoriesRepository, 'enableGitHubMirror').mockResolvedValue(
+			syncRequest
+		)
+		const gitHubSyncQueue = moduleRef.get(GitHubSyncQueue)
+
+		expect(
+			await repositoriesService.enableGitHubMirror(mockUserId, {
+				username: 'marta',
+				slug: repository.slug,
+			})
+		).toEqual({ status: 'enabled' })
+		expect(linkSpy).toHaveBeenCalledWith({ repositoryId: repository.id })
 		expect(gitHubSyncQueue.enqueue).toHaveBeenCalledWith(syncRequest)
 	})
 

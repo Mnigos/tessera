@@ -740,6 +740,29 @@ describe(RepositoriesRepository.name, () => {
 		)
 	})
 
+	test('binds the owner installation to an unlinked GitHub source', async () => {
+		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
+		updateReturningMock.mockResolvedValueOnce([
+			{ installationId: '00000000-0000-4000-8000-000000000099' },
+		])
+
+		expect(
+			await repositoriesRepository.linkGitHubInstallationByOwner({
+				repositoryId,
+			})
+		).toBe(true)
+		expect(updateMock).toHaveBeenCalledWith(repositoryExternalSources)
+		expect(setMock).toHaveBeenCalledWith({ installationId: expect.anything() })
+
+		updateReturningMock.mockResolvedValueOnce([])
+
+		expect(
+			await repositoriesRepository.linkGitHubInstallationByOwner({
+				repositoryId,
+			})
+		).toBe(false)
+	})
+
 	test('cuts over a GitHub mirror to Tessera source', async () => {
 		const repositoryId = '00000000-0000-4000-8000-000000000002' as RepositoryId
 		const cutoverAt = new Date('2026-05-12T00:02:00Z')
