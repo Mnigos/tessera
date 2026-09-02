@@ -64,6 +64,7 @@ describe(GitHubOctokitClient.name, () => {
 	test('lists one requested page with the authenticated GitHub user client', async () => {
 		listForAuthenticatedUser.mockResolvedValue({
 			data: [githubRepositoryResponse(123, 'marta/tessera')],
+			headers: {},
 		})
 
 		expect(
@@ -104,6 +105,7 @@ describe(GitHubOctokitClient.name, () => {
 
 		listForAuthenticatedUser.mockResolvedValueOnce({
 			data: [githubRepositoryResponse(123, 'marta/tessera')],
+			headers: {},
 		})
 
 		expect(
@@ -156,11 +158,12 @@ describe(GitHubOctokitClient.name, () => {
 		])
 		const firstPage = Promise.withResolvers<{
 			data: ReturnType<typeof githubRepositoryResponse>[]
+			headers: Record<string, string>
 		}>()
 		listForAuthenticatedUser.mockImplementation(({ page }: { page: number }) =>
 			page === 2
 				? firstPage.promise
-				: Promise.resolve({ data: pages.get(page) ?? [] })
+				: Promise.resolve({ data: pages.get(page) ?? [], headers: {} })
 		)
 		const resultPromise = githubOctokitClient.listRepositories({
 			accessToken: 'github-token',
@@ -172,7 +175,7 @@ describe(GitHubOctokitClient.name, () => {
 		expect(
 			listForAuthenticatedUser.mock.calls.map(([input]) => input.page)
 		).toEqual([2, 3, 4, 5])
-		firstPage.resolve({ data: pages.get(2) ?? [] })
+		firstPage.resolve({ data: pages.get(2) ?? [], headers: {} })
 		expect(await resultPromise).toMatchObject({
 			repositories: [
 				expect.objectContaining({ fullName: 'LUDUS/Engine' }),
@@ -229,6 +232,7 @@ describe(GitHubOctokitClient.name, () => {
 					private: true,
 				},
 			],
+			headers: {},
 		})
 
 		expect(
@@ -259,6 +263,7 @@ describe(GitHubOctokitClient.name, () => {
 								`marta/repository-${page}-${index}`
 							)
 						),
+						headers: {},
 					})
 		)
 
