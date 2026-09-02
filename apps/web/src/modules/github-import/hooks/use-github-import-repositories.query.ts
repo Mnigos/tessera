@@ -7,12 +7,19 @@ export function useGitHubImportRepositoriesQuery(
 	enabled: boolean
 ) {
 	return useInfiniteQuery(
-		orpcQuery.githubImport.listRepositories.infiniteOptions({
-			enabled,
-			getNextPageParam: lastPage => lastPage.nextPage,
-			initialPageParam: 1,
-			input: pageParam => ({ page: pageParam, search: input.search }),
-			placeholderData: keepPreviousData,
-		})
+		getGitHubImportRepositoriesInfiniteOptions(input, enabled)
 	)
+}
+
+export function getGitHubImportRepositoriesInfiniteOptions(
+	input: Pick<ListGitHubImportRepositoriesInput, 'search'>,
+	enabled = true
+) {
+	return orpcQuery.githubImport.listRepositories.infiniteOptions({
+		enabled,
+		getNextPageParam: lastPage => lastPage.nextPage,
+		initialPageParam: 1,
+		input: pageParam => ({ page: pageParam, search: input.search }),
+		placeholderData: keepPreviousData,
+	})
 }
