@@ -8,6 +8,7 @@ import {
 	type DrizzleTransaction,
 	eq,
 	exists,
+	gitHubInstallations,
 	inArray,
 	isNotNull,
 	isNull,
@@ -451,6 +452,35 @@ export class RepositoriesRepository {
 					mirrorMode: source.mirrorMode,
 				}
 			: undefined
+	}
+
+	// The installation webhook only binds sources that already exist, so a repository imported after the app was installed binds here.
+	async linkGitHubInstallationByOwner({
+		repositoryId,
+	}: RepositoryIdParams): Promise<boolean> {
+		const [source] = await this.db
+			.update(repositoryExternalSources)
+			.set({
+				installationId: sql`(
+					select ${gitHubInstallations.id}
+					from ${gitHubInstallations}
+					where lower(${gitHubInstallations.accountLogin}) = lower(${repositoryExternalSources.ownerLogin})
+						and ${gitHubInstallations.deletedAt} is null
+						and ${gitHubInstallations.suspendedAt} is null
+					order by ${gitHubInstallations.createdAt} desc
+					limit 1
+				)`,
+			})
+			.where(
+				and(
+					eq(repositoryExternalSources.repositoryId, repositoryId),
+					eq(repositoryExternalSources.provider, 'github'),
+					isNull(repositoryExternalSources.installationId)
+				)
+			)
+			.returning({ installationId: repositoryExternalSources.installationId })
+
+		return Boolean(source?.installationId)
 	}
 
 	async enableGitHubMirror({

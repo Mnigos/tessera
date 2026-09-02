@@ -626,7 +626,13 @@ export class RepositoriesService {
 				repositoryId: repository.id,
 			})
 
-		if (!enablement?.installationId) {
+		const isInstalled =
+			Boolean(enablement?.installationId) ||
+			(await this.repositoriesRepository.linkGitHubInstallationByOwner({
+				repositoryId: repository.id,
+			}))
+
+		if (!isInstalled) {
 			const installUrl = this.envService.get('GITHUB_APP_INSTALL_URL')
 			if (!installUrl)
 				throw new RepositoryGitHubMirrorSyncUnavailableError({
